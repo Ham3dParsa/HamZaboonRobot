@@ -19,7 +19,7 @@ fails at construction, not runtime.
 for all sends — RetryAfter-only retries, 30s clamp, Forbidden→set_user_blocked
 (R3 policy, unchanged). ``services/utils/helpers.py`` keeps a thin re-export
 shim for one PR plus the edit/delete retry loops; escaping comes from
-(``services/utils/formatting.py``). It is a peer of ``helpers.py`` — a
+(``services/utils/formatting_escape.py``). It is a peer of ``helpers.py`` — a
 domain-owning module, consistent with semantic centralization; it is NOT inside
 ``services/utils/``.
 """
@@ -42,7 +42,7 @@ from config.custom_emoji import resolve_emoji
 from services import db, telegram_rich
 from services.utils import helpers as _helpers
 from services.utils.callback_notifications import notify_callback
-from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
+from services.utils.formatting_escape import escape_mdv2, escape_mdv2_code, html_escape
 
 import re as _re_rich
 

@@ -1,5 +1,4 @@
 import datetime
-import html
 import json
 import random
 import re
@@ -12,6 +11,12 @@ except Exception:  # pragma: no cover — fallback when jdatetime not installed
 
 from config import APP_TZ, _app_today
 from config.catalog import language_label
+from services.utils.formatting_escape import (
+    escape_mdv2,
+    escape_mdv2_code,
+    html_escape,
+    to_persian_digits,
+)
 from services.utils.validation import _CUSTOM_WORD_MAX_WORDS
 
 # SRS staged-reveal prompt engine (#338). Front-stage prompt types follow the
@@ -94,22 +99,6 @@ def format_next_review_text(interval_seconds: int | None) -> str:
     return f"ثبت شد؛ مرور بعدی: {to_persian_digits(days)} روز دیگر."
 
 
-def escape_mdv2(text: str) -> str:
-    """Escape کامل‌تر برای MarkdownV2"""
-    if not text:
-        return ""
-    special = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(r'([' + re.escape(special) + r'])', r'\\\1', text)
-
-
-_PERSIAN_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
-
-
-def to_persian_digits(value) -> str:
-    """Convert Latin digits to Persian digits for learner-facing text."""
-    return str(value).translate(_PERSIAN_DIGITS)
-
-
 def _to_jalali_str(iso_str: str) -> str:
     """Convert an ISO datetime/date string to Jalali ``YYYY/MM/DD HH:MM`` with Persian digits.
 
@@ -153,24 +142,6 @@ def _to_jalali_str(iso_str: str) -> str:
 
 # Public alias (Q2 spec says _to_jalali_str, but expose friendly name too).
 to_jalali_str = _to_jalali_str
-
-
-def escape_mdv2_code(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r"([`\\])", r"\\\1", text)
-
-
-def html_escape(text: object | None) -> str:
-    """Escape a dynamic value for interpolation into a ParseMode.HTML message.
-
-    Centralized choke point for HTML-mode admin/non-learner renderings. Escapes
-    the reserved HTML characters (``& < > " '``) so a value containing them
-    (e.g. a base_url query string) cannot break Telegram's entity parsing.
-    """
-    if text is None:
-        return ""
-    return html.escape(str(text), quote=True)
 
 
 class CardPreparationError(RuntimeError):
