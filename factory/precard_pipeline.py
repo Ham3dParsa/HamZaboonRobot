@@ -741,20 +741,22 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
 # -------------------------------------------------------------- S0b ---
 
 def inflection_needs_review(item, index, read_entry):
-    """R36: (needs, gloss) — True when the raw anchor top is inflection.
+    """R36: (needs, gloss) — True when the raw lemma head is inflection.
 
-    The check runs on the unresolved top scorer (no xref index): xref
-    stubs never match the inflection pattern, so ordering is moot.
-    Read failures fail open to (False, "") — S0b only ever adds drops
-    on an explicit LLM verdict, never on lookup errors.
+    The check runs on the file-first sense (raw_first_gloss), NOT the
+    demoted anchor top: stub demotion answers "which sense represents
+    the word", this answers "is the word inflection-led" — demotion
+    must not silence the review trigger. Xref stubs never match the
+    inflection pattern, so unresolved order is moot. Read failures
+    fail open to (False, "") — S0b only ever adds drops on an explicit
+    LLM verdict, never on lookup errors.
     """
     text = (item.get("text") or "").strip()
     if not text:
         return False, ""
     entries, pos = _entries_for(item, index)
     try:
-        _, gloss, _, _ = card_pilot.pick_anchor_sense_full(
-            text, entries, pos, read_entry)
+        gloss = card_pilot.raw_first_gloss(entries, read_entry)
     except Exception:
         return False, ""
     if gloss and card_pilot.is_superlative_gloss(gloss):
@@ -883,17 +885,17 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
     return None
 
 
-def _target_sense_tags(item, sense_id, index, read_entry):
-    """Kaikki tag set of one window candidate (empty set when
-    unresolvable). Mirrors _picked_entry_pos's xref-target switch, but
-    returns the sense's tags (via the C3 _sense_tag_set normalizer)
-    instead of the entry POS. Lookup errors fail open to empty — tags
-    only ever add drops, never keeps, so uncertainty keeps.
+def _window_sense(item, sense_id, index, read_entry):
+    """Sense dict for one window sense_id (None when unresolvable).
+
+    Mirrors the xref-target switch: a sense_id carrying the TARGET lemma
+    resolves against the target rows, not the item rows. Lookup errors
+    fail open to None — carriers only ever add information, never drops.
     """
     try:
         want_idx = int((sense_id or "").split("#")[-1])
     except (TypeError, ValueError, AttributeError):
-        return set()
+        return None
     try:
         entries, pos = _entries_for(item, index)
         sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower()
@@ -905,11 +907,45 @@ def _target_sense_tags(item, sense_id, index, read_entry):
         scored = card_pilot.score_senses(
             sid_lemma or item.get("text", ""), entries, pos, read_entry)
     except Exception:
-        return set()
+        return None
     for _score, idx, _entry, sense, _gloss in scored:
         if idx == want_idx:
-            return _sense_tag_set(sense)
-    return set()
+            return sense
+    return None
+
+
+def _target_sense_tags(item, sense_id, index, read_entry):
+    """Kaikki tag set of one window candidate (empty set when
+    unresolvable). Mirrors _picked_entry_pos's xref-target switch, but
+    returns the sense's tags (via the C3 _sense_tag_set normalizer)
+    instead of the entry POS. Lookup errors fail open to empty — tags
+    only ever add drops, never keeps, so uncertainty keeps.
+    """
+    return _sense_tag_set(
+        _window_sense(item, sense_id, index, read_entry))
+
+
+def _mother_for_top(item, sense_id, index, read_entry):
+    """Mother triple for the current anchor top (None when unresolvable).
+
+    Refreshes the carrier after a reroute (proper/name paths re-anchor
+    onto a different sense — the mother must describe the FINAL top).
+    Returns None when the sense cannot be resolved (transient lookup
+    failure) so callers preserve the ranked carrier — mirroring the
+    `if fresh:` anchor_tags guard (review: unconditional overwrite
+    wiped the good carrier on lookup failure). A resolved sense with
+    no mother still returns ("", [], False).
+    """
+    try:
+        sense = _window_sense(item, sense_id, index, read_entry)
+    except Exception:
+        return None
+    if sense is None:
+        return None
+    try:
+        return card_pilot.parse_mother_lemma(sense)
+    except Exception:
+        return None
 
 
 def anchor_rank_item(item, index, read_entry):
@@ -945,6 +981,9 @@ def anchor_rank_item(item, index, read_entry):
             "en_def": probe.get("en_def", "") or "",
             "anchor_pos": anchor_pos,
             "anchor_tags": list(probe.get("anchor_tags") or []),
+            "mother_lemma": probe.get("mother_lemma", "") or "",
+            "mother_lemmas": list(probe.get("mother_lemmas") or []),
+            "mother_multi": bool(probe.get("mother_multi")),
             "xref_method": probe.get("xref_method", "") or "",
             "resolved_from": probe.get("xref_resolved_from", "") or "",
             "xref_unresolvable": bool(probe.get("xref_unresolvable"))}
@@ -2760,6 +2799,34 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 ranked["top"], ranked["en_def"], \
                                     ranked["anchor_pos"] = rerouted
                                 ranked["rerouted_from_proper"] = True
+                                # Mirror the name branch: refresh the tag
+                                # carrier from the TARGET sense and re-run
+                                # the vulgar verdict (review: stale
+                                # anchor_tags would leak a vulgar target
+                                # past the gate); empty lookups keep the
+                                # anchor's tags (uncertainty keeps).
+                                fresh = _target_sense_tags(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh:
+                                    ranked["anchor_tags"] = sorted(fresh)
+                                fresh_mother = _mother_for_top(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh_mother is not None:
+                                    ranked["mother_lemma"], \
+                                        ranked["mother_lemmas"], \
+                                        ranked["mother_multi"] = fresh_mother
+                                if set(ranked.get("anchor_tags")
+                                       or {}) & card_pilot.VULGAR_TAGS:
+                                    ranked.pop("rerouted_from_proper",
+                                               None)
+                                    ranked["dropped"] = "vulgar-anchor"
+                                    if key not in states["s1"][
+                                            "failed"]:
+                                        states["s1"]["failed"].append(key)
                                 print(_color(
                                     "warning: %s re-anchored off proper "
                                     "top -> %s" % (
@@ -2799,6 +2866,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                     if fresh:
                                         ranked["anchor_tags"] = sorted(
                                             fresh)
+                                    fresh_mother = _mother_for_top(
+                                        item,
+                                        rerouted[0].get("sense_id", ""),
+                                        index, read_entry)
+                                    if fresh_mother is not None:
+                                        ranked["mother_lemma"], \
+                                            ranked["mother_lemmas"], \
+                                            ranked["mother_multi"] = \
+                                            fresh_mother
                                     if set(ranked.get("anchor_tags")
                                            or {}) & card_pilot.VULGAR_TAGS:
                                         ranked.pop("rerouted_from_name",
@@ -3121,6 +3197,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             pick = states["s2"]["done"].get(key) or {}
             preprocess_view = preprocess_info.get(key) or {}
             s0b = states["s0b"]["done"].get(key) or {}
+            s1r = states["s1"]["done"].get(key) or {}
             topic_vector = (label.get("vector")
                             or vec3.get("vector")
                             or [{"label": "Other / Abstract",
@@ -3144,6 +3221,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                            LEXICAL_TYPE_DEFAULT),
                 "register": enrich.get("register", REGISTER_DEFAULT),
                 "pre_card_id": enrich.get("pre_card_id", ""),
+                "mother_lemma": (s1r.get("mother_lemma", "") or ""),
+                "mother_lemmas": list(s1r.get("mother_lemmas") or []),
+                "mother_multi": bool(s1r.get("mother_multi", False)),
                 "topic_vector": topic_vector,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,

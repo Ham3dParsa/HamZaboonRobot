@@ -276,3 +276,39 @@ def test_substring_traps_do_not_route(tmp_path):
     assert "w:steamer" not in rows
     done = s2_state(prog)["done"]
     assert done["w:steamer"]["proper_drop"] == "pick-proper-noun/no-class"
+
+
+def _tagged_rows(pairs):
+    """Index rows from [(pos, gloss, tags)] triples."""
+    return [{"pos": pos,
+             "entry": {"pos": pos, "sounds": [{"ipa": "/x/"}],
+                       "senses": [{"glosses": [gloss], "tags": list(tags),
+                                   "examples": [{"text": LONG_EX}]}]}}
+            for pos, gloss, tags in pairs]
+
+
+def test_proper_reroute_to_vulgar_target_drops(tmp_path):
+    """Review: a proper top rerouted onto a vulgar-tagged sense must
+    drop vulgar-anchor (not leak with stale carrier tags)."""
+    import precard_pipeline as pp
+    index = {"vulgartown": _tagged_rows([
+        ("name", "Vulgartown, a legendary city", []),
+        ("noun", "a crude insult for villagers", ["vulgar"])])}
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(
+        [{"kind": "word", "text": "vulgartown", "pos": "noun",
+          "pool_level": "A1"}]), encoding="utf-8")
+    out = str(tmp_path / "precard.jsonl")
+    prog = str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", str(sample), "--out", out,
+         "--progress-dir", prog, "--stages", "s0,s1"],
+        _judge_transport=pick_second_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
+        _index=index, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    s1 = json.loads(open(os.path.join(prog, "s1.json"),
+                         encoding="utf-8").read())["done"]
+    assert s1["w:vulgartown"].get("dropped") == "vulgar-anchor"
