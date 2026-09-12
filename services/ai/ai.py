@@ -27,6 +27,7 @@ from config import (
 )
 from services import db
 from services.ai import ai_read_cache, preset_fields, prompts
+from services.ai.json_codec import _extract_json  # REF5-T1 alias: canonical def lives in json_codec.py
 
 log = logging.getLogger(__name__)
 
@@ -594,19 +595,8 @@ def _expand_card_aliases(data: Mapping[str, object]) -> dict[str, object]:
     return expanded
 
 
-def _extract_json(text: str) -> object:
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-    decoder = json.JSONDecoder()
-    for index, character in enumerate(text):
-        if character not in "[{":
-            continue
-        try:
-            value, _ = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return value
-    raise json.JSONDecodeError("No JSON value found", text, 0)
+# NOTE (REF5-T1): _extract_json moved verbatim to services/ai/json_codec.py;
+# ai._extract_json remains as a thin re-export alias (see top-level import).
 
 
 def _required_text(data: Mapping[str, object], field: str) -> str:
