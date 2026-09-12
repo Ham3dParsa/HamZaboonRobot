@@ -4,7 +4,7 @@ Verbatim home of ``validate_card``, ``card_repair_fields``,
 ``validate_card_patch`` and ``validate_batch`` (+ private helpers, alias sets
 and error types) previously defined in ``services/ai/ai.py``. This module is
 stdlib-only: it takes already-parsed data and never touches extraction
-(``json_codec``), the network, the database or ``services.ai.ai`` (never
+(the network, the database or ``services.ai.ai`` (never
 import it — callers combine extraction with these validators). Zero AI-volume
 delta: pure local checks, no provider calls.
 """
