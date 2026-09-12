@@ -136,6 +136,16 @@ def test_undecodable_bytes_fail_closed(tmp_path):
         B.clear_cache()
 
 
+def test_hostile_bridge_values_never_raise():
+    for hostile in ({("good", 3): ["notapair"]},
+                    {("good", 3): None},
+                    {("good", 3): [123]},
+                    {("good", 3): "junk"},
+                    {("good", 3): [("x%3:00:00:y:00", "Z9")]}):
+        assert B.sense_cefr_for("good", "adj", "of high quality",
+                                hostile, {}) == (None, "unmapped")
+
+
 def test_hostile_in_memory_maps_never_raise(bridge):
     # Hand-built maps bypassing the loaders must still degrade, not crash.
     hostile = {"good": [(123, "B1"),  # int guideword, level in candidates

@@ -224,7 +224,20 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
     posnums = WN_POS.get(pos_norm, _ALL_POSNUMS)
     cands = []
     for posnum in posnums:
-        cands.extend(bridge.get((lemma_norm, posnum), []))
+        try:
+            rows = bridge.get((lemma_norm, posnum), [])
+        except (TypeError, AttributeError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            try:
+                sensekey, cefr = row
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(sensekey, str) or cefr not in _CEFR_RANK:
+                continue
+            cands.append((sensekey, cefr))
     if not cands:
         return None, METHOD_UNMAPPED
     cand_levels = {cefr for _, cefr in cands}
@@ -253,4 +266,7 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
             return _min_cefr(matched), METHOD_EVP_GLOSS
     if len(cands) == 1:
         return cands[0][1], METHOD_SINGLE
-    return _min_cefr(cand_levels), METHOD_LEMMA_MIN
+    level = _min_cefr(cand_levels)
+    if level is None:
+        return None, METHOD_UNMAPPED
+    return level, METHOD_LEMMA_MIN
