@@ -121,18 +121,45 @@ def test_malformed_lines_skipped_and_counted(tmp_path):
 
 
 def test_undecodable_bytes_fail_closed(tmp_path):
-    # Bad bytes mid-file must not raise: partial (here empty) bridge,
-    # callers degrade to "unmapped".
+    # Bad bytes poison the whole read chunk, so no rows survive — but
+    # nothing raises: callers degrade to "unmapped".
     path = tmp_path / "wordnet_sensekey_cefr.tsv"
     path.write_bytes("run%2:31:00::\tB1\n".encode("utf-8") + b"\xff\xfe\n")
     B.clear_cache()
     try:
         bridge, stats = B.load_tsv(str(path))
-        assert B.sense_cefr_for("run", "verb", "x", bridge) in (
-            ("B1", "wn-single"), (None, "unmapped"))
-        assert stats["rows"] + stats["skipped"] <= 1
+        assert bridge == {}
+        assert stats["rows"] == 0
+        assert B.sense_cefr_for("run", "verb", "x", bridge) == (
+            None, "unmapped")
     finally:
         B.clear_cache()
+
+
+def test_non_string_evp_file_values_skipped(tmp_path):
+    import json
+    path = tmp_path / "evp_sense.json"
+    path.write_text(json.dumps({"entries": {
+        "good|adj|quality": {"guideword": "quality", "cefr": "B1"},
+        "bad|noun|num": {"guideword": 123, "cefr": "B2"},
+        "bad2|noun|lst": {"guideword": ["x"], "cefr": "B2"},
+        "bad3|noun|noncefr": {"guideword": "ok", "cefr": None},
+        "notadict": [1, 2],
+    }}), encoding="utf-8")
+    assert B.load_evp_guidewords(str(path)) == {"good": [("quality", "B1")]}
+    assert B.load_evp_guidewords(str(tmp_path / "missing.json")) == {}
+
+
+def test_non_string_evp_and_gloss_fail_closed(bridge):
+    # Non-string EVP values / glosses never raise; matching degrades.
+    evp = {"good": [("quality", "B1"), (123, "B2"), ("ok", None),
+                    (None, "A1")]}
+    assert B.sense_cefr_for("good", "adj", "of high quality", bridge,
+                            evp) == ("B1", "wn-evp-gloss")
+    assert B.sense_cefr_for("good", "adj", ["not", "a", "string"],
+                            bridge, evp) == ("A2", "wn-lemma-min")
+    assert B.sense_cefr_for("good", "adj", 123, bridge, evp) == (
+        "A2", "wn-lemma-min")
 
 
 def test_underscore_sensekey_maps_to_spaced_lemma(bridge):

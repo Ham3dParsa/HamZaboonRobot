@@ -155,8 +155,13 @@ def load_evp_guidewords(path):
     for key, value in entries.items():
         if not isinstance(value, dict):
             continue
-        guideword = (value.get("guideword") or "").replace("_", " ").strip()
-        cefr = (value.get("cefr") or "").strip()
+        raw_guideword = value.get("guideword")
+        raw_cefr = value.get("cefr")
+        if not isinstance(raw_guideword, str) \
+                or not isinstance(raw_cefr, str):
+            continue
+        guideword = raw_guideword.replace("_", " ").strip()
+        cefr = raw_cefr.strip()
         if not guideword or cefr not in _CEFR_RANK:
             continue
         try:
@@ -219,7 +224,7 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
     if not cands:
         return None, METHOD_UNMAPPED
     cand_levels = {cefr for _, cefr in cands}
-    glossary = (gloss or "").lower()
+    glossary = gloss.lower() if isinstance(gloss, str) else ""
     if glossary:
         matched = set()
         for guideword, cefr in evp.get(lemma_norm, []):
