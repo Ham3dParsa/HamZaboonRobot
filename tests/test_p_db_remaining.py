@@ -41,12 +41,14 @@ class TestBusyTimeout(unittest.TestCase):
         # F1: the per-tap streak touch moved inside the batched grade
         # transaction (words.grade_* via touch_streak_in_txn), so the handler
         # no longer calls db.touch_streak directly; word_query.ask still does.
+        # REF4-T2: both grade taps route through the thin grade_service.grade
+        # pass-through (still via asyncio.to_thread); the owning words bodies
+        # keep the single transaction.
         for needle in [
             "db.get_saved_word",
             "db.get_display_toggles",
             "db.is_word_graded",
-            "db.grade_word_review",
-            "db.grade_first_exposure",
+            "grade_service.grade",
             "db.delete_saved_word",
         ]:
             self.assertIn(needle, src)
