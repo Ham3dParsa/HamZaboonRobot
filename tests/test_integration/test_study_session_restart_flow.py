@@ -340,14 +340,15 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         the first card is rendered, so a DB failure is surfaced before any card
         reaches the screen."""
         from handlers.study_handler import handle_study_start
+        from services.session import store as session_store
 
         w1 = self._seed_word("hello", expose=True)
         node1 = self._node("srs_review", w1)
 
-        save_spy = MagicMock(wraps=db.save_study_session)
+        save_spy = MagicMock(wraps=session_store.save_study_session)
         with patch("handlers.study_handler.build_session_list",
                    return_value=([node1], {"user_id": 1, "remaining_slots": 0})), \
-                patch.object(db, "save_study_session", save_spy):
+                patch.object(session_store, "save_study_session", save_spy):
             ctx = self._context()
             # send_message fails AFTER persist; row must be cleared by the handler.
             ctx.bot.send_message = AsyncMock(side_effect=RuntimeError("render boom"))

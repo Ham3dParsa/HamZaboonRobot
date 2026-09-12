@@ -7,11 +7,8 @@ Phase 1e implementation — FSRS-6 4-grade session flow.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 import time
-from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -40,6 +37,15 @@ from config.keyboards import (
 from config.plan_identity import has_feature
 from services import db, send_pretty
 from services.session import SessionNode, build_session_list, generate_tier3_node
+from services.session.store import (
+    SessionState,
+    clear_session as _clear_persisted_session,
+    is_valid_prompt_type as _is_valid_prompt_type,
+    load_session,
+    save_session,
+    state_from_json as _state_from_json,
+    state_to_json as _state_to_json,
+)
 from services.session.summary import WordReviewRecord, build_report
 from services.scheduling import (
     THROTTLE_TEXT,
@@ -50,7 +56,6 @@ from services.scheduling import (
 )
 from services.utils.formatting import (
     NEW_CARD_BADGE,
-    SRS_PROMPT_TYPES,
     phonetic_lines,
     _saved_word_card,
     days_since_review,
@@ -70,60 +75,26 @@ from services.routing import register
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Session state — stored in context.user_data['current_session']
-# ---------------------------------------------------------------------------
+def _persist_session(
+    user_id: int, state: SessionState, today: str | None = None
+) -> None:
+    """Persist the active session keyed by the user's app-day (Rule 1/2).
 
-@dataclass
-class SessionState:
-    nodes: list[SessionNode]
-    total_cards: int
-    tier3_context: dict
-    study_msg_id: int | None
-    plan: str
-    graded_word_ids: list[int] = field(default_factory=list)
-    # Pre-grade stability per word_id, captured on first render so the
-    # session summary can show the before->after stability delta (Phase 2).
-    before_stability: dict[int, float] = field(default_factory=dict)
-    # Frozen staged front presentation for the active card (Phase freeze-prompt-reveal R1/R2).
-    # Persists prompt choice + revealed flip so resume/restart never re-rolls or flips.
-    revealed: bool = False
-    active_prompt_type: str | None = None
-    active_prompt_word_id: int | None = None
-    # Explicit app-day stamp set only at fresh-build time (T1, issues 619/622).
-    # Never auto-filled: missing/legacy means "".
-    session_date: str = ""
-
-
-# ---------------------------------------------------------------------------
-# Persistence helpers — restart-safe session recovery (Bug 1)
-# ---------------------------------------------------------------------------
-
-def _state_to_json(state: SessionState) -> str:
-    """Serialize a session state to a JSON string for the study_sessions row."""
-    return json.dumps(
-        {
-            "nodes": [asdict(node) for node in state.nodes],
-            "total_cards": state.total_cards,
-            "tier3_context": state.tier3_context,
-            "study_msg_id": state.study_msg_id,
-            "plan": state.plan,
-            "graded_word_ids": state.graded_word_ids,
-            "before_stability": state.before_stability,
-            "revealed": state.revealed,
-            "active_prompt_type": state.active_prompt_type,
-            "active_prompt_word_id": state.active_prompt_word_id,
-            "session_date": state.session_date,
-        }
-    )
-
-
-def _is_valid_prompt_type(value: str | None) -> bool:
-    """Single seam for prompt enum validation (kilo 132).
-
-    Keeps corrupt/future DB values from crashing the render seam.
+    Thin delegate over ``store.save_session``: ``today`` is the
+    already-computed app-day from the caller; when omitted it falls back to
+    the session's own ``session_date`` stamp, then to ``_app_day_str()``, so
+    the row date can never differ from the inner date (W1
+    midnight-straddle fix). The store itself never resolves the day.
     """
-    return isinstance(value, str) and value in SRS_PROMPT_TYPES
+    save_session(user_id, state, today or state.session_date or _app_day_str())
+
+
+def _restore_persisted_session(user_id: int) -> SessionState | None:
+    """Load a same-day persisted session after a restart, or None.
+
+    Thin delegate over ``store.load_session`` with the caller's app-day.
+    """
+    return load_session(user_id, _app_day_str())
 
 
 def _frozen_for_word(
@@ -163,85 +134,6 @@ def _stash_frozen_user_data(
             user_data[f"prompt_type_{word_id}"] = prompt_type
         if f"card_shown_at_{word_id}" not in user_data:
             user_data[f"card_shown_at_{word_id}"] = time.time()
-
-
-def _state_from_json(raw: str) -> SessionState:
-    """Rebuild a SessionState from its JSON serialization."""
-    data = json.loads(raw)
-    raw_prompt_wid = data.get("active_prompt_word_id")
-    try:
-        prompt_wid = int(raw_prompt_wid) if raw_prompt_wid is not None else None
-    except (TypeError, ValueError):
-        prompt_wid = None
-    raw_prompt = data.get("active_prompt_type")
-    prompt_type = raw_prompt if _is_valid_prompt_type(raw_prompt) else None
-    # A stray revealed without a matching prompt is meaningless — clear both
-    if prompt_type is None and prompt_wid is not None:
-        prompt_wid = None
-    revealed = bool(data.get("revealed", False)) and prompt_type is not None and prompt_wid is not None
-    return SessionState(
-        nodes=[SessionNode(**node) for node in data["nodes"]],
-        total_cards=data["total_cards"],
-        tier3_context=data["tier3_context"],
-        study_msg_id=data["study_msg_id"],
-        plan=data["plan"],
-        graded_word_ids=data.get("graded_word_ids") or [],
-        before_stability={
-            int(k): float(v)
-            for k, v in (data.get("before_stability") or {}).items()
-        },
-        revealed=revealed,
-        active_prompt_type=prompt_type,
-        active_prompt_word_id=prompt_wid,
-        session_date=data.get("session_date") or "",
-    )
-
-
-def _persist_session(
-    user_id: int, state: SessionState, today: str | None = None
-) -> None:
-    """Persist the active session keyed by the user's app-day (Rule 1/2).
-
-    ``today`` is the already-computed app-day from the caller; when omitted
-    it falls back to the session's own ``session_date`` stamp, then to
-    ``_app_day_str()``, so the row date can never differ from the inner
-    date (W1 midnight-straddle fix). Callers pass their computed today
-    (or the state's stamp) explicitly.
-    """
-    db.save_study_session(
-        user_id, today or state.session_date or _app_day_str(), _state_to_json(state)
-    )
-
-
-def _clear_persisted_session(user_id: int) -> None:
-    db.clear_study_session(user_id)
-
-
-def _restore_persisted_session(user_id: int) -> SessionState | None:
-    """Load a same-day persisted session after a restart, or None.
-
-    Rule 2: a persisted session whose date is not today is discarded (the row
-    is cleared) so the user starts a fresh session with normal quota flow.
-    """
-    row = db.load_study_session(user_id)
-    if row is None:
-        return None
-    session_date, state_json = row
-    if session_date != _app_day_str():
-        db.invalidate_stale_study_session(user_id)
-        return None
-    try:
-        state = _state_from_json(state_json)
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        logger.exception(
-            "corrupt persisted study session user_id=%s", user_id
-        )
-        db.invalidate_stale_study_session(user_id)
-        return None
-    if not state.nodes:
-        db.invalidate_stale_study_session(user_id)
-        return None
-    return state
 
 
 def _get_active_study_session_memory(

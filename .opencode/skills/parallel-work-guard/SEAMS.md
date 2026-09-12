@@ -12,7 +12,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 |---|---|---|---|
 | 1 | Persistence | services/db/__init__.py + services/db/schema.py + services/db/session_reports.py | get_conn() |
 | 2 | AI/LLM Provider | services/ai/ai.py + services/ai/card_validation.py + services/ai/telemetry.py + services/ai/llm_services.py + services/ai/ai_read_cache.py | _client(), ask_json(), ask_card(), ask_batch() |
-| 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report(), serialize_report(), deserialize_report() |
+| 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py + store.py | build_session_list(), generate_tier3_node(), build_report(), serialize_report(), deserialize_report(); store.py: SessionState, state_to_json(), state_from_json(), save_session(), load_session() (study_handler keeps thin delegates) |
 | 4 | SRS Algorithm | services/fsrs_core.py | compute_retrievability(), compute_interval(), initial_stability(), update_stability() |
 | 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session(), send_reports_list(), _handle_reports_callback() |
 | 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py (thin callers via grade_service.grade) + services/grade_service.py (thin activity facade; formulas + single transaction stay in services/db/words.py) | _handle_srs_review(), _handle_first_exposure_grade(); grade_service.grade() over activity∈{srs_review,first_exposure} |
