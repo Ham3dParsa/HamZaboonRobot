@@ -75,12 +75,13 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "field_hint": "services/plan_fields.py",
     "group_header": "services/plan_fields.py",
     "build_upsert_kwargs": "services/plan_fields.py",
-    # services/utils/formatting.py owns learner-facing escaping (AGENTS.md §5).
-    "escape_mdv2": "services/utils/formatting.py",
-    "escape_mdv2_code": "services/utils/formatting.py",
-    "to_persian_digits": "services/utils/formatting.py",
+    # services/utils/formatting_escape.py owns the pure escape leaves (REF2-T1).
+    "escape_mdv2": "services/utils/formatting_escape.py",
+    "escape_mdv2_code": "services/utils/formatting_escape.py",
+    "to_persian_digits": "services/utils/formatting_escape.py",
+    # services/utils/formatting.py owns the card/SRS/jalali renderings.
     "format_card": "services/utils/formatting.py",
-    "html_escape": "services/utils/formatting.py",
+    "html_escape": "services/utils/formatting_escape.py",
     "phonetic_lines": "services/utils/formatting.py",
     "format_grammar_tip": "services/utils/formatting.py",
     # services/utils/validation.py owns word-query validation.
