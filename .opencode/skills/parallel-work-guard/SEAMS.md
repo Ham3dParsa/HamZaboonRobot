@@ -25,7 +25,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 12 | Telegram UI -> AI Config | handlers/admin_ai.py | handle_ai_callback, _show_ai_presets, _show_ai_settings |
 | 20 | Telegram UI -> Backup | handlers/admin_backup.py | handle_admin_backup_callback, cmd_backup, cmd_restore, handle_restore_doc, auto_backup_job |
 | 13 | TTS Provider | services/tts.py | async pronounce(word, lang) |
-| 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
+| 14 | Scheduling/Quota | services/scheduling.py + services/quota_service.py (thin kind facade; SQL stays in owners) + services/db/users.py (word/grammar quota bodies) | daily_session_budget(), consume_session_slot(), release_session_slot(); quota_service can()/reserve()/consume()/release() over kind∈{word,grammar_tip,session_slot} |
 | 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
 | 16 | Custom-word input validation | services/utils/validation.py | validate_word_query(text, language) |
 | 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py `_process_ask_word` / `_handle_query_dup_new` / `_handle_query_dup_reuse` / `_handle_query_dup_cancel` + handlers/srs_handler.py `_handle_query_add` + config/keyboards/__init__.py + config/keyboards/*.py `query_result_keyboard` + `query_duplicate_keyboard` | ask(), toggle_save(), find_duplicate(); callback `query:add:`, `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` (the old `query:prepare:`/prepare() path was removed in #340 R3) |
