@@ -148,7 +148,7 @@ class AdminBackupFlowTest(unittest.TestCase):
 
         report_archive_error("stale boom")
         ctx_bot = AsyncMock()
-        with patch("services.send_pretty._send_media_with_retry", AsyncMock(return_value=None)):
+        with patch("services.archive._send_media_with_retry", AsyncMock(return_value=None)):
             asyncio.run(do_backup(ctx_bot, 1, dest_chat_id=1))
         self.assertEqual(get_archive_error(), "")
 
