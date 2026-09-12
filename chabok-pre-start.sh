@@ -17,15 +17,19 @@ XRAY_DIR="/app/.xray"
 # NOTE: default-off is intentional (owner decision 2026-09-11): existing
 # deploys lose the proxy unless they set XRAY_ENABLED=1 explicitly.
 XRAY_ENABLED="${XRAY_ENABLED:-0}"
-# Normalize common truthy spellings; anything else (including empty) is off.
+# Normalize common truthy/falsey spellings. Unknown values warn (with the
+# allowed list) and fall back to off — fail-safe, never abort the boot.
 case "$XRAY_ENABLED" in
   1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) XRAY_ENABLED=1 ;;
-  *) XRAY_ENABLED=0 ;;
+  0|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]|[Oo][Ff][Ff]|"") XRAY_ENABLED=0 ;;
+  *) echo "[chabok-pre-start] WARN: invalid XRAY_ENABLED='$XRAY_ENABLED' (use 0/1/true/false/yes/no/on/off) - treating as 0 (off)"; XRAY_ENABLED=0 ;;
 esac
 # Stop any already-running proxy when disabled (warm-host reuse), then drop
-# its cron entry so nothing revives it.
+# its cron entry so nothing revives it. Target OUR supervisor explicitly;
+# also shut it down so autorestart cannot respawn xray behind our back.
 if [ "$XRAY_ENABLED" != "1" ]; then
-  supervisorctl stop xray >/dev/null 2>&1 || true
+  supervisorctl -c "$BASE_ROOT/supervisor.conf" stop xray >/dev/null 2>&1 || true
+  supervisorctl -c "$BASE_ROOT/supervisor.conf" shutdown >/dev/null 2>&1 || true
   pkill -f "xray run" >/dev/null 2>&1 || true
   rm -f /etc/cron.d/xray-update || true
   if [ -n "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: XRAY_ENABLED!=1 but AI_PROXY_URL is set - AI calls will hang, clear AI_PROXY_URL"; fi
