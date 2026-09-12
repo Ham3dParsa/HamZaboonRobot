@@ -242,13 +242,42 @@ def test_mother_dict_shape_form_of():
     assert multi is False
 
 
-def test_mother_single_string_comma_shape():
-    """Review: "good, well" one string must split, not degrade to good."""
+def test_mother_comma_cuts_qualifier_to_singleton():
+    """Review (supersedes the earlier comma-split test): a comma never
+    splits — ("go, archaic") stays one qualified singleton like
+    parse_superlative_base, and ("good, well") degrades to ("good",
+    ["good"], False). No dataset instance shows a comma joining two
+    real mothers (better#0 is "and"-joined, still covered); the prior
+    test pinning comma-multi is obsolete in the same PR per test-sync
+    rule (behavior change intended by the newer review)."""
+    mother, mothers, multi = card_pilot.parse_mother_lemma(
+        {"form_of": [{"word": "go, archaic"}]})
+    assert (mother, mothers, multi) == ("go", ["go"], False)
     mother, mothers, multi = card_pilot.parse_mother_lemma(
         {"form_of": [{"word": "good, well"}]})
-    assert mother == "good"
-    assert mothers == ["good", "well"]
-    assert multi is True
+    assert (mother, mothers, multi) == ("good", ["good"], False)
+
+
+def test_mother_for_top_none_on_unresolvable():
+    """Review: reroute carriers must survive lookup failure —
+    _mother_for_top returns None (not ("", [], False)) when the sense
+    is unresolvable, so the guarded overwrite keeps the ranked
+    carrier."""
+    item = {"kind": "word", "text": "went", "pos": "verb"}
+    assert precard_pipeline._mother_for_top(
+        item, "went#0", {}, read_entry) is None
+
+
+def test_mother_for_top_resolves_carrier():
+    """_mother_for_top still returns the triple for a resolvable
+    form-of sense (guard must not swallow real carriers)."""
+    item = {"kind": "word", "text": "went", "pos": "verb"}
+    index = {"went": _rows("verb", [
+        _sense("past of go", tags=["form-of"],
+               form_of=[{"word": "go"}]),
+    ])}
+    assert precard_pipeline._mother_for_top(
+        item, "went#0", index, read_entry) == ("go", ["go"], False)
 
 
 def test_gloss_stub_file_first_demotes_below_real():

@@ -926,16 +926,26 @@ def _target_sense_tags(item, sense_id, index, read_entry):
 
 
 def _mother_for_top(item, sense_id, index, read_entry):
-    """Mother triple for the current anchor top (fail-closed empty).
+    """Mother triple for the current anchor top (None when unresolvable).
 
     Refreshes the carrier after a reroute (proper/name paths re-anchor
     onto a different sense — the mother must describe the FINAL top).
+    Returns None when the sense cannot be resolved (transient lookup
+    failure) so callers preserve the ranked carrier — mirroring the
+    `if fresh:` anchor_tags guard (review: unconditional overwrite
+    wiped the good carrier on lookup failure). A resolved sense with
+    no mother still returns ("", [], False).
     """
     try:
-        return card_pilot.parse_mother_lemma(
-            _window_sense(item, sense_id, index, read_entry))
+        sense = _window_sense(item, sense_id, index, read_entry)
     except Exception:
-        return "", [], False
+        return None
+    if sense is None:
+        return None
+    try:
+        return card_pilot.parse_mother_lemma(sense)
+    except Exception:
+        return None
 
 
 def anchor_rank_item(item, index, read_entry):
@@ -2801,13 +2811,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                     index, read_entry)
                                 if fresh:
                                     ranked["anchor_tags"] = sorted(fresh)
-                                ranked["mother_lemma"], \
-                                    ranked["mother_lemmas"], \
-                                    ranked["mother_multi"] = \
-                                    _mother_for_top(
-                                        item,
-                                        rerouted[0].get("sense_id", ""),
-                                        index, read_entry)
+                                fresh_mother = _mother_for_top(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh_mother is not None:
+                                    ranked["mother_lemma"], \
+                                        ranked["mother_lemmas"], \
+                                        ranked["mother_multi"] = fresh_mother
                                 if set(ranked.get("anchor_tags")
                                        or {}) & card_pilot.VULGAR_TAGS:
                                     ranked.pop("rerouted_from_proper",
@@ -2855,13 +2866,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                     if fresh:
                                         ranked["anchor_tags"] = sorted(
                                             fresh)
-                                    ranked["mother_lemma"], \
-                                        ranked["mother_lemmas"], \
-                                        ranked["mother_multi"] = \
-                                        _mother_for_top(
-                                            item,
-                                            rerouted[0].get("sense_id", ""),
-                                            index, read_entry)
+                                    fresh_mother = _mother_for_top(
+                                        item,
+                                        rerouted[0].get("sense_id", ""),
+                                        index, read_entry)
+                                    if fresh_mother is not None:
+                                        ranked["mother_lemma"], \
+                                            ranked["mother_lemmas"], \
+                                            ranked["mother_multi"] = \
+                                            fresh_mother
                                     if set(ranked.get("anchor_tags")
                                            or {}) & card_pilot.VULGAR_TAGS:
                                         ranked.pop("rerouted_from_name",

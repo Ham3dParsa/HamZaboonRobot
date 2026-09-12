@@ -591,8 +591,9 @@ def parse_mother_lemma(sense):
     trailing qualifiers at [:;,(], single alpha token only — a
     multi-word target is not a clean redirect, EXCEPT the dataset
     multi-target shape (better#0 form_of=[{word: "good and well"}]):
-    one form_of word joining two+ alpha tokens with "and"/commas
-    splits into a mothers list + multi True). Returns
+    one form_of word joining two+ alpha tokens with "and"
+    splits into a mothers list + multi True; a comma always cuts as a
+    trailing qualifier, never a multi delimiter). Returns
     (mother, mothers, multi): singletons -> ("go", ["go"], False);
     multi-target (better: good+well, one string or two entries) ->
     ("good", ["good", "well"], True); missing/unclean ->
@@ -617,20 +618,13 @@ def parse_mother_lemma(sense):
             continue
         target = (word or "").strip().strip(
             "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
-        # Multi-target single string ("good and well", "good, well"):
-        # a comma splits ONLY when every piece is a clean single alpha
-        # token with no qualifier tail — else ("go, archaic") the whole
-        # target is one qualified singleton (comma cuts like before).
+        # Multi-target single string ("good and well"): "and" joins two+
+        # alpha tokens into a mothers list + multi True. A comma NEVER
+        # splits — it cuts as a qualifier tail like parse_superlative_base
+        # (review: ("go, archaic") must stay one qualified singleton, not
+        # persist a phantom second mother; no dataset instance shows a
+        # comma joining two real mothers, only the "and"-joined shape).
         if "," in target:
-            raw = [(p or "").strip() for p in target.split(",")]
-            clean = [re.split(r"[:;(]", p, maxsplit=1)[0].strip()
-                     for p in raw]
-            if len(clean) > 1 and all(
-                    re.fullmatch(r"[A-Za-z]+", p or "") for p in clean):
-                for piece in clean:
-                    if piece not in mothers:
-                        mothers.append(piece)
-                continue
             target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
             if re.fullmatch(r"[A-Za-z]+", target or "") \
                     and target not in mothers:
