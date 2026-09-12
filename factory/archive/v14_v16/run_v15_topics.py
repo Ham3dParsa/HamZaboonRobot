@@ -5,17 +5,16 @@
 # Batch 8 lemmas/call (~63 calls), sleep 2.5s, live tqdm, resume JSON after every batch.
 # Any lemma failure -> fallback: current single v14c label @1.0, source deterministic, logged.
 # Output: factory/fixtures/topic_vectors-v15.json
-# Usage: dry-run: python factory/run_v15_topics.py --dry-run --limit 8
-#        smoke:    python factory/run_v15_topics.py --limit 8
-#        full:     python factory/run_v15_topics.py
+# Usage: dry-run: python factory/archive/v14_v16/run_v15_topics.py --dry-run --limit 8
+#        smoke:    python factory/archive/v14_v16/run_v15_topics.py --limit 8
+#        full:     python factory/archive/v14_v16/run_v15_topics.py
 # Needs: factory/.env with OPENCODE_ZEN_API_KEY. Never prints keys, never stages .env.
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from llm_json import extract_json, raise_for_auth, AuthError
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # factory/ (moved under archive/v14_v16)
+from factory.core.llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 IN_RANKED = FX / "ranked_senses-v14c.json"
 OUT_VECTORS = FX / "topic_vectors-v15.json"
@@ -143,8 +142,7 @@ def main():
     calls = prog.get("model_calls", {})
     key = ""
     if not a.dry_run:
-        sys.path.insert(0, str(ROOT))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         key = env["OPENCODE_ZEN_API_KEY"]
         if not key:

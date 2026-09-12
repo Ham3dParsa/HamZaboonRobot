@@ -1,7 +1,7 @@
 """EN phrase-pool pilot collector (TICKET F4).
 
 Single deterministic pass over ``kaikki-en-index.jsonl``: routes index rows
-through the single-source ``shape_verdict()`` from ``factory/sample_lemmas.py``
+through the single-source ``shape_verdict()`` from ``factory/lexicon/sample_lemmas.py``
 (affix/digit/apostrophe/period DROP markers win over phrase-routing — never
 redefined here), then keeps phrase verdicts whose tokens are 2-5 whitespace
 tokens, all-alpha per token, each token len >= 2.
@@ -17,7 +17,7 @@ cut to ``--top-n``. ``pack.json`` gains a ``phrases`` section
 ``--dry-run`` prints counts and writes NOTHING (no CSV, no pack.json edit).
 
 Usage:
-    python factory/phrase_pool.py [--index ...] [--out-dir ...]
+    python factory/lexicon/phrase_pool.py [--index ...] [--out-dir ...]
         [--top-n 500] [--dry-run] [--limit N]
 """
 
@@ -29,8 +29,7 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sample_lemmas import shape_verdict  # noqa: E402  (single-source; never redefine)
+from factory.lexicon.sample_lemmas import shape_verdict  # noqa: E402  (single-source; never redefine)
 
 LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 LEVEL_RANK = {level: rank for rank, level in enumerate(LEVEL_ORDER)}

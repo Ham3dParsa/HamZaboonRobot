@@ -43,12 +43,12 @@ Scope: factory research only. No bot/DB/handler changes.
   applied_keep flag for phrases (missing log = unjudged, never fails).
 
 Usage (owner run, real generation — takes time, ~20 model calls):
-    python factory/card_pilot.py --n-words 14 --n-phrases 6
+    python factory/pipeline/card_pilot.py --n-words 14 --n-phrases 6
 Dry run (no network, no files written):
-    python factory/card_pilot.py --dry-run
+    python factory/pipeline/card_pilot.py --dry-run
 Render only (no network, no env: rebuild HTML from persisted cards.jsonl +
 timings.json, never touches sample/cards):
-    python factory/card_pilot.py --render-only
+    python factory/pipeline/card_pilot.py --render-only
 """
 
 import argparse
@@ -67,16 +67,15 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-FACTORY_DIR = pathlib.Path(__file__).resolve().parent
+FACTORY_DIR = pathlib.Path(__file__).resolve().parent.parent
 REPO_ROOT = FACTORY_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(FACTORY_DIR))
 
-from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
-from telemetry import extract_usage as tele_extract_usage  # noqa: E402
-from telemetry import record_call as tele_record_call  # noqa: E402
-from telemetry import render_telemetry_table as tele_render_table  # noqa: E402
-from telemetry import write_summary as tele_write_summary  # noqa: E402
+from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
+from factory.core.telemetry import extract_usage as tele_extract_usage  # noqa: E402
+from factory.core.telemetry import record_call as tele_record_call  # noqa: E402
+from factory.core.telemetry import render_telemetry_table as tele_render_table  # noqa: E402
+from factory.core.telemetry import write_summary as tele_write_summary  # noqa: E402
 from services.ai import prompts as card_prompts  # noqa: E402  (real prompt builder)
 from services.ai.ai import CardValidationError, validate_card  # noqa: E402  (real validator)
 
@@ -119,7 +118,7 @@ VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
 TOPIC_METHOD_TAG = "v16b-exact"
 PILOT_TOPIC_PROGRESS = "pilot_topic_progress.json"
 
-# Pre-card pipeline method tag (factory/precard_pipeline.py R22-R25): items
+# Pre-card pipeline method tag (factory/pipeline/precard_pipeline.py R22-R25): items
 # arriving via --from-precard carry this method in the gallery. The default
 # sampling/anchor/topic/enrichment path is untouched.
 PIPELINE_METHOD_TAG = "pipeline-v6"
@@ -336,7 +335,7 @@ def read_kaikki_entry(raw_path, offset, length):
 
 
 def _v14_register_penalty(tags, gloss):
-    """R6 sense score, owner: factory/run_v14_phase1.py::main.<locals>.register_penalty.
+    """R6 sense score, owner: factory/archive/v14_v16/run_v14_phase1.py::main.<locals>.register_penalty.
 
     Vendored (minimal faithful copy) because the owner is nested inside
     main() and importing run_v14_phase1 pulls torch/sentence-transformers/
@@ -380,7 +379,7 @@ def _is_meta_gloss(gloss):
 
 
 def _v14_ppos(entry_pos, pool_pos):
-    """R6 POS factor, owner: factory/run_v14_phase1.py ranking (ppos line).
+    """R6 POS factor, owner: factory/archive/v14_v16/run_v14_phase1.py ranking (ppos line).
 
     Exact v14 rule: verb-source senses shown to non-verb lemmas are
     down-weighted 0.70; everything else 1.0. Score still decides (no hard
@@ -391,7 +390,7 @@ def _v14_ppos(entry_pos, pool_pos):
     return 1.0
 
 
-# R37 v9 — frequency leg, owners: factory/run_v14_phase1.py::main.<locals>.
+# R37 v9 — frequency leg, owners: factory/archive/v14_v16/run_v14_phase1.py::main.<locals>.
 # sense_words / freq_per_sense (owner lines ~90-95). Vendored (minimal
 # faithful copy) because importing run_v14_phase1 pulls numpy/torch/
 # sentence-transformers/sklearn + embedding models (side effects,
@@ -2306,7 +2305,7 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
 
     if lookup is None:
         try:
-            from run_v16_topics import evp_fallback_label as lookup
+            from factory.archive.v14_v16.run_v16_topics import evp_fallback_label as lookup
         except Exception:
             lookup = None
     label = None
@@ -2323,10 +2322,10 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                 "topic_path": "leg1"}
     # Leg 2 — v16b top-up for Others, by import (no substitute heuristics).
     try:
-        from run_v16b_topup import (MODELS as _TOPUP_MODELS,
+        from factory.archive.v14_v16.run_v16b_topup import (MODELS as _TOPUP_MODELS,
                                     USER_TMPL as _TOPUP_TMPL,
                                     validate_senses as _topup_validate)
-        from run_v16b_topup import lemma_block as _topup_block
+        from factory.archive.v14_v16.run_v16b_topup import lemma_block as _topup_block
     except Exception:
         vec = (vector_lookup or {}).get(sid)
         _rec("fallback", model="deterministic")
@@ -2366,9 +2365,9 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                 "topic_path": "fallback"}
     user_text = _TOPUP_TMPL + _topup_block(
         text, [{"sense_id": sid, "gloss": gloss or ""}])
-    from llm_json import extract_json as _extract
+    from factory.core.llm_json import extract_json as _extract
     try:
-        from phrase_judge import RateLimited as _RateLimited
+        from factory.lexicon.phrase_judge import RateLimited as _RateLimited
     except Exception:
         _RateLimited = None
     for model in _TOPUP_MODELS:
@@ -2382,7 +2381,7 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
             raise
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
-                from llm_json import raise_for_auth as _rfa
+                from factory.core.llm_json import raise_for_auth as _rfa
                 _rfa(exc)
             continue
         except Exception as exc:
@@ -5227,8 +5226,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         gloss_s = 0.0
         print("using pre-card items (%d from %s): anchor/topic/ "
               "enrichment skipped" % (len(sample), args.from_precard))
-        sys.path.insert(0, str(FACTORY_DIR))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         try:
             _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         except KeyError as exc:
@@ -5244,14 +5242,13 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                                      row["length"])
 
         gloss_start = time.perf_counter()
-        sys.path.insert(0, str(FACTORY_DIR))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         try:
             _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         except KeyError as exc:
             sys.exit("missing env: %s" % exc)
         _topic_key = _env.get("OPENCODE_ZEN_API_KEY", "")
-        from run_v16b_topup import call_responses as _topup_transport
+        from factory.archive.v14_v16.run_v16b_topup import call_responses as _topup_transport
         topic_calls = {}
         topic_prog = out_dir / PILOT_TOPIC_PROGRESS
         tatoeba_pool = load_tatoeba_pool(args.tatoeba_pool)

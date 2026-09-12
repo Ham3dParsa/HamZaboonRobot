@@ -1,7 +1,7 @@
 """Hermetic tests for TICKET F3 (no network, synthetic data only).
 
-Covers the AWL HTML parser (factory/fetch_awl.py) and the coverage math
-(factory/awl_coverage.py) on inline fixtures. Real W: data is never touched.
+Covers the AWL HTML parser (factory/lexicon/fetch_awl.py) and the coverage math
+(factory/lexicon/awl_coverage.py) on inline fixtures. Real W: data is never touched.
 """
 
 import csv
@@ -11,12 +11,11 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from awl_coverage import (AUDIT_FREQUENT_ZIPF, decide_verdict,
+from factory.lexicon.awl_coverage import (AUDIT_FREQUENT_ZIPF, decide_verdict,
                            family_coverage, is_vowelless_word, load_awl,
                            pool_awl_fraction, vowelless_audit)
-from sample_lemmas import pack_has_cefr_hit
-from fetch_awl import clean_headword, parse_sublist_html
+from factory.lexicon.sample_lemmas import pack_has_cefr_hit
+from factory.lexicon.fetch_awl import clean_headword, parse_sublist_html
 
 PAGE = ("<h2>The Academic Word List</h2>"
         "<p>analyse</p><ul><li>analysed</li><li>analysis</li></ul>"
@@ -47,8 +46,7 @@ def test_pack_has_cefr_hit_single_source():
     # G2: awl_coverage reuses sample_lemmas.pack_has_cefr_hit (no duplicate).
     # Unified semantics: missing structures are silent False; only valid
     # CEFR levels count (an evp entry with a junk level is not a hit).
-    import awl_coverage
-
+    from factory.lexicon import awl_coverage
     assert not hasattr(awl_coverage, "pack_hit")
     assert awl_coverage.pack_has_cefr_hit is pack_has_cefr_hit
     pack = _pack()
@@ -120,8 +118,8 @@ def test_vowelless_audit_dedupes_pack_by_lemma(tmp_path):
 def test_audit_frequent_floor_name_and_value():
     # G5: audit floor renamed for clarity; value/behavior unchanged (>= 4.0,
     # stricter than the sampler keep-rule floor 3.0 in sample_lemmas).
-    import awl_coverage
-    from sample_lemmas import FREQUENT_ZIPF_MIN
+    from factory.lexicon import awl_coverage
+    from factory.lexicon.sample_lemmas import FREQUENT_ZIPF_MIN
 
     assert AUDIT_FREQUENT_ZIPF == 4.0
     assert not hasattr(awl_coverage, "FREQUENT_ZIPF")
@@ -157,7 +155,7 @@ def test_load_awl_rejects_non_list_members(tmp_path):
 
 
 def test_loaders_roundtrip(tmp_path):
-    from awl_coverage import load_awl, load_pool
+    from factory.lexicon.awl_coverage import load_awl, load_pool
     awl_path = str(tmp_path / "awl.json")
     with open(awl_path, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(
@@ -180,7 +178,7 @@ def test_loaders_roundtrip(tmp_path):
 def test_load_awl_fail_closed(tmp_path):
     import pytest
 
-    from awl_coverage import load_awl
+    from factory.lexicon.awl_coverage import load_awl
     missing_key = str(tmp_path / "no_families.json")
     with open(missing_key, "w", encoding="utf-8") as handle:
         handle.write(json.dumps({"metadata": {}}))
@@ -208,8 +206,7 @@ def _write_vowelless_index(tmp_path, words):
 def test_vowelless_audit_wordfreq_missing(tmp_path, monkeypatch, capsys):
     import sys as _sys
 
-    import awl_coverage
-
+    from factory.lexicon import awl_coverage
     monkeypatch.setitem(_sys.modules, "wordfreq", None)
     index = _write_vowelless_index(tmp_path, [("rhythm", "noun")])
     pack = {"cefrj_fallback": {"rhythm|noun": "B2"},
@@ -225,8 +222,7 @@ def test_vowelless_audit_wordfreq_missing(tmp_path, monkeypatch, capsys):
 def test_vowelless_audit_wordfreq_present(tmp_path, monkeypatch):
     import sys as _sys
 
-    import awl_coverage
-
+    from factory.lexicon import awl_coverage
     class _FakeWordfreq:
         @staticmethod
         def zipf_frequency(lemma, lang):
@@ -245,8 +241,7 @@ def test_vowelless_audit_wordfreq_present(tmp_path, monkeypatch):
 def test_vowelless_audit_zipf_errors_non_frequent(tmp_path, monkeypatch):
     import sys as _sys
 
-    import awl_coverage
-
+    from factory.lexicon import awl_coverage
     class _RaisingWordfreq:
         @staticmethod
         def zipf_frequency(lemma, lang):
@@ -267,7 +262,7 @@ def test_vowelless_audit_zipf_errors_non_frequent(tmp_path, monkeypatch):
 def test_main_report_na_when_wordfreq_missing(tmp_path, monkeypatch):
     import sys as _sys
 
-    from awl_coverage import main
+    from factory.lexicon.awl_coverage import main
 
     monkeypatch.setitem(_sys.modules, "wordfreq", None)
     awl_path = str(tmp_path / "awl.json")

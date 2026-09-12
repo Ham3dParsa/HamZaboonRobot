@@ -10,7 +10,7 @@ If the source is unreachable the script aborts fail-closed (SystemExit) —
 it never invents data.
 
 Usage:
-    python factory/fetch_awl.py [--out PATH] [--base-url URL] [--dry-run]
+    python factory/lexicon/fetch_awl.py [--out PATH] [--base-url URL] [--dry-run]
 """
 
 from __future__ import annotations

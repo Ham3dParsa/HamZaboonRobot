@@ -8,7 +8,7 @@ lines ``{"word","pos","offset","length"}`` to ``kaikki-<lang>-index.jsonl``.
 Also builds a compact lemma lookup ``{lemma_key: [offsets...]}`` where
 ``lemma_key`` is the registry normalizer (``registry.normalize_lemma`` —
 single source of truth; this file defines NO normalizer of its own, so
-T2/registry consumers must import it from ``factory/registry.py`` too).
+T2/registry consumers must import it from ``factory/core/registry.py`` too).
 
 Lookup write strategy (measured choice):
 - The lookup dict is accumulated in memory with a running size estimate
@@ -36,7 +36,7 @@ Checkpoint / resume:
   no progress).
 
 Usage:
-    python factory/build_kaikki_index.py --lang en [--dump PATH] [--out PATH]
+    python factory/lexicon/build_kaikki_index.py --lang en [--dump PATH] [--out PATH]
         [--batch N] [--dry-run] [--limit N]
 """
 
@@ -48,8 +48,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from registry import normalize_lemma  # noqa: E402  (single-source lemma normalizer)
+from factory.core.registry import normalize_lemma  # noqa: E402  (single-source lemma normalizer)
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_OUT_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"

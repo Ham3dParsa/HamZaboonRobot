@@ -1,17 +1,14 @@
-"""Hermetic tests for factory/blind50.py (4-way S2 blind test).
+"""Hermetic tests for factory/pipeline/blind50.py (4-way S2 blind test).
 
 No network, no W:, no real keys: HTTP is an injected fake, key files
 are tmp_path fixtures, S1 windows are inline dicts.
 """
 
 import json
-import os
 import sys
 import urllib.error
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import blind50
-
+from factory.pipeline import blind50
 ANCHOR_MAP = {
     "w:apple": {"candidates": [
         {"sense_id": "apple#0", "gloss": "a round fruit"},

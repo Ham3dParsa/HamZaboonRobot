@@ -7,12 +7,8 @@ generic snippet, and the fail-closed default. No network, no clock.
 import os
 import pathlib
 import re
-import sys
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_HERE))
-
-from factory import llm_json as LJ  # noqa: E402
+from factory.core import llm_json as LJ  # noqa: E402
 
 
 def test_code_rules():
@@ -117,12 +113,12 @@ def test_recorded_real_bodies():
 
 
 def test_single_owner_guard():
-    """classify + error-action taxonomy live ONLY in factory/llm_json.py.
+    """classify + error-action taxonomy live ONLY in factory/core/llm_json.py.
 
     No rival `def classify` and no distinctive action literals
     (cooldown_switch/retry_once/fail_closed) in any other scanned module.
     """
-    root = pathlib.Path(__file__).resolve().parent.parent
+    root = pathlib.Path(__file__).resolve().parent.parent.parent
     # Scope boundary: production + tooling trees. tests/ is out of scope
     # by design — "fail_closed" there describes unrelated behaviors, and
     # a production rival taxonomy must live in a production module.

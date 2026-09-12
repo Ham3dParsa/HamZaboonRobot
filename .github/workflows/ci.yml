@@ -73,7 +73,7 @@ jobs:
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python -m pytest factory/ -n 4 --junitxml=junit/factory-results.xml -v
+        run: python -m pytest tests/factory/ -n 4 --junitxml=junit/factory-results.xml -v
 
       - name: Check whitespace errors
         run: git diff --check

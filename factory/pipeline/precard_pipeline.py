@@ -3,19 +3,19 @@
 Factory-only research script. No bot/DB/handler changes. Reuses the
 existing pipeline scripts BY IMPORT (never a third copy of their logic):
 
-- S1 deterministic sense rank: card_pilot.anchor_item_en (the same
+- anchor stage (S1 id) deterministic sense rank: card_pilot.anchor_item_en (the same
   vendored-v14 scorer card_pilot already uses).
-- S2 sense judge pick: run_v14_phase3_judge.call_responses transport +
+- judge stage (S2 id) sense pick: run_v14_phase3_judge.call_responses transport +
   MODELS chain (Muse-only 1.3 -> 1.2 override), validate_picks /
   deterministic_picks reuse, 2 attempts, 401/403 loud abort,
-  other-errors fail-closed to the S1 top pick. S2 today = single-pick
+  other-errors fail-closed to the anchor top pick. judge today = single-pick
   per item; beginner-2/intermediate-3/advanced-4 picks + x1.5 EVP boost
   belong to v14c (run_v14_phase3_judge), not this pipeline.
-- S3 topic vector: run_v15_topics USER_TMPL + lemma_block prompt,
+- vectors stage (S3 id) topic vector: run_v15_topics USER_TMPL + lemma_block prompt,
   call_responses transport, validate_vectors / fallback_vectors.
-- S4 topic label: card_pilot.assign_topic two-leg (deterministic v16 leg
+- label stage (S4 id) topic label: card_pilot.assign_topic two-leg (deterministic v16 leg
   + v16b LLM top-up), run_v16b_topup.call_responses as the LLM leg.
-- S5 dataset enrichment: IPA + 8-20w examples + sense_id via
+- enrich stage (S5 id) dataset enrichment: IPA + 8-20w examples + sense_id via
   card_pilot.first_entry_ipa / sense_example_texts /
   filter_examples_by_length / tatoeba_candidates / score_senses.
 
@@ -68,9 +68,9 @@ is unjudged. Missing aux files (AWL, type log, wordfreq) fail OPEN to
 keep (recorded, never silent) — they only ever add keeps, never drops.
 
 Usage (owner run, needs VPN-ready long run — NOT run by the agent):
-    python factory/precard_pipeline.py
-    python factory/precard_pipeline.py --dry-run --limit 8
-    python factory/card_pilot.py --from-precard <precard.jsonl>
+    python factory/pipeline/precard_pipeline.py
+    python factory/pipeline/precard_pipeline.py --dry-run --limit 8
+    python factory/pipeline/card_pilot.py --from-precard <precard.jsonl>
 """
 
 from __future__ import annotations
@@ -86,16 +86,15 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import card_pilot  # noqa: E402  (anchor/label/enrich owner path, reused by import)
-from card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
-from card_pilot import item_key  # noqa: E402
-from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
-from phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
-from telemetry import extract_usage as _tele_usage  # noqa: E402
-from telemetry import record_call as _tele_record  # noqa: E402
-from telemetry import write_summary as _tele_write  # noqa: E402
+from factory.pipeline import card_pilot  # noqa: E402  (anchor/label/enrich owner path, reused by import)
+from factory.pipeline.card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
+from factory.pipeline.card_pilot import item_key  # noqa: E402
+from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
+from factory.lexicon.phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
+from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
+from factory.core.telemetry import record_call as _tele_record  # noqa: E402
+from factory.core.telemetry import write_summary as _tele_write  # noqa: E402
 
 DEFAULT_SAMPLE = "W:/hamzaban_data_factory/pilot/sample.json"
 DEFAULT_OUT = "W:/hamzaban_data_factory/pilot/precard.jsonl"
@@ -1014,7 +1013,7 @@ def _judge_prompt(batch, anchor_map):
 
 def _judge_fallback(item, anchor_res):
     """Fail-closed pick: anchor top (via the imported deterministic_picks)."""
-    from run_v14_phase3_judge import deterministic_picks
+    from factory.archive.v14_v16.run_v14_phase3_judge import deterministic_picks
     cands = (anchor_res or {}).get("candidates", [])
     if not cands:
         return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty"}
@@ -1037,7 +1036,7 @@ def _judge_validate(data, batch, anchor_map):
     collapse to their first pick. Returns {key: {"sense_id","gloss"}}
     for valid rows only; invalid rows are left out (caller fails closed).
     """
-    from run_v14_phase3_judge import validate_picks
+    from factory.archive.v14_v16.run_v14_phase3_judge import validate_picks
     if not isinstance(data, dict) or not isinstance(
             data.get("results"), list):
         return None
@@ -1137,8 +1136,8 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     s1-fallback, error on all-keys-429); tuple (text, usage) transports
     surface token counts (None-tolerated).
     """
-    from run_v14_phase3_judge import MODELS as JUDGE_MODELS
-    from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
+    from factory.archive.v14_v16.run_v14_phase3_judge import MODELS as JUDGE_MODELS
+    from factory.archive.v14_v16.run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
     models = list(models) if models else list(JUDGE_MODELS[:2])
     prompt = _judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
@@ -1355,10 +1354,10 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     R27: one telemetry record per batch (ok / fallback / error); tuple
     (text, usage) transports surface token counts (None-tolerated).
     """
-    from run_v15_topics import MODELS as V15_MODELS
-    from run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
-    from run_v15_topics import validate_vectors
-    from run_v15_topics import call_responses as _  # noqa: F401 (owner path ref)
+    from factory.archive.v14_v16.run_v15_topics import MODELS as V15_MODELS
+    from factory.archive.v14_v16.run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
+    from factory.archive.v14_v16.run_v15_topics import validate_vectors
+    from factory.archive.v14_v16.run_v15_topics import call_responses as _  # noqa: F401 (owner path ref)
     v15_models = list(models) if models else list(V15_MODELS)
     pseudos = _vectors_pseudo_records(batch, judge_map, anchor_map)
     out = {}
@@ -1467,8 +1466,8 @@ def _label_prompt(entries):
     closed — never a stage crash).
     """
     try:
-        from run_v16b_topup import USER_TMPL as _TOPUP_TMPL
-        from run_v16b_topup import lemma_block as _topup_block
+        from factory.archive.v14_v16.run_v16b_topup import USER_TMPL as _TOPUP_TMPL
+        from factory.archive.v14_v16.run_v16b_topup import lemma_block as _topup_block
     except Exception as exc:
         raise ImportError("run_v16b_topup unavailable: %s" % exc)
     return _TOPUP_TMPL + "\n\n".join(
@@ -1490,7 +1489,7 @@ def _label_fallback_result(vector_lookup, sense_id):
 def _label_leg1_lookup():
     """Deterministic v16 lookup by import (None when unimportable)."""
     try:
-        from run_v16_topics import evp_fallback_label as lookup
+        from factory.archive.v14_v16.run_v16_topics import evp_fallback_label as lookup
         return lookup
     except Exception:
         return None
@@ -1543,9 +1542,9 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
     fall through to the next attempt, then to None.
     """
     try:
-        from run_v16b_topup import MODELS as _TOPUP_MODELS
-        from run_v16b_topup import validate_senses as _topup_validate
-        from run_v16b_topup import call_responses as _  # noqa: F401 (owner path ref)
+        from factory.archive.v14_v16.run_v16b_topup import MODELS as _TOPUP_MODELS
+        from factory.archive.v14_v16.run_v16b_topup import validate_senses as _topup_validate
+        from factory.archive.v14_v16.run_v16b_topup import call_responses as _  # noqa: F401 (owner path ref)
         prompt = _label_prompt(entries)
     except Exception:
         if telemetry is not None:
@@ -2072,7 +2071,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
 # ------------------------------------------------------------- main ---
 
 def _default_judge_transport(api_key, model, user_text):
-    from run_v14_phase3_judge import call_responses
+    from factory.archive.v14_v16.run_v14_phase3_judge import call_responses
     return call_responses(api_key, model, user_text)
 
 
@@ -2132,12 +2131,12 @@ def _avalai_remap_transport(default_model):
 
 
 def _default_topic_transport(api_key, model, user_text):
-    from run_v15_topics import call_responses
+    from factory.archive.v14_v16.run_v15_topics import call_responses
     return call_responses(api_key, model, user_text)
 
 
 def _default_assign_transport(api_key, model, user_text):
-    from run_v16b_topup import call_responses
+    from factory.archive.v14_v16.run_v16b_topup import call_responses
     return call_responses(api_key, model, user_text)
 
 
@@ -2375,7 +2374,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
     # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
     # no fail-closed signal, so fail is always 0 there.
-    from card_pilot import RunLogger  # noqa: E402
+    from factory.pipeline.card_pilot import RunLogger  # noqa: E402
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"))
     for stage in STAGES:
@@ -2522,8 +2521,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      and _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
     avalai_needed = any(_leg_avalai(leg) for leg in LLM_LEGS)
     if need_llm and zen_needed and not full_avalai:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         api_key = env["OPENCODE_ZEN_API_KEY"]
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
@@ -2548,8 +2546,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # full_avalai/judge_avalai computed above (before key loading).
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if avalai_needed:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         try:
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
             avalai_key = env_av["AVALAI_API_KEY"]

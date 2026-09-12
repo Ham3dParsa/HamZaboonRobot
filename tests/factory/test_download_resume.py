@@ -1,7 +1,7 @@
-"""Focused test for factory/download_kaikki.py (TICKET T1).
+"""Focused test for factory/lexicon/download_kaikki.py (TICKET T1).
 
-Covers (plain asserts; run `python factory/test_download_resume.py`
-or `python -m pytest factory/test_download_resume.py`):
+Covers (plain asserts; run `python tests/factory/test_download_resume.py`
+or `python -m pytest tests/factory/test_download_resume.py`):
   (a) byte-range resume: a half-written .part is continued via the Range
       header and the result equals the full body;
   (b) server-ignores-range: a 200 reply to a ranged request restarts cleanly;
@@ -17,13 +17,11 @@ Never touches W: or the real factory progress file: everything in temp dirs.
 import io
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _HERE)
-import download_kaikki as D  # noqa: E402
+from factory.lexicon import download_kaikki as D  # noqa: E402
 
 LINES = [json.dumps({"word": f"w{i}", "pos": "noun"}) + "\n" for i in range(50)]
 BODY = "".join(LINES).encode("utf-8")

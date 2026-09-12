@@ -1,15 +1,13 @@
 """Probe Zen keys + egress: one tiny call per key, reports OK/429/401.
-Usage: python factory/probe_keys.py
+Usage: python factory/core/probe_keys.py
 Reads factory/.env (never prints values). Burns ~2 micro-calls total.
 """
 import json
 import os
 import pathlib
-import sys
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from env_loader import KEYS  # noqa: E402  (allowlist only, values via env)
+from factory.core.env_loader import KEYS  # noqa: E402  (allowlist only, values via env)
 
 ZEN_URL = "https://opencode.ai/zen/v1/responses"
 

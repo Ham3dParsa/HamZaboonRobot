@@ -21,9 +21,9 @@ resume conventions as the CEFR runner). Phrase source: the judge log at
 (``phrase_type_progress.json``), separate from the CEFR progress file.
 
 Usage:
-    python factory/phrase_judge.py [--phrases ...] [--out ...]
+    python factory/lexicon/phrase_judge.py [--phrases ...] [--out ...]
         [--progress ...] [--dry-run] [--limit N]
-    python factory/phrase_judge.py --type-pass [--out judge_log.jsonl]
+    python factory/lexicon/phrase_judge.py --type-pass [--out judge_log.jsonl]
         [--type-out phrase_type_log.jsonl]
         [--type-progress phrase_type_progress.json] [--dry-run] [--limit N]
 """
@@ -38,11 +38,10 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
-from telemetry import extract_usage as _tele_usage  # noqa: E402
-from telemetry import record_call as _tele_record  # noqa: E402
-from telemetry import write_summary as _tele_write  # noqa: E402
+from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
+from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
+from factory.core.telemetry import record_call as _tele_record  # noqa: E402
+from factory.core.telemetry import write_summary as _tele_write  # noqa: E402
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -600,7 +599,7 @@ def main_type(args: argparse.Namespace, transport=call_responses) -> int:
         print(f"  models:   {', '.join(MODELS)}")
         return 0
 
-    from env_loader import load_factory_env
+    from factory.core.env_loader import load_factory_env
     try:
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
     except KeyError as exc:
@@ -725,7 +724,7 @@ def main(argv: list[str] | None = None,
         print(f"  models:   {', '.join(MODELS)}")
         return 0
 
-    from env_loader import load_factory_env
+    from factory.core.env_loader import load_factory_env
     try:
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
     except KeyError as exc:

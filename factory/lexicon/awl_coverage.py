@@ -1,6 +1,6 @@
 """AWL coverage vs the 10k pool + vowel-less recall audit (TICKET F3).
 
-Reads ``awl_families.json`` (see factory/fetch_awl.py) and the pool
+Reads ``awl_families.json`` (see factory/lexicon/fetch_awl.py) and the pool
 ``factory/packs/en/lemmas_10k.csv``, normalizes BOTH sides with the single
 source of truth ``registry.normalize_lemma`` (this file defines no
 normalizer), and reports:
@@ -19,7 +19,7 @@ Writes a Markdown report (default W:/hamzaban_data_factory/reports/) and
 prints a summary to stdout. Reads only — never writes to the pool or index.
 
 Usage:
-    python factory/awl_coverage.py --lang en [--awl PATH] [--pool PATH]
+    python factory/lexicon/awl_coverage.py --lang en [--awl PATH] [--pool PATH]
         [--index PATH] [--pack DIR] [--report PATH]
 """
 
@@ -31,9 +31,8 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from registry import normalize_lemma  # noqa: E402  (single source)
-from sample_lemmas import (LEVEL_ORDER, LEVEL_RANK, classify, load_pack,  # noqa: E402
+from factory.core.registry import normalize_lemma  # noqa: E402  (single source)
+from factory.lexicon.sample_lemmas import (LEVEL_ORDER, LEVEL_RANK, classify, load_pack,  # noqa: E402
                            pack_has_cefr_hit)
 
 VOWELS = frozenset("aeiouAEIOU")
@@ -42,7 +41,7 @@ SAMPLE_CAP = 2000  # stored-sample cap; counters keep running past it
 # Audit-only frequent floor (NOT the sampler keep rule): zipf >= 4.0 means
 # genuinely common (B1+ frequency), not tail junk. Deliberately stricter
 # than the sampler's keep-rule floor FREQUENT_ZIPF_MIN = 3.0 (strict >) in
-# factory/sample_lemmas.py: the keep rule is lenient (never drop a real
+# factory/lexicon/sample_lemmas.py: the keep rule is lenient (never drop a real
 # word) while this audit is stringent (only flag clear recall cost).
 AUDIT_FREQUENT_ZIPF = 4.0
 

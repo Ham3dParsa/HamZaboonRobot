@@ -57,13 +57,13 @@ Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
 exactly like other skips (never reach ``classify`` or the reservoir).
 
 Lemma normalization and random-access ``fetch`` are REUSED from
-``factory/registry.py`` (``normalize_lemma``) and
-``factory/build_kaikki_index.py`` (``fetch``) — this file defines neither.
+``factory/core/registry.py`` (``normalize_lemma``) and
+``factory/lexicon/build_kaikki_index.py`` (``fetch``) — this file defines neither.
 ``fetch`` is used only for a bounded post-pass spot-check (first 5
 reservoir-picked entries) that warns on offset/word mismatch.
 
 Usage:
-    python factory/sample_lemmas.py --lang en [--mix 364,485,667,727,454,303]
+    python factory/lexicon/sample_lemmas.py --lang en [--mix 364,485,667,727,454,303]
         [--seed 7] [--dry-run] [--limit N]
 """
 
@@ -76,9 +76,8 @@ import os
 import random
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from registry import lemma_key_for, normalize_lemma, normalize_pos  # noqa: E402
-from build_kaikki_index import fetch  # noqa: E402  (reuse; never redefine)
+from factory.core.registry import lemma_key_for, normalize_lemma, normalize_pos  # noqa: E402
+from factory.lexicon.build_kaikki_index import fetch  # noqa: E402  (reuse; never redefine)
 
 LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 LEVEL_RANK = {level: rank for rank, level in enumerate(LEVEL_ORDER)}

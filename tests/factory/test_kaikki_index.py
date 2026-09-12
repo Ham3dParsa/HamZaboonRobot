@@ -1,7 +1,7 @@
-"""Focused test for factory/build_kaikki_index.py (TICKET T1b).
+"""Focused test for factory/lexicon/build_kaikki_index.py (TICKET T1b).
 
-Covers (plain asserts; run `python factory/test_kaikki_index.py`
-or `python -m pytest factory/test_kaikki_index.py`):
+Covers (plain asserts; run `python tests/factory/test_kaikki_index.py`
+or `python -m pytest tests/factory/test_kaikki_index.py`):
   (a) offsets round-trip: every index entry fetch()es back the source line;
   (b) resume from mid-file gives a byte-identical index + equal lookup;
   (c) dry-run writes NOTHING (no index, no lookup, no progress);
@@ -15,15 +15,13 @@ dirs (progress path is monkeypatched per test). Hermetic: synthetic
 
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _HERE)
-import build_kaikki_index as B  # noqa: E402
+from factory.lexicon import build_kaikki_index as B  # noqa: E402
 
 N = 200
 WORDS = ["Apple", "apple", "BANANA", "Cherry", "date", "Elderberry"]
@@ -272,7 +270,7 @@ def test_spilled_resume_appends_without_truncation(tmp_path, monkeypatch):
     last = json.loads(half_lines[-1])
     mid_offset = last["offset"] + last["length"]
     # Hand-craft the spilled prefix: groups covering exactly the first half.
-    from registry import normalize_lemma
+    from factory.core.registry import normalize_lemma
     groups: dict[str, list[int]] = {}
     for line in half_lines:
         entry = json.loads(line)

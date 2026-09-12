@@ -12,17 +12,15 @@ Factory-only, reuse by import, no network, no real pools/files.
 """
 
 import json
-import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import card_pilot
-import phrase_judge
-import precard_pipeline
-import telemetry
-from card_pilot import (
+from factory.pipeline import card_pilot
+from factory.lexicon import phrase_judge
+from factory.pipeline import precard_pipeline
+from factory.core import telemetry
+from factory.pipeline.card_pilot import (
     GRAMMAR_TIP_FA_RULE,
     OP_RELEASED,
     build_completion_flags,

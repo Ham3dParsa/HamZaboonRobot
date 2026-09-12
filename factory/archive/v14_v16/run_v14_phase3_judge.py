@@ -6,14 +6,13 @@
 # (b) topic_label+confidence for every currently-Other sense (13 fixed labels from packs/en/topic_prototypes.json).
 # Resume: v14_judge_progress.json. Batch: 8 lemmas/call. Sleep 2.5s.
 # Any parse/validation failure -> deterministic fallback (score-rank top-N picks, topics stay Other), lemma logged. No placeholders.
-# Dry run (no keys): python factory/run_v14_phase3_judge.py --dry-run
+# Dry run (no keys): python factory/archive/v14_v16/run_v14_phase3_judge.py --dry-run
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from llm_json import extract_json, raise_for_auth, AuthError
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # factory/ (moved under archive/v14_v16)
+from factory.core.llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 IN_RANKED = FX / "ranked_senses-v14b.json"
 OUT_RANKED = FX / "ranked_senses-v14c.json"
@@ -241,8 +240,7 @@ def main():
     calls = prog.get("model_calls", {})
     key = ""
     if not a.dry_run:
-        sys.path.insert(0, str(ROOT))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         key = env["OPENCODE_ZEN_API_KEY"]
         if not key:

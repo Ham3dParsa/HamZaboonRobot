@@ -6,7 +6,7 @@ download, ``kaikki.org-dictionary-English.jsonl`` (3_212_282_689 bytes).
 The legacy ``...-English-words.jsonl`` name from the ticket brief 404s.
 
 Usage:
-    python factory/download_kaikki.py --lang en [--out PATH] [--no-resume] [--dry-run]
+    python factory/lexicon/download_kaikki.py --lang en [--out PATH] [--no-resume] [--dry-run]
 
 Behaviour:
 - streams the dump to ``<out>.part`` then atomically renames to ``<out>``

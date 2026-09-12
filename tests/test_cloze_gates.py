@@ -13,12 +13,8 @@ live-wordfreq integration check on common words.
 """
 
 import json
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import card_pilot
-from card_pilot import (
+from factory.pipeline import card_pilot
+from factory.pipeline.card_pilot import (
     cloze_archaic_ok,
     cloze_check_example,
     cloze_density_ok,
@@ -264,7 +260,7 @@ def test_gallery_cloze_op_chip():
 # ---------------- S5 preference (reuse by import) ----------------
 
 def test_s5_prefers_cloze_passing_examples():
-    from precard_pipeline import enrich_item
+    from factory.pipeline.precard_pipeline import enrich_item
 
     good2 = "Resilient trees grow strong after every winter storm here."
     sense = {"glosses": ["able to recover quickly"], "tags": [],

@@ -1,6 +1,6 @@
-"""Proof test for factory/registry.py (DESIGN-B §5 proof ideas, stdlib only).
+"""Proof test for factory/core/registry.py (DESIGN-B §5 proof ideas, stdlib only).
 
-Covers (plain asserts, `python factory/test_registry_proof.py`):
+Covers (plain asserts, `python tests/factory/test_registry_proof.py`):
   (a) import twice -> counts identical, no dupes
       (GROUP BY pre_card_id HAVING COUNT(*) > 1 is empty);
   (b) overlapping re-import with 20 shuffled duplicate lemmas -> zero new rows;
@@ -15,14 +15,12 @@ import os
 import random
 import re
 import sqlite3
-import sys
 import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_HERE))
-from factory import registry as R  # noqa: E402
+from factory.core import registry as R  # noqa: E402
 
-FX = os.path.join(_HERE, "fixtures")
+FX = os.path.normpath(os.path.join(_HERE, "..", "..", "factory", "fixtures"))
 NEED_FIXTURES = ("uniq_senses-v14a.json", "ranked_senses-v14a.json",
                  "ranked_senses-v14b.json", "ranked_senses-v14c.json",
                  "topic_labels-v16b.json")

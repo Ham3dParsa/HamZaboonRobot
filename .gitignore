@@ -24,7 +24,9 @@ env/
 
 # Lexicon factory: live state + big regenerable scratch (W: is canonical home)
 factory/*_progress.json
+factory/**/*_progress.json
 factory/phrase_judge_log.jsonl
+factory/**/phrase_judge_log.jsonl
 factory/fixtures/ranked_senses-*.json
 factory/fixtures/uniq_senses-*.json
 factory/fixtures/topic_labels-v*.json

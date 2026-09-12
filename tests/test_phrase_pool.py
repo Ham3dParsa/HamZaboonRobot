@@ -1,4 +1,4 @@
-"""Hermetic tests for factory/phrase_pool.py + factory/phrase_judge.py (TICKET F4).
+"""Hermetic tests for factory/lexicon/phrase_pool.py + factory/lexicon/phrase_judge.py (TICKET F4).
 
 No network, no real W: dump, no LLM calls: the index fixture and the tiny
 evp stub are built inline in tmp_path; judge transport is a mock fn.
@@ -11,9 +11,8 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-from phrase_judge import grade_batch, load_phrases, validate_results
-from phrase_pool import collect, load_token_levels, main as pool_main, rank
+from factory.lexicon.phrase_judge import grade_batch, load_phrases, validate_results
+from factory.lexicon.phrase_pool import collect, load_token_levels, main as pool_main, rank
 
 
 def write_index(path, words):
@@ -212,7 +211,7 @@ def test_grade_batch_exhaustion_raises_lookup():
 def test_progress_resume_skips_done(tmp_path):
     # Resume contract: phrases already in done_phrases are never re-sent
     # to the transport; only pending phrases are graded.
-    import phrase_judge as judge_mod
+    from factory.lexicon import phrase_judge as judge_mod
 
     phrases_csv = str(tmp_path / "phrases.csv")
     with open(phrases_csv, "w", encoding="utf-8", newline="") as handle:

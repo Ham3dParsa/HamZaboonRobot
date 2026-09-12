@@ -8,16 +8,15 @@
 # Fallback per lemma: keep original v16 Other rows unchanged, logged in failed_lemmas.
 # Validation: ids exact (subset), topic_id 1..16, label matches id, weights sum 1.0+-0.01, primary == vector top.
 # Transport: Zen /responses, bare model ids, browser UA, reasoning minimal. Batch 8 lemmas, sleep 2.5s, live tqdm, resume every batch.
-# Usage: dry-run: python factory/run_v16b_topup.py --dry-run --limit 8
-#        smoke:    python factory/run_v16b_topup.py --lemmas rock,light,pass,flat
-#        full:     python factory/run_v16b_topup.py
+# Usage: dry-run: python factory/archive/v14_v16/run_v16b_topup.py --dry-run --limit 8
+#        smoke:    python factory/archive/v14_v16/run_v16b_topup.py --lemmas rock,light,pass,flat
+#        full:     python factory/archive/v14_v16/run_v16b_topup.py
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from llm_json import extract_json, raise_for_auth, AuthError
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # factory/ (moved under archive/v14_v16)
+from factory.core.llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 IN_RANKED = FX / "ranked_senses-v14c.json"
 IN_LABELS16 = FX / "topic_labels-v16.json"
@@ -193,8 +192,7 @@ def main():
     calls = prog.get("model_calls", {})
     key = ""
     if not a.dry_run:
-        sys.path.insert(0, str(ROOT))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         key = env["OPENCODE_ZEN_API_KEY"]
         if not key:

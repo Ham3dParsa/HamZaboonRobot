@@ -3,14 +3,13 @@
 # Chain (all Zen, free): spark-1.3 -> spark-1.2 -> ling-3.0-flash-fin -> mimo-v2.5 -> nemotron-3.5-lightning.
 # Transport: /responses, reasoning minimal (responses-only for muse-spark; chat 500s).
 # Resume: v14_merge_progress.json. Batch: 8 lemmas/call. Fallback per lemma: singleton clusters.
-# Dry run (no keys): python factory/run_v14_phase2_merge.py --dry-run
+# Dry run (no keys): python factory/archive/v14_v16/run_v14_phase2_merge.py --dry-run
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from llm_json import extract_json, raise_for_auth, AuthError
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # factory/ (moved under archive/v14_v16)
+from factory.core.llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 OUT_RANKED = FX / "ranked_senses-v14b.json"
 PROG = ROOT / "v14_merge_progress.json"
@@ -99,7 +98,7 @@ def main():
     if not a.dry_run:
         import sys as _s
         _s.path.insert(0, str(ROOT))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         key = env["OPENCODE_ZEN_API_KEY"]
         if not key: sys.exit("no OPENCODE_ZEN_API_KEY in factory/.env")

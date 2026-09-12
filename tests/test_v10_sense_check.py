@@ -7,12 +7,8 @@ run_v14_phase3_judge window+boost (R40).
 """
 
 import json
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import card_pilot
-from card_pilot import (
+from factory.pipeline import card_pilot
+from factory.pipeline.card_pilot import (
     candidate_bucket_cap,
     fa_alpha_check,
     generate_card,
@@ -22,7 +18,7 @@ from card_pilot import (
     sense_report,
     top_sense_candidates,
 )
-import run_v14_phase3_judge as judge
+from factory.archive.v14_v16 import run_v14_phase3_judge as judge
 
 NOFREQ = lambda w: None  # noqa: E731 — neutral freq tie-breaker
 
@@ -189,7 +185,7 @@ def test_r39_fallback_to_higher_when_no_pos_match():
 
 
 def test_r39_s1_window_is_judge_width():
-    from precard_pipeline import anchor_rank_item
+    from factory.pipeline.precard_pipeline import anchor_rank_item
     index = {"bank": _twelve_nouns()}
     item = {"kind": "word", "text": "bank", "pos": "noun",
             "pool_level": "B1"}
@@ -390,7 +386,7 @@ def test_r41_generate_card_rejects_without_regen():
     assert rec2.get("sense_review_pending") is False
 
 def test_judge_window_cap_matches_owner_module():
-    from run_v14_phase3_judge import JUDGE_WINDOW_CAP as OWNER_CAP
+    from factory.archive.v14_v16.run_v14_phase3_judge import JUDGE_WINDOW_CAP as OWNER_CAP
     assert card_pilot.JUDGE_WINDOW_CAP == OWNER_CAP == 10
 
 def _sense_rec(key="w:kiss"):
@@ -408,7 +404,7 @@ def _sense_transport(coherent=True):
 
 
 def test_r41b_undecided_marks_pending_not_reject():
-    from card_pilot import generate_card
+    from factory.pipeline.card_pilot import generate_card
     rec = generate_card(
         {"kind": "word", "text": "kiss", "pool_level": "A1",
          "en_def": "To touch with the lips"},
@@ -437,7 +433,7 @@ def _coherent_transport():
 
 
 def test_r41b_micropass_rejects_mismatch():
-    from card_pilot import review_records_sense
+    from factory.pipeline.card_pilot import review_records_sense
     recs = [_sense_rec()]
     checked, rejected = review_records_sense(
         recs, "k", transport=_sense_transport(False), model_calls={})
@@ -452,7 +448,7 @@ def test_r41b_micropass_rejects_xmark_anchor_kissing_card():
     # senses, so the X-mark anchor + kissing card mismatch is rejected
     # HERE (mocked incoherent) — the micro-pass judges anchor+card
     # semantically, not by token overlap.
-    from card_pilot import review_records_sense
+    from factory.pipeline.card_pilot import review_records_sense
     recs = [_sense_rec()]
     recs[0]["en_def"] = "A written X mark used instead of a signature"
     recs[0]["card"] = dict(
@@ -468,7 +464,7 @@ def test_r41b_micropass_rejects_xmark_anchor_kissing_card():
 
 
 def test_r41b_micropass_passes_and_uncertain_keeps():
-    from card_pilot import review_records_sense
+    from factory.pipeline.card_pilot import review_records_sense
     recs = [_sense_rec()]
     checked, rejected = review_records_sense(
         recs, "k", transport=_sense_transport(True), model_calls={})
@@ -487,7 +483,7 @@ def test_r41b_micropass_passes_and_uncertain_keeps():
 
 
 def test_r41b_resume_skips_reviewed(tmp_path):
-    from card_pilot import review_records_sense
+    from factory.pipeline.card_pilot import review_records_sense
     prog = tmp_path / "sense_prog.json"
     recs = [_sense_rec()]
     review_records_sense(recs, "k", transport=_sense_transport(True),
@@ -506,7 +502,7 @@ def test_r41b_resume_skips_reviewed(tmp_path):
 def test_stem_match_5_rejects_suffix_overlap():
     # Suffix-only overlap must NOT match: "taste" is a trailing
     # substring of "wastebasket" but shares no prefix.
-    from card_pilot import _stem_match_5
+    from factory.pipeline.card_pilot import _stem_match_5
     assert _stem_match_5("taste", "wastebasket") is False
     assert _stem_match_5("apple", "pineapple") is False
     # True prefix kin still match (no regression on the torrent gate).

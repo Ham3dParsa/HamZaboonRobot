@@ -31,9 +31,9 @@
 # Outputs: factory/fixtures/topic_labels-v16.json (same shape as v14c topic file, topic_source llm-v16)
 #          factory/fixtures/topic_vectors-v16.json (same shape as v15 vectors file)
 #          factory/fixtures/topic_migration_13_to_16.json (old label -> new label(s) rule, history comparison)
-# Usage: dry-run: python factory/run_v16_topics.py --dry-run --limit 8
-#        smoke:    python factory/run_v16_topics.py --lemmas rock,light,pass,flat,supporter,time,fish,fisherman
-#        full:     python factory/run_v16_topics.py
+# Usage: dry-run: python factory/archive/v14_v16/run_v16_topics.py --dry-run --limit 8
+#        smoke:    python factory/archive/v14_v16/run_v16_topics.py --lemmas rock,light,pass,flat,supporter,time,fish,fisherman
+#        full:     python factory/archive/v14_v16/run_v16_topics.py
 # Needs: factory/.env with OPENCODE_ZEN_API_KEY. Never prints keys, never stages .env.
 # <SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE> — LOCKED in plan-v14.md v16
 # (owner 2026-09-03) + explicit owner run order; factory-research scope, no prod code, no commit.
@@ -41,9 +41,8 @@ import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
-from llm_json import extract_json, raise_for_auth, AuthError
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # factory/ (moved under archive/v14_v16)
+from factory.core.llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 IN_RANKED = FX / "ranked_senses-v14c.json"
 OUT_LABELS = FX / "topic_labels-v16.json"
@@ -279,8 +278,7 @@ def main():
     calls = prog.get("model_calls", {})
     key = ""
     if not a.dry_run:
-        sys.path.insert(0, str(ROOT))
-        from env_loader import load_factory_env
+        from factory.core.env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         key = env["OPENCODE_ZEN_API_KEY"]
         if not key:

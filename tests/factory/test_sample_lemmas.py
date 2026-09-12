@@ -1,4 +1,4 @@
-"""Hermetic tests for factory/sample_lemmas.py (TICKET T2).
+"""Hermetic tests for factory/lexicon/sample_lemmas.py (TICKET T2).
 
 All fixtures (mini-dump + index + pack) are built inline in temp dirs.
 Classification is driven by synthetic cefrj fallback entries only, so the
@@ -12,8 +12,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from sample_lemmas import LEVEL_ORDER, classify, is_vowelless_allowlisted, load_pack, load_pilot, main, pack_has_cefr_hit, shape_verdict
+from factory.lexicon.sample_lemmas import LEVEL_ORDER, classify, is_vowelless_allowlisted, load_pack, load_pilot, main, pack_has_cefr_hit, shape_verdict
 
 LEVELS = LEVEL_ORDER
 QUOTA = 3
@@ -271,7 +270,7 @@ def test_resume_missing_shape_version_aborts_loud(env):
     # A pre-F2b checkpoint (no shape_v: allowed_vowelless backfilled 0,
     # dropped vowel-less keys pre-seeded as duplicates) must fail closed
     # instead of silently mixing shape rule regimes.
-    from sample_lemmas import SHAPE_VERSION
+    from factory.lexicon.sample_lemmas import SHAPE_VERSION
 
     assert SHAPE_VERSION == 2
     seen = {level: 0 for level in LEVELS}
@@ -398,7 +397,7 @@ def test_classify_matches_legacy_scan(tmp_path, monkeypatch):
     # a matrix of tricky keys (multi-sense, 2-segment, bare, bad level).
     import sys as _sys
 
-    from registry import normalize_lemma, normalize_pos
+    from factory.core.registry import normalize_lemma, normalize_pos
 
     class _FakeWordfreq:
         @staticmethod
@@ -581,7 +580,7 @@ def test_vowelless_allowlist_matrix(tmp_path, monkeypatch):
     # later via no-freq; the vowel-less junk case here is "qxwzc".)
     import sys as _sys
 
-    from sample_lemmas import FREQUENT_ZIPF_MIN
+    from factory.lexicon.sample_lemmas import FREQUENT_ZIPF_MIN
 
     assert FREQUENT_ZIPF_MIN == 3.0
     freq = {"by": 6.66, "qxwzb": 0.0, "qxwzc": 0.0, "-by": 6.0}

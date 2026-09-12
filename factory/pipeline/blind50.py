@@ -1,4 +1,4 @@
-"""Blind 4-way S2 judge test: GLM (recorded) vs 2x Gemini Lite (direct)
+"""Blind 4-way judge-stage (S2 id) test: GLM (recorded) vs 2x Gemini Lite (direct)
 vs Cohere North Mini (OpenRouter :free) on the frozen accept50 set.
 
 Same prompt for every contender (precard_pipeline._judge_prompt), one
@@ -15,15 +15,12 @@ for hermetic tests. Runner owns pacing + progress resume; analysis
 import argparse
 import json
 import os
-import sys
 import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import card_pilot
-import precard_pipeline
-
+from factory.pipeline import card_pilot
+from factory.pipeline import precard_pipeline
 GOOGLE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
               "models/%s:generateContent")
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -152,9 +149,9 @@ def openrouter_judge(api_key, model, chunk, prompt, anchor_map,
 
 def fill_missing_windows(items, anchor_map, kaikki_index=None,
                        kaikki_raw=None, rank_fn=None):
-    """Same S1 windows for every contender: compute windows missing
+    """Same anchor (S1 id) windows for every contender: compute windows missing
     from the recorded anchor windows (dropped/proper items) via the pipeline
-    S1 ranker. rank_fn(item, index, read_entry) injectable (tests)."""
+    anchor ranker. rank_fn(item, index, read_entry) injectable (tests)."""
     missing = [it for it in items
                if precard_pipeline.item_key(it) not in anchor_map]
     if not missing:
@@ -182,7 +179,7 @@ def fill_missing_windows(items, anchor_map, kaikki_index=None,
 
 def run_model(tag, items, anchor_map, progress_path, judge_fn,
               batch=BATCH, pace=4.0, sleep_fn=None):
-    """Judge every item (batched S2 prompts), resume from progress.
+    """Judge every item (batched judge prompts), resume from progress.
 
     judge_fn(chunk, prompt) -> validated {key: {...}}. Three
     consecutive HTTP-429 batches raise RateLimited.
@@ -247,7 +244,7 @@ def _atomic_write(path, payload):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Blind 4-way S2 test.")
+    ap = argparse.ArgumentParser(description="Blind 4-way judge test.")
     ap.add_argument("--accept", required=True)
     ap.add_argument("--s1", required=True,
                     help="recorded s1.json windows (pilot200glm/progress)")
