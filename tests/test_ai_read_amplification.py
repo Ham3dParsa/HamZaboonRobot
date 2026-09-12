@@ -23,6 +23,7 @@ from config import COST
 from services import db as db_module
 from services.db import schema as db_schema
 from services.ai import ai, ai_read_cache, llm_services
+from services.ai import telemetry as ai_telemetry
 from services.ai.llm_services import _call_ai_limited
 
 
@@ -159,7 +160,7 @@ class CostProfileCacheTest(_ReadAmplificationIsolatedDb):
         with mock.patch("services.ai.ai.db.get_preset_cost", get_preset_cost), \
              mock.patch("services.ai.ai.db.get_llm_cost_profile", get_profile):
             for _ in range(3):
-                ai._log_llm_request(
+                ai_telemetry._log_llm_request(
                     request_kind="card",
                     user_id=1,
                     plan="free",
@@ -195,12 +196,12 @@ class CostProfileCacheTest(_ReadAmplificationIsolatedDb):
         telemetry = {"usage": SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2)}
         with mock.patch("services.ai.ai.db.get_preset_cost", mock.MagicMock()), \
              mock.patch("services.ai.ai.db.get_llm_cost_profile", side_effect=profile_loader):
-            ai._log_llm_request(
+            ai_telemetry._log_llm_request(
                 request_kind="card", user_id=1, plan="free", model="m",
                 telemetry=telemetry, outcome="success", preset=preset,
             )
             ai_read_cache.invalidate_cost_profile()
-            ai._log_llm_request(
+            ai_telemetry._log_llm_request(
                 request_kind="card", user_id=1, plan="free", model="m",
                 telemetry=telemetry, outcome="success", preset=preset,
             )
@@ -308,10 +309,10 @@ class LogLineCompactionTest(_ReadAmplificationIsolatedDb):
     def test_main_log_line_is_compact(self):
         records: list[logging.LogRecord] = []
         handler = _CaptureHandler(records)
-        ai.log.addHandler(handler)
-        ai.log.setLevel(1)
-        self.addCleanup(ai.log.removeHandler, handler)
-        self.addCleanup(ai.log.setLevel, logging.NOTSET)
+        ai_telemetry.log.addHandler(handler)
+        ai_telemetry.log.setLevel(1)
+        self.addCleanup(ai_telemetry.log.removeHandler, handler)
+        self.addCleanup(ai_telemetry.log.setLevel, logging.NOTSET)
 
         preset = _seed_preset("pa")
         telemetry = {
@@ -324,7 +325,7 @@ class LogLineCompactionTest(_ReadAmplificationIsolatedDb):
                  "output_cost_usd_per_million": 1.5,
                  "usd_to_toman_rate": 28000.0,
              })):
-            ai._log_llm_request(
+            ai_telemetry._log_llm_request(
                 request_kind="card", user_id=1, plan="free", model="m",
                 telemetry=telemetry, outcome="success", preset=preset,
             )

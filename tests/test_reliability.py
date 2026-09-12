@@ -88,7 +88,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         with (
             patch.object(ai, "_client", return_value=client),
             patch.object(ai, "_model", return_value="test-model"),
-            self.assertLogs("services.ai.ai", level="INFO") as logs,
+            self.assertLogs("services.ai.telemetry", level="INFO") as logs,
         ):
             result = ai.ask_json(
                 "system",

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from services.ai import ai
 from services.ai import card_validation
+from services.ai import telemetry
 
 
 class CardValidationAliasTests(unittest.TestCase):
@@ -158,7 +159,7 @@ class BatchValidationTests(unittest.TestCase):
     def test_ask_batch_raises_when_validation_accepts_no_cards(self):
         with (
             patch.object(ai, "_request_json", return_value=[valid_card("hello")]),
-            patch.object(ai, "_log_llm_request"),
+            patch.object(telemetry, "_log_llm_request"),
             patch.object(ai, "_model", return_value="test-model"),
         ):
             with self.assertRaises(ai.BatchValidationError) as context:
