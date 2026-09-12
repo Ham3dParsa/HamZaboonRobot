@@ -43,7 +43,8 @@ DEFAULT_OUT_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 
 
 def script_dir() -> Path:
-    return Path(__file__).resolve().parent
+    # factory/ (moved under lexicon/)
+    return Path(__file__).resolve().parent.parent
 
 
 def progress_path(lang: str) -> Path:

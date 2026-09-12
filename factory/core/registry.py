@@ -701,7 +701,7 @@ def migrate_v14(db_path, fixtures_dir):
     return out
 
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # factory/ (not core/)
 
 
 if __name__ == "__main__":

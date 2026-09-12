@@ -87,6 +87,11 @@ import urllib.error
 import urllib.request
 
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.pipeline import card_pilot  # noqa: E402  (anchor/label/enrich owner path, reused by import)
 from factory.pipeline.card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from factory.pipeline.card_pilot import item_key  # noqa: E402

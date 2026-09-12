@@ -15,10 +15,16 @@ for hermetic tests. Runner owns pacing + progress resume; analysis
 import argparse
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.pipeline import card_pilot
 from factory.pipeline import precard_pipeline
 GOOGLE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
@@ -274,8 +280,8 @@ def main(argv=None):
 
     here = os.path.dirname(os.path.abspath(__file__))
     keys = load_keys(
-        os.environ, os.path.join(here, ".env"),
-        os.path.join(here, "..", "tools", "egress", ".env"))
+        os.environ, os.path.join(here, "..", ".env"),  # factory/.env (not pipeline/)
+        os.path.join(here, "..", "..", "tools", "egress", ".env"))  # repo tools/ (not factory/tools/)
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     specs = {"g35": ("GOOGLE_AI_API_KEY", "gemini-3.5-flash-lite",
                      google_judge),

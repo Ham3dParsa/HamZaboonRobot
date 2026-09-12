@@ -1,19 +1,25 @@
 """Probe Zen keys + egress: one tiny call per key, reports OK/429/401.
-Usage: python factory/core/probe_keys.py
+Usage: python -m factory.core.probe_keys  (or python factory/core/probe_keys.py)
 Reads factory/.env (never prints values). Burns ~2 micro-calls total.
 """
 import json
 import os
 import pathlib
+import sys
 import urllib.request
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.core.env_loader import KEYS  # noqa: E402  (allowlist only, values via env)
 
 ZEN_URL = "https://opencode.ai/zen/v1/responses"
 
 
 def load_env():
-    env_path = pathlib.Path(__file__).resolve().parent / ".env"
+    env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
     data = {}
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():

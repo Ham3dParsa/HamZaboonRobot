@@ -76,6 +76,11 @@ import os
 import random
 import sys
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.core.registry import lemma_key_for, normalize_lemma, normalize_pos  # noqa: E402
 from factory.lexicon.build_kaikki_index import fetch  # noqa: E402  (reuse; never redefine)
 
@@ -104,7 +109,8 @@ DEFAULT_LOOKUP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-lookup.jso
 
 
 def script_dir() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+    # factory/ (moved under lexicon/ — packs/progress state lives in factory/, not here)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def progress_path(lang: str) -> str:

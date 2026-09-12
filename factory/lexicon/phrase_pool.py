@@ -29,6 +29,11 @@ import json
 import os
 import sys
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.lexicon.sample_lemmas import shape_verdict  # noqa: E402  (single-source; never redefine)
 
 LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
@@ -36,7 +41,7 @@ LEVEL_RANK = {level: rank for rank, level in enumerate(LEVEL_ORDER)}
 UNLEVELLED = "UNLEVELLED"
 
 DEFAULT_INDEX = "W:/hamzaban_data_factory/raw/kaikki-en-index.jsonl"
-DEFAULT_OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "packs", "en")
+DEFAULT_OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packs", "en")  # factory/packs/en
 DEFAULT_TOP_N = 500
 PHRASES_FILE = "phrases.csv"
 PHRASE_SHAPE = "2-5"
@@ -44,7 +49,8 @@ PHRASE_SOURCE = "kaikki-index"
 
 
 def script_dir() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+    # factory/ (moved under lexicon/ — packs/progress state lives in factory/, not here)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

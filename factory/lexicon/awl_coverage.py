@@ -31,6 +31,11 @@ import json
 import os
 import sys
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.core.registry import normalize_lemma  # noqa: E402  (single source)
 from factory.lexicon.sample_lemmas import (LEVEL_ORDER, LEVEL_RANK, classify, load_pack,  # noqa: E402
                            pack_has_cefr_hit)
@@ -51,7 +56,8 @@ DEFAULT_REPORT_TEMPLATE = "W:/hamzaban_data_factory/reports/awl_coverage_10k.md"
 
 
 def script_dir() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+    # factory/ (moved under lexicon/ — packs/progress state lives in factory/, not here)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def default_pool(lang: str) -> str:

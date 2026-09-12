@@ -38,6 +38,11 @@ import sys
 import time
 import urllib.request
 
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
+    sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
 from factory.core.telemetry import record_call as _tele_record  # noqa: E402
@@ -182,7 +187,8 @@ TYPE_USER_TMPL = (
 
 
 def script_dir() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+    # factory/ (moved under lexicon/ — packs/progress state lives in factory/, not here)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def default_phrases() -> str:
