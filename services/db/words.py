@@ -286,16 +286,25 @@ def get_saved_words_by_ids(word_ids: list[int], user_id: int) -> list[sqlite3.Ro
 
     Returns rows keyed in the same order as ``word_ids`` (missing rows are
     omitted). Used by the session summary to gather per-word report data.
+
+    REF3-T2: ``word_ids`` are read in chunks of at most 500 placeholders
+    (SQLite IN-variable guard); the ``by_id`` order-restore below is
+    unchanged.
     """
     if not word_ids:
         return []
-    placeholders = ",".join("?" * len(word_ids))
-    with get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM saved_words WHERE user_id=? AND id IN ({placeholders})",
-            (user_id, *word_ids),
-        ).fetchall()
-    by_id = {row["id"]: row for row in rows}
+    fetched: list[sqlite3.Row] = []
+    for start in range(0, len(word_ids), 500):
+        chunk = word_ids[start:start + 500]
+        placeholders = ",".join("?" * len(chunk))
+        with get_conn() as conn:
+            fetched.extend(
+                conn.execute(
+                    f"SELECT * FROM saved_words WHERE user_id=? AND id IN ({placeholders})",
+                    (user_id, *chunk),
+                ).fetchall()
+            )
+    by_id = {row["id"]: row for row in fetched}
     return [by_id[wid] for wid in word_ids if wid in by_id]
 
 

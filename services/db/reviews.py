@@ -93,21 +93,37 @@ def recent_events_for_words(
     activity type (the newest event) and its prior review date (the next one).
     ``per_word`` caps how many events per word are returned. A word with no
     events is simply absent from the result.
+
+    REF3-T2: ``word_ids`` are read in chunks of at most 500 placeholders
+    (SQLite IN-variable guard) and the per-word cap is applied in SQL via
+    ``ROW_NUMBER() OVER (PARTITION BY word_id ORDER BY created_at DESC,
+    id DESC)`` filtered to ``rn <= per_word`` (same tiebreaker as
+    ``prune_old_review_events``). Input ids are de-duplicated preserving
+    order first: the result is keyed by ``word_id``, so input multiplicity
+    is semantically irrelevant and must not duplicate events across chunk
+    boundaries. Return shape is unchanged.
     """
     if not word_ids:
         return {}
-    placeholders = ",".join("?" * len(word_ids))
-    with get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT word_id, grade, activity_type, created_at "
-            f"FROM review_events "
-            f"WHERE user_id=? AND word_id IN ({placeholders}) "
-            f"ORDER BY word_id, created_at DESC, id DESC",
-            (user_id, *word_ids),
-        ).fetchall()
+    word_ids = list(dict.fromkeys(word_ids))
     grouped: dict[int, list[dict]] = {}
-    for row in rows:
-        grouped.setdefault(row["word_id"], []).append(dict(row))
+    for start in range(0, len(word_ids), 500):
+        chunk = word_ids[start:start + 500]
+        placeholders = ",".join("?" * len(chunk))
+        with get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT word_id, grade, activity_type, created_at "
+                f"FROM (SELECT id, word_id, grade, activity_type, created_at, "
+                f"ROW_NUMBER() OVER (PARTITION BY word_id "
+                f"ORDER BY created_at DESC, id DESC) AS rn "
+                f"FROM review_events "
+                f"WHERE user_id=? AND word_id IN ({placeholders})) "
+                f"WHERE rn <= ? "
+                f"ORDER BY word_id, created_at DESC, id DESC",
+                (user_id, *chunk, per_word),
+            ).fetchall()
+        for row in rows:
+            grouped.setdefault(row["word_id"], []).append(dict(row))
     return {wid: evs[:per_word] for wid, evs in grouped.items()}
 
 
