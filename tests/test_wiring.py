@@ -861,8 +861,9 @@ class TestCallbackWiring(unittest.TestCase):
         The thin wrapper (callback_router), the _BUILTIN alias, the
         ROUTES-first branch and the derived allowlist stay intact; group-1
         entries move from _BUILTIN/inline branches to ROUTES (admin precedent).
-        The generic srs: inline branch stays for REF1-T5 (longest-prefix
-        keeps srs:delete:* winning via ROUTES)."""
+        REF1-T5 additionally replaced the generic srs: inline branch with the
+        registered coarse ``srs`` route (longest-prefix keeps srs:delete:*
+        winning via ROUTES)."""
         import handlers.admin  # noqa: F401  (flow route)
         import handlers.help_command  # noqa: F401  (help route)
         import handlers.user  # noqa: F401  (settings/presentation/lang/goal/level)
@@ -888,7 +889,9 @@ class TestCallbackWiring(unittest.TestCase):
             'data == "flow:back"',
         ):
             self.assertNotIn(gone, bot_text, f"replaced inline branch still present: {gone}")
-        self.assertIn('data.startswith("srs:")', bot_text)
+        # REF1-T5: the generic srs: inline branch is replaced by the
+        # registered coarse ``srs`` route (delete priority via longest-match).
+        self.assertNotIn('elif data.startswith("srs:")', bot_text)
         # Group-1 entries pruned from _BUILTIN (single source: ROUTES now).
         builtin_block = bot_text.split("_BUILTIN_CALLBACK_PREFIXES", 2)[1]
         for pruned in ('"presentation:"', '"flow:"', '"settings:"', '"help:"'):
@@ -902,6 +905,69 @@ class TestCallbackWiring(unittest.TestCase):
             ("handlers/admin.py", 'register("flow"'),
         ):
             self.assertIn(snippet, Path(path).read_text(encoding="utf-8"))
+
+    def test_routing_group2_prefixes_registered_and_dispatched(self):
+        """REF1-T5: query/study/tts/srs must be registered in the central
+        routing registry and routed through routing_dispatch in
+        callback_router (longest-prefix, single-answer).
+
+        The thin wrapper (callback_router), the _BUILTIN alias, the
+        ROUTES-first branch and the derived allowlist stay intact; group-2
+        entries move from _BUILTIN/inline branches to ROUTES. The longer
+        ``srs:delete*`` routes coexist with the coarse ``srs`` route so
+        delete taps win by longest-match over the generic grade parser."""
+        import bot  # noqa: F401  (group-2 dispatchers register at import)
+        import handlers.srs_handler  # noqa: F401  (srs:delete routes)
+        import handlers.study_handler  # noqa: F401  (session/reports routes)
+        from services.routing import ROUTES
+
+        registered = {prefix for (prefix, _, _) in ROUTES}
+        for prefix in ("query", "study", "tts", "srs"):
+            self.assertIn(prefix, registered, f"group-2 prefix {prefix!r} not registered")
+        # Longer delete routes coexist with the coarse srs route.
+        for prefix in ("srs:delete", "srs:delete:yes", "srs:delete:no"):
+            self.assertIn(prefix, registered, f"delete prefix {prefix!r} not registered")
+
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        # Thin wrapper + registry-first dispatch + derived allowlist intact.
+        self.assertIn("async def callback_router", bot_text)
+        self.assertIn("_BUILTIN_CALLBACK_PREFIXES", bot_text)
+        self.assertIn("await routing_dispatch(update, context, data)", bot_text)
+        self.assertIn("_allowlist_prefixes = _BUILTIN_CALLBACK_PREFIXES", bot_text)
+        # Group-2 inline branches are gone (replaced by registry dispatchers).
+        for gone in (
+            'data.startswith("query:add:")',
+            'data.startswith("query:dup:new:")',
+            'data.startswith("query:dup:reuse:")',
+            'data == "query:dup:cancel"',
+            'data.startswith("srs:reveal:")',
+            'data.startswith("srs:fe:")',
+            'elif data.startswith("srs:")',
+            'data == "study:start"',
+            'data == "study:inactive"',
+            'data.startswith("tts:pronounce:")',
+        ):
+            self.assertNotIn(gone, bot_text, f"replaced inline branch still present: {gone}")
+        # Group-2 entries pruned from _BUILTIN (single source: ROUTES now).
+        builtin_block = bot_text.split("_BUILTIN_CALLBACK_PREFIXES", 2)[1]
+        for pruned in (
+            '"study:start"',
+            '"query:add:"',
+            '"query:dup:new:"',
+            '"query:dup:reuse:"',
+            '"query:dup:cancel"',
+            '"srs:"',
+            '"tts:pronounce:"',
+        ):
+            self.assertNotIn(pruned, builtin_block.split(")", 1)[0])
+        # Coarse group-2 registrations live in bot.py (transport owner).
+        for snippet in (
+            'register("query",',
+            'register("study",',
+            'register("tts",',
+            'register("srs",',
+        ):
+            self.assertIn(snippet, bot_text)
 
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.

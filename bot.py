@@ -118,21 +118,15 @@ from services.ai.llm_services import (
     _retry_primary_preset,
 )
 
-from services.routing import ROUTES, dispatch as routing_dispatch
+from services.routing import ROUTES, dispatch as routing_dispatch, register
 
-# Builtin prefixes handled directly in bot.py (not via routing registry) — single
+# Allowlist seeds handled directly in bot.py (not via routing registry) — single
 # definition for allowlist derivation (R2, #20). Keyboards literals are validated
-# by tests/test_wiring.py, ROUTES covers admin/llm/srs:delete/session:summary,
-# reports plus REF1-T4 group 1 (flow/settings/help/presentation/lang/goal/level).
-_BUILTIN_CALLBACK_PREFIXES: tuple[str, ...] = (
-    "study:start",
-    "query:add:",
-    "query:dup:new:",
-    "query:dup:reuse:",
-    "query:dup:cancel",
-    "srs:",
-    "tts:pronounce:",
-)
+# by tests/test_wiring.py; ROUTES covers admin/llm/srs:delete/session:summary,
+# reports, REF1-T4 group 1 (flow/settings/help/presentation/lang/goal/level)
+# and REF1-T5 group 2 (query/study/tts/srs). The tuple is kept (now empty) as
+# the _BUILTIN alias; final deletion is a later ticket.
+_BUILTIN_CALLBACK_PREFIXES: tuple[str, ...] = ()
 
 from handlers.admin import (
     open_admin_panel,
@@ -660,6 +654,160 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _send_with_retry(context.bot, update.effective_chat.id, "از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
 
+# ---------------- REF1-T5 group-2 registry dispatchers ----------------
+# Coarse dispatchers for query/study/tts/srs (transport owner: bot.py).
+# Bodies moved byte-identically from ``callback_router``'s inline branches
+# (``data`` re-expressed as the post-prefix ``action``); the per-user lock
+# protocol is unchanged and ``srs:delete:*`` keeps winning by longest-match
+# via its longer registered routes in handlers/srs_handler.py.
+
+
+async def _route_query(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``query:*`` (REF1-T5, R1 coarse).
+
+    Unknown actions get the standard unknown fallback (previously the
+    ``callback_router`` catch-all ``else``).
+    """
+    if action.startswith("add:"):
+        token = action[len("add:"):]
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_add(update, context, token)
+    elif action.startswith("dup:new:"):
+        token = action[len("dup:new:"):]
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_dup_new(update, context, token)
+    elif action.startswith("dup:reuse:"):
+        token = action[len("dup:reuse:"):]
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_dup_reuse(update, context, token)
+    elif action == "dup:cancel":
+        await _handle_query_dup_cancel(update, context)
+    else:
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+register("query", _route_query)
+
+
+async def _route_srs(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``srs:*`` (REF1-T5, R1 coarse).
+
+    Staged-reveal, first-exposure grading and review grading; ``srs:delete:*``
+    never reaches here (longer registered routes win by longest-match).
+    """
+    if action.startswith("reveal:"):
+        parts = action.split(":")
+        if len(parts) != 3:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_srs_reveal(update, context, parts[1], parts[2])
+    elif action.startswith("fe:"):
+        parts = action.split(":")
+        if len(parts) != 4:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_first_exposure_grade(update, context, parts[1], parts[2], parts[3])
+    else:
+        parts = action.split(":")
+        if len(parts) != 3:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        try:
+            grade = int(parts[0])
+        except ValueError:
+            log.warning("Unrecognized srs callback: %s", action)
+            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
+            return
+        if grade not in (1, 2, 3, 4):
+            log.warning("Unrecognized srs callback: %s", action)
+            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
+            return
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_srs_review(update, grade, parts[1], parts[2], context)
+
+
+register("srs", _route_srs)
+
+
+async def _route_study(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``study:*`` (REF1-T5, R1 coarse)."""
+    if action == "start":
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await handle_study_start(update, context)
+    elif action == "inactive":
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await handle_study_inactive(update, context)
+    else:
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+register("study", _route_study)
+
+
+async def _route_tts(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``tts:*`` (REF1-T5, R1 coarse)."""
+    if action.startswith("pronounce:"):
+        payload = action[len("pronounce:"):]
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            log.info("tts pronounce throttled user_id=%s data=%r", update.effective_user.id, update.callback_query.data)
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_tts_pronounce(update, context, payload)
+    else:
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+register("tts", _route_tts)
+
+
 # ---------------- روتر callback query ها ----------------
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -707,113 +855,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not any(data.startswith(p) for p in _allowlist_prefixes):
         await notify_callback(update.callback_query)
 
-    if data.startswith("query:add:"):
-        parts = data.split(":", 2)
-        if len(parts) != 3:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_query_add(update, context, parts[2])
-    elif data.startswith("query:dup:new:"):
-        parts = data.split(":", 3)
-        if len(parts) != 4:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_query_dup_new(update, context, parts[3])
-    elif data.startswith("query:dup:reuse:"):
-        parts = data.split(":", 3)
-        if len(parts) != 4:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_query_dup_reuse(update, context, parts[3])
-    elif data == "query:dup:cancel":
-        await _handle_query_dup_cancel(update, context)
-    elif data.startswith("srs:reveal:"):
-        parts = data.split(":")
-        if len(parts) != 4:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_srs_reveal(update, context, parts[2], parts[3])
-    elif data.startswith("srs:fe:"):
-        parts = data.split(":")
-        if len(parts) != 5:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_first_exposure_grade(update, context, parts[2], parts[3], parts[4])
-    elif data.startswith("srs:"):
-        parts = data.split(":")
-        if len(parts) != 4:
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        try:
-            grade = int(parts[1])
-        except ValueError:
-            log.warning("Unrecognized srs callback: %s", data)
-            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
-            return
-        if grade not in (1, 2, 3, 4):
-            log.warning("Unrecognized srs callback: %s", data)
-            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
-            return
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_srs_review(update, grade, parts[2], parts[3], context)
-    elif data == "study:start":
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await handle_study_start(update, context)
-    elif data == "study:inactive":
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await handle_study_inactive(update, context)
-    elif data.startswith("tts:pronounce:"):
-        _lock = _get_user_lock(update.effective_user.id)
-        if _lock.locked():
-            log.info("tts pronounce throttled user_id=%s data=%r", update.effective_user.id, data)
-            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
-            return
-        async with _lock:
-            await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
-    else:
-        log.warning("Unhandled callback data in recognized prefix: %s", data)
-        await notify_callback(
-            update.callback_query,
-            "عملیات ناموفق بود.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
+    log.warning("Unhandled callback data in recognized prefix: %s", data)
+    await notify_callback(
+        update.callback_query,
+        "عملیات ناموفق بود.",
+        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+    )
 
 
 async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text_mode: bool):
