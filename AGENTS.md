@@ -99,7 +99,7 @@ not in prose.
   - `services/utils/`: `callback_notifications.py`, `formatting_escape.py` (escape/digits/HTML leaves), `formatting.py` (card/SRS/jalali renderings + escape re-export shim), `helpers.py` (retry/cancel), `validation.py`.
   - `services/scheduling.py`: pure session sizing, slot planning, timezone-aware timestamps.
   - `services/tts.py`: Edge TTS pronunciation.
-  - `services/session/`: pure FSRS session engine — `__init__.py` (`build_session_list`, `generate_tier3_node`), `assembly.py`, `grade_policy.py`, `summary.py` (post-session report builder).
+  - `services/session/`: pure FSRS session engine — `__init__.py` (`build_session_list`, `generate_tier3_node`), `assembly.py`, `grade_policy.py`, `summary.py` (post-session report builder), `store.py` (SessionState shape + JSON codec + save/load/clear; `study_handler` keeps thin re-exports).
   - `handlers/study_handler.py`: study-session handler.
 - `config/`: `__init__.py` env/deployment settings (not a second registry), `catalog.py` (canonical language/goal/level metadata), `plan_identity.py` (canonical plan-set membership + premium tiering), `themes.py` (canonical learner-facing theme catalog: `THEMES`, `DEFAULT_THEME_ID`, `get_theme`, `validate_themes`; frozen registry, fail-closed reads), `keyboards/__init__.py + keyboards/*.py` (menus + callback identifiers).
 - `tests/test_integration/`: handler-level integration tests.
