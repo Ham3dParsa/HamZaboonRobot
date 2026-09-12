@@ -9,7 +9,8 @@ working unchanged.
 
 Cost discipline: the per-request cost is resolved preset-dict-first from the
 preset already in hand, falling back to the cached LLM cost profile. The
-cost-resolver itself is NOT merged here (REF5-T5 scope — don't rewire).
+resolution formula lives in ``services/ai/cost_resolver.py`` (REF5-T5 — moved,
+not redesigned); this module only calls it.
 Zero AI-volume delta: no prompts, no new provider calls, timeouts untouched.
 """
 
@@ -19,7 +20,7 @@ from dataclasses import dataclass, field
 
 from config import COST
 from services import db
-from services.ai import ai_read_cache
+from services.ai import ai_read_cache, cost_resolver
 
 log = logging.getLogger(__name__)
 
@@ -59,16 +60,11 @@ def _log_llm_request(
     # profile. The profile read is served from a TTL cache (BOT-2) invalidated
     # on admin save. Preset-level cost edits via admin_ai take effect at the
     # chain TTL (~10s); the profile fallback is invalidated instantly.
-    if preset:
-        input_cost = preset.get("input_cost_per_million")
-        output_cost = preset.get("output_cost_per_million")
-    else:
-        input_cost = None
-        output_cost = None
-
+    # Formula owned by services/ai/cost_resolver.resolve_costs (REF5-T5).
     profile = ai_read_cache.get_cost_profile()
-    input_cost_per_million = input_cost if input_cost is not None else profile["input_cost_usd_per_million"]
-    output_cost_per_million = output_cost if output_cost is not None else profile["output_cost_usd_per_million"]
+    input_cost_per_million, output_cost_per_million, usd_to_toman_rate = (
+        cost_resolver.resolve_costs(preset, profile)
+    )
 
     if prompt_tokens and completion_tokens:
         cost_usd = (
@@ -128,7 +124,7 @@ def _log_llm_request(
         total_tokens=total_tokens,
         input_cost_usd_per_million=input_cost_per_million,
         output_cost_usd_per_million=output_cost_per_million,
-        usd_to_toman_rate=profile["usd_to_toman_rate"],
+        usd_to_toman_rate=usd_to_toman_rate,
         latency_ms=latency_value,
         error_class=type(error).__name__ if error else None,
         error_message=str(error) if error else None,

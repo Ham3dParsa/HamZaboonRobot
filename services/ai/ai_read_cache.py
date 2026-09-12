@@ -1,6 +1,7 @@
 """In-memory TTL read caches for slow-changing AI config reads (G4/BOT-1/2).
 
-Owns two caches on the AI hot path:
+Thin facade over ``services/ai/cache.TTLCache`` (REF5-T5: pattern moved, not
+redesigned). Owns two keys on the AI hot path:
 - Fallback chain (R1-B): a short TTL so ``_call_ai_limited`` reads the chain
   once instead of on every call.
 - LLM cost profile (R2-A): a 60s TTL that is invalidatable, so an admin save
@@ -14,13 +15,14 @@ routing path (enable/disable/reorder), while the admin panel shows the edit
 immediately.
 """
 
-import threading
-import time
-
 from services import db
+from services.ai.cache import TTLCache
 
 CHAIN_TTL_SECONDS = 10.0
 COST_PROFILE_TTL_SECONDS = 60.0
+
+_CHAIN_KEY = "chain"
+_COST_PROFILE_KEY = "cost_profile"
 
 
 class ReadCache:
@@ -39,49 +41,23 @@ class ReadCache:
     ):
         self._chain_ttl = chain_ttl
         self._cost_ttl = cost_ttl
-        self._lock = threading.Lock()
-        self._chain: list[dict] | None = None
-        self._chain_at = 0.0
-        self._cost_profile: dict[str, float] | None = None
-        self._cost_at = 0.0
+        self._entries = TTLCache()
 
     def get_chain(self, loader=None) -> list[dict]:
         loader = loader or db.get_fallback_chain_presets
-        now = time.monotonic()
-        if self._chain is not None and now - self._chain_at < self._chain_ttl:
-            return self._chain
-        with self._lock:
-            now = time.monotonic()
-            if self._chain is None or now - self._chain_at >= self._chain_ttl:
-                self._chain = loader()
-                self._chain_at = now
-            return self._chain
+        return self._entries.get(_CHAIN_KEY, loader, ttl=self._chain_ttl)
 
     def get_cost_profile(self, loader=None) -> dict[str, float]:
         loader = loader or db.get_llm_cost_profile
-        now = time.monotonic()
-        if self._cost_profile is not None and now - self._cost_at < self._cost_ttl:
-            return self._cost_profile
-        with self._lock:
-            now = time.monotonic()
-            if self._cost_profile is None or now - self._cost_at >= self._cost_ttl:
-                self._cost_profile = loader()
-                self._cost_at = now
-            return self._cost_profile
+        return self._entries.get(_COST_PROFILE_KEY, loader, ttl=self._cost_ttl)
 
     def invalidate_cost_profile(self) -> None:
         """Clear the cached cost profile so the next read refetches it."""
-        with self._lock:
-            self._cost_profile = None
-            self._cost_at = 0.0
+        self._entries.invalidate(_COST_PROFILE_KEY)
 
     def reset(self) -> None:
         """Drop all cached values (test/restart seam)."""
-        with self._lock:
-            self._chain = None
-            self._chain_at = 0.0
-            self._cost_profile = None
-            self._cost_at = 0.0
+        self._entries.reset()
 
 
 # Module-level default instance, bound to the real db accessors. Tests inject
