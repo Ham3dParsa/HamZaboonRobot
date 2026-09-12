@@ -86,7 +86,7 @@ class ChainReadOnceTest(_ReadAmplificationIsolatedDb):
                 prompt_tokens=1, completion_tokens=1, total_tokens=2
             )})
 
-        with mock.patch("services.ai.llm_services._is_preset_rate_limited", return_value=False), \
+        with mock.patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False), \
              mock.patch("services.ai.ai_read_cache.db.get_fallback_chain_presets", side_effect=counting_chain_loader):
             _call_ai_limited(ok_fn, request_kind="card")
             _call_ai_limited(ok_fn, request_kind="card")
@@ -106,10 +106,10 @@ class ChainReadOnceTest(_ReadAmplificationIsolatedDb):
             return ai.TrackedResult(value={"ok": True}, telemetry={})
 
         with mock.patch("services.ai.ai_read_cache.db.get_fallback_chain_presets", side_effect=counting_chain_loader):
-            with mock.patch("services.ai.llm_services._is_preset_rate_limited", return_value=False):
+            with mock.patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False):
                 _call_ai_limited(ok_fn, request_kind="card")
             ai_read_cache.reset_read_cache()
-            with mock.patch("services.ai.llm_services._is_preset_rate_limited", return_value=False):
+            with mock.patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False):
                 _call_ai_limited(ok_fn, request_kind="card")
 
         self.assertEqual(len(calls), 2, "cache reset must force a chain refetch")

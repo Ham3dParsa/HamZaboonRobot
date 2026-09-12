@@ -61,7 +61,7 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
 
         return _call_ai_limited(ok, request_kind="grammar_tip")
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_single_transient_failure_routes_to_next(self, _):
         """One failure (even 429) must not be penalized yet; next preset serves."""
         _seed([
@@ -77,7 +77,7 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
         result = _call_ai_limited(mock, request_kind="grammar_tip")
         self.assertEqual(result, {"preset": "pb"})
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_reaches_threshold_then_sidelined_and_routes_to_next(self, _):
         """After reaching the consecutive-failure threshold, the failing preset is
         temporarily sidelined and a later call routes straight to the stable one."""
@@ -110,7 +110,7 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
         self.assertEqual(calls["pb"], 1, "stable preset should serve once")
         self.assertEqual(calls["pa"], 0, "sidelined preset should not be called")
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_backoff_expiry_recovers_preferred(self, _):
         """After the backoff window expires, the preferred/highest-priority preset
         is tried again and serves on success."""
@@ -156,7 +156,7 @@ class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
     """Kilo R4 / R6: AllPresetsExhausted chains the last error, and the R13
     hourly-usage prune is throttled (not a write on every quota check)."""
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_exhaustion_chains_last_error(self, _):
         _seed([{"name": "pa", "priority": 0}])
 
@@ -169,8 +169,9 @@ class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
         self.assertIsInstance(cm.exception.__cause__, KeyError)
         self.assertIn("broken_preset_field", str(cm.exception))
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_prune_throttled_to_once_per_hour(self, _):
+        import services.ai.fallback_router as fr
         import services.ai.limiter as lim
         import services.ai.llm_services as ls
 
@@ -180,7 +181,7 @@ class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
         # REF5-T4: the prune clock/db live in limiter (single source); the
         # daily-cap check under test stays in llm_services.
         old_prune = lim._last_hourly_prune
-        with patch.object(ls, "db") as mock_db, patch.object(
+        with patch.object(fr, "db") as mock_db, patch.object(
             lim, "db", mock_db
         ), patch.object(lim.time, "monotonic", return_value=10_000.0):
             pruner = mock_db.prune_preset_hourly_usage
