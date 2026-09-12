@@ -3,20 +3,24 @@
 Covers (plain asserts, hermetic — inline TSV fixture in tmp dirs, no W:, no network):
   (a) single-candidate lookup: run verb -> (B1, wn-single);
   (b) POS filtering: peer noun -> B2, peer verb -> C1 (no cross-POS leak);
-  (c) satellite-adj (%5) joins the adj bucket: better adj sees the %5 row;
+  (c) satellite-adj (%5) joins the adj bucket: better adj sees the %5 row,
+      multi-candidate without an EVP hit -> (None, unmapped);
   (d) EVP guideword-in-gloss disambiguation: good adj + "quality" gloss
       -> (B1, wn-evp-gloss);
-  (e) min-level fallback: good adj + gloss with no guideword hit
-      -> (A2, wn-lemma-min);
+  (e) multi-candidate without EVP hit: good adj + gloss with no guideword
+      hit -> (None, unmapped) — no min-level fabrication;
   (f) unmapped lemma -> (None, unmapped);
   (g) missing TSV file fails closed (empty map, skipped count, no raise);
   (h) malformed TSV lines are skipped + counted, good rows still load;
   (i) underscore sensekeys ("credit_card%1") map to the spaced lemma;
   (j) enrich_item wiring: precard row carries additive sense_cefr +
-      sense_cefr_method (mapped for a fixture lemma, unmapped for junk).
+      sense_cefr_method (mapped single for a fixture lemma, pool-fallback
+      copy of pool_level for junk).
 
-Locked contract R1-R8 (owner "locked"): cascade
-EVP-intersection -> single -> min -> unmapped; stdlib only; no schema change.
+Locked contract (owner lock 2026-09-12): cascade
+single -> EVP-intersection -> unmapped (min-branch removed); enrich
+never-null rule copies pool_level with "pool-fallback"; stdlib only; no
+schema change; no new reason literals (N5).
 """
 
 import pytest
@@ -65,9 +69,10 @@ def test_pos_filtering_no_cross_pos_leak(bridge):
 
 def test_satellite_adj_joins_adj_bucket(bridge):
     # better adj sees 3 rows (A2/B1/C1 incl. the %5 satellite); no EVP hit
-    # on this gloss, so the min-level fallback fires over all three.
+    # on this gloss, so multi-candidate ambiguity stays unmapped (no
+    # min-level fabrication — enrich copies pool_level via pool-fallback).
     assert B.sense_cefr_for("better", "adj", "comparative gloss", bridge) == (
-        "A2", "wn-lemma-min")
+        None, "unmapped")
 
 
 def test_evp_guideword_disambiguation(bridge):
@@ -76,10 +81,10 @@ def test_evp_guideword_disambiguation(bridge):
         "B1", "wn-evp-gloss")
 
 
-def test_min_level_fallback_without_evp_hit(bridge):
+def test_multi_without_evp_hit_is_unmapped(bridge):
     assert B.sense_cefr_for(
         "good", "adjective", "a pleasant day outside", bridge, EVP) == (
-        "A2", "wn-lemma-min")
+        None, "unmapped")
 
 
 def test_unmapped_lemma(bridge):
@@ -158,9 +163,9 @@ def test_hostile_in_memory_maps_never_raise(bridge):
     assert B.sense_cefr_for("good", "adj", "of high quality", bridge,
                             hostile) == ("B1", "wn-evp-gloss")
     assert B.sense_cefr_for("good", "adj", "a pleasant day", bridge,
-                            hostile) == ("A2", "wn-lemma-min")
+                            hostile) == (None, "unmapped")
     assert B.sense_cefr_for("good", "adj", "x", bridge, "junk") == (
-        "A2", "wn-lemma-min")
+        None, "unmapped")
     assert B.sense_cefr_for("good", "adj", "x", "junk", {}) == (
         None, "unmapped")
 
@@ -186,9 +191,9 @@ def test_non_string_evp_and_gloss_fail_closed(bridge):
     assert B.sense_cefr_for("good", "adj", "of high quality", bridge,
                             evp) == ("B1", "wn-evp-gloss")
     assert B.sense_cefr_for("good", "adj", ["not", "a", "string"],
-                            bridge, evp) == ("A2", "wn-lemma-min")
+                            bridge, evp) == (None, "unmapped")
     assert B.sense_cefr_for("good", "adj", 123, bridge, evp) == (
-        "A2", "wn-lemma-min")
+        None, "unmapped")
 
 
 def test_underscore_sensekey_maps_to_spaced_lemma(bridge):
@@ -216,7 +221,40 @@ def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
         out2 = P.enrich_item(
             junk, {"sense_id": "", "gloss": ""}, {}, lambda row: {},
             {}, phrase_entry=None)
-        assert out2["sense_cefr"] is None
-        assert out2["sense_cefr_method"] == "unmapped"
+        assert out2["sense_cefr"] == "A1"
+        assert out2["sense_cefr_method"] == "pool-fallback"
+    finally:
+        B.clear_cache()
+
+
+def test_pool_fallback_normalized_validated_never_raises(
+        tmp_path, monkeypatch):
+    # pool-fallback copies only normalized, known CEFR levels; unknown or
+    # non-string pool_level keeps the bridge (None, "unmapped") verdict
+    # and never raises (fail-closed on hostile items).
+    from factory.pipeline import precard_pipeline as P
+    tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
+    tsv.write_text("".join(TSV_ROWS), encoding="utf-8")
+    monkeypatch.setattr(B, "DEFAULT_TSV", str(tsv))
+    monkeypatch.setattr(B, "DEFAULT_EVP", str(
+        tmp_path / "no-evp.json"))
+    B.clear_cache()
+    try:
+        pick = {"sense_id": "", "gloss": ""}
+
+        def enrich(pool_level):
+            item = {"kind": "word", "text": "dvd", "pos": "noun",
+                    "pool_level": pool_level}
+            return P.enrich_item(
+                item, pick, {}, lambda row: {}, {})
+
+        out = enrich(" a1 ")
+        assert out["sense_cefr"] == "A1"
+        assert out["sense_cefr_method"] == "pool-fallback"
+        for bad in ("XX", "", "   ", 123, ["A1"], {"lvl": "A1"},
+                    None):
+            out = enrich(bad)
+            assert out["sense_cefr"] is None
+            assert out["sense_cefr_method"] == "unmapped"
     finally:
         B.clear_cache()
