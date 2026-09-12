@@ -1,4 +1,4 @@
-0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1
+# 0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1
 # Keepalive: exact-name match (a -f pattern would self-match this cmdline).
 # Daemon-aware: `status xray` showing RUNNING means trust supervisor, done;
 # any other answer from a live daemon gets one `start` + recheck; a bare
@@ -7,4 +7,4 @@
 # daemon itself is unreachable, gated by binary + non-empty config + shared
 # validator structure check. Paths fixed to /app (same as supervisor.conf
 # and scripts/xray/*); non-default BASE_ROOT unsupported.
-* * * * * root pgrep -x xray > /dev/null || { if supervisorctl -c /app/supervisor.conf status xray 2>/dev/null | grep -q RUNNING; then :; elif supervisorctl -c /app/supervisor.conf status >/dev/null 2>&1; then supervisorctl -c /app/supervisor.conf start xray >/dev/null 2>&1 || true; sleep 2; supervisorctl -c /app/supervisor.conf status xray >>/var/log/xray/xray.log 2>&1 || true; else test -x /usr/local/bin/xray && test -s /app/.xray/config.json && { if test -x /usr/local/bin/validate-xray.py; then python3 /usr/local/bin/validate-xray.py /app/.xray/config.json >/dev/null 2>&1; else python3 /app/scripts/xray/validate_config.py /app/.xray/config.json >/dev/null 2>&1; fi; } && /usr/local/bin/xray run -c /app/.xray/config.json >>/var/log/xray/xray.log 2>&1 & fi; }
+# * * * * * root pgrep -x xray > /dev/null || { if supervisorctl -c /app/supervisor.conf status xray 2>/dev/null | grep -q RUNNING; then :; elif supervisorctl -c /app/supervisor.conf status >/dev/null 2>&1; then supervisorctl -c /app/supervisor.conf start xray >/dev/null 2>&1 || true; sleep 2; supervisorctl -c /app/supervisor.conf status xray >>/var/log/xray/xray.log 2>&1 || true; else test -x /usr/local/bin/xray && test -s /app/.xray/config.json && { if test -x /usr/local/bin/validate-xray.py; then python3 /usr/local/bin/validate-xray.py /app/.xray/config.json >/dev/null 2>&1; else python3 /app/scripts/xray/validate_config.py /app/.xray/config.json >/dev/null 2>&1; fi; } && /usr/local/bin/xray run -c /app/.xray/config.json >>/var/log/xray/xray.log 2>&1 & fi; }

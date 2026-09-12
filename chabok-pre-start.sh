@@ -32,6 +32,8 @@ if [ "$XRAY_ENABLED" != "1" ]; then
   supervisorctl -c "$BASE_ROOT/supervisor.conf" shutdown >/dev/null 2>&1 || true
   pkill -f "xray run" >/dev/null 2>&1 || true
   rm -f /etc/cron.d/xray-update || true
+  crontab -r 2>/dev/null || true
+  service cron stop >/dev/null 2>&1 || true
   if [ -n "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: XRAY_ENABLED!=1 but AI_PROXY_URL is set - AI calls will hang, clear AI_PROXY_URL"; fi
 fi
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
@@ -57,12 +59,12 @@ if [ "$XRAY_ENABLED" = "1" ] && ! command -v xray >/dev/null 2>&1; then
   rm -f /tmp/xray.zip
 fi
 
-# 2) Ensure cron is running (container has no systemd) and install cron-jobs.
-# The repo cron-jobs file IS the /etc/cron.d content (single source, already
-# carries the USER field) — copy it verbatim instead of echoing hardcoded lines.
-service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
-if [ "$XRAY_ENABLED" = "1" ] && [ -f "$BASE_ROOT/cron-jobs" ]; then
-  cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+# 2) Ensure cron is running ONLY when Xray is enabled and install cron-jobs.
+if [ "$XRAY_ENABLED" = "1" ]; then
+  service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
+  if [ -f "$BASE_ROOT/cron-jobs" ]; then
+    cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+  fi
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
