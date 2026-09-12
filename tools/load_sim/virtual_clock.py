@@ -19,7 +19,7 @@ fails loudly instead of silently skipping a seam):
 - ``config._app_today`` — quota-status reads (``users.get_quota_status``),
   ``scheduling.word_query_usage_text`` (both late-import it per call, so
   patching the owner covers them).
-- ``services.utils.formatting._app_today`` — display baseline ``_app_date``.
+- ``services.utils.formatting_jalali._app_today`` — display baseline ``_app_date``.
 - ``services.scheduling._today_str`` — session quota keys
   (``_session_key``/``consume``/``release``/``budget``).
 - ``handlers.study_handler._app_today`` — ``session_reports.session_date``
@@ -84,7 +84,7 @@ def virtual_day(day_iso: str):
 
     targets: list[tuple[str, object]] = [
         ("config._app_today", lambda: iso),
-        ("services.utils.formatting._app_today", lambda: iso),
+        ("services.utils.formatting_jalali._app_today", lambda: iso),
         ("services.scheduling._today_str", lambda: iso),
         ("handlers.study_handler._app_today", lambda: iso),
         ("handlers.study_handler._today_str", lambda: iso),
