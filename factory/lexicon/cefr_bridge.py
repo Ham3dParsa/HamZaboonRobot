@@ -6,11 +6,12 @@ without needing WordNet glosses: disambiguation reuses the EVP subset
 guidewords (guideword-in-gloss, same pattern as the v16
 ``evp_fallback_label``), intersected with the TSV candidate CEFRs.
 
-Locked cascade (contract R3, owner "locked"):
-  candidates ∩ EVP-guideword-gloss-match -> that CEFR ("wn-evp-gloss");
-  elif single TSV row -> it ("wn-single");
-  else min CEFR over candidates ("wn-lemma-min");
-  no rows -> (None, "unmapped").
+Locked cascade (owner lock 2026-09-12, min-branch removed):
+  single TSV row -> it ("wn-single");
+  elif candidates ∩ EVP-guideword-gloss-match -> that CEFR ("wn-evp-gloss");
+  else (None, "unmapped") — multi-candidate ambiguity without an EVP hit
+  stays unmapped; the precard enrich layer copies pool_level with
+  "pool-fallback" (honest pool signal until the embedding phase).
 
 WordNet POS numbers: 1 noun, 2 verb, 3 adj, 4 adv, 5 satellite-adj
 (satellites join the adj bucket). Unknown kaikki POS spellings fall back
@@ -59,7 +60,7 @@ _ALL_POSNUMS = {1, 2, 3, 4, 5}
 
 METHOD_SINGLE = "wn-single"
 METHOD_EVP_GLOSS = "wn-evp-gloss"
-METHOD_LEMMA_MIN = "wn-lemma-min"
+METHOD_POOL_FALLBACK = "pool-fallback"
 METHOD_UNMAPPED = "unmapped"
 
 _CACHE: dict = {}
@@ -242,6 +243,8 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
             cands.append((sensekey, cefr))
     if not cands:
         return None, METHOD_UNMAPPED
+    if len(cands) == 1:
+        return cands[0][1], METHOD_SINGLE
     cand_levels = {cefr for _, cefr in cands}
     glossary = gloss.lower() if isinstance(gloss, str) else ""
     if glossary:
@@ -266,9 +269,4 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
                 matched.add(cefr)
         if matched:
             return _min_cefr(matched), METHOD_EVP_GLOSS
-    if len(cands) == 1:
-        return cands[0][1], METHOD_SINGLE
-    level = _min_cefr(cand_levels)
-    if level is None:
-        return None, METHOD_UNMAPPED
-    return level, METHOD_LEMMA_MIN
+    return None, METHOD_UNMAPPED

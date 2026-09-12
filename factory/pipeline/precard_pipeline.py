@@ -1977,6 +1977,23 @@ def compute_pre_card_id(lemma, pos, en_def):
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
+def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
+    """Bridge sense-CEFR with the never-null pool fallback.
+
+    Returns (sense_cefr, method): the bridge value when non-empty, else
+    the item pool_level with method "pool-fallback". When pool_level is
+    itself missing/empty the bridge verdict is kept as-is (unmapped) —
+    uncertainty keeps, never a fabricated level.
+    """
+    sense_cefr, method = cefr_bridge.sense_cefr_for(lemma, pos, gloss)
+    if sense_cefr:
+        return sense_cefr, method
+    pool = (item.get("pool_level") or "").strip()
+    if pool:
+        return pool, cefr_bridge.METHOD_POOL_FALLBACK
+    return sense_cefr, method
+
+
 def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    zipf_fn=None, phrase_entry=None):
     """Enrichment (s5) from the judge-chosen sense (card_pilot helpers).
@@ -1997,14 +2014,18 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     C3: also returns lexical_type + register (picked-sense kaikki tags /
     phrase-type log entry) and pre_card_id (stable EN-content id) —
     dataset sources only, zero LLM calls.
+    Sense-CEFR never-null rule (owner lock 2026-09-12): when the bridge
+    returns an empty/None sense_cefr, the item pool_level is copied with
+    method "pool-fallback" — every precard row leaves with non-empty
+    sense_cefr whenever pool_level is present.
     """
     sid = (judge_pick or {}).get("sense_id", "")
     gloss = (judge_pick or {}).get("gloss", "")
     kind = item.get("kind") or "word"
     lemma = (item.get("text") or "").strip()
     if not sid:
-        sense_cefr, sense_cefr_method = cefr_bridge.sense_cefr_for(
-            lemma, item.get("pos") or "", gloss or "")
+        sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
+            item, lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
                 "dataset_examples": [], "abbrev_expansion": "",
@@ -2065,8 +2086,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    card_pilot.N_EXAMPLES else "partial")
     sense_tags = _sense_tag_set(sense)
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
-    sense_cefr, sense_cefr_method = cefr_bridge.sense_cefr_for(
-        lemma, id_pos, gloss or "")
+    sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
+        item, lemma, id_pos, gloss or "")
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
