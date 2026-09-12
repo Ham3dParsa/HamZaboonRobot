@@ -177,6 +177,103 @@ class CardPreparationError(RuntimeError):
     pass
 
 
+def format_card_message(
+    data: dict,
+    footer: str = "",
+    *,
+    presentation: str = "detailed",
+    translations_prepared: bool = False,
+    phonetic_lines: list[str] | None = None,
+    badge: str = "",
+):
+    """Build the word-query card as a Rich structured ``Message`` (REF1-T2).
+
+    Same layout and signature as :func:`format_card`, but every dynamic value
+    (word, meanings, synonyms, examples, badge, footer, …) rides a
+    ``Plain``/``Code`` span raw and is escaped exactly once by the
+    ``send_pretty`` MDV2 renderer at delivery time. Handlers must never call
+    ``escape_mdv2`` on a value they pass here — pre-escaped text inside
+    ``Plain`` double-escapes. ``phonetic_lines`` keeps its existing
+    pre-formatted ``["`…`"]`` shape (produced by :func:`phonetic_lines`); each
+    code line's inner text is unwrapped into a ``Code`` span so it is escaped
+    exactly once as well.
+    """
+    from services.send_pretty import bold, code, plain, spoiler
+
+    if presentation not in {"brief", "detailed"}:
+        raise ValueError("presentation must be 'brief' or 'detailed'")
+
+    from services.send_pretty import Message
+
+    msg = Message()
+    msg.add_line(bold(plain(data.get("word") or "")))
+    for span in _phonetic_code_spans(phonetic_lines):
+        msg.add_line(span)
+    if badge:
+        msg.add_line(plain(""))
+        msg.add_line(plain(badge or ""))
+    msg.add_line(plain(""))
+    msg.add_line(plain("✤ "), bold(plain(data.get("fa_meaning") or "")))
+    fa_expl = data.get("fa_explanation") or ""
+    if fa_expl:
+        msg.add_line(plain(fa_expl))
+    if presentation == "brief":
+        if footer:
+            msg.add_line(plain(""))
+            msg.add_line(plain(footer))
+        return msg
+
+    syn = "، ".join(str(s) for s in (data.get("synonyms") or [])) or "—"
+    ant = "، ".join(str(s) for s in (data.get("antonyms") or [])) or "—"
+    msg.add_line(plain(""))
+    msg.add_line(plain("🟢 "), bold(plain("مترادف:")), plain(f" {syn}"))
+    msg.add_line(plain("🔴 "), bold(plain("متضاد:")), plain(f" {ant}"))
+
+    examples = (data.get("examples") or [])[:2]
+    translations = (data.get("example_translations") or [])[:2]
+    if examples:
+        example_label = "مثال‌ها + ترجمه" if translations_prepared else "مثال‌ها"
+        msg.add_line(plain(""))
+        msg.add_line(plain("📝 "), bold(plain(f"{example_label}:")))
+        for index, example in enumerate(examples):
+            msg.add_line(plain("✦ "), plain(example))
+            if translations_prepared and index < len(translations):
+                msg.add_line(spoiler(plain(translations[index])))
+
+    grammar_tip = data.get("grammar_tip") or ""
+    if grammar_tip:
+        msg.add_line(plain(""))
+        msg.add_line(plain("✍️ "), bold(plain("نکته‌ی گرامری:")))
+        msg.add_line(plain(grammar_tip))
+
+    if footer:
+        msg.add_line(plain(""))
+        msg.add_line(plain(footer))
+    return msg
+
+
+def _phonetic_code_spans(lines: list[str] | None) -> list:
+    """Unwrap pre-formatted phonetic code lines into ``Code`` spans.
+
+    :func:`phonetic_lines` returns MDV2 ``"`<code-escaped IPA>`"`` strings.
+    Each line's inner text is unescaped once (``\\``` → `` ` ``, ``\\\\`` →
+    ``\\``) and carried raw in a ``Code`` span, so the MDV2 renderer escapes
+    it exactly once — byte-identical to the legacy verbatim splice. Lines
+    that are not backtick-wrapped degrade to ``Plain`` (escaped); no prod or
+    test path sends such lines.
+    """
+    from services.send_pretty import code, plain
+
+    spans = []
+    for line in lines or ():
+        if len(line) >= 2 and line.startswith("`") and line.endswith("`"):
+            inner = re.sub(r"\\([`\\])", r"\1", line[1:-1])
+            spans.append(code(inner))
+        else:
+            spans.append(plain(line))
+    return spans
+
+
 def format_card(
     data: dict,
     footer: str = "",
@@ -186,59 +283,21 @@ def format_card(
     phonetic_lines: list[str] | None = None,
     badge: str = "",
 ) -> str:
-    if presentation not in {"brief", "detailed"}:
-        raise ValueError("presentation must be 'brief' or 'detailed'")
+    """Legacy string entry point — thin ``.render(MDV2)`` shim (REF1-T2, kept).
 
-    word = escape_mdv2(data.get("word", ""))
-    fa_meaning = escape_mdv2(data.get("fa_meaning", ""))
-    fa_expl = escape_mdv2(data.get("fa_explanation", ""))
+    All layout lives in :func:`format_card_message`; this wrapper only renders
+    it so existing callers (tests, SRS/study surfaces) keep working unchanged.
+    """
+    from services.send_pretty import Backend
 
-    lines = [f"*{word}*"]
-
-    if phonetic_lines:
-        lines.extend(phonetic_lines)
-
-    if badge:
-        lines.append(f"\n{escape_mdv2(badge)}")
-
-    lines.append(f"\n✤ *{fa_meaning}*")
-
-    if fa_expl:
-        lines.append(f"{fa_expl}")
-
-    if presentation == "brief":
-        if footer:
-            lines.append(f"\n{escape_mdv2(footer)}")
-        return "\n".join(lines)
-
-    syn_list = [escape_mdv2(s) for s in (data.get("synonyms") or [])]
-    ant_list = [escape_mdv2(s) for s in (data.get("antonyms") or [])]
-    syn = "، ".join(syn_list) or "—"
-    ant = "، ".join(ant_list) or "—"
-
-    examples = (data.get("examples") or [])[:2]
-    translations = (data.get("example_translations") or [])[:2]
-
-    grammar_tip = escape_mdv2(data.get("grammar_tip", ""))
-
-    lines.append(f"\n🟢 *مترادف:* {syn}")
-    lines.append(f"🔴 *متضاد:* {ant}")
-
-    if examples:
-        example_label = escape_mdv2("مثال‌ها + ترجمه" if translations_prepared else "مثال‌ها")
-        lines.append(f"\n📝 *{example_label}:*")
-        for index, example in enumerate(examples):
-            lines.append(f"✦ {escape_mdv2(example)}")
-            if translations_prepared and index < len(translations):
-                lines.append(f"||{escape_mdv2(translations[index])}||")
-
-    if grammar_tip:
-        lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")
-
-    if footer:
-        lines.append(f"\n{escape_mdv2(footer)}")
-
-    return "\n".join(lines)
+    return format_card_message(
+        data,
+        footer,
+        presentation=presentation,
+        translations_prepared=translations_prepared,
+        phonetic_lines=phonetic_lines,
+        badge=badge,
+    ).render(Backend.MDV2)
 
 
 def _example_has_word(example: str, word: str) -> bool:

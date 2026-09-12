@@ -7,6 +7,8 @@ from services.session.summary import WordReviewRecord, build_report
 from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
+    format_card,
+    format_card_message,
     format_grammar_tip,
     format_next_review_text,
     format_session_detail_page,
@@ -550,3 +552,111 @@ class TestFormatGrammarTip(unittest.TestCase):
             rendered,
             "✍️ **\n\n\n\n``\n\n📊 استفاده امروز: ۳/۱۰",
         )
+
+
+class TestFormatCardMessage(unittest.TestCase):
+    """REF1-T2: format_card_message factory + format_card thin-shim parity.
+
+    Every dynamic value rides a Plain/Code span raw; the MDV2 renderer escapes
+    exactly once. Parity holds on all fixtures: brief/detailed/phonetic/badge/
+    empty/special-chars. Pre-escaped strings must never be fed into Plain.
+    """
+
+    def _fixtures(self):
+        full = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن استفاده می‌شود.",
+            "synonyms": ["hi", "greetings"],
+            "antonyms": ["goodbye"],
+            "examples": ["Example one.", "Example two.", "Extra example."],
+            "example_translations": ["مثال اول.", "مثال دوم.", "مثال اضافه."],
+            "grammar_tip": "یک نکته.",
+        }
+        special = {
+            "word": "a*b_c",
+            "fa_meaning": "معنی [خاص] (تست)!",
+            "fa_explanation": "توضیح ~تیلد~ و `کد`!",
+            "synonyms": ["x*y", "p_q"],
+            "antonyms": ["m[n]"],
+            "examples": ["Hello! (world)."],
+            "example_translations": ["سلام! (دنیا)."],
+            "grammar_tip": "نکته ۱۰۰%!",
+        }
+        return full, special
+
+    def _cases(self):
+        full, special = self._fixtures()
+        return [
+            ("brief", dict(full), "", "brief", False, None, ""),
+            ("detailed", dict(full), "", "detailed", False, None, ""),
+            ("detailed-prepared", dict(full), "", "detailed", True, None, ""),
+            ("phonetic", dict(full), "", "detailed", True, ["`hɛ.loʊ`"], ""),
+            ("phonetic-escaped", dict(full), "", "detailed", True, ["`a\\`b`"], ""),
+            ("badge", dict(full), "", "detailed", True, None, "کارت جدید ✨"),
+            ("footer", dict(full), "فوتر تست", "detailed", True, None, ""),
+            ("brief-footer", dict(full), "فوتر تست", "brief", True, None, ""),
+            ("empty", {}, "", "detailed", False, None, ""),
+            ("empty-brief", {}, "", "brief", False, None, ""),
+            ("special", dict(special), "فوتر *خاص*!", "detailed", True,
+             ["`IPA: /kɔm.pliˈtsiːʁt/`"], "نشان *ویژه*!"),
+            ("special-brief", dict(special), "", "brief", False, None, ""),
+        ]
+
+    def test_returns_message(self):
+        from services.send_pretty import Message
+        full, _ = self._fixtures()
+        msg = format_card_message(full)
+        self.assertIsInstance(msg, Message)
+
+    def test_render_equals_legacy_on_all_fixtures(self):
+        for name, data, footer, presentation, prepared, phon, badge in self._cases():
+            with self.subTest(fixture=name):
+                legacy = format_card(
+                    dict(data),
+                    footer,
+                    presentation=presentation,
+                    translations_prepared=prepared,
+                    phonetic_lines=list(phon) if phon else None,
+                    badge=badge,
+                )
+                rendered = format_card_message(
+                    dict(data),
+                    footer,
+                    presentation=presentation,
+                    translations_prepared=prepared,
+                    phonetic_lines=list(phon) if phon else None,
+                    badge=badge,
+                ).render(Backend.MDV2)
+                self.assertEqual(rendered, legacy)
+
+    def test_no_double_escape_on_special_chars(self):
+        _, special = self._fixtures()
+        rendered = format_card_message(
+            dict(special), "فوتر *خاص*!", translations_prepared=True,
+        ).render(Backend.MDV2)
+        self.assertIn("a\\*b\\_c", rendered)
+        self.assertNotIn("a\\\\*b", rendered)
+        self.assertNotIn("\\\\_", rendered)
+
+    def test_plain_spans_carry_raw_values(self):
+        # Structural guard for the Rule: dynamics ride Plain raw — the factory
+        # must not call escape_mdv2 on values before wrapping them.
+        import inspect
+        from services.utils import formatting as fmt
+        source = inspect.getsource(fmt.format_card_message)
+        self.assertNotIn("escape_mdv2(", source)
+
+    def test_rejects_unknown_presentation(self):
+        with self.assertRaises(ValueError):
+            format_card_message({"word": "hello"}, presentation="compact")
+        with self.assertRaises(ValueError):
+            format_card({"word": "hello"}, presentation="compact")
+
+    def test_does_not_mutate_input(self):
+        import json
+        full, _ = self._fixtures()
+        snapshot = json.loads(json.dumps(full, ensure_ascii=False))
+        format_card_message(dict(full), presentation="detailed")
+        format_card_message(dict(full), presentation="brief")
+        self.assertEqual(full, snapshot)
