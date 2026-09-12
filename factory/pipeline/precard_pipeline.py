@@ -265,13 +265,13 @@ def parse_args(argv=None):
                     "from AWL, never fails)")
     ap.add_argument("--judge-provider", default="zen",
                     choices=("zen", "avalai"),
-                    help="S2 judge transport: zen (default, free chain) or "
+                    help="judge transport: zen (default, free chain) or "
                     "avalai (paid chain — locked 2026-09-06; "
                     "requires AVALAI_API_KEY). DEPRECATED alias: use "
                     "--llm-provider avalai (covers all precard LLM legs).")
     ap.add_argument("--llm-provider", default="zen",
                     choices=("zen", "avalai"),
-                    help="ALL precard LLM legs (S0b/S2/S3/S4): zen (default) "
+                    help="ALL precard LLM legs (inflection/judge/vectors/label): zen (default) "
                     "or avalai (paid chain, no Persian needed — locked "
                     "2026-09-06; requires AVALAI_API_KEY)")
     ap.add_argument("--precard-model", default="",
@@ -279,18 +279,19 @@ def parse_args(argv=None):
                     "glm-5.3-flash; e.g. deepseek-v4-flash for the "
                     "comparison run). Ignored on the zen path.")
     ap.add_argument("--judge-model", default="",
-                    help="S2 judge model id (default: provider default — "
+                    help="judge model id (default: provider default — "
                     "Zen chain models for zen, glm-5.3-flash for avalai)")
     ap.add_argument("--stage-provider", action="append", default=[],
                     metavar="STAGE=PROVIDER",
                     help="per-leg provider override, repeatable "
-                    "(e.g. --stage-provider s2=avalai --stage-provider "
-                    "s4=zen). Legs: s0b, s2, s3, s4. Wins over "
+                    "(e.g. --stage-provider judge=avalai --stage-provider "
+                    "label=zen). Legs: inflection, judge, vectors, label "
+                    "(ids s0b, s2, s3, s4 also work). Wins over "
                     "--llm-provider for that leg.")
     ap.add_argument("--stage-model", action="append", default=[],
                     metavar="STAGE=MODEL",
                     help="per-leg model override, repeatable "
-                    "(e.g. --stage-model s2=deepseek-v4-flash). "
+                    "(e.g. --stage-model judge=deepseek-v4-flash). "
                     "Wins over --precard-model/--judge-model for that leg.")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
@@ -303,8 +304,9 @@ LLM_LEGS = ("s0b", "s2", "s3", "s4")
 
 
 def _parse_stage_map(values, allowed_values=None):
-    """Parse ["s2=avalai"] into {s2: avalai}. Bad entries raise SystemExit
+    """Parse ["judge=avalai"] into {s2: avalai}. Bad entries raise SystemExit
     (fail-fast: a typo must not silently burn paid calls on the wrong leg).
+    Legs accept ids or domain names (judge == s2).
     """
     out = {}
     for raw in values or []:
@@ -312,10 +314,12 @@ def _parse_stage_map(values, allowed_values=None):
             raise SystemExit("bad --stage-* value %r (want STAGE=value)"
                              % raw)
         stage, _, value = raw.partition("=")
-        stage, value = stage.strip().lower(), value.strip()
+        raw_stage = stage.strip().lower()
+        stage, value = _normalize_stage(raw_stage), value.strip()
         if stage not in LLM_LEGS:
             raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
-                stage, ", ".join(LLM_LEGS)))
+                raw_stage, ", ".join(
+                    "%s/%s" % (s, stage_name(s)) for s in LLM_LEGS)))
         if allowed_values is not None and value not in allowed_values:
             raise SystemExit("bad --stage-* value %r (want one of: %s)" % (
                 value, ", ".join(allowed_values)))
@@ -429,7 +433,7 @@ def _dry_run_needs(progress_dir, items, selected, rekeyed, resume):
     return needs
 
 
-# ---------------------------------------------------------------- S0 ---
+# ---------------------------------------------------------------- preprocess ---
 
 def load_awl_members(path):
     """Lowercase AWL member set from an awl_families.json file.
@@ -742,7 +746,7 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
                 "all keys 429 (provider quotas exhausted) — re-run later")
 
 
-# -------------------------------------------------------------- S0b ---
+# -------------------------------------------------------------- inflection ---
 
 def inflection_needs_review(item, index, read_entry):
     """R36: (needs, gloss) — True when the raw lemma head is inflection.
@@ -776,7 +780,7 @@ def inflection_needs_review(item, index, read_entry):
     return False, ""
 
 
-# ---------------------------------------------------------------- S1 ---
+# ---------------------------------------------------------------- anchor ---
 
 def _reroute_proper_anchor(item, ranked, index, read_entry):
     """Best non-proper candidate when the anchor is proper (act-fix).
@@ -993,7 +997,7 @@ def anchor_rank_item(item, index, read_entry):
             "xref_unresolvable": bool(probe.get("xref_unresolvable"))}
 
 
-# ---------------------------------------------------------------- S2 ---
+# ---------------------------------------------------------------- judge ---
 
 def _judge_prompt(batch, anchor_map):
     lines = ["PICK the single most useful sense per item for Persian "
@@ -1198,7 +1202,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     out = {item_key(i): {**_judge_fallback(i, anchor_map.get(item_key(i))),
                          } for i in batch}
     _apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:
-    # the S1 anchor top itself can be a stub when S0b kept it)
+    # the anchor top itself can be a stub when inflection kept it)
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
                      key_idx=0, model="s1-fallback", latency_s=0.0,
@@ -1323,7 +1327,7 @@ def judge_proper_route(item, pick, anchor_res, index, read_entry, zipf_fn=None):
     return {"routed": True, "proper_route": route, "reason": None}
 
 
-# ---------------------------------------------------------------- S3 ---
+# ---------------------------------------------------------------- vectors ---
 
 def _vectors_pseudo_records(batch, judge_map, anchor_map):
     """Group batch picks into run_v15 pseudo lemma records."""
@@ -1449,8 +1453,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     return out
 
 
-# ---------------------------------------------------------------- S4 ---
-# B1 (locked 2026-09-11): the S4 LLM leg batches up to LABEL_BATCH items
+# ---------------------------------------------------------------- label ---
+# B1 (locked 2026-09-11): the label LLM leg batches up to LABEL_BATCH items
 # per transport call (today effectively per-item: ~900 input tokens per
 # ~80 output). Leg 1 (deterministic v16) + the file cache stay per-item
 # (free/local — batching them saves nothing); only the top-up LLM call
@@ -1851,7 +1855,7 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
     return got
 
 
-# ---------------------------------------------------------------- S5 ---
+# ---------------------------------------------------------------- enrich ---
 
 def _entries_for(item, index):
     """Candidate entry rows for an item (same selection as anchor_item_en)."""
@@ -2081,7 +2085,7 @@ def _default_judge_transport(api_key, model, user_text):
 
 
 # AvalAI (OpenAI-compatible) chat transport for the paid model chain
-# (locked 2026-09-06: S2 glm-5.3-flash wired here; S3 gemini-3.5-flash-lite
+# (locked 2026-09-06: judge glm-5.3-flash wired here; vectors gemini-3.5-flash-lite
 # and repair gemini-3.8-flash are a planned follow-up, not yet wired).
 # shape as the Zen transports, so KeyRing rotation (429) and the
 # 401/403 auth mapping apply unchanged. reasoning_effort low is
@@ -2212,8 +2216,8 @@ def _stage_summary(stage, states, out_path):
             quarantined.append("%s: quarantine-%s" % (
                 key, verdict.get("quarantine")))
         if verdict.get("kept", True) and not verdict.get("dropped"):
-            # S2 judge fallbacks stay live but are notable: the judge
-            # failed and the S1 anchor survived instead.
+            # judge fallbacks stay live but are notable: the judge
+            # failed and the anchor survived instead.
             if str(verdict.get("model", "")).startswith("s1-"):
                 slugs["s1-fallback"] += 1
                 details.append("%s: s1-fallback" % key)
@@ -2406,7 +2410,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     tatoeba_pool = _tatoeba if _tatoeba is not None else \
         card_pilot.load_tatoeba_pool(args.tatoeba_pool)
 
-    # S0 (strict preprocess, deterministic, batch-flushed). Aux files fail
+    # preprocess (strict preprocess, deterministic, batch-flushed). Aux files fail
     # open to keep: a missing AWL/type-log only ever adds keeps.
     zipf_fn = _zipf_fn or default_zipf
     awl_set = (_awl_set if _awl_set is not None
@@ -2422,7 +2426,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                           else bool(_type_log_available))
     pos_sets = card_pilot.build_pos_sets(index)
     preprocess_info: dict = {}
-    # Memoized entry views: one Kaikki read pass per lemma per run (S0
+    # Memoized entry views: one Kaikki read pass per lemma per run (preprocess
     # was previously in-memory; without this each item pays open+seek).
     preprocess_view_cache: dict = {}
 
@@ -2477,8 +2481,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # must not demand an unused Zen key). None = caller-owned/skipped leg
     # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
     # Per-leg overrides (--stage-provider/--stage-model) participate in
-    # every decision below, so a mixed line (e.g. s2 zen + rest avalai)
-    # wires correctly. Precedence per leg: --stage-* win, then S2-only
+    # every decision below, so a mixed line (e.g. judge zen + rest
+    # avalai) wires correctly. Precedence per leg: --stage-* win, then
     # --judge-*, then master --llm-provider/--precard-model, then Zen.
     stage_prov = _parse_stage_map(args.stage_provider, ("zen", "avalai"))
     stage_model = _parse_stage_map(args.stage_model)
@@ -2544,8 +2548,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
     judge_models = None
-    # AvalAI wiring per leg. S2 gets its own key/ring pair (F1 scoping);
-    # S0b/S3/S4 share the leg-keyed pairs below.
+    # AvalAI wiring per leg. judge gets its own key/ring pair (F1 scoping);
+    # inflection/vectors/label share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
     # full_avalai/judge_avalai computed above (before key loading).
@@ -2642,7 +2646,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # the BASE lemma (kept, reason superlative-redirect, redirect_to
         # the base) on an explicit keep-false verdict; an explicit keep
         # (established nominal/idiomatic sense) stays inflection-keep.
-        # Verdict variant inside S0b — no new stage.
+        # Verdict variant inside inflection — no new stage.
         run_logger.stage_start("s0b")
         n_inflection_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
@@ -2751,7 +2755,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                          "(see dropped.log)" % (len(items),
                                                 len(inflection_dropped)),
                          "cyan"))
-        # S1 (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
+        # anchor (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
         # (card_pilot.PROPER_NOUN_POS, reused by import — deterministic,
         # no name lists) the item drops with reason anchor-proper-noun.
@@ -2947,7 +2951,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                                for i in items})),
                          "cyan"))
         items = [i for i in items if item_key(i) not in anchor_dropped]
-        # S2 (judge batches). ok = judge-model picks in the batch,
+        # judge (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
         run_logger.stage_start("s2")
         n_judge_batches = (len(items) + BATCH - 1) // BATCH or 1
@@ -3002,8 +3006,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      if (v.get("model", "") or "").startswith("s1-")))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s2", states, args.out)
-        # Post-S2 proper-noun routing (idempotent pass over the s2 done
-        # state — evaluated here, right after S2, so S3+ only ever see
+        # Post-judge proper-noun routing (idempotent pass over the s2 done
+        # state — evaluated here, right after judge, so vectors+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
         # markers, flushed when the pass evaluates anything).
         evaluated = 0
@@ -3038,7 +3042,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     "%s:%s" % (k, states["s2"]["done"][k].get("proper_drop"))
                     for k in judge_proper_here)) if judge_proper_here else ""))
         items = [i for i in items if item_key(i) not in judge_proper_dropped]
-        # S3 (vector batches). ok = model vectors, fail = deterministic
+        # vectors (vector batches). ok = model vectors, fail = deterministic
         # (fail-closed) fallbacks.
         run_logger.stage_start("s3")
         n_vectors_batches = (len(items) + BATCH - 1) // BATCH or 1
@@ -3097,7 +3101,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      if v.get("model") == "deterministic"))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s3", states, args.out)
-        # S4 (label batched, B1: up to LABEL_BATCH items share one LLM
+        # label (label batched, B1: up to LABEL_BATCH items share one LLM
         # call). No fail-closed signal on this stage (exceptions
         # propagate, except auth which aborts), so fail is always 0.
         # Stride is LABEL_BATCH (pacing sleep per worked chunk, same
@@ -3161,7 +3165,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         run_logger.stage_end("s4", ok=len(states["s4"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s4", states, args.out)
-        # S5 (deterministic enrichment, batch-flushed). Same as S4: no
+        # enrich (deterministic enrichment, batch-flushed). Same as label: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
         n_enrich_batches = (len(items) + BATCH - 1) // BATCH or 1

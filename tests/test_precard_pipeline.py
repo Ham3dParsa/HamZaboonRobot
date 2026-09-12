@@ -1840,6 +1840,10 @@ def test_parse_stage_map_validates():
     from factory.pipeline.precard_pipeline import _parse_stage_map, LLM_LEGS
     assert _parse_stage_map(["s2=avalai", "s4=zen"]) == {"s2": "avalai",
                                                         "s4": "zen"}
+    assert _parse_stage_map(["judge=avalai", "label=zen"]) == {
+        "s2": "avalai", "s4": "zen"}
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["anchor=zen"])
     assert _parse_stage_map([]) == {}
     assert _parse_stage_map(None) == {}
     assert set(LLM_LEGS) == {"s0b", "s2", "s3", "s4"}

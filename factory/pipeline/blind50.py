@@ -1,10 +1,10 @@
-"""Blind 4-way judge-stage (S2 id) test: GLM (recorded) vs 2x Gemini Lite (direct)
+"""Blind 4-way judge test: GLM (recorded) vs 2x Gemini Lite (direct)
 vs Cohere North Mini (OpenRouter :free) on the frozen accept50 set.
 
 Same prompt for every contender (precard_pipeline._judge_prompt), one
 retry on invalid JSON only, three consecutive 429s abort the run
 (owner rule: stop, never long-backoff). GLM needs no new calls:
-its picks are read from the recorded pilot200glm s2.json baseline.
+its picks are read from the recorded pilot200glm judge baseline.
 
 Keys (never logged): os.environ, then factory/.env, then
 tools/egress/.env (owner layout). Network via injectable http_post
@@ -155,7 +155,7 @@ def openrouter_judge(api_key, model, chunk, prompt, anchor_map,
 
 def fill_missing_windows(items, anchor_map, kaikki_index=None,
                        kaikki_raw=None, rank_fn=None):
-    """Same anchor (S1 id) windows for every contender: compute windows missing
+    """Same anchor windows for every contender: compute windows missing
     from the recorded anchor windows (dropped/proper items) via the pipeline
     anchor ranker. rank_fn(item, index, read_entry) injectable (tests)."""
     missing = [it for it in items
@@ -252,10 +252,11 @@ def _atomic_write(path, payload):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Blind 4-way judge test.")
     ap.add_argument("--accept", required=True)
-    ap.add_argument("--s1", required=True,
-                    help="recorded s1.json windows (pilot200glm/progress)")
-    ap.add_argument("--glm-s2", required=True,
-                    help="recorded GLM baseline (pilot200glm s2.json)")
+    ap.add_argument("--anchor", "--s1", dest="anchor", required=True,
+                    help="recorded anchor windows (progress s1.json)")
+    ap.add_argument("--glm-judge", "--glm-s2", dest="glm_judge",
+                    required=True,
+                    help="recorded GLM judge baseline (progress s2.json)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--progress", required=True)
     ap.add_argument("--models", default="g35,g31,north",
@@ -268,9 +269,9 @@ def main(argv=None):
 
     with open(args.accept, encoding="utf-8") as handle:
         items = json.load(handle)
-    with open(args.s1, encoding="utf-8") as handle:
+    with open(args.anchor, encoding="utf-8") as handle:
         anchor_map = json.load(handle)["done"]
-    with open(args.glm_s2, encoding="utf-8") as handle:
+    with open(args.glm_judge, encoding="utf-8") as handle:
         glm = json.load(handle)["done"]
 
     # Identical candidate windows for every contender (recorded +

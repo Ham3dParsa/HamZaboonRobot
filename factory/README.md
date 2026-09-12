@@ -72,7 +72,7 @@ python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pi
 
 # blind judge comparison on the frozen 50 (needs keys)
 python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json `
-  --s1 W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-s2 W:\hamzaban_data_factory\pilot200glm\progress\s2.json `
+  --anchor W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\s2.json `
   --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json --dry-run
 ```
 
@@ -86,7 +86,7 @@ continues from `progress/*.json` (per-stage files named by stable id).
 |---|---|---|---|
 | Dry-run the line (no cost) | pipeline/precard_pipeline.py | none | `python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
 | Full precard run (GLM judge via AvalAI) | pipeline/precard_pipeline.py | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default, bare defaults run Zen) |
-| Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --s1 W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-s2 W:\hamzaban_data_factory\pilot200glm\progress\s2.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
+| Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --anchor W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\s2.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
 | Check key + egress health (no secrets printed) | core/probe_keys.py | factory/.env; ZEN keys + egress IP only (no SUB ranking, no GOOGLE/OPENROUTER/AVALAI check) | `python -m factory.core.probe_keys` |
 | Rank SUB servers by latency | supervisor --probe | SUBs in tools/egress/.env | `python tools\egress\supervisor.py --probe --top-n 30` |
 | Find Google-friendly servers | supervisor --probe-google | + GOOGLE key | `python tools\egress\supervisor.py --probe --top-n 30 --probe-google 15` |
