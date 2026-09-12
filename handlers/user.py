@@ -2,12 +2,17 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from services import db
+from services.routing import register
 from config.catalog import (
     DISPLAY_TOGGLE_FIELDS,
+    GOALS,
     HIGH_VALUE_TOGGLES,
+    LANGUAGES,
+    LEVELS,
     goal_label,
     language_label,
     level_cefr,
@@ -32,6 +37,7 @@ from services.send_pretty import Message, RawFormat, bold, say, send
 from services.activity_log import log_user_activity
 from services.utils.helpers import (
     _edit_or_send,
+    _edit_with_retry,
     _send_with_retry,
 )
 from config.keyboards import (
@@ -478,3 +484,127 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ---------------- Callback handlers ----------------
+
+
+async def _handle_presentation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``presentation:*`` (REF1-T4, R1 coarse).
+
+    ``action`` is the remainder after the ``presentation:`` prefix; only
+    ``set:<brief|detailed>`` is valid, anything else is the unknown fallback.
+    Body moved byte-identically from ``bot.callback_router``.
+    """
+    if not action.startswith("set:"):
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    preference = action[len("set:"):]
+    if preference not in {"brief", "detailed"}:
+        await notify_callback(update.callback_query, "انتخاب نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    if not has_feature(row["plan"] or "free", "presentation"):
+        await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران پریمیوم فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    db.set_presentation_preference(user_id, preference)
+    label = "خلاصه" if preference == "brief" else "کامل"
+    await _edit_with_retry(
+        update.callback_query,
+        f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
+        reply_markup=presentation_settings_keyboard(preference, back_to_settings=True),
+    )
+    await notify_callback(update.callback_query, "تنظیمات ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
+
+
+async def _handle_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``lang:*`` — onboarding select or post-onboarding change."""
+    if action not in LANGUAGES:
+        await notify_callback(update.callback_query, "زبان نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    row = db.get_user(update.effective_user.id)
+    if row and row["onboarded"]:
+        await on_lang_changed(update, context, action)      # تغییر زبان
+    else:
+        await on_lang_selected(update, context, action)     # onboarding
+
+
+async def _handle_goal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``goal:*`` — onboarding select or post-onboarding change."""
+    if action not in GOALS:
+        await notify_callback(update.callback_query, "هدف نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    row = db.get_user(update.effective_user.id)
+    if row and row["onboarded"]:
+        await on_goal_changed(update, context, action)      # تغییر هدف
+    else:
+        await on_goal_selected(update, context, action)     # onboarding
+
+
+async def _handle_level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``level:*`` — onboarding select or post-onboarding change."""
+    if action not in LEVELS:
+        await notify_callback(update.callback_query, "سطح نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    row = db.get_user(update.effective_user.id)
+    if row and row["onboarded"]:
+        await on_level_changed(update, context, action)
+    else:
+        await on_level_selected(update, context, action)
+
+
+async def _handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``settings:*`` (REF1-T4, R1 coarse).
+
+    Dispatches the settings menu entries; unknown actions get the standard
+    unknown fallback (previously the ``callback_router`` catch-all ``else``).
+    """
+    if action == "lang":
+        await change_lang_start(update, context)
+    elif action == "goal":
+        await change_goal_start(update, context)
+    elif action == "level":
+        await change_level_start(update, context)
+    elif action == "presentation":
+        await change_presentation_start(update, context)
+    elif action == "display_toggles":
+        await show_display_toggles_menu(update, context)
+    elif action.startswith("display_toggle:confirm:"):
+        field = action.split(":", 2)[2]
+        await handle_display_toggle_confirm(update, context, field)
+    elif action == "display_toggle:cancel":
+        await handle_display_toggle_cancel(update, context)
+    elif action.startswith("display_toggle:"):
+        field = action.split(":", 1)[1]
+        if ":" in field:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await handle_display_toggle(update, context, field)
+    elif action == "status":
+        await show_status(update, context)
+    elif action == "back":
+        await _show_settings_menu(update, context)
+    elif action == "close":
+        try:
+            await update.callback_query.message.delete()
+            await notify_callback(update.callback_query, "بسته شد.", intent=CallbackNoticeIntent.INFO)
+        except BadRequest:
+            await notify_callback(update.callback_query)
+    else:
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+register("presentation", _handle_presentation_callback)
+register("lang", _handle_lang_callback)
+register("goal", _handle_goal_callback)
+register("level", _handle_level_callback)
+register("settings", _handle_settings_callback)

@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from config import feature_audience, is_owner
 from config.keyboards import main_menu
+from services.routing import register
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import escape_mdv2
 from services.utils.helpers import _edit_or_send, _send_with_retry
@@ -337,3 +338,15 @@ async def handle_help_callback(
         "عملیات ناموفق بود.",
         intent=CallbackNoticeIntent.IMPORTANT_ERROR,
     )
+
+
+async def _route_help(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry adapter for ``help:*`` (REF1-T4, R1 coarse).
+
+    Rebuilds the full ``help:...`` data expected by ``handle_help_callback``
+    (same adapter shape as ``admin._route_llm``).
+    """
+    await handle_help_callback(update, context, f"help:{action}")
+
+
+register("help", _route_help)
