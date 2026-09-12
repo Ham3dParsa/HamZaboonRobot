@@ -415,10 +415,22 @@ def _first_enabled_name() -> str | None:
 
 
 def get_fallback_status() -> dict:
+    # REF3-T4 (lazy defaults): fetch both settings first and resolve the
+    # first-enabled fallback name at most once. ``None`` as the read default
+    # marks a missing row (stored values are always strings), so a missing
+    # primary still yields ``_first_enabled_name()`` verbatim (None when no
+    # preset is enabled) while a stored "" stays "". No caching — the lookup
+    # runs fresh on every call so admin edits apply immediately.
+    primary_raw = get_setting("ai_primary_preset", None)
+    fallback_raw = get_setting("ai_fallback_preset", None)
+    fallback_value = fallback_raw if fallback_raw is not None else ""
+    first = None
+    if primary_raw is None or not fallback_value:
+        first = _first_enabled_name()
     return {
         "fallback_active": get_bool_setting("ai_fallback_active", False),
-        "primary_preset": get_setting("ai_primary_preset", _first_enabled_name()),
-        "fallback_preset": get_setting("ai_fallback_preset", "") or (_first_enabled_name() or ""),
+        "primary_preset": first if primary_raw is None else primary_raw,
+        "fallback_preset": fallback_value or (first or ""),
         "fallback_since": get_setting("ai_fallback_since", ""),
         "consecutive_failures": int(get_setting("ai_consecutive_failures", "0")),
     }
