@@ -235,7 +235,9 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
                 sensekey, cefr = row
             except (TypeError, ValueError):
                 continue
-            if not isinstance(sensekey, str) or cefr not in _CEFR_RANK:
+            if not isinstance(sensekey, str) \
+                    or not isinstance(cefr, str) \
+                    or cefr not in _CEFR_RANK:
                 continue
             cands.append((sensekey, cefr))
     if not cands:

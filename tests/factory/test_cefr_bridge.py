@@ -141,7 +141,10 @@ def test_hostile_bridge_values_never_raise():
                     {("good", 3): None},
                     {("good", 3): [123]},
                     {("good", 3): "junk"},
-                    {("good", 3): [("x%3:00:00:y:00", "Z9")]}):
+                    {("good", 3): [("x%3:00:00:y:00", "Z9")]},
+                    {("good", 3): [(123, "B1")]},
+                    {("good", 3): [("good%3:00:00:x:00", ["B1"])]},
+                    {("good", 3): [(None, {"B1": 1})]}):
         assert B.sense_cefr_for("good", "adj", "of high quality",
                                 hostile, {}) == (None, "unmapped")
 
