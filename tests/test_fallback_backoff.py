@@ -171,22 +171,27 @@ class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
 
     @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
     def test_prune_throttled_to_once_per_hour(self, _):
+        import services.ai.limiter as lim
         import services.ai.llm_services as ls
 
         # Drive the throttle on a controlled monotonic clock so the assertion
         # does not depend on how long this process/worker has been alive (CI
         # runners boot monotonic near 0, which would skip the first prune).
+        # REF5-T4: the prune clock/db live in limiter (single source); the
+        # daily-cap check under test stays in llm_services.
+        old_prune = lim._last_hourly_prune
         with patch.object(ls, "db") as mock_db, patch.object(
-            ls.time, "monotonic", return_value=10_000.0
-        ):
+            lim, "db", mock_db
+        ), patch.object(lim.time, "monotonic", return_value=10_000.0):
             pruner = mock_db.prune_preset_hourly_usage
             mock_db.get_hourly_usage.return_value = (0, 0)
             # First call hits the DB.
-            ls._last_hourly_prune = 0.0
+            lim._last_hourly_prune = 0.0
             ls._is_daily_exhausted(preset={"name": "pa", "max_daily_req": 5})
             # A second call within the hour must NOT prune again.
             ls._is_daily_exhausted(preset={"name": "pa", "max_daily_req": 5})
             self.assertEqual(pruner.call_count, 1, "prune must run at most once per hour")
+        lim._last_hourly_prune = old_prune
 
 
 if __name__ == "__main__":
