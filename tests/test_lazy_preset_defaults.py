@@ -1,6 +1,7 @@
 """REF3-T4: lazy preset defaults — call-count reduction, no caching.
 
-``_retry_primary_preset`` (services/ai/llm_services.py) must read the
+``_retry_primary_preset`` (services/ai/fallback_router.py, re-exported by
+services/ai/llm_services.py) must read the
 ``ai_primary_preset`` setting first and resolve the expensive
 ``get_active_preset_name()`` default only when the setting is empty.
 ``get_fallback_status`` (services/db/preset_registry.py) must fetch both
