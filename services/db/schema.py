@@ -848,6 +848,10 @@ def init_db(path: str | None = None):
             conn.execute("ALTER TABLE saved_words ADD COLUMN retry_at TEXT")
         if "srs_retry_attempts" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN srs_retry_attempts INTEGER NOT NULL DEFAULT 0")
+        if "added_at" not in saved_word_columns:
+            # REF3-T1: ancient schemas predate added_at; the
+            # saved_words_pre_exposure_idx below requires it.
+            conn.execute("ALTER TABLE saved_words ADD COLUMN added_at TEXT")
         if "first_exposure_done" not in saved_word_columns:
             conn.execute(
                 "ALTER TABLE saved_words ADD COLUMN first_exposure_done INTEGER DEFAULT 0"
@@ -939,6 +943,14 @@ def init_db(path: str | None = None):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS saved_words_due_idx "
             "ON saved_words(user_id, lang, next_review_at)"
+        )
+        # REF3-T1: filter/order index for get_pre_first_exposure_words
+        # (user_id=? AND first_exposure_done=0 [...] ORDER BY added_at ASC).
+        # LEAD-LOCKED column order: equality columns first, added_at last so
+        # the ORDER BY is index-backed on fresh and upgraded DBs. Pure DDL.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS saved_words_pre_exposure_idx "
+            "ON saved_words(user_id, first_exposure_done, added_at)"
         )
         # F3: filter/order index for recent_events_for_words(user_id, word_id)
         # ORDER BY word_id, created_at DESC, id DESC. Matches its WHERE
