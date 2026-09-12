@@ -186,7 +186,7 @@ def test_flag_aliases_anchor_and_glm_judge(tmp_path, capsys):
     accept = tmp_path / "a.json"
     accept.write_text(json.dumps(ITEMS), encoding="utf-8")
     s1 = tmp_path / "s1.json"
-    s1.write_text(json.dumps({"done": {}}), encoding="utf-8")
+    s1.write_text(json.dumps({"done": ANCHOR_MAP}), encoding="utf-8")
     for flags in (["--anchor", "--glm-judge"], ["--s1", "--glm-s2"]):
         out = tmp_path / "o.json"
         assert b50.main([
