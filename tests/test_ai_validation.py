@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -183,6 +184,63 @@ class BatchValidationTests(unittest.TestCase):
 
         self.assertEqual([card["word"] for card in cards], ["hello", "world"])
         self.assertEqual(diagnostics["accepted"], 2)
+
+
+class JsonCodecTests(unittest.TestCase):
+    """REF5-T1: _extract_json cases against the canonical json_codec leaf."""
+
+    def test_unfenced_object(self):
+        from services.ai import json_codec
+
+        self.assertEqual(
+            json_codec._extract_json('{"word": "hello"}'), {"word": "hello"}
+        )
+
+    def test_fenced_json_block(self):
+        from services.ai import json_codec
+
+        self.assertEqual(
+            json_codec._extract_json('```json\n{"word": "hello"}\n```'),
+            {"word": "hello"},
+        )
+
+    def test_leading_prose_before_json(self):
+        from services.ai import json_codec
+
+        self.assertEqual(
+            json_codec._extract_json('Here is your card: {"word": "hello"}'),
+            {"word": "hello"},
+        )
+
+    def test_trailing_prose_after_json(self):
+        from services.ai import json_codec
+
+        self.assertEqual(
+            json_codec._extract_json('{"word": "hello"} hope this helps'),
+            {"word": "hello"},
+        )
+
+    def test_double_json_returns_first_value(self):
+        from services.ai import json_codec
+
+        self.assertEqual(
+            json_codec._extract_json('{"a": 1} {"b": 2}'), {"a": 1}
+        )
+
+    def test_no_json_value_raises(self):
+        from services.ai import json_codec
+
+        with self.assertRaisesRegex(json.JSONDecodeError, "No JSON value found"):
+            json_codec._extract_json("just some words without structure")
+
+    def test_ai_alias_routes_to_codec(self):
+        from services.ai import json_codec
+
+        self.assertIs(ai._extract_json, json_codec._extract_json)
+        sample = '```json\n{"word": "hello"}\n```'
+        self.assertEqual(
+            ai._extract_json(sample), json_codec._extract_json(sample)
+        )
 
 
 if __name__ == "__main__":
