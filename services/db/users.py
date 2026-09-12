@@ -1,11 +1,11 @@
 import csv
-import datetime
 import io
 import logging
 
 from services.db.plans import get_plan, valid_plan_name
 from services.db.schema import get_conn, is_missing_table_error, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
 from services.db.settings import get_setting, set_setting
+from services.streak import next_streak
 from services.db.display_toggles import (
     get_effective as _get_display_toggles,
     set_user_toggle as _set_display_toggle,
@@ -265,8 +265,9 @@ def set_user_goal(user_id: int, goal: str):
 def touch_streak_in_txn(conn, user_id: int, *, today_iso: str | None = None) -> int:
     """Update the streak on the caller's open connection (no transaction).
 
-    Synchronous, zero await: pure date math + SQL. Used by the batched grade
-    tap (F1) so grade + event + streak share one atomic transaction.
+    Synchronous, zero await: pure date math (``services.streak.next_streak``)
+    + SQL. Used by the batched grade tap (F1) so grade + event + streak share
+    one atomic transaction. Thin delegate — date rules live in the pure owner.
     """
     today = today_iso or _today().isoformat()
     row = conn.execute(
@@ -275,13 +276,7 @@ def touch_streak_in_txn(conn, user_id: int, *, today_iso: str | None = None) -> 
     if not row:
         return 0
     streak, last_date = row["streak"] or 0, row["last_active_date"]
-    if last_date == today:
-        new_streak = streak
-    else:
-        yesterday = (
-            datetime.date.fromisoformat(today) - datetime.timedelta(days=1)
-        ).isoformat()
-        new_streak = streak + 1 if last_date == yesterday else 1
+    new_streak = next_streak(streak, last_date, today)
     conn.execute(
         "UPDATE users SET streak=?, last_active_date=? WHERE user_id=?",
         (new_streak, today, user_id),
