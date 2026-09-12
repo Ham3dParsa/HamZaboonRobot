@@ -120,6 +120,21 @@ def test_malformed_lines_skipped_and_counted(tmp_path):
         B.clear_cache()
 
 
+def test_undecodable_bytes_fail_closed(tmp_path):
+    # Bad bytes mid-file must not raise: partial (here empty) bridge,
+    # callers degrade to "unmapped".
+    path = tmp_path / "wordnet_sensekey_cefr.tsv"
+    path.write_bytes("run%2:31:00::\tB1\n".encode("utf-8") + b"\xff\xfe\n")
+    B.clear_cache()
+    try:
+        bridge, stats = B.load_tsv(str(path))
+        assert B.sense_cefr_for("run", "verb", "x", bridge) in (
+            ("B1", "wn-single"), (None, "unmapped"))
+        assert stats["rows"] + stats["skipped"] <= 1
+    finally:
+        B.clear_cache()
+
+
 def test_underscore_sensekey_maps_to_spaced_lemma(bridge):
     assert B.sense_cefr_for("credit card", "noun", "plastic money",
                             bridge) == ("A1", "wn-single")

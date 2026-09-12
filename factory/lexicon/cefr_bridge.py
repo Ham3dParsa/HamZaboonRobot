@@ -109,23 +109,29 @@ def load_tsv(path):
     except OSError:
         return bridge, stats
     with handle:
-        for line in handle:
-            line = line.rstrip("\n")
-            if not line.strip():
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                stats["skipped"] += 1
-                continue
-            parsed = parse_sensekey(parts[0].strip())
-            cefr = parts[1].strip()
-            if parsed is None or cefr not in _CEFR_RANK:
-                stats["skipped"] += 1
-                continue
-            lemma, posnum = parsed
-            bridge.setdefault((lemma, posnum), []).append(
-                (parts[0].strip(), cefr))
-            stats["rows"] += 1
+        try:
+            for line in handle:
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 2:
+                    stats["skipped"] += 1
+                    continue
+                parsed = parse_sensekey(parts[0].strip())
+                cefr = parts[1].strip()
+                if parsed is None or cefr not in _CEFR_RANK:
+                    stats["skipped"] += 1
+                    continue
+                lemma, posnum = parsed
+                bridge.setdefault((lemma, posnum), []).append(
+                    (parts[0].strip(), cefr))
+                stats["rows"] += 1
+        except (OSError, ValueError):
+            # Decode/read error mid-file (UnicodeDecodeError is a
+            # ValueError): keep the rows decoded so far, degrade the rest
+            # to "unmapped" instead of crashing the caller.
+            pass
     return bridge, stats
 
 
