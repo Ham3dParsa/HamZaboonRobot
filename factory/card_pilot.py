@@ -605,7 +605,7 @@ def parse_mother_lemma(sense):
         return "", [], False
     mothers = []
     try:
-        items = list(forms)
+        items = list(forms) if not isinstance(forms, dict) else [forms]
     except TypeError:
         return "", [], False
     for form in items:
@@ -618,9 +618,27 @@ def parse_mother_lemma(sense):
         target = (word or "").strip().strip(
             "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
         # Multi-target single string ("good and well", "good, well"):
-        # split on multi-delimiters FIRST, then clean each piece
-        # (cut pieces at [:;(] only — comma is a delimiter, not noise).
-        parts = re.split(r"\s+and\s+|,\s*|/\s*|\s+&\s+",
+        # a comma splits ONLY when every piece is a clean single alpha
+        # token with no qualifier tail — else ("go, archaic") the whole
+        # target is one qualified singleton (comma cuts like before).
+        if "," in target:
+            raw = [(p or "").strip() for p in target.split(",")]
+            clean = [re.split(r"[:;(]", p, maxsplit=1)[0].strip()
+                     for p in raw]
+            if len(clean) > 1 and all(
+                    re.fullmatch(r"[A-Za-z]+", p or "") for p in clean):
+                for piece in clean:
+                    if piece not in mothers:
+                        mothers.append(piece)
+                continue
+            target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
+            if re.fullmatch(r"[A-Za-z]+", target or "") \
+                    and target not in mothers:
+                mothers.append(target)
+            continue
+        # No comma: split on "and"/slashes/& first, then clean pieces
+        # (cut pieces at [:;(] only).
+        parts = re.split(r"\s+and\s+|/\s*|\s+&\s+",
                          target, flags=re.IGNORECASE)
         for part in parts:
             piece = (part or "").strip().strip(

@@ -233,6 +233,15 @@ def test_mother_missing_is_empty():
     assert multi is False
 
 
+def test_mother_dict_shape_form_of():
+    """Review: dict-shape form_of must not iterate keys into mothers."""
+    mother, mothers, multi = card_pilot.parse_mother_lemma(
+        {"form_of": {"word": "go"}})
+    assert mother == "go"
+    assert mothers == ["go"]
+    assert multi is False
+
+
 def test_mother_single_string_comma_shape():
     """Review: "good, well" one string must split, not degrade to good."""
     mother, mothers, multi = card_pilot.parse_mother_lemma(

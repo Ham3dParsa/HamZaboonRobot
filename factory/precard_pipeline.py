@@ -2789,6 +2789,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 ranked["top"], ranked["en_def"], \
                                     ranked["anchor_pos"] = rerouted
                                 ranked["rerouted_from_proper"] = True
+                                # Mirror the name branch: refresh the tag
+                                # carrier from the TARGET sense and re-run
+                                # the vulgar verdict (review: stale
+                                # anchor_tags would leak a vulgar target
+                                # past the gate); empty lookups keep the
+                                # anchor's tags (uncertainty keeps).
+                                fresh = _target_sense_tags(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh:
+                                    ranked["anchor_tags"] = sorted(fresh)
                                 ranked["mother_lemma"], \
                                     ranked["mother_lemmas"], \
                                     ranked["mother_multi"] = \
@@ -2796,6 +2808,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                         item,
                                         rerouted[0].get("sense_id", ""),
                                         index, read_entry)
+                                if set(ranked.get("anchor_tags")
+                                       or {}) & card_pilot.VULGAR_TAGS:
+                                    ranked.pop("rerouted_from_proper",
+                                               None)
+                                    ranked["dropped"] = "vulgar-anchor"
+                                    if key not in states["s1"][
+                                            "failed"]:
+                                        states["s1"]["failed"].append(key)
                                 print(_color(
                                     "warning: %s re-anchored off proper "
                                     "top -> %s" % (
