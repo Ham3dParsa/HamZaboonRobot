@@ -93,6 +93,7 @@ REPO_ROOT = os.path.dirname(FACTORY_DIR)
 if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
     sys.path.insert(0, REPO_ROOT)  # noqa: E402
 from factory.pipeline import card_pilot  # noqa: E402  (anchor/label/enrich owner path, reused by import)
+from factory.lexicon import cefr_bridge  # noqa: E402  (WordNet sense-CEFR bridge, additive s5 fields)
 from factory.pipeline.card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from factory.pipeline.card_pilot import item_key  # noqa: E402
 from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
@@ -2002,10 +2003,14 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     kind = item.get("kind") or "word"
     lemma = (item.get("text") or "").strip()
     if not sid:
+        sense_cefr, sense_cefr_method = cefr_bridge.sense_cefr_for(
+            lemma, item.get("pos", ""), gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
                 "dataset_examples": [], "abbrev_expansion": "",
                 "pos": [], "pos_src": "none", "enrich_path": "partial",
+                "sense_cefr": sense_cefr,
+                "sense_cefr_method": sense_cefr_method,
                 "lexical_type": lexical_type_for(kind, set(),
                                                  phrase_entry),
                 "register": REGISTER_DEFAULT,
@@ -2060,6 +2065,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    card_pilot.N_EXAMPLES else "partial")
     sense_tags = _sense_tag_set(sense)
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
+    sense_cefr, sense_cefr_method = cefr_bridge.sense_cefr_for(
+        lemma, id_pos, gloss or "")
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
@@ -2070,6 +2077,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "pos": pos_tags,
             "pos_src": "dataset" if pos_tags else "none",
             "enrich_path": enrich_path,
+            "sense_cefr": sense_cefr,
+            "sense_cefr_method": sense_cefr_method,
             "lexical_type": lexical_type_for(kind, sense_tags,
                                              phrase_entry),
             "register": register_for(sense_tags),
@@ -3177,8 +3186,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 done = states["s5"]["done"].get(key)
                 # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
                 # re-enrich deterministically (no LLM) instead of skipping.
+                # Same for pre-bridge entries (no sense_cefr_method).
                 if not isinstance(done, dict) \
-                        or "pre_card_id" not in done:
+                        or "pre_card_id" not in done \
+                        or "sense_cefr_method" not in done:
                     phrase_entry = None
                     if (item.get("kind") or "word") == "phrase" \
                             and type_log_available:
@@ -3226,6 +3237,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "lexical_type": enrich.get("lexical_type",
                                            LEXICAL_TYPE_DEFAULT),
                 "register": enrich.get("register", REGISTER_DEFAULT),
+                "sense_cefr": enrich.get("sense_cefr"),
+                "sense_cefr_method": enrich.get("sense_cefr_method", ""),
                 "pre_card_id": enrich.get("pre_card_id", ""),
                 "mother_lemma": (s1r.get("mother_lemma", "") or ""),
                 "mother_lemmas": list(s1r.get("mother_lemmas") or []),
