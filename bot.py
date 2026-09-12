@@ -37,7 +37,7 @@ from config import (
     USER_ACTIVITY,
 )
 from config.plan_identity import has_feature
-from services import db
+from services import db, send_pretty
 from services.ai import ai
 from services import tts
 from services import word_query
@@ -74,7 +74,7 @@ from config.keyboards import (
 
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
-    format_card,
+    format_card_message,
     phonetic_lines,
 )
 from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot, word_query_usage_text
@@ -294,18 +294,18 @@ async def _send_query_card(
     reserved quota).
     """
     phon_lines = phonetic_lines(card_data.get("phonetic", ""))
-    await _send_with_retry(
-        context.bot,
+    card_msg = format_card_message(
+        card_data,
+        footer="برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن.",
+        presentation=_user_presentation(row),
+        translations_prepared=True,
+        phonetic_lines=phon_lines,
+    )
+    await send_pretty.send(
         update.effective_chat.id,
-        format_card(
-            card_data,
-            footer="برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن.",
-            presentation=_user_presentation(row),
-            translations_prepared=True,
-            phonetic_lines=phon_lines,
-        ),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=query_result_keyboard(
+        card_msg,
+        bot=context.bot,
+        keyboard=query_result_keyboard(
             token,
             row["target_lang"],
             saved=saved,
