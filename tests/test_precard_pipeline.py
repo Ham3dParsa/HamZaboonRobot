@@ -325,9 +325,10 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
     rc, out, prog, _ = run_pipeline(tmp_path, monkeypatch)
     assert rc == 0
     logged = (tmp_path / "run.log").read_text(encoding="utf-8")
-    for stage in ("s0", "s1", "s2", "s3", "s4", "s5"):
-        assert ("stage %s start" % stage) in logged
-        assert ("stage %s end" % stage) in logged
+    for label in ("preprocess", "inflection", "anchor", "judge",
+                  "vectors", "label", "enrich"):
+        assert ("stage %s start" % label) in logged
+        assert ("stage %s end" % label) in logged
     captured = capsys.readouterr()
     assert "[preprocess (pishpardazesh)]" in captured.out \
         and "ok=2 fail=0" in captured.out
@@ -2025,9 +2026,9 @@ def test_stage_selection_accepts_names():
     assert ns("bogus") == "bogus"
 
 
-def test_dropped_log_headers_use_stable_ids(tmp_path, monkeypatch):
-    """v13 identity: dropped.log section headers carry the stable stage
-    id (greppable on disk); the console label stays human-readable."""
+def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
+    """v13 identity: dropped.log section headers carry domain names;
+    the console label stays human-readable."""
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "led", "pos": "noun",
               "pool_level": "A2"}]
@@ -2054,7 +2055,8 @@ def test_dropped_log_headers_use_stable_ids(tmp_path, monkeypatch):
     headers = [line for line in drop_log.splitlines()
                if line.startswith("===")]
     assert headers, drop_log
-    assert any(line == "=== s0 drops ===" for line in headers), headers
+    assert any(line == "=== preprocess drops ===" for line in headers), \
+        headers
     assert not any("langar" in line for line in headers), headers
 
 

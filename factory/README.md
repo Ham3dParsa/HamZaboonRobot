@@ -60,7 +60,7 @@ per-card reasoning burn.
 | `s5` | enrich (ghanasazi) | examples, IPA, Persian gloss | s4 | `progress/s5.json` → `precard.jsonl` |
 
 Reading a run: the console speaks labels (`[STAGE judge (davari)]`);
-`run.log` speaks ids (`stage s2 start`) — grep-friendly and stable.
+`run.log` speaks domain names (`stage judge start`) — human-readable; stable ids live in progress keys and filenames.
 Persian drop details go to `dropped.log`, never the console.
 
 ## Run

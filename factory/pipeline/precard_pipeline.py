@@ -2273,12 +2273,12 @@ def _stage_summary(stage, states, out_path):
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s drops ===\n" % stage)
+                handle.write("=== %s drops ===\n" % stage_name(stage))
                 for line in details:
                     handle.write(line + "\n")
                 if quarantined:
                     handle.write("=== %s quarantine (kept, review) ===\n"
-                                 % stage)
+                                 % stage_name(stage))
                     for line in quarantined:
                         handle.write(line + "\n")
         except OSError as exc:
@@ -2419,10 +2419,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # no fail-closed signal, so fail is always 0 there.
     from factory.pipeline.card_pilot import RunLogger  # noqa: E402
     run_logger = RunLogger(
-        str(pathlib.Path(args.out).parent / "run.log"))
+        str(pathlib.Path(args.out).parent / "run.log"),
+        namer=stage_name)
     for stage in STAGES:
         if stage not in selected:
-            run_logger.log("stage %s skipped (not selected)" % stage)
+            run_logger.log("stage %s skipped (not selected)"
+                           % stage_name(stage))
     tele_store = []  # R27: per-batch records (key_idx only, never values)
     tele_dir = pathlib.Path(args.out).parent
     tele_flushed = 0
@@ -2503,8 +2505,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if dropped:
         # Details live in dropped.log (written by _stage_summary);
         # console stays a single short line (no 80-item spam).
-        print(_color("s0 preprocess: kept=%d dropped=%d "
-                     "(see dropped.log)" % (len(items), len(dropped)),
+        print(_color("%s: kept=%d dropped=%d "
+                     "(see dropped.log)" % (stage_label("s0"),
+                                            len(items), len(dropped)),
                      "cyan"))
 
     need_llm = (_judge_transport is _USE_DEFAULT
@@ -2658,7 +2661,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # Provider manifest: exact stage -> provider + actual model for cost
     # attribution (console + run.log + provider_map.json beside --out).
     _prov_line = ", ".join(
-        "%s=%s/%s" % (leg, provider_map[leg]["provider"],
+        "%s=%s/%s" % (stage_name(leg), provider_map[leg]["provider"],
                       provider_map[leg]["model"]) for leg in LLM_LEGS)
     print(_color("providers: %s" % _prov_line, "cyan"))
     run_logger.log("providers: %s" % _prov_line)
