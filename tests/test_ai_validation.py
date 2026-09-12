@@ -3,6 +3,20 @@ import unittest
 from unittest.mock import patch
 
 from services.ai import ai
+from services.ai import card_validation
+
+
+class CardValidationAliasTests(unittest.TestCase):
+    """REF5-T2: ai.* remain as re-export aliases of card_validation (dead-ref guard)."""
+
+    def test_ai_reexports_are_card_validation_objects(self):
+        self.assertIs(ai.validate_card, card_validation.validate_card)
+        self.assertIs(ai.card_repair_fields, card_validation.card_repair_fields)
+        self.assertIs(ai.validate_card_patch, card_validation.validate_card_patch)
+        self.assertIs(ai.validate_batch, card_validation.validate_batch)
+        self.assertIs(ai.CardValidationError, card_validation.CardValidationError)
+        self.assertIs(ai.BatchValidationError, card_validation.BatchValidationError)
+        self.assertIs(ai.normalize_phonetic, card_validation.normalize_phonetic)
 
 
 def valid_card(word: str) -> dict:
