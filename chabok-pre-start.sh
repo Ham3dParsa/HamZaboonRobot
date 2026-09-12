@@ -10,6 +10,30 @@ export DEBIAN_FRONTEND=noninteractive
 # (single source — no override; cron-jobs and supervisor.conf use the same).
 BASE_ROOT="/app"
 XRAY_DIR="/app/.xray"
+# Master switch for all Xray/proxy logic below (install, cron, rebuild,
+# boot-start, supervisord). Default 0 (off): set XRAY_ENABLED=1 in panel env
+# to enable, and keep AI_PROXY_URL set then. When disabled, also clear
+# AI_PROXY_URL, or AI calls hang on a dead port.
+# NOTE: default-off is intentional (owner decision 2026-09-11): existing
+# deploys lose the proxy unless they set XRAY_ENABLED=1 explicitly.
+XRAY_ENABLED="${XRAY_ENABLED:-0}"
+# Normalize common truthy/falsey spellings. Unknown values warn (with the
+# allowed list) and fall back to off — fail-safe, never abort the boot.
+case "$XRAY_ENABLED" in
+  1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) XRAY_ENABLED=1 ;;
+  0|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]|[Oo][Ff][Ff]|"") XRAY_ENABLED=0 ;;
+  *) echo "[chabok-pre-start] WARN: invalid XRAY_ENABLED='$XRAY_ENABLED' (use 0/1/true/false/yes/no/on/off) - treating as 0 (off)"; XRAY_ENABLED=0 ;;
+esac
+# Stop any already-running proxy when disabled (warm-host reuse), then drop
+# its cron entry so nothing revives it. Target OUR supervisor explicitly;
+# also shut it down so autorestart cannot respawn xray behind our back.
+if [ "$XRAY_ENABLED" != "1" ]; then
+  supervisorctl -c "$BASE_ROOT/supervisor.conf" stop xray >/dev/null 2>&1 || true
+  supervisorctl -c "$BASE_ROOT/supervisor.conf" shutdown >/dev/null 2>&1 || true
+  pkill -f "xray run" >/dev/null 2>&1 || true
+  rm -f /etc/cron.d/xray-update || true
+  if [ -n "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: XRAY_ENABLED!=1 but AI_PROXY_URL is set - AI calls will hang, clear AI_PROXY_URL"; fi
+fi
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
@@ -20,7 +44,7 @@ if ! command -v supervisord >/dev/null 2>&1 || ! command -v cron >/dev/null 2>&1
   apt-get install -y --no-install-recommends cron supervisor procps || true
 fi
 # Install Xray if missing (console installs are ephemeral) - pin version + verify checksum
-if ! command -v xray >/dev/null 2>&1; then
+if [ "$XRAY_ENABLED" = "1" ] && ! command -v xray >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y --no-install-recommends unzip curl ca-certificates || true
   XRAY_VERSION="v26.3.27"
@@ -37,7 +61,7 @@ fi
 # The repo cron-jobs file IS the /etc/cron.d content (single source, already
 # carries the USER field) — copy it verbatim instead of echoing hardcoded lines.
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
-if [ -f "$BASE_ROOT/cron-jobs" ]; then
+if [ "$XRAY_ENABLED" = "1" ] && [ -f "$BASE_ROOT/cron-jobs" ]; then
   cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
 fi
 
@@ -60,7 +84,7 @@ if [ -f "$BASE_ROOT/scripts/xray/validate_config.py" ]; then cp -f "$BASE_ROOT/s
 if [ -f "$BASE_ROOT/scripts/xray/update_subscription.sh" ]; then cp -f "$BASE_ROOT/scripts/xray/update_subscription.sh" /usr/local/bin/update_xray_subscription.sh; chmod +x /usr/local/bin/update_xray_subscription.sh; fi
 
 # 4) Rebuild Xray config from clean list (fallback to outs if clean missing)
-if [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; then
+if [ "$XRAY_ENABLED" = "1" ] && { [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; }; then
   if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5 || echo "[chabok-pre-start] WARN: rebuild-xray.py failed - keep previous config"; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
 fi
 
@@ -68,8 +92,9 @@ fi
 # ${...:-} guard: under `set -eu` a bare $AI_PROXY_URL aborts when unset.
 if [ -z "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi
 
-# 6) Launch supervisord if available (supervisor installed above)
-if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
+# 6) Launch supervisord if available (supervisor installed above).
+# Skipped when Xray is disabled: the conf only manages the xray program.
+if [ "$XRAY_ENABLED" = "1" ] && command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
   mkdir -p /var/run /var/log/supervisor
   # install supervisor.conf to standard location if needed
   if [ "$BASE_ROOT/supervisor.conf" != "/app/supervisor.conf" ]; then cp -f "$BASE_ROOT/supervisor.conf" /app/supervisor.conf 2>&1 | head || true; fi
@@ -91,7 +116,7 @@ fi
 # Fresh boots otherwise have a dead proxy until the next 6h refresh.
 # No `xray test` gate: the pinned xray build has no `test` subcommand, so
 # the shared validator (validate-xray.py) checks structure instead.
-if ! pgrep -x xray >/dev/null 2>&1; then
+if [ "$XRAY_ENABLED" = "1" ] && ! pgrep -x xray >/dev/null 2>&1; then
   if supervisorctl -c "$BASE_ROOT/supervisor.conf" status xray 2>/dev/null | grep -q RUNNING; then
     : # supervisor owns it - done
   elif supervisorctl -c "$BASE_ROOT/supervisor.conf" status >/dev/null 2>&1; then
