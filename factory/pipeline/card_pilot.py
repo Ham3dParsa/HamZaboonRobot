@@ -3796,12 +3796,15 @@ def batch_log_line(stage, batch_no, n_batches, ok, fail, calls):
 class RunLogger:
     """V7 compact run.log writer (stage start/end + counts + timings)."""
 
-    def __init__(self, path):
+    def __init__(self, path, namer=None):
         import atexit as _atexit
         self.path = pathlib.Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "w", encoding="utf-8")
         self._starts = {}
+        # Human voice: namer(stage)->display name. run.log is read by
+        # humans, so callers pass stage labels; ids stay in data files.
+        self._namer = namer
         # Exception-safe close: every exit path (raise/sys.exit) still
         # releases the handle at interpreter shutdown; close() is
         # idempotent so the explicit happy-path close stays as-is.
@@ -3815,15 +3818,21 @@ class RunLogger:
         self._handle.write(line + "\n")
         self._handle.flush()
 
+    def _shown(self, stage):
+        try:
+            return self._namer(stage) if self._namer else stage
+        except Exception:
+            return stage
+
     def stage_start(self, stage):
         self._starts[stage] = time.perf_counter()
-        self.log("stage %s start" % stage)
+        self.log("stage %s start" % self._shown(stage))
 
     def stage_end(self, stage, ok=0, fail=0):
         start = self._starts.get(stage, time.perf_counter())
         secs = time.perf_counter() - start
         self.log("stage %s end ok=%d fail=%d secs=%.2f"
-                 % (stage, ok, fail, secs))
+                 % (self._shown(stage), ok, fail, secs))
 
     def close(self):
         try:
