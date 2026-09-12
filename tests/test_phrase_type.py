@@ -1,4 +1,4 @@
-"""Hermetic tests for factory/phrase_judge.py --type-pass.
+"""Hermetic tests for factory/lexicon/phrase_judge.py --type-pass.
 
 No network, no real W: paths: transport is an injected mock, all files
 live in tmp_path.
@@ -6,12 +6,8 @@ live in tmp_path.
 
 import csv
 import json
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import phrase_judge
-from phrase_judge import (
+from factory.lexicon import phrase_judge
+from factory.lexicon.phrase_judge import (
     APPLIED_KEEP_TYPES,
     PHRASE_TYPES,
     RateLimited,
@@ -213,7 +209,7 @@ def test_type_pass_dry_run_writes_nothing(tmp_path):
 
 def test_backoff_rotates_keys_then_succeeds(monkeypatch):
     import urllib.error
-    from phrase_judge import KeyRing
+    from factory.lexicon.phrase_judge import KeyRing
     calls = []
     sleeps = []
     monkeypatch.setattr(phrase_judge.time, "sleep", sleeps.append)
@@ -235,7 +231,7 @@ def test_backoff_non_consecutive_429s_do_not_exhaust(monkeypatch):
     # non-consecutive 429s on two keys must NOT raise RateLimited
     # (without the reset the second 429 completes the circle and raises).
     import urllib.error
-    from phrase_judge import KeyRing
+    from factory.lexicon.phrase_judge import KeyRing
     monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
     script = iter(["429", "ok-k2", "429", "ok-k1"])
 
@@ -253,7 +249,7 @@ def test_backoff_non_consecutive_429s_do_not_exhaust(monkeypatch):
 def test_backoff_stops_when_all_keys_429(monkeypatch):
     import urllib.error
     import pytest
-    from phrase_judge import KeyRing
+    from factory.lexicon.phrase_judge import KeyRing
     monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
 
     def transport(api_key, model, prompt, sys_text=None):
@@ -266,7 +262,7 @@ def test_backoff_stops_when_all_keys_429(monkeypatch):
 def test_cefr_grade_propagates_ratelimited():
     import urllib.error
     import pytest
-    from phrase_judge import KeyRing, RateLimited, grade_batch
+    from factory.lexicon.phrase_judge import KeyRing, RateLimited, grade_batch
 
     def transport(api_key, model, prompt, sys_text=None):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
@@ -280,7 +276,7 @@ def test_keyring_empty_keys_fail_loud_not_zero_division():
     # OPENCODE critical (a): KeyRing([]) used to ZeroDivisionError in
     # rotate() (and IndexError in current). Must fail with a clear error.
     import pytest
-    from phrase_judge import KeyRing
+    from factory.lexicon.phrase_judge import KeyRing
     with pytest.raises(ValueError):
         KeyRing([])
     with pytest.raises(ValueError):

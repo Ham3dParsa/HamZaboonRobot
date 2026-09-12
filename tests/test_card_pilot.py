@@ -1,4 +1,4 @@
-"""Hermetic tests for factory/card_pilot.py (card-gen pilot).
+"""Hermetic tests for factory/pipeline/card_pilot.py (card-gen pilot).
 
 No network, no real pools: sampling uses inline rows, transport is an
 injected stub, dry-run points at tmp fixtures.
@@ -6,14 +6,12 @@ injected stub, dry-run points at tmp fixtures.
 
 import csv
 import json
-import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import card_pilot
-from card_pilot import (
+from factory.pipeline import card_pilot
+from factory.pipeline.card_pilot import (
     LEVEL_GUIDANCE,
     _atomic_write_text,
     _read_model_calls,
@@ -76,7 +74,7 @@ from card_pilot import (
     validate_delta_response,
     RunLogger,
 )
-from llm_json import AuthError
+from factory.core.llm_json import AuthError
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -258,7 +256,7 @@ def test_gallery_renders_sections_from_stub_jsonl(tmp_path):
 
 
 def test_render_only_rebuilds_html_without_touching_inputs(tmp_path):
-    from card_pilot import render_only
+    from factory.pipeline.card_pilot import render_only
     cards = [{"key": "w:a", "kind": "word", "text": "apple",
               "pool_level": "A1", "bot_level": "beginner",
               "model_used": "m1", "card": dict(VALID_CARD, word="apple"),
@@ -1854,7 +1852,7 @@ def test_freq_leg_common_outranks_rare():
     assert [idx for _, idx, _, _, _ in tied] == [0, 1]
 
 def test_delta_kept_alias_canonicalized():
-    from card_pilot import merge_precard_delta, validate_delta_response
+    from factory.pipeline.card_pilot import merge_precard_delta, validate_delta_response
     ok, kept, filled, improved, flag, reason = validate_delta_response(
         {"kept": ["ph"], "filled": {"phonetic": "/WRONG/"},
          "improved": {}, "improved_flag": False})
@@ -1867,7 +1865,7 @@ def test_delta_kept_alias_canonicalized():
 def test_coherence_headword_family_passes_with_correct_anchor():
     # R41b tri-state: paraphrase gap (no token overlap) is UNDECIDED
     # (None) — the micro-pass decides. Only overlap passes outright.
-    from card_pilot import sense_coherence_check
+    from factory.pipeline.card_pilot import sense_coherence_check
     assert sense_coherence_check(
         "To touch with the lips", {"examples": ["They kissed goodbye."],
          "fa_meaning": "", "fa_explanation": "", "example_translations": [],
@@ -1878,7 +1876,7 @@ def test_coherence_headword_family_fallback_passes():
     # F3: the headword param joins the anchor side — a paraphrase
     # anchor with zero gloss-token overlap still PASSES when the card
     # carries headword-family words (exact headword token here).
-    from card_pilot import sense_coherence_check
+    from factory.pipeline.card_pilot import sense_coherence_check
     card = {"examples": ["Resilient trees grow strong after every storm."],
             "fa_meaning": "", "fa_explanation": "",
             "example_translations": [], "synonyms": []}
@@ -1945,7 +1943,7 @@ def test_r43_zwnj_joined_tokens():
 # ---------------- v12 R44: superlative redirect helpers ----------------
 
 def test_r44_parse_superlative_base():
-    from card_pilot import is_superlative_gloss, parse_superlative_base
+    from factory.pipeline.card_pilot import is_superlative_gloss, parse_superlative_base
     assert parse_superlative_base("superlative of good.") == "good"
     assert parse_superlative_base("comparative of big") == "big"
     assert parse_superlative_base("a round fruit") == ""
@@ -1989,7 +1987,7 @@ def _r45_base_rec(**over):
 
 
 def test_r45_invalid_aborted_chip_not_model():
-    from card_pilot import render_diff_table
+    from factory.pipeline.card_pilot import render_diff_table
     rec = _r45_base_rec(card=None, valid=False, reason="boom",
                         error="boom")
     html_out = render_diff_table(rec, {})
@@ -1998,7 +1996,7 @@ def test_r45_invalid_aborted_chip_not_model():
 
 
 def test_r45_invalid_rejected_chip_not_model():
-    from card_pilot import render_diff_table
+    from factory.pipeline.card_pilot import render_diff_table
     card = dict(VALID_CARD, word="apple")
     rec = _r45_base_rec(card=card, valid=False, reason="meta-leak: x")
     html_out = render_diff_table(rec, card)
@@ -2017,7 +2015,7 @@ def test_r45_final_empty_block_stays():
 
 
 def test_r45_stepper_has_four_steps():
-    from card_pilot import render_stage_strip
+    from factory.pipeline.card_pilot import render_stage_strip
     html_out = render_stage_strip(_r45_base_rec(card={}, valid=True))
     assert html_out.count('class="step"') == 4
     for step in ("دیتاست خام", "گیت‌ها", "مدل", "نهایی"):
@@ -2045,7 +2043,7 @@ def test_r45_debug_details_and_no_internal_keys_in_flow():
     assert "<link" not in html_out and 'href="http' not in html_out
 
 def test_fa_script_rejects_cjk():
-    from card_pilot import fa_alpha_check, fa_field_ok, fa_script_ok
+    from factory.pipeline.card_pilot import fa_alpha_check, fa_field_ok, fa_script_ok
     assert fa_script_ok("ناچیز از نظر 규모 مالی") is False
     assert fa_field_ok("ناچیز از نظر 규모 مالی") is False
     assert fa_alpha_check({"fa_meaning": "ناچیز از نظر 규모 مالی",
@@ -2132,7 +2130,7 @@ def test_build_prompts_unknown_level_clean_exit():
 def test_generate_card_unknown_level_records_invalid():
     # Per-card recorded failure: no raise, valid=False with a
     # bad-pool-level reason, pilot-safe to continue the loop.
-    from card_pilot import generate_card
+    from factory.pipeline.card_pilot import generate_card
     item = {"kind": "word", "text": "wibble", "pool_level": "XX"}
     rec = generate_card(item, "key", transport=lambda *a: "{}",
                         model_calls={})
@@ -2180,7 +2178,7 @@ def test_read_model_calls_falls_back_to_progress(tmp_path):
 
 
 def test_gallery_telemetry_table_renders():
-    from telemetry import summarize
+    from factory.core.telemetry import summarize
     summary = summarize([_tele_rec("card", 0)])
     html_out = render_gallery(
         [{"key": "w:a", "kind": "word", "text": "apple",
@@ -2299,8 +2297,8 @@ def test_assign_topic_autherror_reraises_loud():
     """OC critical: assign_topic must never swallow auth into fallback."""
     import urllib.error
     import pytest
-    from card_pilot import assign_topic
-    from llm_json import AuthError
+    from factory.pipeline.card_pilot import assign_topic
+    from factory.core.llm_json import AuthError
 
     def auth_transport(api_key, model, user_text):
         raise AuthError("401")
@@ -2317,7 +2315,7 @@ def test_assign_topic_autherror_reraises_loud():
 
 
 def test_review_auth_tele_forwards_code():
-    from card_pilot import _review_auth_tele
+    from factory.pipeline.card_pilot import _review_auth_tele
     store = []
     _review_auth_tele(store, "s", 0, 0, "m", http_status=403)
     assert store[0]["http_status"] == 403

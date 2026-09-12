@@ -14,14 +14,10 @@ Items (factory/ only, zero LLM):
 """
 
 import json
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-import card_pilot
-import precard_pipeline
-from precard_pipeline import anchor_rank_item
-from precard_pipeline import main as precard_main
+from factory.pipeline import card_pilot
+from factory.pipeline import precard_pipeline
+from factory.pipeline.precard_pipeline import anchor_rank_item
+from factory.pipeline.precard_pipeline import main as precard_main
 
 ZIPF = lambda w: 5.0  # noqa: E731 (hermetic: never touch wordfreq live)
 
@@ -392,7 +388,7 @@ def test_precard_row_carries_mother_lemma(tmp_path, monkeypatch):
 
 
 def test_country_blocklist_reason_still_wired():
-    from precard_pipeline import COUNTRY_NAMES
+    from factory.pipeline.precard_pipeline import COUNTRY_NAMES
     assert "france" in COUNTRY_NAMES
-    from stage_glossary import REASON_SLUGS
+    from factory.core.stage_glossary import REASON_SLUGS
     assert "r4-country-blocklist" in REASON_SLUGS

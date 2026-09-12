@@ -1,13 +1,7 @@
-"""Tests for factory/stage_glossary.py (v13 T1, additive-only)."""
+"""Tests for factory/core/stage_glossary.py (v13 T1, additive-only)."""
 
 import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
-
-import stage_glossary as g
-
-
+from factory.core import stage_glossary as g
 def test_stage_ids_match_names_both_directions():
     assert set(g.STAGE_IDS) == set(g.STAGE_NAMES)
     for sid in g.STAGE_IDS:
@@ -68,7 +62,8 @@ def test_reason_slugs_cover_pipeline_literals():
     import re
 
     here = os.path.dirname(__file__)
-    with open(os.path.join(here, "..", "factory", "precard_pipeline.py"),
+    with open(os.path.join(here, "..", "factory", "pipeline",
+                              "precard_pipeline.py"),
               encoding="utf-8") as handle:
         src = handle.read()
     emitted = set(re.findall(r'\["(?:reason|dropped)"\]\s*=\s*'
@@ -81,7 +76,8 @@ def test_reason_slugs_cover_pipeline_literals():
                 "type-pending"):
         assert lit in src, lit
         emitted.add(lit)
-    with open(os.path.join(here, "..", "factory", "card_pilot.py"),
+    with open(os.path.join(here, "..", "factory", "pipeline",
+                              "card_pilot.py"),
                encoding="utf-8") as handle:
         card_pilot = handle.read()
     for lit in re.findall(r'"(cloze-[a-z]+)"', card_pilot):
@@ -96,8 +92,7 @@ def test_reason_slugs_cover_pipeline_literals():
 def test_stage_names_match_live_pipeline():
     """Parity pin: glossary duplicates the live pipeline's stage tables
     until T2-T5 migrate callers over (no migration in T1)."""
-    import precard_pipeline as live
-
+    from factory.pipeline import precard_pipeline as live
     assert dict(g.STAGE_NAMES) == dict(live.STAGE_NAMES)
     assert dict(g.STAGE_FINGLESH) == dict(live.STAGE_FINGLESH)
     for sid in g.STAGE_IDS:
