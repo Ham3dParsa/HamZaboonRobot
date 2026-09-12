@@ -98,10 +98,14 @@ def recent_events_for_words(
     (SQLite IN-variable guard) and the per-word cap is applied in SQL via
     ``ROW_NUMBER() OVER (PARTITION BY word_id ORDER BY created_at DESC,
     id DESC)`` filtered to ``rn <= per_word`` (same tiebreaker as
-    ``prune_old_review_events``). Return shape is unchanged.
+    ``prune_old_review_events``). Input ids are de-duplicated preserving
+    order first: the result is keyed by ``word_id``, so input multiplicity
+    is semantically irrelevant and must not duplicate events across chunk
+    boundaries. Return shape is unchanged.
     """
     if not word_ids:
         return {}
+    word_ids = list(dict.fromkeys(word_ids))
     grouped: dict[int, list[dict]] = {}
     for start in range(0, len(word_ids), 500):
         chunk = word_ids[start:start + 500]

@@ -202,6 +202,18 @@ class ChunkInEquivalenceTests(unittest.TestCase):
         self.assertNotIn(999999, result)
         self.assertNotIn(888888, result)
 
+    def test_recent_cross_chunk_dup_short_history(self):
+        # Reviewer finding on PR #653: a word_id straddling a chunk boundary
+        # with history shorter than per_word must not duplicate events.
+        wids = self._word_ids(501)
+        for wid in wids:
+            self._insert_events(wid, [3], "2026-05-01T00:")
+        mixed = wids + [wids[0]]
+        result, calls = self._run_recent_tracked(mixed, per_word=2)
+        self.assertEqual(result, self._reference_recent(mixed, 1, 2))
+        self.assertEqual(len(result[wids[0]]), 1)
+        self._assert_chunk_discipline(calls, len(set(mixed)))
+
     def test_recent_per_word_1_2_5(self):
         wids = self._word_ids(600)
         for wid in wids:
