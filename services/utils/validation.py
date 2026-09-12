@@ -23,7 +23,7 @@ The acceptance rules are locked (see the custom-word-query plan, Rule B):
 acceptance.
 """
 
-from services.utils.helpers import _normalize_custom_word_input
+from services.utils.helpers_pure import _normalize_custom_word_input
 
 _CUSTOM_WORD_MAX_CHARS = 48
 _CUSTOM_WORD_MAX_WORDS = 4

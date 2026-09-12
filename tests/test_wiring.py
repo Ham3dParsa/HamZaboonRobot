@@ -1022,14 +1022,16 @@ class TestCallbackWiring(unittest.TestCase):
     def test_telegram_slots_only_owned_and_consumed_by_deep_module(self):
         """The global concurrency slot is defined in services/send_pretty.py (R2)
         and must be consumed only there; services/utils/helpers.py keeps a thin
-        re-export plus the edit/delete retry loops for one PR, and bot.py's
-        connection-health job is a grandfathered exception. Any other module
-        reaching for it bypasses the retry/slot seam and must be routed through
-        send_pretty.
+        re-export plus the send-pretty shim for one PR, services/utils/
+        helpers_retry.py owns the edit/delete retry loops (REF2-T3), and
+        bot.py's connection-health job is a grandfathered exception. Any other
+        module reaching for it bypasses the retry/slot seam and must be routed
+        through send_pretty.
         """
         allowed = {
             Path("services/send_pretty.py"),  # owner (defines the slot)
-            Path("services/utils/helpers.py"),  # re-export shim + edit/delete loops
+            Path("services/utils/helpers.py"),  # re-export shim + send-pretty shim
+            Path("services/utils/helpers_retry.py"),  # edit/delete retry loops (REF2-T3)
             Path("bot.py"),  # grandfathered connection-health job
         }
         offenders: list[str] = []

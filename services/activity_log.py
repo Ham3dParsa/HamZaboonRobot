@@ -16,7 +16,7 @@ from telegram import Update
 
 from services import db
 from config import USER_ACTIVITY
-from services.utils.helpers import _user_activity_line
+from services.utils.helpers_pure import _user_activity_line
 
 logger = logging.getLogger(__name__)
 

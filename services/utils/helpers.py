@@ -1,632 +1,105 @@
-import asyncio
+"""Helpers facade (REF2-T3).
+
+Thin re-export shim over the split leaves — ``helpers_pure.py`` (pure),
+``helpers_awaiting.py`` (awaiting-prompt tracking), ``helpers_llm.py``
+(LLM wait-state + awaiting exit + ``say`` adapter) and ``helpers_retry.py``
+(Telegram retry loops). Every existing
+``from services.utils.helpers import ...`` caller works unchanged; the
+canonical definitions live in the leaves (old defs removed same PR).
+
+Patch-contract compat: ``asyncio`` and ``logger`` are intentionally exposed
+here — tests patch ``services.utils.helpers.asyncio.sleep`` and
+``services.utils.helpers.logger``, and the leaves resolve those (plus
+``_reset_telegram_cb`` / ``_edit_markup_with_retry`` / ``notify_callback``)
+dynamically through this facade at call time (send_pretty precedent).
+``CallbackNoticeIntent`` / ``notify_callback`` are re-exported (same objects)
+for the same reason. New code MUST import from the leaves directly.
+"""
+
+import asyncio  # noqa: F401 — compat: tests patch helpers.asyncio.sleep (same stdlib singleton)
 import logging
-import math
-import os
-import random
-import re
-import unicodedata
 
-from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
-from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
-
-from config import OWNER_ID, USER_ACTIVITY
-from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
-from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.helpers_awaiting import (
+    _ADMIN_PENDING_KEYS,
+    _AWAITING_PENDING_KEY,
+    _clear_awaiting_prompt,
+    _resolve_awaiting_tuple,
+    _rotate_awaiting_msg,
+    _store_awaiting_msg,
+    clear_admin_pending_state,
+)
+from services.utils.helpers_llm import (
+    _edit_or_send,
+    _exit_awaiting_flow,
+    _finish_llm_wait_state,
+    _start_llm_wait_state,
+    exit_admin_awaiting_cancel,
+)
+from services.utils.helpers_pure import (
+    _CANCEL_INPUTS,
+    _is_cancel_input,
+    _normalize_custom_word_input,
+    _user_activity_line,
+    apply_log_level,
+)
+from services.utils.helpers_retry import (
+    _RETRY_BACKOFF_BASE_DEFAULT,
+    _RETRY_BACKOFF_BASE_MAX,
+    _RETRY_BACKOFF_SLEEP_MAX,
+    _TELEGRAM_RETRY_BASE_DELAY,
+    _TELEGRAM_RETRY_MAX_ATTEMPTS,
+    _TELEGRAM_RETRY_MAX_DELAY,
+    _delete_with_retry,
+    _edit_markup_with_retry,
+    _edit_message_with_retry,
+    _edit_with_retry,
+    _execute_telegram_action_with_retry,
+    _reset_telegram_cb,
+    _retry_backoff_base,
+    _retry_sleep,
+    _send_with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
-_RETRY_BACKOFF_BASE_DEFAULT = 1.0
-_RETRY_BACKOFF_BASE_MAX = 60.0
-_RETRY_BACKOFF_SLEEP_MAX = 30.0
-
-# Retry seam (Issue #579) — Telegram Jittered Exponential Backoff, single seam.
-# Contract lock 2026-09-05: 3 attempts, base 0.5s, cap 30s, RetryAfter honored
-# (raise-over-cap drop). Sibling edit/delete loops keep their pre-existing
-# 30s-clamp; only this central seam drops over-cap (scoped divergence).
-_TELEGRAM_RETRY_MAX_ATTEMPTS = 3
-_TELEGRAM_RETRY_BASE_DELAY = 0.5
-_TELEGRAM_RETRY_MAX_DELAY = 30.0
-
-
-def _retry_backoff_base() -> float:
-    """Scale factor for the Telegram retry backoff (2**attempt) wall-clock wait.
-
-    Production default is 1.0 (unchanged). Tests may shrink the wait via
-    HAMZABAN_RETRY_BACKOFF_BASE (0.1 in the suite; 0.05 reserved for explicit
-    performance benchmarks) while still exercising the real retry sequence:
-    attempt count, ordering, retry conditions, final failure and success-after-
-    retry are all untouched — only the elapsed waiting time scales.
-
-    Invalid, NaN, infinite or non-positive values are warned and fall back to
-    1.0; values above 60 are clamped.
-    """
-    raw = os.environ.get("HAMZABAN_RETRY_BACKOFF_BASE")
-    if raw is None:
-        return _RETRY_BACKOFF_BASE_DEFAULT
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
-        return _RETRY_BACKOFF_BASE_DEFAULT
-    if not math.isfinite(value) or value <= 0:
-        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
-        return _RETRY_BACKOFF_BASE_DEFAULT
-    if value > _RETRY_BACKOFF_BASE_MAX:
-        logger.warning(
-            "HAMZABAN_RETRY_BACKOFF_BASE=%r exceeds max %.1f, clamping",
-            raw,
-            _RETRY_BACKOFF_BASE_MAX,
-        )
-        value = _RETRY_BACKOFF_BASE_MAX
-    return value
-
-
-def _retry_sleep(attempt: int) -> float:
-    """Computed backoff sleep for *attempt*, capped to 30s."""
-    return min(_retry_backoff_base() * (2**attempt), _RETRY_BACKOFF_SLEEP_MAX)
-
-
-async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: bool = False, reset_telegram_cb: bool = True, **kwargs):
-    """
-    درزگاه سراسری اجرای متد تلگرام با Jittered Exponential Backoff و رعایت
-    سربرگ RetryAfter. — Issue #579, R2 split policy. ریتری با is_idempotent
-    گیت می‌شود (پیش‌فرض False: امن برای مسیر غیرایدم‌پوتنت).
-
-    فقط مسیرهای ایدم‌پوتنت (edit/delete) مجاز به ریتری TimedOut/NetworkError
-    هستند. ارسال‌ها غیرایدم‌پوتنت‌اند و هرگز نباید از این تابع عبور کنند —
-    درگاه ارسال مالکانه services/send_pretty._send_media_with_retry است.
-    is_idempotent=False (پیش‌فرض): خطای TimedOut/NetworkError بلافاصله
-    بازپرتاب می‌شود (بدون ریتری/خواب) — نگهبان مسیرهای غیرایدم‌پوتنت آینده.
-    is_idempotent=True: ریتری بک‌آف موجود حفظ می‌شود.
-    reset_telegram_cb=True (پیش‌فرض): پس از موفقیت، پرچم آفلاین/شمارنده
-    سلامت ریست می‌شود. مسیرهای health/offline-notice با False صدا می‌زنند
-    تا وضعیت circuit-breaker را بازنویسی نکنند.
-    Slot-missing fail-closed (R3 #583): اگر ایمپورت _telegram_slots شکست
-    بخورد، RuntimeError("telegram slot unavailable") پرتاب می‌شود — هرگز
-    بدون اسلات و بدون محدودیت اجرا نمی‌شود (سطح‌بندی miswire).
-    """
-    # Lazy slot — owned by services/send_pretty.py (phase-03 R2), avoid cycle.
-    try:
-        from services.send_pretty import _telegram_slots
-    except ImportError:
-        _telegram_slots = None  # type: ignore
-
-    if _telegram_slots is None:
-        raise RuntimeError("telegram slot unavailable")
-
-    attempt = 0
-    while True:
-        attempt += 1
-        try:
-            async with _telegram_slots:
-                result = await action_fn(*args, **kwargs)
-                if reset_telegram_cb:
-                    _reset_telegram_cb()
-                return result
-        except Forbidden:
-            raise
-
-        except BadRequest as e:
-            logger.debug("Telegram BadRequest non-retryable: %s", e)
-            raise
-
-        except RetryAfter as e:
-            delay = float(e.retry_after)
-            # Owner-approved drop semantics (Kilo round-1/2, owner 2026-09-05):
-            # a RetryAfter above the cap honors Telegram's flood directive
-            # by dropping instead of blocking the handler past the cap.
-            # Flood-safe (never hammer a rate-limited endpoint) and
-            # handler-bound (a single delivery never stalls a worker
-            # beyond the budget). DIVERGENCE (owner-approved): the four
-            # legacy paths (send owner + 3 sibling edit/delete loops) keep
-            # their pre-existing min(delay,30s)-clamp-then-retry because
-            # delivery matters more than flood-purity there; only this
-            # central seam drops over-cap. Unified only if load evidence
-            # demands it (see #585).
-            if delay > _TELEGRAM_RETRY_MAX_DELAY:
-                logger.error(
-                    "Telegram RetryAfter %.2fs exceeds cap %.2fs on attempt %d/%d — dropping (no sleep, no retry)",
-                    delay,
-                    _TELEGRAM_RETRY_MAX_DELAY,
-                    attempt,
-                    _TELEGRAM_RETRY_MAX_ATTEMPTS,
-                )
-                raise
-            logger.warning(
-                "Telegram RetryAfter caught on attempt %d/%d. Wait %.2fs...",
-                attempt,
-                _TELEGRAM_RETRY_MAX_ATTEMPTS,
-                delay,
-            )
-            if attempt >= _TELEGRAM_RETRY_MAX_ATTEMPTS:
-                raise
-            await asyncio.sleep(delay)
-
-        except (TimedOut, NetworkError) as e:
-            if not is_idempotent:
-                raise
-            logger.warning(
-                "Telegram network error (%s) on attempt %d/%d.",
-                e.__class__.__name__,
-                attempt,
-                _TELEGRAM_RETRY_MAX_ATTEMPTS,
-            )
-            if attempt >= _TELEGRAM_RETRY_MAX_ATTEMPTS:
-                raise
-            exp_delay = _TELEGRAM_RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            jittered_delay = random.uniform(0.1, min(exp_delay, _TELEGRAM_RETRY_MAX_DELAY))
-            await asyncio.sleep(jittered_delay)
-
-        except Exception as e:
-            logger.error("Unexpected error in telegram retry seam: %s", e, exc_info=True)
-            raise
-
-
-def apply_log_level(level_name: str) -> None:
-    """Set root logger level and quieter external loggers accordingly."""
-    level = getattr(logging, level_name.upper(), None)
-    if level is None:
-        return
-    logging.getLogger().setLevel(level)
-    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
-        logging.getLogger(name).setLevel(max(level, logging.WARNING))
-    logger.info("log level set to %s", level_name.upper())
-
-
-def _user_activity_line(
-    *,
-    user_id: int,
-    full_name: str | None = None,
-    username: str | None = None,
-    action: str,
-    outcome: str,
-    plan: str | None = None,
-    lang: str | None = None,
-    goal: str | None = None,
-    level: str | None = None,
-) -> str | None:
-    """Build a USER_ACTIVITY log line if the feature is enabled; return None otherwise."""
-    if db.get_setting("user_activity_log", "off") != "on":
-        return None
-    uname = f"@{username}" if username else "—"
-    return (
-        f"{action:<18s} │ {str(user_id):<12s} │ {uname:<16s} │ "
-        f"{(plan or '—'):<8s} │ {(lang or '—'):<6s} │ "
-        f"{(goal or '—'):<12s} │ {(level or '—'):<8s} │ "
-        f"{outcome:<22s} │ {full_name or '—'}"
-    )
-
-# NOTE (phase-03 retry seam move, R2): the Telegram send retry/slot seam
-# (_telegram_slots, _send_media_with_retry, _capture_media_bytes,
-# _SEND_METHOD_ALLOWLIST, _SEND_MEDIA_EXPECTED, _rich_api_request) is owned by
-# services/send_pretty.py and re-exported at the bottom of this module.
-# The edit/delete retry loops below still use the slot via a lazy import
-# (send_pretty imports them from here at top level, so a top-level import
-# back would cycle).
-_CANCEL_INPUTS = {
-    "cancel",
-    "back",
-    "لغو",
-    "بازگشت",
-    "انصراف",
-    BTN_CANCEL.casefold(),
-    BTN_BACK.casefold(),
-}
-
-
-def _normalize_custom_word_input(text: str) -> str:
-    text = unicodedata.normalize("NFC", text)
-    text = re.sub(r'[\s\u200b]+', ' ', text.strip())
-    text = re.sub(r' +', ' ', text)
-    return text.strip()
-
-
-def _is_cancel_input(text: str) -> bool:
-    return _normalize_custom_word_input(text).casefold() in _CANCEL_INPUTS
-
-
-async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    chat = update.effective_chat
-    if not chat:
-        return None
-    await chat.send_action("typing")
-    try:
-        return await context.bot.send_message(chat_id=chat.id, text=text)
-    except Exception:
-        logger.exception("Failed to send LLM wait-state message")
-        return None
-
-
-async def _finish_llm_wait_state(wait_message, bot=None):
-    if not wait_message:
-        return
-    try:
-        if bot is not None:
-            await _delete_with_retry(bot, wait_message.chat_id, wait_message.message_id)
-        else:
-            await wait_message.delete()
-    except Exception:
-        logger.exception("Failed to delete LLM wait-state message")
-
-
-async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
-    await _clear_awaiting_prompt(context)
-    context.user_data.pop("awaiting", None)
-    user_id = update.effective_user.id
-    reply_markup = main_menu(user_id == OWNER_ID)
-    if via_callback:
-        try:
-            await update.callback_query.edit_message_text("لغو شد.")
-        except BadRequest as exc:
-            cb_data = getattr(getattr(update, "callback_query", None), "data", None)
-            chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
-            logger.info("cancel callback edit failed user_id=%s chat_id=%s callback_data=%r: %s", user_id, chat_id, cb_data, exc, exc_info=True)
-            await notify_callback(update.callback_query)
-            await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
-            return
-        cb_data = getattr(getattr(update, "callback_query", None), "data", None)
-        chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
-        logger.debug("cancel callback succeeded user_id=%s chat_id=%s callback_data=%r via_callback=%s", user_id, chat_id, cb_data, via_callback)
-        await notify_callback(
-            update.callback_query,
-            "لغو شد.",
-            intent=CallbackNoticeIntent.INFO,
-        )
-        return
-    chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
-    logger.debug("cancel via message user_id=%s chat_id=%s via_callback=%s", user_id, chat_id, via_callback)
-    await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
-
-
-async def exit_admin_awaiting_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Admin text-cancel path: clear all pending admin state and return to panel."""
-    clear_admin_pending_state(context)
-    await _clear_awaiting_prompt(context)
-    # Lazy import to avoid circular dependency with config.keyboards
-    from config.keyboards import admin_panel_keyboard
-
-    await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
-
-
-async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
-    """Thin adapter (R3) routing through ``services.send_pretty.say``.
-
-    The deep outbound module owns the parse-standard, retry, and concurrency
-    slots. This adapter keeps the legacy ``(update, context, text, **kwargs)``
-    signature so the existing call sites are untouched, and derives the ``raw``
-    format from the caller's ``parse_mode`` (never guessed). Deletion of this
-    adapter (and migration of all callers to ``say``) is deferred to a dedicated
-    cleanup PR.
-    """
-    from services.send_pretty import RawFormat, say
-
-    raw = RawFormat.PLAIN
-    parse_mode = kwargs.pop("parse_mode", None)
-    if parse_mode == ParseMode.HTML:
-        raw = RawFormat.HTML
-    elif parse_mode == ParseMode.MARKDOWN_V2:
-        raw = RawFormat.MDV2
-    return await say(update, context, text, raw=raw, **kwargs)
-
-
-def _reset_telegram_cb():
-    import bot
-    bot._telegram_offline = False
-    bot._consecutive_health_failures = 0
-
-
-async def _send_with_retry(
-    bot,
-    chat_id: int,
-    text: str,
-    *,
-    reset_telegram_cb: bool = True,
-    **kwargs,
-):
-    """جایگزین درگاه خط ۳۴۲: ارسال پیام — Issue #579, R2 delegation.
-
-    Thin wrapper روی درگاه مالکانه services/send_pretty._send_media_with_retry
-    (تک‌درگاه ارسال: allowlist، byte-recapture، reset_telegram_cb gating).
-    ارسال‌ها غیرایدم‌پوتنت‌اند: ریتری فقط RetryAfter (مالکانه) — هرگز
-    TimedOut/NetworkError. Forbidden→blocked در درگاه مالک انجام می‌شود.
-    """
-    # Lazy: send_pretty از این ماژول ایمپورت سطح بالا دارد — ایمپورت سطح بالا چرخه می‌سازد.
-    from services.send_pretty import _send_media_with_retry
-
-    return await _send_media_with_retry(
-        bot,
-        chat_id,
-        method="send_message",
-        media_kw=None,
-        media=text,
-        reset_telegram_cb=reset_telegram_cb,
-        **kwargs,
-    )
-
-
-async def _edit_with_retry(query, text, *, reset_telegram_cb: bool = True, **kwargs):
-    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
-    # top-level import back would cycle (send_pretty imports this module).
-    from services.send_pretty import _telegram_slots
-
-    if _telegram_slots is None:
-        raise RuntimeError("telegram slot unavailable")
-
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                result = await query.edit_message_text(text, **kwargs)
-                if reset_telegram_cb:
-                    _reset_telegram_cb()
-                return result
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            if attempt == 2:
-                raise
-            await asyncio.sleep(_retry_sleep(attempt))
-
-
-async def _edit_message_with_retry(
-    bot, chat_id: int, message_id: int, text: str, *, reset_telegram_cb: bool = True, **kwargs
-):
-    """جایگزین درگاه خط ۳۷۴: فراخوانی با ریتری هوشمند برای ویرایش پیام — Issue #579."""
-
-    async def _act():
-        try:
-            return await bot.edit_message_text(
-                chat_id=chat_id, message_id=message_id, text=text, **kwargs
-            )
-        except Forbidden:
-            if chat_id > 0:
-                try:
-                    db.set_user_blocked(chat_id)
-                except Exception:
-                    pass
-            raise
-
-    return await _execute_telegram_action_with_retry(_act, is_idempotent=True, reset_telegram_cb=reset_telegram_cb)
-
-
-async def _edit_markup_with_retry(
-    bot, chat_id: int, message_id: int, reply_markup, *, reset_telegram_cb: bool = True, **kwargs
-):
-    """Edit only the reply markup of an existing message (no text change),
-    holding the shared concurrency slot.
-
-    RT-B2: routes the handler ``context.bot.edit_message_reply_markup`` bypass
-    sites back onto the retry/slot seam.
-    """
-    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
-    # top-level import back would cycle (send_pretty imports this module).
-    from services.send_pretty import _telegram_slots
-
-    if _telegram_slots is None:
-        raise RuntimeError("telegram slot unavailable")
-
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                result = await bot.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    reply_markup=reply_markup,
-                    **kwargs,
-                )
-                if reset_telegram_cb:
-                    _reset_telegram_cb()
-                return result
-        except Forbidden:
-            if chat_id > 0:
-                try:
-                    db.set_user_blocked(chat_id)
-                except Exception:
-                    pass
-            raise
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            if attempt == 2:
-                raise
-            await asyncio.sleep(_retry_sleep(attempt))
-
-
-async def _delete_with_retry(bot, chat_id: int, message_id: int, *, reset_telegram_cb: bool = True, **kwargs):
-    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
-    # top-level import back would cycle (send_pretty imports this module).
-    from services.send_pretty import _telegram_slots
-
-    if _telegram_slots is None:
-        raise RuntimeError("telegram slot unavailable")
-
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                result = await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
-                if reset_telegram_cb:
-                    _reset_telegram_cb()
-                return result
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            if attempt == 2:
-                raise
-            await asyncio.sleep(_retry_sleep(attempt))
-
-
-_ADMIN_PENDING_KEYS: tuple[str, ...] = (
-    "pending_dm",
-    "pending_plan",
-    "pending_block",
-    "pending_broadcast",
-    "full_edit",
-    "plan_full_edit",
-    "preset_edits",
-)
-
-_AWAITING_PENDING_KEY = "_awaiting_pending"
-
-
-def clear_admin_pending_state(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear all admin pending state keys (single source for cancel/back cleanup)."""
-    for _k in _ADMIN_PENDING_KEYS:
-        context.user_data.pop(_k, None)
-    context.user_data.pop(_AWAITING_PENDING_KEY, None)
-    context.user_data.pop("awaiting", None)
-    # _awaiting_msg is cleared by _clear_awaiting_prompt, not here
-
-
-def _resolve_awaiting_tuple(msg, update) -> tuple[int, int] | None:
-    """Resolve the (chat_id, message_id) tuple for an awaiting prompt.
-
-    Single source of truth shared by ``_store_awaiting_msg`` and
-    ``_rotate_awaiting_msg`` (AGENTS.md §3 — no duplicate resolution logic).
-    Primary source is the Message returned by ``say``/``_edit_or_send``
-    (``msg``); ``update`` is only used as fallback for the edit-path where
-    the helper returns ``True``/``None`` (the prompt is the edited message).
-    Returns None when no prompt message can be resolved.
-    """
-    try:
-        mid = None
-        cid = None
-        if msg is not None and not isinstance(msg, bool):
-            mid = getattr(msg, "message_id", None)
-            chat = getattr(msg, "chat", None)
-            if chat is not None:
-                cid = getattr(chat, "id", None)
-            # Some send helpers return int message_id directly
-            if mid is None and isinstance(msg, int):
-                mid = msg
-        # Only fallback to effective_message (prompt-related), not callback_query.message
-        if mid is None:
-            try:
-                em = getattr(update, "effective_message", None)
-                if em is not None:
-                    em_mid = getattr(em, "message_id", None)
-                    if em_mid is not None:
-                        mid = em_mid
-                        if cid is None:
-                            chat = getattr(em, "chat", None)
-                            if chat is not None:
-                                cid = getattr(chat, "id", None)
-            except Exception:
-                pass
-        if cid is None and getattr(update, "effective_chat", None) is not None:
-            try:
-                cid = update.effective_chat.id  # type: ignore[union-attr]
-            except Exception:
-                pass
-        if mid is None or cid is None:
-            return None
-        return (int(cid), int(mid))
-    except Exception:
-        return None
-
-
-def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
-    """Store the prompt message id so its keyboard can be cleared on consume/cancel.
-
-    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
-
-    Primary source is the Message returned by ``say``/``_edit_or_send`` (``msg``);
-    ``update`` is only used as fallback for the edit-path where the helper returns
-    ``True``/``None`` (the prompt is the edited message). In PTB
-    ``effective_message`` and ``callback_query.message`` alias the same object, so
-    we only read ``effective_message`` as fallback — never ``callback_query.message``
-    directly — and we always prefer ``msg.message_id`` when ``msg`` carries one.
-    """
-    # Callback updates: effective_message aliases callback_query.message in PTB,
-    # so say()/_edit_or_send returning None/True (edit not-modified) would write
-    # the button message_id into _awaiting_msg and later _clear_awaiting_prompt
-    # would strip the admin menu instead of the prompt. On callback updates with
-    # no real Message (None/bool) we skip the store — awaiting text stays in
-    # user_data["awaiting"] and will be cleared via clear_admin_pending_state.
-    if (msg is None or isinstance(msg, bool)) and getattr(update, "callback_query", None) is not None:
-        return
-    tup = _resolve_awaiting_tuple(msg, update)
-    if tup is None:
-        return
-    context.user_data["_awaiting_msg"] = {"chat_id": tup[0], "message_id": tup[1]}
-
-
-async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear the stored awaiting prompt's keyboard, swallowing BadRequest.
-
-    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
-    Restart-safe and idempotent: after a restart ``_awaiting_msg`` is absent
-    (in-memory ``user_data``) so this is a no-op; a missing entry or an
-    already-stripped/deleted message simply does nothing. Performs no DB I/O,
-    so it never holds a DB transaction across an await.
-    """
-    data = context.user_data.pop("_awaiting_msg", None)
-    if not data:
-        return
-    try:
-        await _edit_markup_with_retry(context.bot, data["chat_id"], data["message_id"], None)
-    except BadRequest:
-        pass
-    except Exception:
-        logger.exception("Failed to clear awaiting prompt")
-
-
-async def _rotate_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
-    """Start a new awaiting prompt: strip the previous prompt's keyboard, then store the new one.
-
-    Single source of truth for prompt rotation (R2 stale-orphan fix): preset
-    awaiting prompt starts should go through here instead of calling
-    ``_store_awaiting_msg`` directly, so a second prompt can never orphan the
-    first one's keyboard. Restart-safe and idempotent (inherits both from
-    ``_clear_awaiting_prompt``/``_store_awaiting_msg``); performs no DB I/O,
-    so no DB transaction is ever held across the await.
-
-    Two guards (opencode WARNING, PR 568 — verified against ``say`` +
-    ``_store_awaiting_msg`` semantics):
-
-    - Same message: callback edits reuse one message, so the stored old tuple
-      routinely aliases the just-rendered prompt. Stripping it would remove
-      the keyboard ``say`` just set — skip the strip and just (re-)store
-      (same pattern as the admin:close same-message skip in handlers/admin).
-    - Unresolvable new prompt: ``say`` returns None/True on the callback
-      edit-not-modified path. Clearing first would drop the still-valid old
-      tracking while storing nothing — keep the old entry intact instead
-      (same guard as ``_store_awaiting_msg``: never guess from the button
-      message on callback updates).
-    """
-    if (msg is None or isinstance(msg, bool)) and getattr(update, "callback_query", None) is not None:
-        return
-    new_tup = _resolve_awaiting_tuple(msg, update)
-    if new_tup is None:
-        return
-    old = context.user_data.get("_awaiting_msg")
-    old_tup = None
-    if isinstance(old, dict):
-        try:
-            if old.get("chat_id") is not None and old.get("message_id") is not None:
-                old_tup = (int(old["chat_id"]), int(old["message_id"]))
-        except Exception:
-            old_tup = None
-    if old_tup is None or old_tup != new_tup:
-        await _clear_awaiting_prompt(context)
-    context.user_data["_awaiting_msg"] = {"chat_id": new_tup[0], "message_id": new_tup[1]}
+__all__ = [
+    "apply_log_level",
+    "_user_activity_line",
+    "_CANCEL_INPUTS",
+    "_normalize_custom_word_input",
+    "_is_cancel_input",
+    "_start_llm_wait_state",
+    "_finish_llm_wait_state",
+    "_exit_awaiting_flow",
+    "exit_admin_awaiting_cancel",
+    "_edit_or_send",
+    "_retry_backoff_base",
+    "_retry_sleep",
+    "_execute_telegram_action_with_retry",
+    "_reset_telegram_cb",
+    "_send_with_retry",
+    "_edit_with_retry",
+    "_edit_message_with_retry",
+    "_edit_markup_with_retry",
+    "_delete_with_retry",
+    "_ADMIN_PENDING_KEYS",
+    "_AWAITING_PENDING_KEY",
+    "clear_admin_pending_state",
+    "_resolve_awaiting_tuple",
+    "_store_awaiting_msg",
+    "_clear_awaiting_prompt",
+    "_rotate_awaiting_msg",
+    "CallbackNoticeIntent",
+    "notify_callback",
+]
 
 
 # Wiring guard static alias — satisfies tests/test_wiring.py AST check for
 # from services.utils.helpers import _send_media_with_retry (runtime via __getattr__).
+# REF2-T3: extended to cover the retry-leaf move — the send seam stays owned by
+# services/send_pretty.py; the edit/delete loops moved to helpers_retry.py and
+# are statically re-exported above (no alias needed for them).
 if False:  # pragma: no cover
     from services.send_pretty import _send_media_with_retry  # noqa: F401
 
