@@ -944,13 +944,18 @@ def init_db(path: str | None = None):
             "CREATE INDEX IF NOT EXISTS saved_words_due_idx "
             "ON saved_words(user_id, lang, next_review_at)"
         )
-        # REF3-T1: filter/order index for get_pre_first_exposure_words
-        # (user_id=? AND first_exposure_done=0 [...] ORDER BY added_at ASC).
-        # LEAD-LOCKED column order: equality columns first, added_at last so
-        # the ORDER BY is index-backed on fresh and upgraded DBs. Pure DDL.
+        # REF3-T1: filter index for get_pre_first_exposure_words
+        # (user_id=? AND first_exposure_done=0 [AND lang=?] ORDER BY ...).
+        # LEAD-LOCKED column order (v2, fixed after CI: planner preferred
+        # saved_words_due_idx(user_id, lang, ...) on lang-filtered queries
+        # because the 3-col variant lacked lang): (user_id,
+        # first_exposure_done, lang, added_at). Lang-present queries get 3
+        # equality columns; lang-absent queries use the 2-col prefix. The
+        # CASE-based ORDER BY still needs a sort step; the index narrows the
+        # scan to the user's unexposed rows. Pure DDL.
         conn.execute(
             "CREATE INDEX IF NOT EXISTS saved_words_pre_exposure_idx "
-            "ON saved_words(user_id, first_exposure_done, added_at)"
+            "ON saved_words(user_id, first_exposure_done, lang, added_at)"
         )
         # F3: filter/order index for recent_events_for_words(user_id, word_id)
         # ORDER BY word_id, created_at DESC, id DESC. Matches its WHERE
