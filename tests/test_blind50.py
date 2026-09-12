@@ -177,3 +177,20 @@ def test_run_model_prints_progress(capsys, tmp_path):
     assert "[blind50 g35] batch 1/1: done=1/1" in out
     assert "[blind50 g35] finished: done=1/1" in out
     out.encode("ascii")
+
+
+def test_flag_aliases_anchor_and_glm_judge(tmp_path, capsys):
+    """Voice: --anchor/--glm-judge canonical; --s1/--glm-s2 still work."""
+    import factory.pipeline.blind50 as b50
+
+    accept = tmp_path / "a.json"
+    accept.write_text(json.dumps(ITEMS), encoding="utf-8")
+    s1 = tmp_path / "s1.json"
+    s1.write_text(json.dumps({"done": {}}), encoding="utf-8")
+    for flags in (["--anchor", "--glm-judge"], ["--s1", "--glm-s2"]):
+        out = tmp_path / "o.json"
+        assert b50.main([
+            "--accept", str(accept), flags[0], str(s1), flags[1],
+            str(s1), "--out", str(out),
+            "--progress", str(tmp_path / "p.json"),
+            "--dry-run"]) == 0

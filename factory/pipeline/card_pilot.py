@@ -108,7 +108,7 @@ REPAIR_PREFIX = ("Your last reply was not valid JSON. "
 PROPER_NOUN_POS = {"name", "propn"}
 
 # Dataset vulgarity signal: anchored senses carrying any of these kaikki
-# tags never become learner cards (S1 vulgar-anchor drop, no word lists).
+# tags never become learner cards (vulgar-anchor drop, no word lists).
 VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
                "ethnic-slur", "slur"}
 
@@ -491,7 +491,7 @@ def detect_xref(gloss):
 # comparative / superlative / 3rd-person-singular "of X". Covers the
 # kaikki prose variants: "present participle and gerund of X"
 # (adjacency broken by "and gerund") and "comparative/superlative
-# degree of X". Single source: S0b verdicts and the F4 veto inherit
+# degree of X". Single source: inflection verdicts and the F4 veto inherit
 # this exact boundary.
 _INFLECTION_RX = re.compile(
     r"(?i)\b(?:plural|past(?:\s+participle)?|present\s+participle"
@@ -508,7 +508,7 @@ def is_inflection_gloss(gloss):
 # R44 v12 — superlative/comparative redirect: pattern glosses
 # ("superlative of X", "comparative of X") redirect to the BASE lemma
 # unless the inflection_review micro-pass flags an established
-# nominal/idiomatic sense. S0b verdict variant (no new stage).
+# nominal/idiomatic sense. inflection verdict variant (no new stage).
 _SUPERLATIVE_RX = re.compile(
     r"(?i)^\s*(?:superlative|comparative)(?:\s+form)?\s+of\s+(.+?)\s*\.?\s*$")
 
@@ -724,7 +724,7 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         # strict sort below every real sense, never a multiplicative
         # penalty file-decay could outrank). The flag is the SHARED
         # stub predicate (tag/pointer form-of AND gloss stubs), exactly
-        # what the S2 window filters — so the anchor top always sits
+        # what the judge window filters — so the anchor top always sits
         # inside its own window (top == window rank 1 invariant).
         score = _decay_prescore(idx, preg, ppos)
         scored.append([score, idx, entry, sense, gloss, float(fn),
@@ -752,7 +752,7 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
     return [(s, i, e, se, g) for s, i, e, se, g, _fn, _m, _f in scored]
 
 
-# R39 v10 — tiered bucketing for the candidate window feeding S2 (and the
+# R39 v10 — tiered bucketing for the candidate window feeding judge (and the
 # pilot anchor shortlist display). Replaces any hard index cap: A1-A2 look
 # at file-index 0-5 first and go higher ONLY when no POS-matching sense
 # is found there; upper levels (B1-C2) look at 0-9 first. Per level, at
@@ -788,7 +788,7 @@ def select_candidate_window(scored, pool_pos="", pool_level="A1", cap=10):
     scored = list(scored or [])
     if not scored:
         return []
-    # Stub-free S2 window: form-of/stub senses never reach the judge
+    # Stub-free judge window: form-of/stub senses never reach the judge
     # (fewer tokens, zero stub-picks). Fail-closed: an all-stub list
     # keeps every candidate — a veto reroutes, it never drops.
     # POS coverage below runs over the filtered list, so a stub-only
@@ -1401,7 +1401,7 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None,
     item["ipa_src"] = IPA_SRC_DATASET if ipa else IPA_SRC_MODEL
     item["anchor_pos"] = (str((entry or {}).get("pos") or "").strip()
                           .casefold() if isinstance(entry, dict) else "")
-    # Anchor sense tags ride along for the S1 vulgar-anchor drop (dataset
+    # Anchor sense tags ride along for the vulgar-anchor drop (dataset
     # signal: vulgar/offensive/derogatory senses never become learner cards).
     try:
         _tags = ((sense or {}).get("tags") or [])
@@ -1425,7 +1425,7 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None,
     item["pos"] = pos_tags
     item["pos_src"] = "dataset" if pos_tags else "none"
     # R39 v10: the shortlist display rides the same tiered bucket window
-    # as the S2 judge window (pool_level carried for the bucket size;
+    # as the judge window (pool_level carried for the bucket size;
     # candidate_k selects display width 3 vs judge width JUDGE_WINDOW_CAP
     # in a SINGLE scorer pass — no extra read_entry sweep).
     _lvl = item.get("pool_level") or "A1"
