@@ -236,18 +236,27 @@ __all__ = [
 # replaces the ``db`` attribute on this facade with a MagicMock. The leaves
 # imported ``from services import db`` directly, so they would otherwise keep
 # the original ``services.db`` module. This custom module type propagates a
-# whole-object ``db`` replacement to every leaf that has already been imported,
-# and also to ``services.db`` itself, so ``from services import db`` and
-# ``import services.db`` both see the mock. Attribute patches
+# whole-object replacement to every leaf that has already been imported —
+# and ONLY there. Owner modules (``services.db`` itself,
+# ``services.send_pretty``, ``callback_notifications``, ``helpers``) and
+# ``sys.modules`` are NEVER rewritten, so a facade patch cannot leak
+# process-wide to unrelated consumers. Attribute patches
 # (``db.get_preset``) need no propagation — they mutate the shared module
 # object itself.
+#
+# Whole-object allowlist (only these five names propagate; anything else,
+# e.g. a future ``patch("handlers.admin_ai.ai")``, stays facade-local
+# because leaves bind those objects directly and attribute patches already
+# share them): ``db``, ``say``, ``notify_callback``,
+# ``_rotate_awaiting_msg``, ``_clear_awaiting_prompt``.
 # ---------------------------------------------------------------------------
 
 class _AdminAiModule(types.ModuleType):
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
         if name in ("db", "say", "notify_callback", "_rotate_awaiting_msg", "_clear_awaiting_prompt"):
-            # Propagate whole-object mock to already-imported leaves and to services.
+            # Propagate whole-object mock to already-imported leaves ONLY —
+            # never to owner modules or sys.modules (no process-wide leak).
             for leaf in (
                 "handlers.admin_ai_wizard",
                 "handlers.admin_ai_list",
@@ -258,35 +267,6 @@ class _AdminAiModule(types.ModuleType):
                 mod = sys.modules.get(leaf)
                 if mod is not None:
                     mod.__dict__[name] = value
-            if name == "db":
-                try:
-                    import services
-
-                    services.__dict__["db"] = value
-                    sys.modules["services.db"] = value
-                except Exception:
-                    pass
-            elif name == "say":
-                try:
-                    import services.send_pretty
-
-                    services.send_pretty.__dict__["say"] = value
-                except Exception:
-                    pass
-            elif name == "notify_callback":
-                try:
-                    import services.utils.callback_notifications
-
-                    services.utils.callback_notifications.__dict__["notify_callback"] = value
-                except Exception:
-                    pass
-            elif name in ("_rotate_awaiting_msg", "_clear_awaiting_prompt"):
-                try:
-                    import services.utils.helpers
-
-                    services.utils.helpers.__dict__[name] = value
-                except Exception:
-                    pass
 
 
 # Switch the already-loaded facade module to the custom type so future
