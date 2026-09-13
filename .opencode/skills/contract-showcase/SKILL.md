@@ -43,7 +43,9 @@ draft → showcase → per-rule pick → lock. Never assume the pairing.
 ## Canonical sample
 `sample-minimal.html` in this folder is the structural template: required ids
 (`rN`, `q-N`, `fresh`, `freshlist`, `gotop`, `gobot`), required classes
-(`prob`, `sc`, `qa`, `pick`, `drop`, `en`, `readctl`, `stamp`), and the
+(`prob`, `sc`, `qa`, `pick`, `drop`, `en`, `readctl`, `stamp`, `verdict`), a
+verdict line after every rule heading, a per-table `<details>` rejected-history
+block, and the
 read-state + nav + jump-button script. Build every showcase from it; do not
 link a past report as the template (reports rot, the sample is the contract).
 
@@ -69,11 +71,16 @@ is later superseded is manually unlocked by the agent with a باطل‌شده m
 Directly after every rule heading, add one status line so the owner sees at a
 glance what is decided and the agent can parse it without reading prose:
 `وضعیت: نهایی | نیمه‌قفل | پیشنهادی | معوق — <date>، <ref>`.
+`<date>` and `<ref>` reuse the Lifecycle stamp vocabulary (`1405-06-15 شمسی |
+2026-09-06`, `commit:<sha>`, `issue:#NNN`); literal example:
+`وضعیت: نهایی — 1405-06-20 شمسی، commit:abc1234`.
 - `نهایی` = locked and (if applicable) shipped; `نیمه‌قفل` = partly locked or
   locked-but-unimplemented; `پیشنهادی` = awaiting owner pick; `معوق` =
   explicitly deferred (never use "rejected" for deferred — rejected means
   decided-against).
 - Never derive verdicts from lock toggles or prose; the line is the source.
+  If the toggle and the verdict ever disagree, the verdict line wins — the
+  toggle mirrors it, never the reverse.
 
 ## Rejected options (collapsible history)
 Rejected options must not clutter the decision view. For every options table,
