@@ -129,6 +129,9 @@ class TestTTSDelegation(unittest.TestCase):
         from services import tts_service as svc
 
         with (
+            # Lookup site is the facade (tts_service does `db.get_query_result`);
+            # leaf patched for precision — same function object re-exported.
+            patch("services.db.query_results.get_query_result", return_value={"word": "hi", "lang": "en"}),
             patch("services.db.get_query_result", return_value={"word": "hi", "lang": "en"}),
         ):
             w, lang, err = svc.resolve_word("q", ["q", "tok"], 5)

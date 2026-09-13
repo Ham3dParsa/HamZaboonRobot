@@ -29,7 +29,8 @@ from services.db.schema import transaction
 
 
 WRITE_MODULES = [
-    "services.db",
+    "services.db.query_results",
+    "services.db.legacy_aux",
     "services.db.users",
     "services.db.words",
     "services.db.preset_registry",

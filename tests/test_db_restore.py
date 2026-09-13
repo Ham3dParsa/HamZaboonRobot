@@ -129,7 +129,7 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         with open(rollback_path, "wb") as rollback_file:
             rollback_file.write(b"previous rollback")
 
-        with patch("services.db.os.chmod", side_effect=PermissionError):
+        with patch("services.db.backup.os.chmod", side_effect=PermissionError):
             with self.assertRaisesRegex(ValueError, "جایگزینی دیتابیس"):
                 db.import_db_bytes(backup, backup_path=rollback_path)
 
@@ -158,7 +158,7 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
     def test_storage_failure_reports_storage_error(self):
         backup = db.export_db_bytes()
 
-        with patch("services.db.tempfile.mkstemp", side_effect=PermissionError):
+        with patch("services.db.backup.tempfile.mkstemp", side_effect=PermissionError):
             with self.assertRaisesRegex(ValueError, "فضای ذخیره‌سازی"):
                 db.import_db_bytes(backup)
 
@@ -166,7 +166,7 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         backup = db.export_db_bytes()
 
         with patch(
-            "services.db.init_db",
+            "services.db.backup.init_db",
             side_effect=sqlite3.OperationalError("database or disk is full"),
         ):
             with self.assertRaisesRegex(ValueError, "فضای ذخیره‌سازی"):

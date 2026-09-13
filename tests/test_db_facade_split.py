@@ -1,9 +1,12 @@
-"""Focused seam tests for the services/db split (finding #3).
+"""Focused seam tests for the services/db split (finding #3, REF2-T5).
 
 These prove that the cost-tracking and preset-registry domains, now split into
 their own modules, are still reachable byte-identically through the `services.db`
 facade and via `from services.db import ...`, so `from services import db` call
 sites (bot, handlers, scheduling, tools, tests) break nowhere.
+
+REF2-T5 extends the same guarantee to the query_results, legacy_aux, and
+backup leaves extracted from the facade body.
 """
 
 import importlib
@@ -11,6 +14,7 @@ import unittest
 
 from services import db
 from services.db import cost_tracking, preset_registry, settings
+from services.db import query_results, legacy_aux, backup
 
 
 COST_TRACKING_EXPORTS = [
@@ -97,6 +101,75 @@ class SettingsSeamTest(unittest.TestCase):
         mod = importlib.import_module("services.db")
         for name in SETTINGS_EXPORTS:
             self.assertIs(getattr(mod, name), getattr(settings, name))
+
+
+QUERY_RESULTS_EXPORTS = [
+    "create_query_result",
+    "get_query_result",
+    "find_unexpired_query",
+    "find_unexpired_query_by_word",
+    "mark_query_result_saved",
+    "clear_query_result_saved",
+    "update_query_result_fields",
+    "cleanup_expired_query_results",
+    "_query_result_expired",
+    "_normalize_query_text",
+    "_QUERY_RESULTS_CAP",
+    "_enforce_query_results_cap",
+]
+
+LEGACY_AUX_EXPORTS = [
+    "add_grammar_tip",
+    "recent_grammar_tip_titles",
+    "log_config_test",
+    "_config_tests_prune_due",
+    "prune_config_tests",
+    "purge_grammar_tips",
+]
+
+BACKUP_EXPORTS = [
+    "export_db_bytes",
+    "import_db_bytes",
+    "_RESTORE_CORE_TABLES",
+    "_STORAGE_SQLITE_CODES",
+    "_is_storage_error",
+]
+
+
+class QueryResultsSeamTest(unittest.TestCase):
+    def test_facade_re_exports_all_query_results_names(self):
+        for name in QUERY_RESULTS_EXPORTS:
+            self.assertTrue(hasattr(db, name), f"db.{name} missing")
+            self.assertIs(getattr(db, name), getattr(query_results, name))
+
+    def test_direct_import_matches_facade(self):
+        mod = importlib.import_module("services.db")
+        for name in QUERY_RESULTS_EXPORTS:
+            self.assertIs(getattr(mod, name), getattr(query_results, name))
+
+
+class LegacyAuxSeamTest(unittest.TestCase):
+    def test_facade_re_exports_all_legacy_aux_names(self):
+        for name in LEGACY_AUX_EXPORTS:
+            self.assertTrue(hasattr(db, name), f"db.{name} missing")
+            self.assertIs(getattr(db, name), getattr(legacy_aux, name))
+
+    def test_direct_import_matches_facade(self):
+        mod = importlib.import_module("services.db")
+        for name in LEGACY_AUX_EXPORTS:
+            self.assertIs(getattr(mod, name), getattr(legacy_aux, name))
+
+
+class BackupSeamTest(unittest.TestCase):
+    def test_facade_re_exports_all_backup_names(self):
+        for name in BACKUP_EXPORTS:
+            self.assertTrue(hasattr(db, name), f"db.{name} missing")
+            self.assertIs(getattr(db, name), getattr(backup, name))
+
+    def test_direct_import_matches_facade(self):
+        mod = importlib.import_module("services.db")
+        for name in BACKUP_EXPORTS:
+            self.assertIs(getattr(mod, name), getattr(backup, name))
 
 
 if __name__ == "__main__":
