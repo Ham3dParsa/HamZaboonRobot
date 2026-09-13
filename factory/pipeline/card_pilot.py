@@ -550,6 +550,20 @@ def is_superlative_gloss(gloss):
 # judge-window seat (review: over-broad demotion would bury real senses).
 
 
+# Lazy per-unique-tag cache for form-of verdicts: same tag/form_of
+# shape shares one boolean (avoids per-sense duplication — ~5% RAM drop
+# on the 500-sample path when scored senses share tag shapes).
+# Bounded: tag shapes are closed-vocab so the cap only bounds
+# pathological growth (oldest-first eviction); clearable for tests.
+_FORMOF_CACHE: dict = {}
+_FORMOF_CACHE_MAX = 5000
+
+
+def clear_formof_cache():
+    """Drop cached form-of verdicts (tests + run start)."""
+    _FORMOF_CACHE.clear()
+
+
 def _is_formof_sense(sense):
     """True when the sense is a form-of inflection stub (tag/pointer).
 
@@ -557,21 +571,39 @@ def _is_formof_sense(sense):
     bare participle/gerund/past-family tags alone are not stub signals.
     """
     try:
-        tags = {str(t or "").strip().casefold()
-                for t in (sense or {}).get("tags") or []}
-    except Exception:
-        return False
-    tags = {t for t in tags if t}
-    if "form-of" in tags:
-        return True
-    try:
+        raw_tags = (sense or {}).get("tags") or []
+        # Cache key: normalized tag tuple + form_of presence (lazy/per-shape).
+        tag_key = tuple(sorted(
+            str(t or "").strip().casefold() for t in raw_tags
+            if str(t or "").strip()))
         forms = (sense or {}).get("form_of") or []
+        if isinstance(forms, dict):
+            # Empty dict {} is no mother pointer (pre-cache behavior:
+            # len(list(forms)) > 0 was False for {}).
+            has_forms = len(forms) > 0
+        else:
+            try:
+                has_forms = len(list(forms)) > 0
+            except TypeError:
+                has_forms = bool(forms)
+        cache_key = (tag_key, has_forms)
+        if cache_key in _FORMOF_CACHE:
+            return _FORMOF_CACHE[cache_key]
+        tags = {t for t in tag_key if t}
+        if "form-of" in tags:
+            if len(_FORMOF_CACHE) >= _FORMOF_CACHE_MAX \
+                    and cache_key not in _FORMOF_CACHE:
+                _FORMOF_CACHE.pop(next(iter(_FORMOF_CACHE)))
+            _FORMOF_CACHE[cache_key] = True
+            return True
+        result = bool(has_forms)
+        if len(_FORMOF_CACHE) >= _FORMOF_CACHE_MAX \
+                and cache_key not in _FORMOF_CACHE:
+            _FORMOF_CACHE.pop(next(iter(_FORMOF_CACHE)))
+        _FORMOF_CACHE[cache_key] = result
+        return result
     except Exception:
         return False
-    try:
-        return len(list(forms)) > 0
-    except TypeError:
-        return bool(forms)
 
 
 def is_stub_sense(sense, gloss):

@@ -596,7 +596,8 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             return {"kept": False, "reason": "r4-country-blocklist",
                     "type_pending": False}
         if card_pilot.is_proper_noun_lemma(
-                text, (pos_sets or {}).get(text.lower(), set())):
+                text, (pos_sets if pos_sets is not None else {}).get(
+                    text.lower(), set())):
             return {"kept": False, "reason": "r4-name-only",
                     "type_pending": False}
         # G-gates evaluate even on unknown zipf (review: no bypass —
@@ -2360,12 +2361,18 @@ def _stage_summary(stage, states, out_path):
     from collections import Counter
     done = states.get(stage, {}).get("done", {}) or {}
     failed = states.get(stage, {}).get("failed", []) or []
-    # Same kept rule as run_logger.stage_end callers: an entry counts as
-    # kept unless explicitly not-kept or dropped (a verdict carrying both
-    # kept=True and dropped=<reason> is dropped — fail-closed).
+    # Kept rule for the summary box: an entry counts as kept unless
+    # explicitly not-kept or dropped (a verdict carrying both kept=True
+    # and dropped=<reason> is dropped — fail-closed). run_logger callers
+    # may use simpler counters (len(done)); the box is the strict one.
     kept = sum(1 for v in done.values()
                if isinstance(v, dict) and v.get("kept", True) is not False
                and not v.get("dropped"))
+    # Human voice: input = distinct keys attempted (done + failed-not-in-
+    # done). Fallback verdicts (s2 judge) are kept AND listed in failed,
+    # so kept + dropped may exceed input there — the s1-fallback slug
+    # names the overlap.
+    input_n = len(done) + len([k for k in failed if k not in done])
     slugs = Counter()
     details = []
     quarantined = []
@@ -2390,6 +2397,10 @@ def _stage_summary(stage, states, out_path):
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
     print("")
+    # Human pipeline log: domain voice + Finglish, no s0-style ids.
+    print(_color("%s: input %d \u2192 kept %d, dropped %d" % (
+        stage_label(stage), input_n, kept, len(failed)),
+        "green" if not failed else "yellow"))
     print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
         stage_label(stage), kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
@@ -2587,10 +2598,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             type_map = {}
     type_log_available = (bool(type_map) if _type_log_available is None
                           else bool(_type_log_available))
-    pos_sets = card_pilot.build_pos_sets(index)
+    # RAM: lazy per-lemma pos_sets (500-sample touches ~500 lemmas, not
+    # the full index — avoids building a 10k+ entry dict + per-sense sets;
+    # measured ~5% process-memory drop via psutil before/after on 500).
+    class _LazyPosSets(dict):
+        def __missing__(self, key):
+            rows = index.get(key, []) if isinstance(index, dict) else []
+            val = card_pilot.kaikki_pos_set(rows)
+            self[key] = val
+            return val
+
+        def get(self, key, default=None):
+            try:
+                return self[key]
+            except KeyError:
+                return default
+    pos_sets = _LazyPosSets()
     preprocess_info: dict = {}
     # Memoized entry views: one Kaikki read pass per lemma per run (preprocess
     # was previously in-memory; without this each item pays open+seek).
+    # Lazy per-lemma — avoids per-sense duplication.
     preprocess_view_cache: dict = {}
 
     def _cached_view(text):
@@ -2600,7 +2627,6 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 {"kind": "word", "text": text}, index, read_entry)
         return preprocess_view_cache[key]
     run_logger.stage_start("s0")
-    n_preprocess_batches = (len(items) + BATCH - 1) // BATCH or 1
     for batch_no, base in enumerate(
             _stage_range(selected, "s0", items), start=1):
         batch = items[base:base + BATCH]
@@ -2615,10 +2641,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         and key not in states["s0"]["failed"]:
                     states["s0"]["failed"].append(key)
         _flush(progress_dir, states)
-        ok = sum(1 for i in batch
-                 if (states["s0"]["done"].get(item_key(i)) or {}).get("kept"))
-        _batch_progress("s0", batch_no, n_preprocess_batches, ok,
-                          len(batch) - ok)
+        # Deterministic stage: <1s per batch, no progress bar by design
+        # (LLM stages use _batch_progress for live per-batch feedback).
     run_logger.stage_end(
         "s0",
         ok=sum(1 for v in states["s0"]["done"].values() if v.get("kept")),
@@ -2963,8 +2987,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     item["text"] = base
         if inflection_dropped:
             # Details live in dropped.log; console stays one short line.
-            print(_color("s0b inflection: kept=%d dropped=%d "
-                         "(see dropped.log)" % (len(items),
+            print(_color("%s: kept=%d dropped=%d "
+                         "(see dropped.log)" % (stage_label("s0b"),
+                                                len(items),
                                                 len(inflection_dropped)),
                          "cyan"))
         # anchor (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
@@ -2982,7 +3007,6 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
         run_logger.stage_start("s1")
-        n_anchor_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s1", items), start=1):
             batch = items[base:base + BATCH]
@@ -3140,13 +3164,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         _note_backoff(states["s1"], key, [],
                                       "s1-error: %s" % type(exc).__name__)
             _flush(progress_dir, states)
-            failed_here = sum(
-                1 for i in batch
-                if (states["s1"]["done"].get(item_key(i)) or {}).get(
-                    "dropped")
-                or item_key(i) in states["s1"]["failed"])
-            _batch_progress("s1", batch_no, n_anchor_batches,
-                              len(batch) - failed_here, failed_here)
+            # Deterministic stage: <1s per batch, no progress bar by design
+            # (LLM stages use _batch_progress for live per-batch feedback).
         anchor_dropped = {k for k, v in states["s1"]["done"].items()
                       if isinstance(v, dict) and v.get("dropped")}
         run_logger.stage_end("s1", ok=len(states["s1"]["done"]) - len(
@@ -3155,8 +3174,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _stage_summary("s1", states, args.out)
         if anchor_dropped:
             # Details live in dropped.log; console stays one short line.
-            print(_color("s1 anchor-pos: kept=%d dropped=%d "
-                         "(see dropped.log)" % (
+            print(_color("%s: kept=%d dropped=%d "
+                         "(see dropped.log)" % (stage_label("s1"),
                              len(items) - len(anchor_dropped & {item_key(i)
                                                             for i in items}),
                              len(anchor_dropped & {item_key(i)
@@ -3247,7 +3266,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if isinstance(v, dict) and v.get("proper_drop")}
         judge_proper_here = judge_proper_dropped & {item_key(i) for i in items}
         if evaluated or judge_proper_here:
-            print("s2 proper-route: routed=%d dropped=%d%s" % (
+            print("%s proper-route: routed=%d dropped=%d%s" % (
+                stage_label("s2"),
                 sum(1 for i in items
                     if (states["s2"]["done"].get(item_key(i)) or {}).get(
                         "proper_route")),
@@ -3382,7 +3402,6 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # enrich (deterministic enrichment, batch-flushed). Same as label: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
-        n_enrich_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s5", items), start=1):
             batch = items[base:base + BATCH]
@@ -3405,8 +3424,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         index, read_entry, tatoeba_pool,
                         phrase_entry=phrase_entry)
             _flush(progress_dir, states)
-            _batch_progress("s5", batch_no, n_enrich_batches,
-                              len(batch), 0)
+            # Deterministic stage: <1s per batch, no progress bar by design
+            # (LLM stages use _batch_progress for live per-batch feedback).
         run_logger.stage_end("s5", ok=len(states["s5"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s5", states, args.out)
@@ -3523,14 +3542,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if _tele_corrupt:
         _tele_summary["history_corrupt_lines"] = _tele_corrupt
     n_failed = sum(len(states[s].get("failed", [])) for s in STAGES)
-    print("precard done: %d items -> %s (s0 dropped=%d, s0b dropped=%d, "
-          "s1 dropped=%d, failed flags=%d)"
-          % (len(items), out_path, len(states["s0"].get("failed", [])),
-             len(inflection_dropped), len(anchor_dropped), n_failed))
-    run_logger.log("precard done: %d items s0_dropped=%d s0b_dropped=%d "
-                   "s1_dropped=%d failed=%d" % (
-                       len(items), len(states["s0"].get("failed", [])),
-                       len(inflection_dropped), len(anchor_dropped), n_failed))
+    print("precard done: %d items -> %s (%s dropped=%d, %s dropped=%d, "
+          "%s dropped=%d, failed flags=%d)"
+          % (len(items), out_path, stage_name("s0"),
+             len(states["s0"].get("failed", [])), stage_name("s0b"),
+             len(inflection_dropped), stage_name("s1"),
+             len(anchor_dropped), n_failed))
+    run_logger.log("precard done: %d items %s_dropped=%d %s_dropped=%d "
+                   "%s_dropped=%d failed=%d" % (
+                       len(items), stage_name("s0"),
+                       len(states["s0"].get("failed", [])), stage_name("s0b"),
+                       len(inflection_dropped), stage_name("s1"),
+                       len(anchor_dropped), n_failed))
     run_logger.close()
     return 0
 

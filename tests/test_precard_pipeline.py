@@ -333,10 +333,14 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % label) in logged
         assert ("stage %s end" % label) in logged
     captured = capsys.readouterr()
-    assert "[preprocess (pishpardazesh)]" in captured.out \
+    # LLM stages show live bars; deterministic stages are <1s — no bar by design.
+    assert "[judge (davari)]" in captured.out \
         and "ok=2 fail=0" in captured.out
     assert "[STAGE preprocess" in captured.out
     assert "[STAGE enrich" in captured.out
+    # Human pipeline log: every stage prints input → kept, dropped.
+    assert "preprocess (pishpardazesh): input 2" in captured.out
+    assert "enrich (ghanasazi): input 2" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -2194,6 +2198,76 @@ def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
     assert any(line == "=== preprocess drops ===" for line in headers), \
         headers
     assert not any("langar" in line for line in headers), headers
+
+
+def test_stage_summary_input_is_distinct_on_fallback_overlap(
+        tmp_path, capsys):
+    """s2-judge fallback verdicts are kept AND in failed: input must be
+    the distinct attempted count (done + failed-not-in-done), never
+    kept + len(failed); the s1-fallback slug names the overlap."""
+    states = {"s2": {
+        "done": {
+            "w:apple": {"kept": True, "model": "s1-fallback",
+                        "sense_id": "apple#1"},
+            "w:pear": {"kept": True, "model": "judge-model",
+                       "sense_id": "pear#1"},
+        },
+        "failed": ["w:apple"],
+    }}
+    precard_pipeline._stage_summary(
+        "s2", states, str(tmp_path / "precard.jsonl"))
+    out = capsys.readouterr().out
+    assert "judge (davari): input 2" in out, out
+    assert "s1-fallback" in out, out
+
+
+def test_cand_cache_rebuilds_on_wrong_bridge_id():
+    """_CAND_CACHE is keyed (lemma, pos) with value (bridge_id, cands):
+    planting an entry under the real key shape but with a WRONG bridge_id
+    must NOT be served — validated on hit, rebuild on mismatch. Also pins
+    the key/value shape (a 3-tuple-keyed impl would fail the last assert)."""
+    from factory.lexicon import cefr_bridge
+    cefr_bridge.clear_cache()
+    live = {("apple", 1): [("apple%1:06:00::", "C1")]}
+    wrong_id = id(object())
+    cefr_bridge._CAND_CACHE[("apple", "noun")] = (
+        wrong_id, [("stale%1:06:00::", "A1")])
+    try:
+        assert cefr_bridge.sense_cefr_for(
+            "apple", "noun", "", bridge=live, evp={}) == ("C1", "wn-single")
+        assert cefr_bridge._CAND_CACHE[("apple", "noun")] == (
+            id(live), [("apple%1:06:00::", "C1")])
+    finally:
+        cefr_bridge.clear_cache()
+    assert cefr_bridge._CAND_CACHE == {}
+
+
+def test_is_formof_sense_empty_dict_form_of_is_false():
+    """Regression: an empty form_of dict {} is NOT a mother pointer —
+    len(list(forms))>0 returned False pre-cache; the cache rewrite must
+    keep {} -> False (non-empty dict -> True) on both cold and cached
+    paths."""
+    card_pilot.clear_formof_cache()
+    try:
+        sense = {"tags": [], "form_of": {}}
+        assert card_pilot._is_formof_sense(sense) is False
+        assert card_pilot._is_formof_sense(sense) is False  # cache hit path
+        assert card_pilot._is_formof_sense(
+            {"tags": [], "form_of": {"word": "run"}}) is True
+    finally:
+        card_pilot.clear_formof_cache()
+
+
+def test_formof_cache_clear_path():
+    """_FORMOF_CACHE has a clear path (bounded growth): populating then
+    clearing leaves it empty and the predicate still works."""
+    assert callable(card_pilot.clear_formof_cache)
+    card_pilot.clear_formof_cache()
+    assert card_pilot._is_formof_sense(
+        {"tags": ["form-of"], "form_of": []}) is True
+    assert card_pilot._FORMOF_CACHE, "predicate must populate the cache"
+    card_pilot.clear_formof_cache()
+    assert card_pilot._FORMOF_CACHE == {}
 
 
 # ---------------- C3 pack wirings: lexical_type / register / pre_card_id ---
