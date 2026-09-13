@@ -145,7 +145,7 @@ class HelpFlowTest(unittest.TestCase):
         # The admin detail message must NOT have been edited in.
         update.callback_query.edit_message_text.assert_not_called()
 
-    def test_owner_can_open_admin_section(self):
+    def test_admin_section_hidden_even_for_owner(self):
         from bot import callback_router
 
         update = self._make_callback_update("help:section:admin")

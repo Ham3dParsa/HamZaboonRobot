@@ -53,11 +53,15 @@ class HelpBuildersTest(unittest.TestCase):
             "admin section must be hidden from non-owners",
         )
 
-    def test_owner_sees_admin_section(self):
+    def test_admin_hidden_even_for_owner(self):
         with patch("handlers.help_command.is_owner", return_value=True):
             kb = _panel_keyboard(1)
         callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
-        self.assertIn("help:section:admin", callbacks)
+        self.assertNotIn(
+            "help:section:admin",
+            callbacks,
+            "admin section is hidden (deactivated) even for owners",
+        )
 
     def test_visible_sections_respects_owner_only(self):
         with patch("handlers.help_command.is_owner", return_value=False):
@@ -65,7 +69,9 @@ class HelpBuildersTest(unittest.TestCase):
                 any(s["id"] == "admin" for s in _visible_sections(123))
             )
         with patch("handlers.help_command.is_owner", return_value=True):
-            self.assertTrue(any(s["id"] == "admin" for s in _visible_sections(1)))
+            self.assertFalse(
+                any(s["id"] == "admin" for s in _visible_sections(1))
+            )
 
     def test_back_keyboard_prefix(self):
         kb = _back_keyboard()
@@ -87,7 +93,7 @@ class HelpBuildersTest(unittest.TestCase):
         self.assertIn("*درباره هم‌زبان*", detail)
         # Guillemet-marked spans become MarkdownV2 bold; raw guillemets gone.
         self.assertIn("*درووود\\! من هم‌زبانم*", detail)
-        self.assertIn("*همه‌چیز در این سفر شخصی‌سازی شده‌ست:*", detail)
+        self.assertIn("*همه‌چیز در این سفر قابل شخصی‌سازیه:*", detail)
         self.assertNotIn("\u00ab", detail)
         self.assertNotIn("\u00bb", detail)
         # Goals use the owner-approved examples; technical terms avoided.
