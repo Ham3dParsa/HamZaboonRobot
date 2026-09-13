@@ -38,39 +38,21 @@ def build_session_list(
               later. Always a dict (never None). Empty dict means no tier3
               config is needed (user has hit daily budget, or no more cards).
     """
-    from services.session import SessionNode
+    from services.session.tier_registry import build_tier12_nodes
 
-    nodes: list[Any] = []
-
-    # Materialize Tier 1
+    # Materialize Tier 1 (due path stays unbounded; order verbatim from
+    # due_words_for_user via the tier registry).
     due = due_words_for_user(user_id, target_lang) or []
-    for row in due:
-        if len(nodes) >= max_nodes:
-            break
-        nodes.append(SessionNode(
-            activity_type="srs_review",
-            source_tier=1,
-            card_data={"word": row["word"]},
-            source_id=row["id"],
-            activity_meta={"user_id": user_id, "target_lang": target_lang},
-            grade_policy_ref="srs_review",
-        ))
+    nodes = build_tier12_nodes(user_id, target_lang, max_nodes, due, [])
 
-    # Materialize Tier 2
+    # Materialize Tier 2 (verbatim guard: no tier-2 query when remaining=0;
+    # the limit stays caller-side so the query boundary is unchanged).
     if len(nodes) < max_nodes:
         remaining = max_nodes - len(nodes)
         fe = get_pre_first_exposure_words(user_id, target_lang, limit=remaining) or []
-        for row in fe:
-            if len(nodes) >= max_nodes:
-                break
-            nodes.append(SessionNode(
-                activity_type="first_exposure",
-                source_tier=2,
-                card_data={"word": row["word"]},
-                source_id=row["id"],
-                activity_meta={"user_id": user_id, "target_lang": target_lang},
-                grade_policy_ref="first_exposure",
-            ))
+        nodes = nodes + build_tier12_nodes(
+            user_id, target_lang, remaining, [], fe
+        )
 
     # Build tier3_context — always a dict, never None
     remaining = max_nodes - len(nodes)
