@@ -1,13 +1,18 @@
-"""Session state store — codec + save/load/clear (REF4-T3).
+"""Session state store — codec + save/load/clear + lifecycle (REF4-T3/T4).
 
 Single owner of the ``SessionState`` shape and its JSON codec plus the
 ``SessionState``-aware save/load/clear wrappers, moved verbatim from
-``handlers/study_handler.py:78-244``. The low-level JSON row I/O stays in
-``services/db/sessions.py`` (pure row reads/writes); this module owns the
-dataclass shape and (de)serialization. ``handlers/study_handler.py`` keeps
-thin ``_state_*``/``_persist*``/``_restore*`` delegates so existing import
-paths (``srs_handler``, ``tools/load_sim/*``, tests) keep working; external
-call sites are unchanged (handler migration is REF4-T4).
+``handlers/study_handler.py:78-244`` (T3). REF4-T4 adds the pure lifecycle
+steps moved verbatim from the handler's ``advance_session`` + ``_gather``:
+``pop_next``/``rollback_pop`` (pop→clear-freeze + rollback),
+``push_tier3``/``rollback_tier3_push`` (tier-3 append + rollback), and
+``gather_word_records`` (saved-words + ``recent_events(per_word=2)`` record
+build with its ``parse_iso_utc``/``to_app_tz_date``/``interval_days``
+helpers). The low-level JSON row I/O stays in
+``services/db/sessions.py`` (pure row reads/writes); the saved-word/event
+row I/O stays in ``services/db/words.py`` / ``services/db/reviews.py``.
+``handlers/study_handler.py`` keeps thin delegates so existing import
+paths (``srs_handler``, ``tools/load_sim/*``, tests) keep working.
 
 Rules preserved from the handler bodies: ``before_stability`` int/float
 coercion, ``SessionNode(**node)`` kwargs, revealed/prompt validation
@@ -24,14 +29,19 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 
+from config import APP_TZ
+from services.db.reviews import recent_events_for_words
 from services.db.sessions import (
     clear_study_session,
     invalidate_stale_study_session,
     load_study_session,
     save_study_session,
 )
+from services.db.words import get_saved_words_by_ids
 from services.session import SessionNode
+from services.session.summary import WordReviewRecord
 from services.utils.formatting import SRS_PROMPT_TYPES
 
 logger = logging.getLogger(__name__)
@@ -169,12 +179,170 @@ def load_session(user_id: int, today: str) -> SessionState | None:
     return state
 
 
+# ---------------------------------------------------------------------------
+# Lifecycle — pure advance steps + gather (REF4-T4, moved verbatim)
+# ---------------------------------------------------------------------------
+
+# Saved (revealed, prompt_type, prompt_word_id) triple stashed before the
+# advance clears the freeze, restored verbatim on rollback.
+FrozenSave = tuple[bool, "str | None", "int | None"]
+
+
+def pop_next(state: SessionState) -> "tuple[SessionNode | None, FrozenSave]":
+    """Pop the head node and clear the freeze for the next card.
+
+    Verbatim order from ``advance_session``: stash freeze, pop head (None
+    when empty), then clear ``revealed``/``active_prompt_*`` so the next
+    ``_build`` sets them for the new word. Pure sync — the caller keeps
+    the ``to_thread`` build, Telegram edit, and persist-or-rollback order.
+    """
+    saved: FrozenSave = (
+        state.revealed,
+        state.active_prompt_type,
+        state.active_prompt_word_id,
+    )
+    popped = state.nodes.pop(0) if state.nodes else None
+    state.revealed = False
+    state.active_prompt_type = None
+    state.active_prompt_word_id = None
+    return popped, saved
+
+
+def rollback_pop(
+    state: SessionState,
+    popped: "SessionNode | None",
+    saved: FrozenSave,
+) -> None:
+    """Restore a popped node + freeze after a failed edit (verbatim)."""
+    if popped is not None:
+        state.nodes.insert(0, popped)
+    state.revealed, state.active_prompt_type, state.active_prompt_word_id = saved
+
+
+def push_tier3(state: SessionState, node: SessionNode) -> None:
+    """Append a tier-3 node and bump the card total (verbatim)."""
+    state.nodes.append(node)
+    state.total_cards += 1
+
+
+def rollback_tier3_push(state: SessionState) -> None:
+    """Undo a tier-3 append (verbatim)."""
+    state.nodes.pop()
+    state.total_cards -= 1
+
+
+def parse_iso_utc(value: str):
+    """Parse an ISO-8601 UTC timestamp, tolerating a trailing ``Z`` suffix.
+
+    Verbatim from the handler (Python 3.10 ``fromisoformat`` rejects ``Z``).
+    """
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
+def to_app_tz_date(iso_utc: str | None) -> str | None:
+    """Convert a stored UTC ISO timestamp to the app-tz ``YYYY-MM-DD`` date.
+
+    Verbatim from the handler: summary labels compare against the app day,
+    so per-word ``prior``/``next`` dates must be app-tz dates. None for a
+    missing/unparseable timestamp.
+    """
+    if not iso_utc:
+        return None
+    try:
+        dt = parse_iso_utc(iso_utc)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TZ).date().isoformat()
+
+
+def interval_days(word_row) -> float | None:
+    """Scheduled interval in days from next_review_at back to last_review_at.
+
+    Verbatim from the handler (``word_row`` is a subscriptable saved_words
+    row; either timestamp may be NULL).
+    """
+    try:
+        last = word_row["last_review_at"]
+        nxt = word_row["next_review_at"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not last or not nxt:
+        return None
+    try:
+        last_dt = parse_iso_utc(last)
+        nxt_dt = parse_iso_utc(nxt)
+    except (TypeError, ValueError):
+        return None
+    seconds = (nxt_dt - last_dt).total_seconds()
+    return round(max(0.0, seconds) / 86400, 1)
+
+
+def gather_word_records(
+    state: SessionState, user_id: int
+) -> list[WordReviewRecord]:
+    """Assemble WordReviewRecords for the session's graded words (verbatim).
+
+    Saved-words + ``recent_events(per_word=2)`` only — no new queries.
+    Activity type + grade come from the newest review_events row per word;
+    the prior review date is the second-newest row; before-stability comes
+    from the Phase-2 snapshot.
+    """
+    word_ids = list(state.graded_word_ids)
+    if not word_ids:
+        return []
+    rows = {row["id"]: row for row in get_saved_words_by_ids(word_ids, user_id)}
+    events = recent_events_for_words(word_ids, user_id, per_word=2)
+    records: list[WordReviewRecord] = []
+    for wid in word_ids:
+        wr = rows.get(wid)
+        if wr is None:
+            continue
+        evs = events.get(wid) or []
+        current = evs[0] if evs else None
+        prior = evs[1] if len(evs) > 1 else None
+        records.append(
+            WordReviewRecord(
+                word_id=wid,
+                word=wr["word"],
+                activity_type=(
+                    current["activity_type"] if current else "srs_review"
+                ),
+                stability_before=state.before_stability.get(wid),
+                stability_after=(
+                    wr["stability"] if wr["stability"] is not None else None
+                ),
+                prior_review_date=to_app_tz_date(
+                    prior["created_at"] if prior else None
+                ),
+                grade=current["grade"] if current else None,
+                interval_days=interval_days(wr),
+                next_review_date=to_app_tz_date(wr["next_review_at"]),
+                difficulty=(
+                    wr["difficulty"] if wr["difficulty"] is not None else None
+                ),
+            )
+        )
+    return records
+
+
 __all__ = [
     "SessionState",
     "clear_session",
+    "gather_word_records",
+    "interval_days",
     "is_valid_prompt_type",
     "load_session",
+    "parse_iso_utc",
+    "pop_next",
+    "push_tier3",
+    "rollback_pop",
+    "rollback_tier3_push",
     "save_session",
     "state_from_json",
     "state_to_json",
+    "to_app_tz_date",
 ]
