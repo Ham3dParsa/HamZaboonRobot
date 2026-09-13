@@ -479,6 +479,7 @@ _ADMIN_SUB_ROUTER_FUNCS = [
     ("handlers/admin_cost.py", "handle_cost_callback", set()),
     ("handlers/admin_plans.py", "handle_plan_callback", set()),
     ("handlers/admin_ai.py", "handle_ai_callback", set()),
+    ("handlers/admin_ai_custom.py", "handle_ai_callback", set()),
     ("handlers/admin_users.py", "handle_admin_user", set()),
     ("handlers/admin_backup.py", "handle_admin_backup_callback", set()),
 ]
