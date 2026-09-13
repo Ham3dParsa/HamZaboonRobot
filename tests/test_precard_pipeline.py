@@ -2778,11 +2778,12 @@ class _GoogleResp:
 
 
 def test_google_transport_envelope(monkeypatch):
-    """Google leg: key in URL query, MINIMAL thinking, JSON mime."""
+    """Google leg: key in x-goog-api-key header, MINIMAL thinking, JSON mime."""
     seen = {}
 
     def fake_urlopen(req, timeout=120):
         seen["url"] = req.full_url
+        seen["headers"] = {k.lower(): v for k, v in req.headers.items()}
         seen["body"] = json.loads(req.data.decode("utf-8"))
         return _GoogleResp({"candidates": [{"content": {"parts": [
             {"text": '{"ok": true}'}]}}]})
@@ -2793,9 +2794,11 @@ def test_google_transport_envelope(monkeypatch):
         "g-test", "gemini-3.5-flash-lite", "hello")
     assert text == '{"ok": true}'
     assert usage is None
-    assert seen["url"].startswith(
+    assert seen["url"] == (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-3.5-flash-lite:generateContent?key=g-test")
+        "gemini-3.5-flash-lite:generateContent")
+    assert "key=g-test" not in seen["url"]
+    assert seen["headers"].get("x-goog-api-key") == "g-test"
     gen = seen["body"]["generationConfig"]
     assert gen["responseMimeType"] == "application/json"
     assert gen["thinkingConfig"]["thinkingLevel"] == "MINIMAL"

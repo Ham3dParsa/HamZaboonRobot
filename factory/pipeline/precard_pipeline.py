@@ -2210,8 +2210,9 @@ def _google_chat_transport(api_key, model, user_text):
             "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
     }).encode("utf-8")
     req = urllib.request.Request(
-        (GOOGLE_MODELS_URL % model) + "?key=" + api_key, data=payload,
-        headers={"Content-Type": "application/json"})
+        GOOGLE_MODELS_URL % model, data=payload,
+        headers={"Content-Type": "application/json",
+                 "x-goog-api-key": api_key})
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read().decode("utf-8", "replace"))
     try:
