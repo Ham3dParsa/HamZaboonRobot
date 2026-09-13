@@ -82,7 +82,7 @@ not in prose.
 - `handlers/`: Telegram handlers.
   - `handlers/admin.py`: thin admin dispatcher; registers admin/llm routes in `services/routing`; admin awaiting flows in `handlers/flows.py`; admin-infra handlers (broadcast, settings) — backup/restore delegated to `handlers/admin_backup.py`.
   - `handlers/flows.py`: central awaiting text-input flow registry — `AwaitingFlow`, `register_flow()`, `resolve_flow()`, `text_router()` (only entry `bot.py` calls).
-  - `handlers/admin_stats.py`, `admin_plans.py`, `admin_cost.py`, `admin_ai.py`: admin sub-routers (stats / plans / cost / AI presets).
+  - `handlers/admin_stats.py`, `admin_plans.py`, `admin_cost.py`, `admin_ai.py`: admin sub-routers (stats / plans / cost / AI presets). `admin_ai.py` is a thin facade over `admin_ai_wizard.py`/`admin_ai_list.py`/`admin_ai_create.py`/`admin_ai_fallback.py`/`admin_ai_custom.py` leaves.
   - `handlers/admin_backup.py`: admin backup/restore sub-router (`handle_admin_backup_callback`, `cmd_backup`, `cmd_restore`, `handle_restore_doc`, `auto_backup_job`, `admin_restore`/`admin_archive_chat_id` flows).
   - `handlers/user.py`: user settings (language, goal, level).
   - `handlers/help_command.py`: `/help` + "راهنما" panel — `send_help_panel`, `handle_help_callback`, `HELP_SECTIONS`.
