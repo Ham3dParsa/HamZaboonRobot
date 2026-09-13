@@ -64,7 +64,7 @@ dispatched in bot.py's callback_router.
 
 ### Catalog identifiers
 
-config/catalog.py — LANGUAGES, GOALS, LEVELS keys.
+config/catalog_languages.py (LANGUAGES, GOALS, LEVELS keys; CATALOG_NAMESPACES) + catalog_toggles.py + catalog_card_types.py + catalog_settings_keys.py + catalog_validation.py, re-exported via the config/catalog.py facade.
 
 ## Maintenance
 
