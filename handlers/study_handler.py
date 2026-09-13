@@ -786,7 +786,7 @@ async def handle_study_inactive(
     """
     note = (
         "این پیام غیرفعال شده، لطفاً از آخرین پیام جلسه استفاده کن یا "
-        "دکمهٔ «شروع مطالعه» را بزن."
+        "دکمهٔ «مطالعه» را بزن."
     )
     await notify_callback(
         update.callback_query,

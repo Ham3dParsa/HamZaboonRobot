@@ -67,8 +67,8 @@ class HelpFlowTest(unittest.TestCase):
         update = self._make_message_update("/help")
         ctx = self._make_context()
         asyncio.run(send_help_panel(update, ctx))
-        # First message is the intro panel (inline keyboard), second restores menu.
-        self.assertEqual(ctx.bot.send_message.call_count, 2)
+        # Single send: the intro panel carries the inline keyboard (menu hint removed).
+        self.assertEqual(ctx.bot.send_message.call_count, 1)
         first = ctx.bot.send_message.call_args_list[0]
         self.assertIn("هم‌زبان", first.kwargs["text"])
         self.assertIsNotNone(first.kwargs.get("reply_markup"))
@@ -79,7 +79,7 @@ class HelpFlowTest(unittest.TestCase):
         update = self._make_message_update("راهنما")
         ctx = self._make_context()
         asyncio.run(text_router(update, ctx))
-        self.assertEqual(ctx.bot.send_message.call_count, 2)
+        self.assertEqual(ctx.bot.send_message.call_count, 1)
 
     def test_fa_help_ignored_while_awaiting_input(self):
         import bot
@@ -106,7 +106,7 @@ class HelpFlowTest(unittest.TestCase):
         ctx = self._make_context()
         asyncio.run(callback_router(update, ctx))
         edit_args = update.callback_query.edit_message_text.call_args
-        self.assertIn("شروع مطالعه", edit_args[0][0])
+        self.assertIn("مطالعه", edit_args[0][0])
         self.assertIsNotNone(edit_args.kwargs.get("reply_markup"))
         update.callback_query.answer.assert_called_once()
 
@@ -145,17 +145,19 @@ class HelpFlowTest(unittest.TestCase):
         # The admin detail message must NOT have been edited in.
         update.callback_query.edit_message_text.assert_not_called()
 
-    def test_owner_can_open_admin_section(self):
+    def test_admin_section_hidden_even_for_owner(self):
         from bot import callback_router
 
-        # The owner (is_owner True) must be able to open the admin section.
         update = self._make_callback_update("help:section:admin")
         ctx = self._make_context()
         with patch("handlers.help_command.is_owner", return_value=True):
             asyncio.run(callback_router(update, ctx))
-        edit_args = update.callback_query.edit_message_text.call_args
-        self.assertIn("مدیریت ربات", edit_args[0][0])
+        update.callback_query.edit_message_text.assert_not_called()
         update.callback_query.answer.assert_called_once()
+        call_args = update.callback_query.answer.call_args
+        # چه آرگومان اول باشد چه به صورت text= ارسال شده باشد
+        called_text = call_args.args[0] if call_args.args else call_args.kwargs.get("text", "")
+        self.assertIn("دیگر موجود نیست", called_text)
 
     def test_about_section_in_panel_and_openable(self):
         from bot import callback_router
