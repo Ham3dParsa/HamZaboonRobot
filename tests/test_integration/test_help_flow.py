@@ -67,7 +67,7 @@ class HelpFlowTest(unittest.TestCase):
         update = self._make_message_update("/help")
         ctx = self._make_context()
         asyncio.run(send_help_panel(update, ctx))
-        # First message is the intro panel (inline keyboard), second restores menu.
+        # Single send: the intro panel carries the inline keyboard (menu hint removed).
         self.assertEqual(ctx.bot.send_message.call_count, 1)
         first = ctx.bot.send_message.call_args_list[0]
         self.assertIn("هم‌زبان", first.kwargs["text"])
