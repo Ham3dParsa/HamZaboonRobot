@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
+from config.catalog_toggles import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
 from services.db.schema import transaction
 from services.db.settings import (
     DISPLAY_TOGGLE_DEFAULTS_KEY,

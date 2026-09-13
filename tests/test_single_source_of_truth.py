@@ -44,15 +44,15 @@ from pathlib import Path
 # Owner module paths are repo-root-relative, POSIX-style (forward slashes).
 # Only *definitions* are checked; references/imports never trip this guard.
 DOMAIN_KEYWORDS: dict[str, str] = {
-    # config/catalog.py owns language/goal/level metadata (AGENTS.md §4).
-    "LANGUAGES": "config/catalog.py",
-    "GOALS": "config/catalog.py",
-    "LEVELS": "config/catalog.py",
-    "language_label": "config/catalog.py",
-    "goal_label": "config/catalog.py",
-    "level_label": "config/catalog.py",
-    "catalog_namespace": "config/catalog.py",
-    "validate_catalog": "config/catalog.py",
+    # config/catalog_languages.py owns language/goal/level metadata (AGENTS.md §4).
+    "LANGUAGES": "config/catalog_languages.py",
+    "GOALS": "config/catalog_languages.py",
+    "LEVELS": "config/catalog_languages.py",
+    "language_label": "config/catalog_languages.py",
+    "goal_label": "config/catalog_languages.py",
+    "level_label": "config/catalog_languages.py",
+    "catalog_namespace": "config/catalog_languages.py",
+    "validate_catalog": "config/catalog_validation.py",
     # config/plan_identity.py owns plan-set membership + tiering (AGENTS.md §4).
     "_PLANS": "config/plan_identity.py",
     "_FEATURE_MIN_RANK": "config/plan_identity.py",

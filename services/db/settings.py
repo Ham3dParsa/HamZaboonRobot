@@ -5,7 +5,7 @@ from config import (
     LLM_OUTPUT_COST_USD_PER_MILLION,
     USD_TO_TOMAN_RATE,
 )
-from config.catalog import settings_key
+from config.catalog_settings_keys import settings_key
 
 import sqlite3
 
