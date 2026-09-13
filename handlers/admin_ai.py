@@ -20,6 +20,7 @@ the leaves directly.
 """
 
 import asyncio  # noqa: F401 — compat: tests patch handlers.admin_ai.asyncio.to_thread
+import logging
 import sys
 import types
 
@@ -29,6 +30,8 @@ from services.ai import preset_fields, prompts  # noqa: F401 — compat: tests p
 from services.send_pretty import say  # noqa: F401 — compat: tests patch handlers.admin_ai.say
 from services.utils.callback_notifications import notify_callback  # noqa: F401 — compat: tests patch handlers.admin_ai.notify_callback
 from services.utils.helpers import _clear_awaiting_prompt, _rotate_awaiting_msg  # noqa: F401 — compat: tests patch helpers via admin_ai
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Leaf re-exports (verbatim move, order: wizard → list → create → fallback → custom)
@@ -288,7 +291,12 @@ class _AdminAiModule(types.ModuleType):
 
 # Switch the already-loaded facade module to the custom type so future
 # ``patch("handlers.admin_ai.db")`` assignments trigger propagation.
-try:
-    sys.modules[__name__].__class__ = _AdminAiModule
-except Exception:
-    pass
+def _switch_module_class():
+    """Install the patch-propagating module type (best-effort, warned)."""
+    try:
+        sys.modules[__name__].__class__ = _AdminAiModule
+    except TypeError as exc:
+        logger.warning("admin_ai patch-propagation shim disabled: %s", exc)
+
+
+_switch_module_class()
