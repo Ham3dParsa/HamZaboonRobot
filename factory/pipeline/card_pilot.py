@@ -591,14 +591,16 @@ def _is_formof_sense(sense):
             return _FORMOF_CACHE[cache_key]
         tags = {t for t in tag_key if t}
         if "form-of" in tags:
-            _FORMOF_CACHE[cache_key] = True
-            if len(_FORMOF_CACHE) > _FORMOF_CACHE_MAX:
+            if len(_FORMOF_CACHE) >= _FORMOF_CACHE_MAX \
+                    and cache_key not in _FORMOF_CACHE:
                 _FORMOF_CACHE.pop(next(iter(_FORMOF_CACHE)))
+            _FORMOF_CACHE[cache_key] = True
             return True
         result = bool(has_forms)
-        _FORMOF_CACHE[cache_key] = result
-        if len(_FORMOF_CACHE) > _FORMOF_CACHE_MAX:
+        if len(_FORMOF_CACHE) >= _FORMOF_CACHE_MAX \
+                and cache_key not in _FORMOF_CACHE:
             _FORMOF_CACHE.pop(next(iter(_FORMOF_CACHE)))
+        _FORMOF_CACHE[cache_key] = result
         return result
     except Exception:
         return False
