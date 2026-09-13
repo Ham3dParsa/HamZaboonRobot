@@ -1,6 +1,6 @@
 """Shared BTN/IBTN constants for keyboards package."""
 
-BTN_STUDY_SESSION = "📚 شروع مطالعه"
+BTN_STUDY_SESSION = "📚 مطالعه"
 BTN_ASK_WORD = "❓ پرسش واژه/عبارت"
 BTN_SETTINGS = "👤 پروفایل و تنظیمات"
 BTN_HELP = "راهنما"

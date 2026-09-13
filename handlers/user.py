@@ -263,7 +263,7 @@ async def show_display_toggles_menu(update: Update, context: ContextTypes.DEFAUL
     await _edit_or_send(
         update,
         context,
-        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
         reply_markup=user_display_toggles_keyboard(effective, forced),
     )
     await notify_callback(update.callback_query)
@@ -306,7 +306,7 @@ async def handle_display_toggle(update: Update, context: ContextTypes.DEFAULT_TY
     await _edit_or_send(
         update,
         context,
-        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
         reply_markup=user_display_toggles_keyboard(effective, forced),
     )
     await notify_callback(update.callback_query, "ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
@@ -333,7 +333,7 @@ async def handle_display_toggle_confirm(update: Update, context: ContextTypes.DE
     await _edit_or_send(
         update,
         context,
-        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
         reply_markup=user_display_toggles_keyboard(effective, forced),
     )
     await notify_callback(update.callback_query, "خاموش شد.", intent=CallbackNoticeIntent.SUCCESS)

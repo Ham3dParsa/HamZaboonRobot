@@ -551,7 +551,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         from config.keyboards import display_toggles_keyboard
         await _edit_or_send(
             update, context,
-            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
             reply_markup=display_toggles_keyboard(current),
         )
         await notify_callback(update.callback_query, "خاموش شد.", intent=CallbackNoticeIntent.SUCCESS)
@@ -561,7 +561,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         current = get_global_defaults()
         await _edit_or_send(
             update, context,
-            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
             reply_markup=display_toggles_keyboard(current),
         )
         await notify_callback(update.callback_query, "انصراف", intent=CallbackNoticeIntent.INFO)
@@ -594,7 +594,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         from config.keyboards import display_toggles_keyboard
         await _edit_or_send(
             update, context,
-            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
             reply_markup=display_toggles_keyboard(current),
         )
         await notify_callback(update.callback_query, "ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
@@ -604,7 +604,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         current = get_global_defaults()
         await _edit_or_send(
             update, context,
-            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            "🎛 پیکربندی نمایش کارت: روی هر ردیف بزن تا روشن/خاموش بشه.",
             reply_markup=display_toggles_keyboard(current),
         )
 
