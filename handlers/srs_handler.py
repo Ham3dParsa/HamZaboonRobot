@@ -14,6 +14,7 @@ from services.utils.callback_notifications import CallbackNoticeIntent, notify_c
 from services.activity_log import log_user_activity
 from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot
 from services.session import resolve_grade, SessionNode
+from services.session.tier_registry import next_tier_node
 from services.routing import register
 from services.utils.formatting import (
     _saved_word_card,
@@ -691,25 +692,9 @@ def _next_due_node(
     to this search when Tier-3 generation (generate_tier3_node) lands.
     """
     session_ids = {n.source_id for n in state.nodes if n.source_id is not None}
-
-    def _candidates():
-        for row in (db.due_words_for_user(user_id, target_lang) or []):
-            if row["id"] not in session_ids:
-                yield row, "srs_review", 1, "srs_review"
-        for row in (db.get_pre_first_exposure_words(user_id, target_lang) or []):
-            if row["id"] not in session_ids:
-                yield row, "first_exposure", 2, "first_exposure"
-
-    for row, activity_type, source_tier, grade_policy in _candidates():
-        return SessionNode(
-            activity_type=activity_type,
-            source_tier=source_tier,
-            card_data={"word": row["word"]},
-            source_id=row["id"],
-            activity_meta={"user_id": user_id, "target_lang": target_lang},
-            grade_policy_ref=grade_policy,
-        )
-    return None
+    due = db.due_words_for_user(user_id, target_lang) or []
+    fe = db.get_pre_first_exposure_words(user_id, target_lang) or []
+    return next_tier_node(user_id, target_lang, session_ids, due, fe)
 
 
 def _refill_session_from_due(user_id: int, state) -> None:
