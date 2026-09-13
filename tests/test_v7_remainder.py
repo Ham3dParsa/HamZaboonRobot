@@ -215,11 +215,12 @@ def test_r26_rekey_forces_redo_and_resume_skips(monkeypatch):
         code, _, _, seen3 = _run_only_s1(
             tmp_path, extra=("--rekey", str(rekey)))
         assert code == 0
-        # One item re-ranked = its 4 anchor reads (anchor + candidates +
-        # R32 pos-tags x2; R34 v9: S1 reuses the probe anchor_pos instead
-        # of a separate anchor-pos re-read); a full re-rank would be 8.
+        # One item re-ranked = 4 anchor reads + 1 bounded tag-map pass
+        # (anchor + candidates + R32 pos-tags x2 + single _candidate_tag_map
+        # scorer pass for judge [tags]; R34 v9: S1 reuses the probe
+        # anchor_pos instead of a separate anchor-pos re-read).
         # Pear stayed resumed.
-        assert len(seen3) == 4
+        assert len(seen3) == 5
         s1 = json.loads(
             (tmp_path / "prog" / STAGE_FILES["s1"]).read_text(encoding="utf-8"))
         assert set(s1["done"]) == {"w:apple", "w:pear"}
@@ -238,8 +239,8 @@ def test_r26_dry_run_prints_per_stage_needs(tmp_path, capsys):
         _type_log_available=False)
     assert code == 0
     out = capsys.readouterr().out
-    assert "need anchor (langar): 2 todo" in out
-    assert "stage judge (davari): skipped (not selected)" in out
+    assert "need anchor (Langar): 2 todo" in out
+    assert "stage sense-judge (Davarie-Mana): skipped (not selected)" in out
 
 
 def test_r26_only_and_stages_exclusive(tmp_path):

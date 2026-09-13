@@ -51,16 +51,16 @@ per-card reasoning burn.
 
 | id | console label | does what | in | out |
 |---|---|---|---|---|
-| `s0` | preprocess (pishpardazesh) | drops names/junk, level-aware frequency floor | sample json | `progress/s0.json` |
-| `s0b` | inflection (sarf) | flags inflection stubs for LLM review | s0 kept | `progress/s0b.json` |
-| `s1` | anchor (langar) | deterministic sense ranking per lemma | s0b kept | `progress/s1.json` |
-| `s2` | judge (davari) | GLM picks one sense per item (same prompt for all) | s1 window | `progress/s2.json` |
-| `s3` | vectors (bordar) | topic vectors per picked sense | s2 picks | `progress/s3.json` |
-| `s4` | label (barchasb) | CEFR/topic labels | s3 | `progress/s4.json` |
-| `s5` | enrich (ghanasazi) | examples, IPA, Persian gloss | s4 | `progress/s5.json` → `precard.jsonl` |
+| `s0` | preprocess (PishPardazesh) | drops names/junk, level-aware frequency floor | sample json | `progress/preprocess.json` |
+| `s0b` | inflection-review (Barresie-Sarf) | flags inflection stubs for LLM review | s0 kept | `progress/inflection-review.json` |
+| `s1` | anchor (Langar) | deterministic sense ranking per lemma | s0b kept | `progress/anchor.json` |
+| `s2` | sense-judge (Davarie-Mana) | GLM picks one sense per item (same prompt for all) | s1 window | `progress/sense-judge.json` |
+| `s3` | vectors (Bordar) | topic vectors per picked sense | s2 picks | `progress/vectors.json` |
+| `s4` | topic-label (Barchasbe-Mozu') | CEFR/topic labels | s3 | `progress/topic-label.json` |
+| `s5` | enrich (GhaniSazi) | examples, IPA, Persian gloss | s4 | `progress/enrich.json` → `precard.jsonl` |
 
-Reading a run: the console speaks labels (`[STAGE judge (davari)]`);
-`run.log` speaks domain names (`stage judge start`) — human-readable; stable ids live in progress keys and filenames.
+Reading a run: the console speaks labels (`[STAGE sense-judge (Davarie-Mana)]`);
+`run.log` speaks domain names (`stage sense-judge start`) — human-readable; stable ids live in progress keys and filenames.
 Persian drop details go to `dropped.log`, never the console.
 
 ## Run
@@ -72,7 +72,7 @@ python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pi
 
 # blind judge comparison on the frozen 50 (needs keys)
 python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json `
-  --anchor W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\s2.json `
+  --anchor W:\hamzaban_data_factory\pilot200glm\progress\anchor.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\sense-judge.json `
   --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json --dry-run
 ```
 
@@ -86,7 +86,7 @@ continues from `progress/*.json` (per-stage files named by stable id).
 |---|---|---|---|
 | Dry-run the line (no cost) | pipeline/precard_pipeline.py | none | `python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
 | Full precard run (GLM judge via AvalAI) | pipeline/precard_pipeline.py | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default, bare defaults run Zen) |
-| Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --anchor W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\s2.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
+| Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --anchor W:\hamzaban_data_factory\pilot200glm\progress\anchor.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\sense-judge.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
 | Check key + egress health (no secrets printed) | core/probe_keys.py | factory/.env; ZEN keys + egress IP only (no SUB ranking, no GOOGLE/OPENROUTER/AVALAI check) | `python -m factory.core.probe_keys` |
 | Rank SUB servers by latency | supervisor --probe | SUBs in tools/egress/.env | `python tools\egress\supervisor.py --probe --top-n 30` |
 | Find Google-friendly servers | supervisor --probe-google | + GOOGLE key | `python tools\egress\supervisor.py --probe --top-n 30 --probe-google 15` |

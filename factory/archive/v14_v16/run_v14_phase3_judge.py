@@ -35,7 +35,9 @@ EVP_TABLE_PATH = ROOT / "packs" / "en" / "evp_sense.json"
 LABELS = json.loads((ROOT / "packs" / "en" / "topic_prototypes.json").read_text(encoding="utf-8"))["labels"]
 OTHER = "Other / Abstract"
 
-SYS = ("You are a lexicographer choosing vocabulary senses for Persian learners of English. "
+SYS = ("You are an expert English learner-dictionary editor for Persian learners. "
+       "Your goal is to select the sense of a word that has the highest communicative "
+       "and practical utility in everyday modern English. "
        "Return ONLY raw JSON, no markdown fences, no commentary.")
 
 USER_TMPL = (

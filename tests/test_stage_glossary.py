@@ -97,21 +97,28 @@ def test_stage_names_match_live_pipeline():
     assert dict(g.STAGE_FINGLESH) == dict(live.STAGE_FINGLESH)
     for sid in g.STAGE_IDS:
         assert g.stage_label(sid) == live.stage_label(sid)
-    for raw in ("s2", "judge", " Nope ", "", None):
+    for raw in ("s2", "sense-judge", "judge", " Nope ", "", None):
         assert g.normalize_stage(raw) == live._normalize_stage(raw)
 
 
 def test_progress_shim_covers_every_stage_plus_topup():
     for sid in g.STAGE_IDS:
         assert g.STAGE_FILES[sid].isascii()
+    assert g.STAGE_FILES["s0b"] == "inflection-review.json"
+    assert g.STAGE_FILES["s2"] == "sense-judge.json"
+    assert g.STAGE_FILES["s4"] == "topic-label.json"
     assert set(g.OLD_PROGRESS_FILE_TO_NEW) == {
         "s0.json", "s0b.json", "s1.json", "s2.json",
         "s3.json", "s4.json", "s5.json", "s4_topup_cache.json",
+        "inflection.json", "judge.json", "label.json",
     }
     assert (g.OLD_PROGRESS_FILE_TO_NEW["s4_topup_cache.json"]
             == "label_topup_cache.json")
 
 
 def test_stage_label_ascii():
-    assert g.stage_label("s0b") == "inflection (sarf)"
+    assert g.stage_label("s0b") == "inflection-review (Barresie-Sarf)"
+    assert g.stage_label("s2") == "sense-judge (Davarie-Mana)"
+    assert g.stage_label("s4") == "topic-label (Barchasbe-Mozu')"
+    assert g.stage_label("s0") == "preprocess (PishPardazesh)"
     assert g.stage_label("unknown") == "unknown"

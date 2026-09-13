@@ -3674,15 +3674,26 @@ INFLECTION_REVIEW_MODELS = MODELS[:2]
 INFLECTION_REVIEW_SYS = (
     "You are an English learner-dictionary editor for Persian learners. "
     "Given an inflected word form and its dictionary gloss, reply "
-    "{keep:bool, reason:string}. Keep IFF the inflected form has its own "
-    "learner value as a headword: irregular forms, or forms commonly "
-    "looked up/used as headwords. Otherwise drop it in favor of the base "
-    "lemma (regular plurals, regular past tenses, plain comparatives). "
-    "Keep IFF the form carries a phrase-like established nominal or "
-    "idiomatic usage of its own (such as do one's best); plain "
-    "superlative/comparative stubs redirect to the base lemma. "
-    "Persian may be used in reason. Return ONLY raw JSON, no markdown "
-    "fences, no commentary.")
+    '{"keep": bool, "reason": "string"}. '
+    "KEEP criteria (ONLY IF any applies): "
+    "1. The inflected form has established, independent usage as an "
+    "Adjective with a distinct meaning beyond the action of the verb "
+    "(e.g., 'charming', 'striking', 'demanding'). "
+    "2. The form carries a unique, non-transparent nominal or idiomatic "
+    "sense that a learner cannot deduce from the base lemma (e.g., "
+    "'building', 'drawing', 'do one's best'). "
+    "DROP criteria (ONLY IF any applies): "
+    "1. Regular plurals (-s, -es) with transparent compositional meaning "
+    "-> Drop in favor of the singular base lemma. "
+    "2. Regular past tense and participles (-ed) acting merely as the "
+    "verbal completion of the action -> Drop in favor of the base lemma. "
+    "3. Plain gerunds/participles (-ing) that simply describe the active "
+    "progress of the verb (e.g., 'forcing' = act of forcing; 'wondering' "
+    "= act of wondering) -> Drop in favor of the base lemma. "
+    "4. Plain grammatical comparatives/superlatives (-er, -est, more, "
+    "most) -> Drop in favor of the base lemma. "
+    "Return ONLY raw JSON, no markdown fences, no commentary. Persian "
+    "may be used in reason.")
 INFLECTION_UNCERTAIN_TAG = "review-uncertain"
 
 
