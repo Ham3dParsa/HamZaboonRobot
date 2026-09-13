@@ -165,6 +165,12 @@ def _row_effective_due(row, now: datetime.datetime):
     the legacy ``next_review`` date compared against the APP_TIMEZONE day. The
     returned value is a timezone-aware UTC ``datetime`` usable both for
     eligibility and as an ordering key.
+
+    DUE_DIVERGENCE (REF6-T3): this exact-UTC check (ts <= now) intentionally
+    disagrees at times with the day-granular TEXT count in
+    services/db/users.py:get_user_learning_stats (next_review_at <= today_iso).
+    The stats path is a cheap dashboard hint; this function is the FSRS
+    eligibility oracle. Do not unify — see services/streak/DUE_DIVERGENCE.md.
     """
     raw_ts = row["next_review_at"]
     if raw_ts:
@@ -234,7 +240,7 @@ def reset_expired_pending_reviews(grace_hours: int = 48):
         )
 
 
-def due_words_for_user(user_id: int, lang: str | None = None):
+def due_words_for_user(user_id: int, lang: str | None = None):  # DUE_DIVERGENCE REF6-T3: see services/streak/DUE_DIVERGENCE.md
     now = _utc_now()
     with get_conn() as conn:
         query = (
@@ -256,6 +262,11 @@ def due_words_for_user(user_id: int, lang: str | None = None):
         # alone drops ISO-looking but invalid values (e.g. "2025-13-99T99:99:99"
         # or "2099-13-99T99:99:99"); datetime() returns NULL for those, so we
         # add an explicit OR branch to keep them.
+        # DUE_DIVERGENCE (REF6-T3): this widened prefilter deliberately differs
+        # from the day-granular stats count in services/db/users.py:
+        # get_user_learning_stats (next_review_at <= today_iso). Stats is a
+        # dashboard hint; this path is the FSRS oracle. May disagree by design —
+        # do not unify. See services/streak/DUE_DIVERGENCE.md.
         query += (
             " AND (next_review_at IS NULL OR next_review_at <= ?"
             " OR next_review_at NOT LIKE '____-__-__T%'"
