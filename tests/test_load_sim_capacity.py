@@ -123,7 +123,7 @@ class CapacityDriverProofTests(unittest.IsolatedAsyncioTestCase):
         )
         self._no_real_ai.start()
         self._no_real_limited = patch(
-            "services.ai.llm_services._call_ai_limited",
+            "services.ai.generation._call_ai_limited",
             new=MagicMock(side_effect=AssertionError("real AI must not run")),
         )
         self._no_real_limited.start()

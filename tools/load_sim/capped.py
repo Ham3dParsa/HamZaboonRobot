@@ -412,7 +412,7 @@ def replay_5k(
                 new=MagicMock(side_effect=AssertionError("real AI must not run")),
             ),
             patch(
-                "services.ai.llm_services._call_ai_limited",
+                "services.ai.generation._call_ai_limited",
                 new=MagicMock(side_effect=AssertionError("real AI must not run")),
             ),
         ):
