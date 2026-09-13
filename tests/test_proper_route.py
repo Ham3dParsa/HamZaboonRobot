@@ -307,6 +307,6 @@ def test_proper_reroute_to_vulgar_target_drops(tmp_path):
         _index=index, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
-    s1 = json.loads(open(os.path.join(prog, "s1.json"),
+    s1 = json.loads(open(os.path.join(prog, STAGE_FILES["s1"]),
                          encoding="utf-8").read())["done"]
     assert s1["w:vulgartown"].get("dropped") == "vulgar-anchor"

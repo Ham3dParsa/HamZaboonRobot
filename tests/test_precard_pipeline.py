@@ -561,7 +561,7 @@ def test_resume_old_only_progress_names(tmp_path, monkeypatch):
     New domain files are written; the old files are read as fallback and
     never written again (byte-identical after the run)."""
     import shutil
-    from stage_glossary import OLD_PROGRESS_FILE_TO_NEW
+    from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
@@ -593,7 +593,7 @@ def test_resume_mixed_progress_names(tmp_path, monkeypatch):
     assert [r["key"] for r in rows] == ["w:apple"]
     mixed_dir = tmp_path / "prog_mixed"
     shutil.copytree(tmp_path / "prog", mixed_dir)
-    from precard_pipeline import _progress_old_path
+    from factory.pipeline.precard_pipeline import _progress_old_path
     for sid in ("s0", "s1", "s2"):
         (mixed_dir / STAGE_FILES[sid]).rename(_progress_old_path(mixed_dir, sid))
     old_bytes = {_progress_old_path(mixed_dir, sid).name:
@@ -615,7 +615,7 @@ def test_label_topup_cache_old_name_seeds_new(tmp_path):
     The real card_pilot.assign_topic reader then serves the seeded entry
     (topic_path "cache"); a present new file always wins over the old one.
     """
-    from precard_pipeline import _resolve_label_topup_cache
+    from factory.pipeline.precard_pipeline import _resolve_label_topup_cache
     key = "w\tg\tw#0"
     seeded = {key: {"label": "Seeded Label",
                     "vector": [{"label": "Seeded Label", "weight": 1.0}]}}
@@ -1409,7 +1409,7 @@ def test_full_llm_provider_google_wires_lite(tmp_path, monkeypatch):
     assert rc == 0
     assert seen and seen[0] == ("google-key", "gemini-3.5-flash-lite")
     s2 = json.loads(
-        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s2"]).read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "gemini-3.5-flash-lite"
 
 
@@ -2596,7 +2596,7 @@ def test_f2_s1_error_path_keeps_item(tmp_path, monkeypatch):
                              _zipf_fn=lambda t: 5.0)
     assert [r["key"] for r in rows] == ["w:gillianx"]  # kept, not dropped
     s1 = json.loads(
-        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+        (pathlib.Path(str(tmp_path / "prog")) / STAGE_FILES["s1"]).read_text(
             encoding="utf-8"))
     done = s1["done"]["w:gillianx"]
     assert "dropped" not in done
@@ -2617,7 +2617,7 @@ def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
                              _zipf_fn=lambda t: 5.0)
     assert rows == []  # dropped items never reach precard.jsonl
     s1 = json.loads(
-        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+        (pathlib.Path(str(tmp_path / "prog")) / STAGE_FILES["s1"]).read_text(
             encoding="utf-8"))
     done = s1["done"]["w:gillianv"]
     assert done["dropped"] == "vulgar-anchor"
@@ -2643,7 +2643,7 @@ def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
                              _zipf_fn=lambda t: 5.0)
     assert {r["key"] for r in rows} == {"w:mark", "w:gillianx"}
     s1 = json.loads(
-        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+        (pathlib.Path(str(tmp_path / "prog")) / STAGE_FILES["s1"]).read_text(
             encoding="utf-8"))
     assert s1["done"]["w:mark"]["top"]["gloss"] == "a visible mark"
     assert "rerouted_from_name" not in s1["done"]["w:mark"]
