@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
 
 from telegram import Update
@@ -40,13 +40,21 @@ from services.session import SessionNode, build_session_list, generate_tier3_nod
 from services.session.store import (
     SessionState,
     clear_session as _clear_persisted_session,
+    gather_word_records,
+    interval_days as _store_interval_days,
     is_valid_prompt_type as _is_valid_prompt_type,
     load_session,
+    parse_iso_utc as _store_parse_iso_utc,
+    pop_next as _store_pop_next,
+    push_tier3 as _store_push_tier3,
+    rollback_pop as _store_rollback_pop,
+    rollback_tier3_push as _store_rollback_tier3_push,
     save_session,
     state_from_json as _state_from_json,
     state_to_json as _state_to_json,
+    to_app_tz_date as _store_to_app_tz_date,
 )
-from services.session.summary import WordReviewRecord, build_report
+from services.session.summary import build_report
 from services.scheduling import (
     THROTTLE_TEXT,
     consume_session_slot,
@@ -843,14 +851,10 @@ async def advance_session(
         # advance (self-healing under weak network, Bug report 2026-08-19).
         # Freeze fields are saved/restored together with the popped node so a
         # failed edit doesn't leave a stale prompt/revealed tied to the wrong card.
-        old_revealed = state.revealed
-        old_prompt_type = state.active_prompt_type
-        old_prompt_wid = state.active_prompt_word_id
-        popped = state.nodes.pop(0) if state.nodes else None
-        # Clear freeze for the *next* card; _build will set it for the new word.
-        state.revealed = False
-        state.active_prompt_type = None
-        state.active_prompt_word_id = None
+        # REF4-T4: pop + clear-freeze owned by store.pop_next; rollback via
+        # store.rollback_pop. Order pop->clear-freeze->to_thread build->edit->
+        # persist-or-rollback preserved; today computed once above.
+        popped, saved = _store_pop_next(state)
 
         # try next node
         if state.nodes:
@@ -871,18 +875,10 @@ async def advance_session(
                 )
             except BadRequest as exc:
                 if not _is_message_not_modified(exc):
-                    if popped is not None:
-                        state.nodes.insert(0, popped)
-                    state.revealed = old_revealed
-                    state.active_prompt_type = old_prompt_type
-                    state.active_prompt_word_id = old_prompt_wid
+                    _store_rollback_pop(state, popped, saved)
                     raise
             except Exception:
-                if popped is not None:
-                    state.nodes.insert(0, popped)
-                state.revealed = old_revealed
-                state.active_prompt_type = old_prompt_type
-                state.active_prompt_word_id = old_prompt_wid
+                _store_rollback_pop(state, popped, saved)
                 raise
             await asyncio.to_thread(_persist_session, user_id, state, today)
             return
@@ -893,8 +889,7 @@ async def advance_session(
         if state.tier3_context:
             tier3_node = generate_tier3_node(**state.tier3_context)
             if tier3_node is not None:
-                state.nodes.append(tier3_node)
-                state.total_cards += 1
+                _store_push_tier3(state, tier3_node)
                 # F2 off-loop: card build does sync DB reads — worker thread.
                 text, keyboard = await asyncio.to_thread(
                     _build_card_text_and_keyboard,
@@ -911,22 +906,12 @@ async def advance_session(
                     )
                 except BadRequest as exc:
                     if not _is_message_not_modified(exc):
-                        state.nodes.pop()
-                        state.total_cards -= 1
-                        if popped is not None:
-                            state.nodes.insert(0, popped)
-                        state.revealed = old_revealed
-                        state.active_prompt_type = old_prompt_type
-                        state.active_prompt_word_id = old_prompt_wid
+                        _store_rollback_tier3_push(state)
+                        _store_rollback_pop(state, popped, saved)
                         raise
                 except Exception:
-                    state.nodes.pop()
-                    state.total_cards -= 1
-                    if popped is not None:
-                        state.nodes.insert(0, popped)
-                    state.revealed = old_revealed
-                    state.active_prompt_type = old_prompt_type
-                    state.active_prompt_word_id = old_prompt_wid
+                    _store_rollback_tier3_push(state)
+                    _store_rollback_pop(state, popped, saved)
                     raise
                 await asyncio.to_thread(_persist_session, user_id, state, today)
                 return
@@ -1048,11 +1033,7 @@ async def advance_session(
                         user_id, chat_id,
                     )
         except Exception:
-            if popped is not None:
-                state.nodes.insert(0, popped)
-                state.revealed = old_revealed
-                state.active_prompt_type = old_prompt_type
-                state.active_prompt_word_id = old_prompt_wid
+            _store_rollback_pop(state, popped, saved)
             raise
 
         context.user_data.pop("current_session", None)
@@ -1076,109 +1057,17 @@ async def advance_session(
 # Session summary report — data gathering + detail pagination callback (R1-R7)
 # ---------------------------------------------------------------------------
 
-def _parse_iso_utc(value: str):
-    """Parse an ISO-8601 UTC timestamp, tolerating a trailing ``Z`` suffix.
-
-    Python 3.10's ``datetime.fromisoformat`` rejects ``Z`` (3.11+ accepts it),
-    so normalize it to ``+00:00`` first to keep behavior identical across the
-    supported Python versions.
-    """
-    if value.endswith("Z"):
-        value = value[:-1] + "+00:00"
-    return datetime.fromisoformat(value)
-
-
-def _to_app_tz_date(iso_utc: str | None) -> str | None:
-    """Convert a stored UTC ISO timestamp to the app-tz ``YYYY-MM-DD`` date.
-
-    Summary relative-date labels compare against the app day, so the per-word
-    ``prior``/``next`` dates must be app-tz dates too — otherwise the labels
-    flip a day off near local midnight. Returns None for a missing/unparseable
-    timestamp.
-    """
-    if not iso_utc:
-        return None
-    try:
-        dt = _parse_iso_utc(iso_utc)
-    except (TypeError, ValueError):
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(APP_TZ).date().isoformat()
+# REF4-T4: gather + date helpers owned verbatim by services/session/store.py;
+# thin aliases keep existing import paths (tests, tools/load_sim, srs_handler).
+_parse_iso_utc = _store_parse_iso_utc
+_to_app_tz_date = _store_to_app_tz_date
+_interval_days = _store_interval_days
+_gather_word_records = gather_word_records
 
 
 def _app_today() -> str:
     """Today's ``YYYY-MM-DD`` in the application timezone (R10-D window)."""
     return datetime.now(APP_TZ).date().isoformat()
-
-
-def _interval_days(word_row) -> float | None:
-    """Scheduled interval in days from next_review_at back to last_review_at.
-
-    ``word_row`` is a subscriptable row (dict or sqlite3.Row) from
-    saved_words; both timestamp columns may be NULL.
-    """
-    try:
-        last = word_row["last_review_at"]
-        nxt = word_row["next_review_at"]
-    except (KeyError, IndexError, TypeError):
-        return None
-    if not last or not nxt:
-        return None
-    try:
-        last_dt = _parse_iso_utc(last)
-        nxt_dt = _parse_iso_utc(nxt)
-    except (TypeError, ValueError):
-        return None
-    seconds = (nxt_dt - last_dt).total_seconds()
-    return round(max(0.0, seconds) / 86400, 1)
-
-
-def _gather_word_records(
-    state: SessionState, user_id: int
-) -> list[WordReviewRecord]:
-    """Assemble WordReviewRecords for the session's graded words.
-
-    Activity type + grade come from the newest review_events row per word
-    (R3, seam-safe: no srs_handler edit); the prior review date is the
-    second-newest row (R2). before-stability comes from the Phase-2 snapshot.
-    """
-    word_ids = list(state.graded_word_ids)
-    if not word_ids:
-        return []
-    rows = {row["id"]: row for row in db.get_saved_words_by_ids(word_ids, user_id)}
-    events = db.recent_events_for_words(word_ids, user_id, per_word=2)
-    records: list[WordReviewRecord] = []
-    for wid in word_ids:
-        wr = rows.get(wid)
-        if wr is None:
-            continue
-        evs = events.get(wid) or []
-        current = evs[0] if evs else None
-        prior = evs[1] if len(evs) > 1 else None
-        records.append(
-            WordReviewRecord(
-                word_id=wid,
-                word=wr["word"],
-                activity_type=(
-                    current["activity_type"] if current else "srs_review"
-                ),
-                stability_before=state.before_stability.get(wid),
-                stability_after=(
-                    wr["stability"] if wr["stability"] is not None else None
-                ),
-                prior_review_date=_to_app_tz_date(
-                    prior["created_at"] if prior else None
-                ),
-                grade=current["grade"] if current else None,
-                interval_days=_interval_days(wr),
-                next_review_date=_to_app_tz_date(wr["next_review_at"]),
-                difficulty=(
-                    wr["difficulty"] if wr["difficulty"] is not None else None
-                ),
-            )
-        )
-    return records
 
 
 def _split_summary_action(action: str) -> tuple[str | None, str | None]:
