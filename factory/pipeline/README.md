@@ -12,5 +12,6 @@ python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pi
   --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run
 ```
 
-Stage ids (`s0..s5`) are stable data literals (progress keys, filenames, `run.log`);
-human prose speaks domain terms (see `../core/stage_glossary.py` + `../README.md` §Namespace rule).
+Stage ids (`s0..s5`) are stable data literals (progress keys, filenames);
+human prose — including `run.log` and `dropped.log` — speaks domain terms (see `../core/stage_glossary.py` + `../README.md`
+§Namespace rule).
