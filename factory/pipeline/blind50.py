@@ -260,8 +260,13 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
     sleep = sleep_fn or time.sleep
 
     def _report(outcome):
-        if report_fn is not None:
+        if report_fn is None:
+            return
+        try:
             report_fn(provider, outcome)
+        except Exception as exc:  # noqa: BLE001 (best-effort, warn-and-continue)
+            print("[blind50 %s] report failed: %s" % (tag, exc),
+                  flush=True)
     try:
         with open(progress_path, encoding="utf-8") as handle:
             progress = json.load(handle)

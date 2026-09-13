@@ -276,6 +276,47 @@ def test_on_mode_reports_ok_429_and_location_blocked(tmp_path, capsys):
     assert "location-blocked (strike 2/3" in logs
 
 
+def test_report_fn_raising_is_warned_and_continued(tmp_path, capsys):
+    """A throwing report_fn must not break judging: batch committed, warn logged.
+
+    Direct run_model() callers (not main()'s closure) pass report_fn in;
+    its exceptions must warn-and-continue, never mask a committed batch
+    nor the 429/location-blocked strike logic.
+    """
+    called = {"n": 0}
+
+    def fake_judge(chunk, prompt):
+        return {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
+
+    def boom_report(provider, outcome):
+        called["n"] += 1
+        raise ValueError("observer down")
+
+    prog = tmp_path / "p.json"
+    out = blind50.run_model(
+        "g35", ITEMS, ANCHOR_MAP, str(prog), fake_judge, pace=0,
+        sleep_fn=lambda s: None, provider="google", report_fn=boom_report)
+    # Batch committed despite report_fn raising.
+    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert called["n"] == 1
+    on_disk = json.loads(prog.read_text(encoding="utf-8"))
+    assert on_disk["g35"]["w:apple"]["sense_id"] == "apple#0"  # atomic write OK
+    logs = capsys.readouterr().out
+    assert "[blind50 g35] report failed:" in logs
+    assert "observer down" in logs
+
+
+def test_report_fn_none_unchanged_no_report_call(tmp_path):
+    """report_fn None: no reporting path, no try/except overhead, byte-identical."""
+    def fake_judge(chunk, prompt):
+        return {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
+
+    prog = tmp_path / "p.json"
+    out = blind50.run_model("g35", ITEMS, ANCHOR_MAP, str(prog), fake_judge,
+                            pace=0, sleep_fn=lambda s: None)
+    assert out == {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
+
+
 def test_supervisor_outcome_maps_location_blocked():
     assert blind50._supervisor_outcome("location-blocked") == "http429"
     assert blind50._supervisor_outcome("ok") == "ok"
