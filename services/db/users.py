@@ -644,6 +644,13 @@ def get_user_learning_stats(user_id: int) -> dict:
             "SELECT COUNT(*) AS cnt FROM session_reports WHERE user_id=?", (user_id,)
         ).fetchone()
         # Q6 breakdown — single aggregated query (no await across transaction, read-only).
+        # DUE_DIVERGENCE (REF6-T3): this due count is day-granular (TEXT compare
+        # next_review_at <= today_iso where today_iso = _today().isoformat() in
+        # APP_TIMEZONE). It is a cheap dashboard hint and may disagree with the
+        # exact-UTC FSRS eligibility in services/db/words.py:_row_effective_due
+        # (ts <= now) + due_words_for_user widened prefilter (now+1d + NOT LIKE/
+        # datetime() guards). Divergence is intentional — do not unify without a
+        # separate contract. See services/streak/DUE_DIVERGENCE.md.
         br = conn.execute(
             "SELECT COUNT(*) AS total, "
             "COALESCE(SUM(CASE WHEN first_exposure_done=1 THEN 1 ELSE 0 END), 0) AS learned, "
