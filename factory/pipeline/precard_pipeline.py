@@ -196,7 +196,8 @@ STAGE_NAMES = {
     "s2": "judge", "s3": "vectors", "s4": "label", "s5": "enrich",
 }
 # Finglish stage tags for the console (plain ASCII — Windows terminal
-# safe). run.log keeps bare ids (greppable, stable); the console shows
+# safe). run.log speaks domain names (human-readable); stable ids live
+# in progress keys and filenames; the console shows
 # "name (finglish)" so a non-developer owner can follow the run.
 STAGE_FINGLESH = {
     "s0": "pishpardazesh", "s0b": "sarf", "s1": "langar",

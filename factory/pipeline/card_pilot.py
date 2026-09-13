@@ -3821,7 +3821,7 @@ class RunLogger:
     def _shown(self, stage):
         try:
             return self._namer(stage) if self._namer else stage
-        except Exception:
+        except (TypeError, LookupError):
             return stage
 
     def stage_start(self, stage):
