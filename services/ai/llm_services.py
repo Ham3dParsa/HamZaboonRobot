@@ -1,10 +1,5 @@
-import logging
-
 from services.ai import ai, ai_read_cache, fallback_router, generation, limiter
 from services import db
-from services.utils.formatting_cards import CardPreparationError
-
-logger = logging.getLogger(__name__)
 
 
 # REF5-T4: sync limiter state lives in limiter.py (verbatim move of the
