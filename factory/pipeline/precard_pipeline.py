@@ -87,7 +87,6 @@ import urllib.error
 import urllib.request
 
 
-
 FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(FACTORY_DIR)
 if REPO_ROOT not in sys.path:  # noqa: E402 (script-mode `python factory/.../*.py` + `python -m` both work)
@@ -98,6 +97,10 @@ from factory.pipeline.card_pilot import append_telemetry_history  # noqa: E402  
 from factory.pipeline.card_pilot import item_key  # noqa: E402
 from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from factory.lexicon.phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
+from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW as _OLD_PROGRESS_FILE_TO_NEW  # noqa: E402  (T2: sole on-disk naming owner)
+from factory.core.stage_glossary import STAGE_FILES as _STAGE_FILES  # noqa: E402  (T2: sole on-disk naming owner)
+from factory.core.stage_glossary import TOPUP_NEW_NAME as _TOPUP_NEW_NAME  # noqa: E402  (T2: sole on-disk naming owner)
+from factory.core.stage_glossary import TOPUP_OLD_NAME as _TOPUP_OLD_NAME  # noqa: E402  (T2: sole on-disk naming owner)
 from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
 from factory.core.telemetry import record_call as _tele_record  # noqa: E402
 from factory.core.telemetry import write_summary as _tele_write  # noqa: E402
@@ -196,7 +199,8 @@ STAGE_NAMES = {
     "s2": "judge", "s3": "vectors", "s4": "label", "s5": "enrich",
 }
 # Finglish stage tags for the console (plain ASCII — Windows terminal
-# safe). run.log keeps bare ids (greppable, stable); the console shows
+# safe). run.log speaks domain names (human-readable); stable ids live
+# in progress keys and filenames; the console shows
 # "name (finglish)" so a non-developer owner can follow the run.
 STAGE_FINGLESH = {
     "s0": "pishpardazesh", "s0b": "sarf", "s1": "langar",
@@ -229,6 +233,63 @@ def _normalize_stage(pick):
     if key in STAGES:
         return key
     return _NAME_TO_STAGE.get(key, key)
+
+
+# T2 on-disk rename (v13 coherence): new code writes domain filenames
+# (STAGE_FILES, sole owner: stage_glossary), reads the old sX.json names
+# only as a resume fallback, and never writes the old names again.
+# The reverse map resolves old names from the glossary too (no local copy
+# of either naming convention).
+_NEW_TO_OLD_PROGRESS = {new: old
+                        for old, new in _OLD_PROGRESS_FILE_TO_NEW.items()}
+
+
+def _progress_write_path(progress_dir, stage):
+    """New on-disk progress path for a stage (always the domain name)."""
+    return pathlib.Path(progress_dir) / _STAGE_FILES[stage]
+
+
+def _progress_old_path(progress_dir, stage):
+    """Old on-disk progress path for a stage (read-only resume fallback)."""
+    old_name = _NEW_TO_OLD_PROGRESS.get(_STAGE_FILES[stage])
+    if old_name is None:
+        return None
+    return pathlib.Path(progress_dir) / old_name
+
+
+def _progress_read_path(progress_dir, stage):
+    """Resume path: prefer the new domain file, fall back to the old one."""
+    new_path = _progress_write_path(progress_dir, stage)
+    if new_path.exists():
+        return new_path
+    old_path = _progress_old_path(progress_dir, stage)
+    if old_path is not None and old_path.exists():
+        return old_path
+    return new_path
+
+
+def _resolve_label_topup_cache(progress_dir):
+    """Top-up cache path: the new name wins; old-only dirs seed it once.
+
+    card_pilot.assign_topic reads/writes whatever path it is given, so the
+    fallback lives here: when only the old cache exists, copy it to the new
+    name (best-effort), then hand out the new path. The old file is never
+    written. The seed is atomic (tmp + rename) and JSON-validated, with a
+    warning on failure — a failed seed only costs bounded LLM rework, since
+    assign_topic treats a missing cache as empty.
+    """
+    new_path = pathlib.Path(progress_dir) / _TOPUP_NEW_NAME
+    old_path = pathlib.Path(progress_dir) / _TOPUP_OLD_NAME
+    if not new_path.exists() and old_path.exists():
+        try:
+            blob = old_path.read_text(encoding="utf-8")
+            json.loads(blob)
+            tmp_path = new_path.with_name(new_path.name + ".tmp")
+            tmp_path.write_text(blob, encoding="utf-8")
+            os.replace(tmp_path, new_path)
+        except (OSError, ValueError) as exc:
+            print("warning: topup cache seed skipped (%s)" % exc)
+    return new_path
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
                 "Re-send ONLY the JSON object.\n")
 
@@ -425,7 +486,7 @@ def _dry_run_needs(progress_dir, items, selected, rekeyed, resume):
     for stage in STAGES:
         done = set()
         if resume:
-            path = pathlib.Path(progress_dir) / ("%s.json" % stage)
+            path = _progress_read_path(progress_dir, stage)
             if path.exists():
                 try:
                     saved = json.loads(path.read_text(encoding="utf-8"))
@@ -1227,7 +1288,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
 # the org-guard (club|team|band|company|companies) and the person-guard
 # (given name|surname|family name) NEVER route — organisations and
 # person names are not learner cards. Seam: an idempotent pass over the
-# judge done entries (s2.json) immediately after the judge stage (NOT a
+# judge done entries (judge.json) immediately after the judge stage (NOT a
 # new stage — STAGES and every stage signature are untouched). Verdicts
 # ride as additive proper_route/proper_drop markers on the judge done
 # entries, so resume only evaluates keys missing both markers, and
@@ -2339,12 +2400,12 @@ def _stage_summary(stage, states, out_path):
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s drops ===\n" % stage)
+                handle.write("=== %s drops ===\n" % stage_name(stage))
                 for line in details:
                     handle.write(line + "\n")
                 if quarantined:
                     handle.write("=== %s quarantine (kept, review) ===\n"
-                                 % stage)
+                                 % stage_name(stage))
                     for line in quarantined:
                         handle.write(line + "\n")
         except OSError as exc:
@@ -2353,7 +2414,7 @@ def _stage_summary(stage, states, out_path):
 
 def _flush(progress_dir, states):
     for stage in STAGES:
-        write_progress(str(pathlib.Path(progress_dir) / ("%s.json" % stage)),
+        write_progress(str(_progress_write_path(progress_dir, stage)),
                        states[stage])
 
 
@@ -2432,7 +2493,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     resume = not args.no_resume
     states = {}
     for stage in STAGES:
-        path = progress_dir / ("%s.json" % stage)
+        path = _progress_read_path(progress_dir, stage)
         loaded = {}
         if resume and path.exists():
             try:
@@ -2485,10 +2546,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # no fail-closed signal, so fail is always 0 there.
     from factory.pipeline.card_pilot import RunLogger  # noqa: E402
     run_logger = RunLogger(
-        str(pathlib.Path(args.out).parent / "run.log"))
+        str(pathlib.Path(args.out).parent / "run.log"),
+        namer=stage_name)
     for stage in STAGES:
         if stage not in selected:
-            run_logger.log("stage %s skipped (not selected)" % stage)
+            run_logger.log("stage %s skipped (not selected)"
+                           % stage_name(stage))
     tele_store = []  # R27: per-batch records (key_idx only, never values)
     tele_dir = pathlib.Path(args.out).parent
     tele_flushed = 0
@@ -2569,8 +2632,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if dropped:
         # Details live in dropped.log (written by _stage_summary);
         # console stays a single short line (no 80-item spam).
-        print(_color("s0 preprocess: kept=%d dropped=%d "
-                     "(see dropped.log)" % (len(items), len(dropped)),
+        print(_color("%s: kept=%d dropped=%d "
+                     "(see dropped.log)" % (stage_label("s0"),
+                                            len(items), len(dropped)),
                      "cyan"))
 
     need_llm = (_judge_transport is _USE_DEFAULT
@@ -2765,14 +2829,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     elif _inflect_transport is not _USE_DEFAULT:
         inflect_transport = _inflect_transport
 
-    label_topup_cache = progress_dir / "s4_topup_cache.json"
+    label_topup_cache = _resolve_label_topup_cache(progress_dir)
     label_calls: dict = {}
     precards: dict = {}
     inflection_dropped: set = set()
     # Provider manifest: exact stage -> provider + actual model for cost
     # attribution (console + run.log + provider_map.json beside --out).
     _prov_line = ", ".join(
-        "%s=%s/%s" % (leg, provider_map[leg]["provider"],
+        "%s=%s/%s" % (stage_name(leg), provider_map[leg]["provider"],
                       provider_map[leg]["model"]) for leg in LLM_LEGS)
     print(_color("providers: %s" % _prov_line, "cyan"))
     run_logger.log("providers: %s" % _prov_line)
@@ -2783,7 +2847,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     except OSError as exc:
         print("warning: provider_map.json write failed (%s)" % exc)
     try:
-        # S0b R36: inflection micro-stage (own progress key s0b.json).
+        # S0b R36: inflection micro-stage (own progress key inflection.json).
         # Items whose raw anchor top is an inflection stub go to the
         # batched inflection_review (card_pilot, Muse chain, imported);
         # explicit keep-false drops with reason inflection-drop:<reason>;
