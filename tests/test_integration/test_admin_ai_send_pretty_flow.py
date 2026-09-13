@@ -90,19 +90,29 @@ class AdminAiSendPrettyFlowTest(unittest.TestCase):
 
     def test_rank_change_uses_say_plain(self):
         # Wiring: ensure all 21 sites are now say with PLAIN+send (count check)
-        text = Path("handlers/admin_ai.py").read_text(encoding="utf-8")
+        # REF2-T4: admin_ai is now a facade with leaves admin_ai_*.py
+        parts = []
+        for p in Path("handlers").glob("admin_ai*.py"):
+            parts.append(p.read_text(encoding="utf-8"))
+        text = "\n".join(parts)
         self.assertGreaterEqual(text.count('raw=RawFormat.PLAIN'), 21)
         self.assertIn('raw=RawFormat.PLAIN', text)
 
     def test_wiring_no_direct_reply_text(self):
-        text = Path("handlers/admin_ai.py").read_text(encoding="utf-8")
+        parts = []
+        for p in Path("handlers").glob("admin_ai*.py"):
+            parts.append(p.read_text(encoding="utf-8"))
+        text = "\n".join(parts)
         self.assertNotIn("update.message.reply_text", text)
         self.assertNotIn("update.effective_message.reply_text", text)
         self.assertNotIn("context.bot.send_message", text)
 
     def test_no_direct_reply_text_count(self):
         # Ensure all 21 sites migrated
-        text = Path("handlers/admin_ai.py").read_text(encoding="utf-8")
+        parts = []
+        for p in Path("handlers").glob("admin_ai*.py"):
+            parts.append(p.read_text(encoding="utf-8"))
+        text = "\n".join(parts)
         self.assertEqual(text.count("update.message.reply_text"), 0)
 
 
