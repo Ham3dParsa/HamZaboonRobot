@@ -1,6 +1,6 @@
 """Study session handler — pulls from session engine, renders cards in-place.
 
-Handles the golden '📚 شروع مطالعه' button callback.
+Handles the golden '📚 مطالعه' button callback.
 Phase 1e implementation — FSRS-6 4-grade session flow.
 """
 
@@ -308,7 +308,7 @@ async def _reply_or_answer(
 async def handle_study_start(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle the '📚 شروع مطالعه' golden button callback."""
+    """Handle the '📚 مطالعه' golden button callback."""
     user_id = update.effective_user.id
     # --- per-user spam guard (plan-27) atomic before any quota/AI side effect ---
     # Owner bypass respects OWNER_BYPASS_LIMITS for testing

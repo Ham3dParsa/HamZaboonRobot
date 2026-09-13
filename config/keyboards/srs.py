@@ -19,7 +19,7 @@ from config.catalog import language_label
 # --- Session Summary Report ---
 
 def study_start_keyboard() -> InlineKeyboardMarkup:
-    """Single '📚 شروع مطالعه' inline button for the nudge / menu."""
+    """Single '📚 مطالعه' inline button for the nudge / menu."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(BTN_STUDY_SESSION, callback_data="study:start")],
     ])
