@@ -649,7 +649,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock, workload_override=
 
     # Single replay-wide AI patch (never per-task: concurrent enter/exit on
     # process globals raced). Only the bot-namespace seam is patched; the
-    # real services.ai.llm_services entry stays live so the flow test's
+    # real services.ai.generation entry stays live so the flow test's
     # zero-token guard there fires loudly on any direct reach.
     ai_lock = threading.Lock()
     fake_step, fake_prep = _make_replay_ai_fakes(
@@ -1185,7 +1185,7 @@ async def _run_5k(
     # fake reads the queried word from the call args, so one shared pair
     # covers all concurrent word_query journeys; the ask spy counts
     # word_query_ok / ai_error replay-wide. Only the bot-namespace seam is
-    # patched; the real services.ai.llm_services entry stays live so the flow
+    # patched; the real services.ai.generation entry stays live so the flow
     # test's zero-token guard there fires loudly on any direct reach.
     ai_lock = threading.Lock()
     fake_step, fake_prep = _make_replay_ai_fakes(

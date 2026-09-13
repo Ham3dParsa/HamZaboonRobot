@@ -1,10 +1,5 @@
-import logging
-
-from services.ai import ai, ai_read_cache, fallback_router, limiter
+from services.ai import ai, ai_read_cache, fallback_router, generation, limiter
 from services import db
-from services.utils.formatting_cards import CardPreparationError
-
-logger = logging.getLogger(__name__)
 
 
 # REF5-T4: sync limiter state lives in limiter.py (verbatim move of the
@@ -51,63 +46,22 @@ _retry_primary_preset = fallback_router._retry_primary_preset
 
 # NOTE (REF5-T6): the router unit moved verbatim to
 # services/ai/fallback_router.py; llm_services.* remain as thin re-export
-# aliases (see above). _ask_batch_limited + _prepare_cached_card stay here
-# until REF5-T7 (generation) places them.
+# aliases (see above). _ask_batch_limited + _prepare_cached_card moved to
+# generation.py under REF5-T7 (see below).
 
 
-def _get_active_preset() -> dict:
-    """Get the currently active AI preset (considers fallback)."""
-    return db.get_active_preset()
+# REF5-T7: card generation lives in generation.py (verbatim move of
+# _get_active_preset + _ask_batch_limited + _prepare_cached_card as one unit —
+# validate -> repair -> merge -> revalidate -> persist order, 3
+# CardPreparationError paths, dict(card) merge copy; the router seam
+# (_call_ai_limited) is consumed from fallback_router, not moved;
+# _retry_primary_preset stays owned by fallback_router (T6)). The names below
+# are re-export aliases so existing callers keep working unchanged; the
+# canonical definitions were removed from this module in the same change.
+_get_active_preset = generation._get_active_preset
+_ask_batch_limited = generation._ask_batch_limited
+_prepare_cached_card = generation._prepare_cached_card
 
-
-# NOTE (REF5-T4): _get_limiter_for_preset + _preset_in_backoff moved verbatim
-# to services/ai/limiter.py; llm_services.* remain as thin re-export aliases.
-
-
-def _ask_batch_limited(*args, **kwargs):
-    return _call_ai_limited(ai.ask_batch, *args, **kwargs)
-
-
-def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch, deadline=None):
-    try:
-        return ai.validate_card(card)
-    except ai.CardValidationError as validation_error:
-        fields = ai.card_repair_fields(card)
-        if not fields:
-            raise CardPreparationError(
-                f"{source} card has no repairable fields"
-            ) from validation_error
-        try:
-            patch = _call_ai_limited(
-                ai.repair_card,
-                card,
-                fields,
-                lang,
-                user_id=user_id,
-                plan=plan,
-                deadline=deadline,
-            )
-            merged = dict(card) if isinstance(card, dict) else {}
-            merged.update(patch)
-            repaired = ai.validate_card(merged)
-            if not persist_patch(patch):
-                raise CardPreparationError(
-                    f"{source} card repair could not be persisted"
-                )
-            logger.info(
-                "cached card repaired source=%s user_id=%s fields=%s",
-                source,
-                user_id,
-                fields,
-            )
-            return repaired
-        except Exception as repair_error:
-            logger.exception(
-                "cached card repair failed source=%s user_id=%s fields=%s",
-                source,
-                user_id,
-                fields,
-            )
-            raise CardPreparationError(
-                f"{source} card could not be repaired safely"
-            ) from repair_error
+# NOTE (REF5-T7): the generation unit moved verbatim to
+# services/ai/generation.py; llm_services.* remain as thin re-export aliases
+# (see above). llm_services.py now defines zero canonical symbols.

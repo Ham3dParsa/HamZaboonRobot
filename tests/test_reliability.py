@@ -16,7 +16,7 @@ from services.db import schema as db_schema
 from services.utils import formatting
 from services.utils import helpers
 from services.utils import callback_notifications
-from services.ai import llm_services
+from services.ai import generation, llm_services
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
 from config.catalog import DISPLAY_TOGGLE_FIELDS as _TOGGLE_FIELDS
@@ -370,7 +370,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             "examples": ["Hello one.", "Hello two."],
             "example_translations": ["اول.", "دوم."],
         }
-        with patch.object(llm_services, "_call_ai_limited") as repair_call:
+        with patch.object(generation, "_call_ai_limited") as repair_call:
             self.assertEqual(
                 llm_services._prepare_cached_card(
                     valid,
@@ -388,7 +388,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         legacy["example_translations"] = ["اول."]
         persisted = MagicMock(return_value=True)
         with patch.object(
-            llm_services,
+            generation,
             "_call_ai_limited",
             return_value={
                 "examples": ["Hello one.", "Hello two."],
