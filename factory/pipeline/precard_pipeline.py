@@ -3124,7 +3124,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                                     tele_flushed)
                     hint = ("wait for quota reset then re-run"
                             if (full_avalai or judge_avalai
-                                or judge_google or _any_google_leg)
+                                or providers["s2"] == "google"
+                                or judge_google)
                             else "switch VPN server then re-run")
                     raise SystemExit(
                         "STOP s2 at batch %d: %s — progress flushed, "
@@ -3220,7 +3221,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         "STOP s3 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc,
                                 "wait for quota reset then re-run"
-                                if (full_avalai or _any_google_leg) else
+                                if (full_avalai or _leg_google("s3")) else
                                 "switch VPN server then re-run"))
                 for item in todo:
                     key = item_key(item)
@@ -3302,8 +3303,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         "%s"
                         % (batch_no, exc,
                            "wait for quota reset then re-run"
-                           if (full_avalai or _any_google_leg) else
-                           "switch VPN server then re-run"))
+                            if (full_avalai or _leg_google("s4")) else
+                            "switch VPN server then re-run"))
                 for item in todo:
                     states["s4"]["done"][item_key(item)] = assigned_map[
                         item_key(item)]
