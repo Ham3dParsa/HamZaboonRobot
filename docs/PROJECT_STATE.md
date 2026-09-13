@@ -2,12 +2,13 @@
 
 > Single source of truth for current architectural state, active roadmap, domain vocabulary, and next atomic tasks.
 > Updated as of **2026-08-22**. Keep under 100 lines. Canonical specs: `AGENTS.md`, `ROADMAP.md`, GitHub Issues. Pull-based study sessions only — no push delivery.
+> **Legend:** `[PLANNED — not implemented]` = aspirational / design intent, not live code. **Live baseline is §3 :35–45 only.**
 
 ---
 
 ## 1. Architectural Guardrails & Principles
 
-- **Separation of Concerns:** Learning Core (`services/session/`, `services/fsrs_core.py`), streak domain (`services/streak/` — under construction), Economy (future), Theme/Presentation (`config/themes.py` — future).
+- **Separation of Concerns:** Learning Core (`services/session/`, `services/fsrs_core.py`), streak domain (`services/streak/` — planned — not implemented, under construction), Economy (future — planned), Theme/Presentation (`config/themes.py` — future — planned).
 - **Single Source of Truth (AGENTS §3):** one deep module per domain concept; enforced by `tests/test_single_source_of_truth.py` + dead-reference guard.
 - **Atomic Operations:** hot-path writes via `services/db/schema.py:transaction` (`BEGIN IMMEDIATE`); never hold transaction across await.
 - **Restart-Safety:** persist `study_sessions` before render; idempotent re-grade guards (Bug #401); grace reset via job every 30 min.
@@ -20,16 +21,16 @@
 
 | Term | Definition |
 |---|---|
-| **Continuity (Streak)** | Consecutive days with ≥1 completed session (`users.streak`, `users.last_active_date`). |
-| **Daily Intensity (Flame)** | Computed from `plans.max_sessions`: L1 Base, L2 High-Heat, L3 Perfect Day. |
-| **Shield** | Consumed on 1 missed day; monthly quota (Free 1, Bronze+ 2) → `users.streak_shields` (planned). |
-| **Effort XP** | Flat `cards×1 + 2/session +5 perfect-day`; no grade inflation (planned). |
-| **SessionCompleted** | Sole event advancing streak/intensity/XP. |
+| **Continuity (Streak)** | Consecutive days with ≥1 completed session (`users.streak`, `users.last_active_date`) — [PLANNED — not implemented] aspirational streak model; live streak is minimal `users.streak`/`last_active_date` only. |
+| **Daily Intensity (Flame)** | Computed from `plans.max_sessions`: L1 Base, L2 High-Heat, L3 Perfect Day — [PLANNED — not implemented]. |
+| **Shield** | Consumed on 1 missed day; monthly quota (Free 1, Bronze+ 2) → `users.streak_shields` — [PLANNED — not implemented] (shields not live). |
+| **Effort XP** | Flat `cards×1 + 2/session +5 perfect-day`; no grade inflation — [PLANNED — not implemented] (XP not live). |
+| **SessionCompleted** | Sole event advancing streak/intensity/XP — [PLANNED — not implemented]. |
 | **Grade Policy** | `services/session/grade_policy.py` per activity (srs_review, first_exposure). |
 
 ---
 
-## 3. Current Live Infrastructure (Baseline Reality)
+## 3. Current Live Infrastructure (Baseline Reality) — :35–45 ONLY live
 
 ### Database (`services/db/schema.py` — idempotent `init_db`)
 - **Active tables:** `users`, `saved_words`, `settings`, `query_results`, `grammar_tips`, `llm_requests`, `review_events`, `study_sessions`, `session_grade_ledger`, `session_reports`, `ai_presets`, `preset_hourly_usage`, `preset_groups`, `config_tests`, `plans`. Legacy `daily_cards` dropped.
@@ -45,25 +46,25 @@
 4. **Complete:** drain nodes → clear `study_sessions` → summary + 3-day `session_reports` (`/reports`).
 
 ### Legacy Call Sites (pruning target)
-`touch_streak` in `services/db/users.py` called from `handlers/srs_handler.py`, `services/word_query.py`, `handlers/user.py`. To be replaced by `SessionCompleted`.
+`touch_streak` in `services/db/users.py` called from `handlers/srs_handler.py`, `services/word_query.py`, `handlers/user.py`. To be replaced by `SessionCompleted` [PLANNED].
 
 ---
 
-## 4. Active Milestone Tracker
+## 4. Active Milestone Tracker — [PLANNED — not implemented] aspirational roadmap (not live)
 
 - [x] **M0 — Audit & Contract Lock.** SPEC-STREAK-2026-08-19-V3 done. 7 BFs open (plan matrix, shield source, gating, day-attribution).
-- [ ] **M1 — Core Continuity & Daily Stats.** Schema `daily_study_stats` + `users.total_xp/best_streak/streak_shields`; `services/streak/` DTOs.
-- [ ] **M2 — Atomic Wiring.** `SessionCompleted` in `advance_session` before clear; `BEGIN IMMEDIATE` bundling; idempotency token.
-- [ ] **M3 — Theme Registry.** `config/themes.py`; `/status` copy.
-- [ ] **M4 — Shield & Rescue Hook.** Monthly refill; lazy `ensure_streak_state`.
-- [ ] **M5 — Economy Ledger.** Coins/items; depends on retention events.
+- [ ] **M1 — Core Continuity & Daily Stats.** Schema `daily_study_stats` + `users.total_xp/best_streak/streak_shields` — [PLANNED — not implemented]; `services/streak/` DTOs — [PLANNED — not implemented].
+- [ ] **M2 — Atomic Wiring.** `SessionCompleted` in `advance_session` before clear; `BEGIN IMMEDIATE` bundling; idempotency token — [PLANNED — not implemented].
+- [ ] **M3 — Theme Registry.** `config/themes.py`; `/status` copy — [PLANNED — not implemented].
+- [ ] **M4 — Shield & Rescue Hook.** Monthly refill; lazy `ensure_streak_state` — [PLANNED — not implemented].
+- [ ] **M5 — Economy Ledger.** Coins/items; depends on retention events — [PLANNED — not implemented].
 
 ---
 
-## 5. Current Active Task
+## 5. Current Active Task — [PLANNED — not implemented] aspirational (M1 not live)
 
-- **Target:** M1 — Data Layer & Core Domain.
-- **Action:** `daily_study_stats` + 4 `users` columns via `init_db` ALTER; pure math in `services/streak/`; backfill `best_streak`.
+- **Target:** M1 — Data Layer & Core Domain — [PLANNED — not implemented].
+- **Action:** `daily_study_stats` + 4 `users` columns (`total_xp`/`best_streak`/`streak_shields` etc.) via `init_db` ALTER; pure math in `services/streak/`; backfill `best_streak` — [PLANNED — not implemented].
 - **Blocked by:** BF-1, BF-3, BF-4 owner decisions.
 
 ---
