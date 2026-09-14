@@ -2275,6 +2275,17 @@ def test_judge_prompt_renders_tags_and_hierarchy():
     assert "ALWAYS pick the independent lexical meaning" in prompt
 
 
+def test_judge_prompt_hotfix_modal_precedence():
+    """Hotfix round: modal auxiliaries keep their grammatical main sense."""
+    batch = [{"kind": "word", "text": "would", "pool_level": "A1"}]
+    anchor_map = {"w:would": {"candidates": [
+        {"sense_id": "would#0", "gloss": "past of will", "tags": []},
+    ]}}
+    prompt = precard_pipeline._judge_prompt(batch, anchor_map)
+    assert "absolute precedence" in prompt
+    assert "would" in prompt
+
+
 def test_judge_archive_sys_states_utility_goal():
     """Locked R4: the judge transport SYS names communicative utility."""
     from factory.archive.v14_v16 import run_v14_phase3_judge as judge
@@ -2307,6 +2318,15 @@ def test_s4_template_drops_last_resort_adds_domain_map():
     assert "Arts & Culture (0.60) + Daily Life & Home (0.40)" in \
         topup.USER_TMPL
     assert "MULTI-TOPIC GUIDELINE" in topup.USER_TMPL
+
+
+def test_s4_hotfix_human_animals_color_scope():
+    """Hotfix round: humans stay out of Animals; color rule covers only
+    colors/visual themes; physical attributes return to natural domains."""
+    from factory.archive.v14_v16 import run_v16b_topup as topup
+    assert "Non-human animals" in topup.USER_TMPL
+    assert "colors and visual themes" in topup.USER_TMPL
+    assert "natural domain" in topup.USER_TMPL
 
 
 def test_s4_prompt_head_frozen_across_batches():

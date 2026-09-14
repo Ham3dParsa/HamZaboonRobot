@@ -1170,6 +1170,9 @@ def _judge_prompt(batch, anchor_map):
              "3. If candidates contain both an independent lexical meaning "
              "and a purely grammatical/inflectional reference, ALWAYS pick "
              "the independent lexical meaning.",
+             "4. For modal/auxiliary verbs (would, could, should), the "
+             "grammatical main sense takes absolute precedence over any "
+             "nominal or philosophical sense.",
              "",
              'Output: {"results": [{"key": "<item key>", '
              '"pick": "<sense_id>"}]}.',

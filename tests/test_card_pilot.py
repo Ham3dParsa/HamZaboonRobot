@@ -1976,6 +1976,11 @@ def test_s0b_sys_has_keep_drop_boundary():
         assert token in prompt_sys, token
 
 
+def test_s0b_sys_hotfix_ing_headwords():
+    """Hotfix round: established -ing headwords (crimes, objects) KEEP."""
+    assert "kidnapping" in card_pilot.INFLECTION_REVIEW_SYS
+
+
 # ---------------- v12 R45: gallery invalid chips/stepper/debug ----------------
 
 def _r45_base_rec(**over):
