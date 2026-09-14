@@ -47,6 +47,19 @@ PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 COOLDOWN_S = 300
+# Whitelist fall-through (2026-09-14): candidates tried per lease before
+# giving up + the short cool a failed candidate earns (its TCP ping was
+# fine, so a long cool is unjustified; retry comes around quickly).
+ACQUIRE_MAX_CANDIDATES = 5
+EGRESS_CHECK_COOLDOWN_S = 60
+
+# Keys for acquire-time provider probes (google), read once from
+# tools/egress/.env — never logged, never returned by any endpoint.
+PROBE_KEYS: dict = {}
+
+
+def PROBE_KEY_by_provider(provider):
+    return PROBE_KEYS.get(norm_provider(provider), "")
 
 
 def norm_provider(provider):
@@ -106,6 +119,8 @@ def load_env():
     for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
         if k in os.environ and os.environ[k]:
             data[k] = os.environ[k]
+    if data.get("GOOGLE_AI_API_KEY"):
+        PROBE_KEYS["google"] = data["GOOGLE_AI_API_KEY"]
     return data
 
 
@@ -370,15 +385,20 @@ class TunnelOwner:
         self._server_id = None
 
     def acquire(self, provider=None, refresh=False):
-        """Start (or reuse) the tunnel for the best server. Returns
+        """Start a verified tunnel for the best server. Returns
         (proxy_url, egress_ip, server_id) or raises RuntimeError.
 
-        Availability skips only servers cooling for ``provider``: a
-        zen-429 never blocks a google lease on the same server.
-        ``refresh=True`` (a caller reporting an unstable egress) drops
-        and re-runs the SAME best server's tunnel first — a long-lived
-        xray child can go stale mid-run; the egress check below then
-        fails forever without this restart path.
+        Whitelist fall-through (owner rule 2026-09-14: the supervisor
+        finds a clean server itself): walk the ranked list and try up
+        to ACQUIRE_MAX_CANDIDATES link-bearing servers — tunnel up +
+        egress check + (when the target has a probe, e.g. google) one
+        live provider probe. A candidate failing any check is stopped,
+        briefly cooled (EGRESS_CHECK_COOLDOWN_S) and skipped; only a
+        full sweep failure raises. Availability skips servers cooling
+        for ``provider``: a zen-429 never blocks google on the same
+        server. ``refresh=True`` re-runs the SAME best server's tunnel
+        first (stale xray child) without cooling it — still falls
+        through when the re-run fails its checks.
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -398,17 +418,40 @@ class TunnelOwner:
                 return (self._tunnel.proxy_url,
                         self._tunnel.egress_ip(), self._server_id)
             self._drop_locked()
-            server = avail[0]
-            tun = _tunnel_mod.Tunnel(server, server["link"])
-            proxy = tun.start()
-            try:
-                ip = tun.egress_ip()
-            except Exception:
-                tun.stop()
-                raise RuntimeError("tunnel up but egress check failed")
-            self._tunnel = tun
-            self._server_id = server["id"]
-            return proxy, ip, server["id"]
+            spec = TARGETS.get(norm_provider(provider), {}) \
+                if provider else {}
+            probe = spec.get("probe")
+            candidates = avail[:ACQUIRE_MAX_CANDIDATES]
+            for server in candidates:
+                tun = _tunnel_mod.Tunnel(server, server["link"])
+                try:
+                    proxy = tun.start()
+                except Exception:
+                    continue
+                try:
+                    ip = tun.egress_ip()
+                except Exception:
+                    tun.stop()
+                    self._pool.cool(server["id"], provider,
+                                    seconds=EGRESS_CHECK_COOLDOWN_S)
+                    continue
+                if probe is not None:
+                    try:
+                        _code, _ms, note = probe(
+                            proxy, PROBE_KEY_by_provider(provider))
+                        if note != "live":
+                            raise RuntimeError("provider probe: %s" % note)
+                    except Exception:
+                        tun.stop()
+                        self._pool.cool(server["id"], provider,
+                                        seconds=EGRESS_CHECK_COOLDOWN_S)
+                        continue
+                self._tunnel = tun
+                self._server_id = server["id"]
+                return proxy, ip, server["id"]
+            raise RuntimeError(
+                "no clean server in top %d candidates (all failed "
+                "tunnel/egress/provider checks)" % len(candidates))
 
     def rotate(self, reason="", provider=None):
         """Stop the current tunnel (429/quit); next acquire() moves on.

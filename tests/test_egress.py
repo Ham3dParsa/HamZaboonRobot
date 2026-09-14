@@ -457,6 +457,9 @@ def test_http_tunnel_lease_path(monkeypatch):
     import supervisor as sup
     import tunnel as tunnel_mod
     monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(sup, "zen_probe",
+                        lambda proxy_url, api_key, timeout=60: (200, 1, "live"))
+    monkeypatch.setitem(sup.TARGETS["zen"], "probe", sup.zen_probe)
     _FakeTunnel.started.clear()
     _FakeTunnel.stopped.clear()
     sup.TOKEN = "test-token"
@@ -827,7 +830,13 @@ def test_tunnel_owner_acquire_honors_provider(monkeypatch):
     """acquire(provider) skips only that provider's cooled servers."""
     from supervisor import TunnelOwner
     import tunnel as tunnel_mod
+    import supervisor as _sup
     monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    _live = lambda proxy_url, api_key, timeout=60: (200, 1, "live")  # noqa: E731
+    monkeypatch.setattr(_sup, "zen_probe", _live)
+    monkeypatch.setattr(_sup, "google_probe", _live)
+    monkeypatch.setitem(_sup.TARGETS["zen"], "probe", _live)
+    monkeypatch.setitem(_sup.TARGETS["google"], "probe", _live)
     pool = _link_pool()
     owner = TunnelOwner(pool)
     pool.cool("s1", "zen")
@@ -841,11 +850,100 @@ def test_tunnel_owner_acquire_honors_provider(monkeypatch):
     owner.stop()
 
 
+def test_tunnel_owner_acquire_falls_through_bad_candidates(monkeypatch):
+    """Whitelist fall-through (2026-09-14): a candidate whose egress or
+    provider probe fails is cooled briefly and SKIPPED; the first clean
+    candidate wins. A dead first server must not park the whole lease."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    import supervisor as _sup
+
+    class _HalfDeadTunnel(_FakeTunnel):
+        def __init__(self, server, link):
+            super().__init__(server, link)
+            self._bad = server["id"] == "s1"
+
+        def start(self, timeout=25):
+            _FakeTunnel.started.append(self.server["id"])
+            if self._bad:
+                raise RuntimeError("xray exited early")
+            return self.proxy_url
+
+        def egress_ip(self, timeout=15):
+            if self._bad:
+                raise RuntimeError("no egress")
+            return "9.9.9.9"
+
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _HalfDeadTunnel)
+    _live = lambda proxy_url, api_key, timeout=60: (200, 1, "live")  # noqa: E731
+    monkeypatch.setattr(_sup, "google_probe", _live)
+    monkeypatch.setitem(_sup.TARGETS["google"], "probe", _live)
+    pool = _link_pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        proxy, ip, sid = owner.acquire(provider="google")
+        assert sid == "s2"  # s1 skipped (dead), s2 clean
+        assert ip == "9.9.9.9"
+        # s1 earned only the SHORT fall-through cool, not the full one
+        import time as _t
+        until = pool.cooldown_until.get(("s1", "google"), 0)
+        assert until <= _t.time() + 120  # <= EGRESS_CHECK_COOLDOWN_S margin
+    finally:
+        owner.stop()
+
+
+def test_tunnel_owner_acquire_probe_fail_falls_through(monkeypatch):
+    """Candidate whose PROVIDER probe is not live (e.g. google 403 on
+    that egress) is skipped with the short cool; clean next wins."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    import supervisor as _sup
+
+    class _GoodTunnel(_FakeTunnel):
+        def egress_ip(self, timeout=15):
+            return "9.9.9.9"
+
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _GoodTunnel)
+    calls = {"n": 0}
+
+    def _blocked_then_live(proxy_url, api_key, timeout=60):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return 403, 5, "forbidden"  # first candidate google-blocked
+        return 200, 5, "live"
+
+    monkeypatch.setitem(_sup.TARGETS["google"], "probe",
+                        _blocked_then_live)
+    pool = _link_pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        proxy, ip, sid = owner.acquire(provider="google")
+        assert sid == "s2"  # s1 google-403, fall-through to s2
+        assert calls["n"] == 2
+    finally:
+        owner.stop()
+
+
 def test_http_report_provider_override(monkeypatch):
     """Over loopback: google-override cools google only; zen still leases."""
     import supervisor as sup
     import tunnel as tunnel_mod
     monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(sup, "zen_probe",
+                        lambda proxy_url, api_key, timeout=60: (200, 1, "live"))
+    monkeypatch.setitem(sup.TARGETS["zen"], "probe", sup.zen_probe)
     sup.TOKEN = "test-token"
     sup.POOL.servers.clear()
     sup.POOL.cooldown_until.clear()
