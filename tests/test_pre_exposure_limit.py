@@ -166,6 +166,24 @@ def test_session_remaining_zero_issues_no_tier2_query():
         assert tier3 == {}
 
 
+def test_null_added_at_rows_sink_last():
+    """OP-004: ancient rows with added_at=NULL must not jump ahead of new
+    rows (SQLite sorts NULLs first in ASC by default)."""
+    from services.db.words import get_pre_first_exposure_words
+
+    with _temp_db_path():
+        _seed_pre_exposure(4)
+        with db_schema.transaction() as conn:
+            conn.execute(
+                "INSERT INTO saved_words(user_id, word, lang, normalized_word, "
+                "first_exposure_done, entry_source, added_at) "
+                "VALUES (1,'ancient','en','ancient',0,'auto',NULL)"
+            )
+        rows = [r["word"] for r in get_pre_first_exposure_words(1, "en")]
+        assert len(rows) == 5
+        assert rows[-1] == "ancient"
+
+
 def test_due_path_has_no_limit_regression_lock():
     from services.db.words import due_words_for_user
 

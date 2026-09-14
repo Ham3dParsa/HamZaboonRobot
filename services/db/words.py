@@ -363,7 +363,11 @@ def get_pre_first_exposure_words(
         query += " AND lang=? "
         params.append(lang)
     query += (
-        "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, added_at ASC"
+        "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, "
+        # OP-004: ancient rows with added_at=NULL must sink instead of
+        # jumping ahead (SQLite sorts NULLs first in ASC). Query-only,
+        # reversible, no migration.
+        "added_at ASC NULLS LAST"
     )
     if limit is not None:
         query += " LIMIT ?"
