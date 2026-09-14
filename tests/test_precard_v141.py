@@ -128,6 +128,11 @@ def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
     assert all(r["fanout_n"] == 2 for r in rows)
 
 
+def test_pacing_flag_defaults_and_parses_zero():
+    assert precard_pipeline.parse_args([]).sleep_secs == 2.5
+    assert precard_pipeline.parse_args(["--sleep-secs", "0"]).sleep_secs == 0
+
+
 # ---------------- R2: no silent dropout ----------------
 
 def test_r2_proper_names_drop_with_verdict_not_silently():

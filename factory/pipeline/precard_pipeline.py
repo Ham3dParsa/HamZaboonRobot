@@ -347,9 +347,15 @@ def parse_args(argv=None):
                     help="per-leg model override, repeatable "
                     "(e.g. --stage-model sense-judge=deepseek-v4-flash). "
                     "Wins over --precard-model/--judge-model for that leg.")
+    ap.add_argument("--sleep-secs", type=float, default=SLEEP,
+                    help="pause between LLM batches (default %.1f; 0 = no "
+                    "pacing sleep — faster but easier to hit 429s; the "
+                    "429-rotation backoff always stays on)" % SLEEP)
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
+    if args.sleep_secs < 0:
+        ap.error("--sleep-secs must be >= 0")
     return args
 
 
@@ -2944,6 +2950,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     """Run the pre-card pipeline. Returns 0 on success (exit code)."""
     args = parse_args(argv)
     sleep_fn = _sleep_fn or time.sleep
+    # Owner-ordered pacing (2026-09-14): --sleep-secs scales ONLY the
+    # inter-batch pacing pauses; the 429-rotation backoff (ROTATE_PAUSE)
+    # always stays on, so rate errors still back off instead of
+    # spinning. Default keeps the historic 2.5s pacing.
+    pace_secs = max(0.0, args.sleep_secs)
+    pace_fn = (lambda s: None) if pace_secs == 0 else (
+        lambda s: sleep_fn(pace_secs))
     items = load_sample(args.sample)
     if args.limit:
         items = items[:args.limit]
@@ -3428,7 +3441,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                        else "inflection-keep"),
                             "uncertain": bool(
                                 verdict.get("uncertain"))}
-                sleep_fn(SLEEP)
+                pace_fn(SLEEP)
             elif review:
                 for entry in review:
                     states["s0b"]["done"][entry["key"]] = {
@@ -3715,7 +3728,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if (verdict.get("model") or "").startswith("s1-") \
                             and key not in states["s2"]["failed"]:
                         states["s2"]["failed"].append(key)
-                sleep_fn(SLEEP)
+                pace_fn(SLEEP)
             _flush(progress_dir, states)
             fail = sum(
                 1 for i in batch
@@ -3824,7 +3837,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         if extra_vec:
                             hit = {**hit, "extra_vec": extra_vec}
                     states["s3"]["done"][key] = hit
-                sleep_fn(SLEEP)
+                pace_fn(SLEEP)
             _flush(progress_dir, states)
             fail = sum(
                 1 for i in batch
@@ -3915,7 +3928,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 for item in todo:
                     states["s4"]["done"][item_key(item)] = assigned_map[
                         item_key(item)]
-                sleep_fn(SLEEP)
+                pace_fn(SLEEP)
             _flush(progress_dir, states)
             _batch_progress("s4", batch_no, n_label_batches,
                               len(batch), 0)
