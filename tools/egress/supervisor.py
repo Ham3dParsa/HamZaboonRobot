@@ -36,7 +36,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
@@ -953,7 +953,7 @@ def main(argv=None):
     n_saved = POOL.load_pool()
     if n_saved:
         print("pool loaded: %d servers from whitelist" % n_saved)
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print("egress supervisor on 127.0.0.1:%d (%d servers)" % (
         args.port, POOL.health()["servers"]))
     try:

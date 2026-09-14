@@ -13,7 +13,8 @@ import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools",
                                 "egress"))
 import supervisor
-from supervisor import HTTPServer, Handler, Pool, parse_subscription
+from http.server import HTTPServer
+from supervisor import Handler, Pool, parse_subscription
 
 
 def _sub_body():
