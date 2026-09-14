@@ -2524,15 +2524,17 @@ def test_c3a_word_lexical_type_from_kaikki_tags():
 
 
 def test_c3b_register_from_kaikki_tags():
-    """C3b: neutral default; informal tag; vulgar/offensive -> slang_vulgar
-    (slang_vulgar wins over informal)."""
+    """C3b/T3: neutral default; informal tag; vulgar/offensive -> taboo
+    (taboo wins over informal); slur tags map neutral here (the S1
+    hard-drop owns that kill upstream — register never sees them)."""
     from factory.pipeline.precard_pipeline import enrich_item
     cases = (
         ("plainwd", [], "neutral"),
         ("mate", ["informal"], "informal"),
-        ("mfwd", ["vulgar"], "slang_vulgar"),
-        ("slurwd", ["offensive"], "slang_vulgar"),
-        ("bothwd", ["informal", "vulgar"], "slang_vulgar"),
+        ("mfwd", ["vulgar"], "taboo"),
+        ("slurwd", ["offensive"], "taboo"),
+        ("bothwd", ["informal", "vulgar"], "taboo"),
+        ("hatewd", ["slur"], "neutral"),
     )
     for text, tags, want in cases:
         index = {text: _tagged_rows(("a gloss here", tags))}
@@ -2542,6 +2544,7 @@ def test_c3b_register_from_kaikki_tags():
                                  "gloss": "a gloss here"},
                           index, read_entry, {})
         assert out["register"] == want, text
+        assert out["content_warning"] == (want == "taboo"), text
 
 
 def test_c3a_phrase_lexical_type_from_type_log():
@@ -2603,7 +2606,7 @@ def test_c3_rows_carry_new_fields(tmp_path, monkeypatch):
     assert by_key["p:nickel and dime"]["lexical_type"] == "idiom"
     assert by_key["w:apple"]["lexical_type"] == "word"
     for rec in rows:
-        assert rec["register"] in ("neutral", "informal", "slang_vulgar")
+        assert rec["register"] in ("neutral", "informal", "taboo")
         assert len(rec["pre_card_id"]) == 16
     assert by_key["w:apple"]["register"] == "neutral"
     apple = by_key["w:apple"]
@@ -2619,7 +2622,7 @@ def test_c3_helpers_normalize_messy_tags():
     assert lexical_type_for("word", [" colloquial "]) == "colloquial"
     assert lexical_type_for("word", "IDIOMATIC") == "idiomatic"
     assert register_for(["INFORMAL"]) == "informal"
-    assert register_for([" Vulgar "]) == "slang_vulgar"
+    assert register_for([" Vulgar "]) == "taboo"
     assert lexical_type_for(
         "phrase", [],
         {"phrase_type": "Idiom", "applied_keep": True}) == "idiom"
@@ -2903,13 +2906,13 @@ def test_f2_s1_error_path_keeps_item(tmp_path, monkeypatch):
 
 
 def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
-    """Review OC-W1: a name-top rerouting onto a vulgar-tagged sense must
+    """Review OC-W1/T3: a name-top rerouting onto a slur-tagged sense must
     not leak a vulgar card on stale anchor_tags — S1 drops it as
     vulgar-anchor with the target's tags on the entry."""
     items = [{"kind": "word", "text": "gillianv", "pos": "noun",
               "pool_level": "B1"}]
     index = {"gillianv": _name_rows_tagged(
-        [("A female given name.", []), ("a crude insult", ["vulgar"])])}
+        [("A female given name.", []), ("a crude insult", ["slur"])])}
     rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
                              _zipf_fn=lambda t: 5.0)
     assert rows == []  # dropped items never reach precard.jsonl
@@ -2918,8 +2921,21 @@ def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
             encoding="utf-8"))
     done = s1["done"]["w:gillianv"]
     assert done["dropped"] == "vulgar-anchor"
-    assert "vulgar" in (done.get("anchor_tags") or [])
+    assert "slur" in (done.get("anchor_tags") or [])
     assert "w:gillianv" in s1["failed"]
+
+
+def test_t3_vulgar_tagged_sense_kept_with_taboo(tmp_path, monkeypatch):
+    """T3: a vulgar-tagged (non-slur) sense survives S1 and enriches with
+    register=taboo + content_warning=true."""
+    items = [{"kind": "word", "text": "damn", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"damn": _tagged_rows(("a mild curse", ["vulgar"]))}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert [r["key"] for r in rows] == ["w:damn"]
+    assert rows[0]["register"] == "taboo"
+    assert rows[0]["content_warning"] is True
 
 
 def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
@@ -2953,15 +2969,15 @@ def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
 # ---------------- F3: slang/colloquial register floor ----------------
 
 def test_f3_slang_colloquial_floor_informal():
-    """F3: slang/colloquial sense tags imply at least informal (vulgar
+    """F3/T3: slang/colloquial sense tags imply at least informal (taboo
     still wins; plain words stay neutral)."""
     from factory.pipeline.precard_pipeline import register_for
     assert register_for(["slang"]) == "informal"
     assert register_for(["colloquial"]) == "informal"
     assert register_for(["Slang"]) == "informal"  # normalized here
-    assert register_for(["vulgar"]) == "slang_vulgar"
-    assert register_for(["slang", "vulgar"]) == "slang_vulgar"
-    assert register_for(["colloquial", "offensive"]) == "slang_vulgar"
+    assert register_for(["vulgar"]) == "taboo"
+    assert register_for(["slang", "vulgar"]) == "taboo"
+    assert register_for(["colloquial", "offensive"]) == "taboo"
     assert register_for(["informal"]) == "informal"
     assert register_for([]) == "neutral"
 

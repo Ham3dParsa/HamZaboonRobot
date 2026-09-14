@@ -2063,19 +2063,21 @@ def _entries_for(item, index):
 # Additive precard row fields from dataset sources only (zero LLM calls):
 # lexical_type (word default; slang/colloquial/idiomatic from the picked
 # kaikki sense tags; phrases from the phrase-type log verbatim), register
-# (neutral default; informal tag; slang_vulgar from vulgar/offensive tags),
+# (neutral default; informal tag; taboo from general vulgarity tags),
 # pre_card_id (sha1-hex16 of lemma.lower|pos|en_def normalized — EN only,
 # never Persian). Destination-side pack filters read these; gates/scoring
 # never do (no behavior change there).
 LEXICAL_TYPE_DEFAULT = "word"
 REGISTER_DEFAULT = "neutral"
 REGISTER_INFORMAL = "informal"
-REGISTER_SLANG_VULGAR = "slang_vulgar"
+REGISTER_TABOO = "taboo"
 _LEXICAL_SLANG_TAGS = {"slang"}
 _LEXICAL_COLLOQUIAL_TAGS = {"colloquial"}
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 _REGISTER_INFORMAL_TAGS = {"informal"}
-_REGISTER_SLANG_VULGAR_TAGS = {"vulgar", "offensive"}
+# T3 v14 taboo policy: general vulgarity tags (single source: card_pilot
+# VULGAR_TABOO) map to register=taboo + content_warning. Slur tags never
+# reach here (S1 hard-drop owns that kill).
 # F3 register floor: slang/colloquial sense tags imply at least informal
 # (kush/recon land informal, not neutral). Reuses the lexical-type tag
 # sets above (single source — no second copy of the vocabulary).
@@ -2133,14 +2135,14 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 def register_for(sense_tags):
     """Register for one precard row (pure, dataset-only).
 
-    slang_vulgar (vulgar/offensive tags) wins over informal; slang or
+    taboo (general vulgarity tags) wins over informal; slang or
     colloquial tags imply at least informal (F3 floor); default is
-    neutral. The vulgar/offensive set is the locked ticket scope — the
-    broader S1 VULGAR_TAGS drop is a separate gate, untouched here.
+    neutral. The taboo set is single-sourced from card_pilot
+    VULGAR_TABOO; the S1 hard-drop set (slurs) never reaches here.
     """
     tags = _normalize_tags(sense_tags)
-    if tags & _REGISTER_SLANG_VULGAR_TAGS:
-        return REGISTER_SLANG_VULGAR
+    if tags & card_pilot.VULGAR_TABOO:
+        return REGISTER_TABOO
     if tags & (_REGISTER_INFORMAL_TAGS | _LEXICAL_SLANG_TAGS
                | _LEXICAL_COLLOQUIAL_TAGS):
         return REGISTER_INFORMAL
@@ -2225,6 +2227,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 "lexical_type": lexical_type_for(kind, set(),
                                                  phrase_entry),
                 "register": REGISTER_DEFAULT,
+                "content_warning": False,
                 "pre_card_id": compute_pre_card_id(
                     lemma, item.get("pos", ""), gloss or "")}
     try:
@@ -2278,6 +2281,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
     sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
         item, lemma, id_pos, gloss or "")
+    register = register_for(sense_tags)
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
@@ -2292,7 +2296,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "sense_cefr_method": sense_cefr_method,
             "lexical_type": lexical_type_for(kind, sense_tags,
                                              phrase_entry),
-            "register": register_for(sense_tags),
+            "register": register,
+            "content_warning": register == REGISTER_TABOO,
             "pre_card_id": compute_pre_card_id(lemma, id_pos,
                                                gloss or "")}
 
@@ -3195,7 +3200,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                         ranked["mother_lemmas"], \
                                         ranked["mother_multi"] = fresh_mother
                                 if set(ranked.get("anchor_tags")
-                                       or {}) & card_pilot.VULGAR_TAGS:
+                                       or {}) & card_pilot.VULGAR_HARD_DROP:
                                     ranked.pop("rerouted_from_proper",
                                                None)
                                     ranked["dropped"] = "vulgar-anchor"
@@ -3251,7 +3256,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                             ranked["mother_multi"] = \
                                             fresh_mother
                                     if set(ranked.get("anchor_tags")
-                                           or {}) & card_pilot.VULGAR_TAGS:
+                                           or {}) & card_pilot.VULGAR_HARD_DROP:
                                         ranked.pop("rerouted_from_name",
                                                    None)
                                         ranked["dropped"] = "vulgar-anchor"
@@ -3277,7 +3282,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 if key not in states["s1"]["failed"]:
                                     states["s1"]["failed"].append(key)
                         elif set(ranked.get("anchor_tags") or {}) & \
-                                card_pilot.VULGAR_TAGS:
+                                card_pilot.VULGAR_HARD_DROP:
                             ranked["dropped"] = "vulgar-anchor"
                             if key not in states["s1"]["failed"]:
                                 states["s1"]["failed"].append(key)
@@ -3600,6 +3605,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "lexical_type": enrich.get("lexical_type",
                                            LEXICAL_TYPE_DEFAULT),
                 "register": enrich.get("register", REGISTER_DEFAULT),
+                "content_warning": bool(enrich.get("content_warning", False)),
                 "sense_cefr": enrich.get("sense_cefr"),
                 "sense_cefr_method": enrich.get("sense_cefr_method",
                                                 "unmapped"),
