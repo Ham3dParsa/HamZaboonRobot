@@ -1323,14 +1323,18 @@ def judge_validate_multi(data, batch, anchor_map):
                 continue
         if not isinstance(raw_picks, list):
             continue
-        seen, picks = set(), []
+        seen, seen_gloss, picks = set(), set(), []
         for sid in raw_picks:
             if not isinstance(sid, str) or sid in seen:
                 continue
             if sid == "" and not ids:
                 continue
             if sid in ids and len(picks) < MAX_FANOUT:
+                norm_gloss = _normalize_id_part(gloss_of.get(sid, ""))
+                if norm_gloss in seen_gloss:
+                    continue
                 seen.add(sid)
+                seen_gloss.add(norm_gloss)
                 picks.append({"sense_id": sid,
                               "gloss": gloss_of.get(sid, "")})
         if not picks:
@@ -1351,15 +1355,26 @@ def fanout_picks(item, pick_entry):
 
     Primary first, then judged secondaries (capped at MAX_FANOUT);
     entries without a stored picks list fan out to their single pick.
+    Dedupes by sense_id AND normalized gloss: kaksi duplicate glosses
+    across senses (call#2/call#0 "To reach out with one's voice") are
+    the same atomic sense — emitting both would fork two identical
+    cards under one pre_card_id. Covers legacy stored picks too (all
+    stages read through this choke point).
     """
     try:
         picks = (pick_entry or {}).get("picks")
         if isinstance(picks, list) and picks:
-            out = []
+            out, seen_sid, seen_gloss = [], set(), set()
             for pick in picks[:MAX_FANOUT]:
-                if isinstance(pick, dict) and pick.get("sense_id"):
-                    out.append({"sense_id": pick["sense_id"],
-                                "gloss": pick.get("gloss", "")})
+                if not isinstance(pick, dict) or not pick.get("sense_id"):
+                    continue
+                norm_gloss = _normalize_id_part(pick.get("gloss", ""))
+                if pick["sense_id"] in seen_sid or norm_gloss in seen_gloss:
+                    continue
+                seen_sid.add(pick["sense_id"])
+                seen_gloss.add(norm_gloss)
+                out.append({"sense_id": pick["sense_id"],
+                            "gloss": pick.get("gloss", "")})
             if out:
                 return out
         sid = (pick_entry or {}).get("sense_id", "")
@@ -1414,10 +1429,15 @@ def _apply_inflection_veto(out, batch, anchor_map):
             # v14.1: the veto reroutes every fanned-out pick, not just
             # the primary — a stub crowned second still falls back to
             # the anchor-top non-stub (veto reroutes, never drops).
-            vetoed = []
+            # Stub picks vetoed onto the same anchor sense collapse
+            # (first wins) — one card per atomic sense, never twins.
+            vetoed, veto_seen = [], set()
             for pick in (out[key].get("picks") or []):
                 vsid, vgloss = _veto_inflection_pick(
                     pick, (anchor_map or {}).get(key))
+                if vsid in veto_seen:
+                    continue
+                veto_seen.add(vsid)
                 vetoed.append({"sense_id": vsid, "gloss": vgloss})
             if vetoed:
                 out[key]["picks"] = vetoed

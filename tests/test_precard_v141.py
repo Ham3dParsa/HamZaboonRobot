@@ -104,6 +104,22 @@ def _two_pick_judge(api_key, model, user_text):
         {"key": k, "picks": cands[k][:2]} for k in keys]})
 
 
+def test_r1_gloss_duplicate_senses_collapse_to_one_card():
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    anchor_map = {"w:call": {"candidates": [
+        {"sense_id": "call#2", "gloss": "To reach out with one's voice."},
+        {"sense_id": "call#0", "gloss": "To reach out with one's voice."}]}}
+    data = {"results": [{"key": "w:call",
+                         "picks": ["call#2", "call#0"]}]}
+    out = precard_pipeline.judge_validate_multi(data, batch, anchor_map)
+    assert [p["sense_id"] for p in out["w:call"]["picks"]] == ["call#2"]
+    rows = precard_pipeline.fanout_picks(
+        batch[0], {"sense_id": "call#2", "gloss": "x", "picks": [
+            {"sense_id": "call#2", "gloss": "To reach out."},
+            {"sense_id": "call#0", "gloss": "To reach out."}]})
+    assert [r["sense_id"] for r in rows] == ["call#2"]
+
+
 def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
     import pathlib
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
