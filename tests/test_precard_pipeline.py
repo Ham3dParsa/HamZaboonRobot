@@ -681,6 +681,46 @@ def test_line_marker_mismatch_aborts(tmp_path, monkeypatch):
         run_pipeline(tmp_path, monkeypatch)
 
 
+def _abbr_view(pairs):
+    """Gate view from [(gloss, tags)] with normalized tags."""
+    return {"poss": {"noun"},
+            "senses": [{"gloss": g,
+                        "tags": [t.strip().casefold() for t in tags]}
+                       for g, tags in pairs]}
+
+
+def test_t4_acronym_smart_gate():
+    """T4: Internet-tagged or general-phrase expansions survive G4;
+    proper-name/technical expansions still drop (no word lists)."""
+    from factory.pipeline.precard_pipeline import _preprocess_input_gates as gates
+    internet = _abbr_view(
+        [("Initialism of by the way.",
+          ["internet", "abbreviation", "initialism"]),
+         ("Abbreviation of between.", ["abbreviation"])])
+    assert gates("BTW", internet) == (None, None)
+    lone_internet = _abbr_view(
+        [("Initialism of by the way.",
+          ["internet", "abbreviation", "initialism"])])
+    assert gates("BTW", lone_internet) == (None, "g4-abbrev")  # kept + flag
+    phrase = _abbr_view(
+        [("Initialism of as soon as possible.",
+          ["abbreviation", "initialism"]),
+         ("Alternative letter-case form of ASAP.", ["alt-of"])])
+    assert gates("ASAP", phrase) == (None, None)
+    common = _abbr_view(
+        [("Abbreviation of between.", ["abbreviation"])])
+    # Lone single-abbrev senses stay quarantined (kept + review flag),
+    # even with a general expansion — the flag is the review trail.
+    assert gates("BTW", common) == (None, "g4-abbrev")
+    proper = _abbr_view(
+        [("Abbreviation of February.", ["abbreviation"])])
+    assert gates("FEB", proper) == ("g4-abbrev", None)
+    technical = _abbr_view(
+        [("Initialism of Franklin Delano Roosevelt.",
+          ["abbreviation", "initialism"])])
+    assert gates("FDR", technical) == ("g4-abbrev", None)
+
+
 def test_backfill_attaches_tags_selective_resume():
     """Selective-stage resume: tagless kept entries gain tags in memory;
     dropped entries are untouched."""

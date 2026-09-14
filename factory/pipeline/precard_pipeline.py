@@ -721,6 +721,44 @@ def _preprocess_entry_view(item, index, read_entry):
     return {"senses": senses, "poss": poss}
 
 
+_ABBR_SENSE_TAGS = {"abbreviation", "initialism"}
+
+
+def _has_internet_sense(senses):
+    """True when any sense carries the digital-native Internet tag."""
+    return any("internet" in (s.get("tags") or []) for s in senses
+               if isinstance(s, dict))
+
+
+def _has_general_expansion(senses):
+    """True when an abbrev sense expands to general language (T4, list-free).
+
+    Generality proxy on the expansion text (parsed by the shared R29
+    helper, single source): a multiword phrase ("as soon as possible",
+    "I don't know") or a common lowercase word ("between") is living
+    usage; a proper-shaped expansion ("February", "Franklin Delano
+    Roosevelt") is a name/term. Mixed-case technical phrases are a known
+    residual (rarity still owned by R20 downstream).
+    """
+    for sense in senses:
+        if not isinstance(sense, dict):
+            continue
+        if not (_ABBR_SENSE_TAGS & set(sense.get("tags") or [])):
+            continue
+        expansion = card_pilot.parse_abbrev_expansion(
+            sense.get("gloss") or "")
+        if not expansion:
+            continue
+        tokens = expansion.split()
+        if tokens and all(tok[:1].isupper() for tok in tokens):
+            continue
+        if len(tokens) >= 3:
+            return True
+        if tokens and all(tok[:1].islower() for tok in tokens):
+            return True
+    return False
+
+
 def _preprocess_input_gates(text, view):
     """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
 
@@ -752,11 +790,19 @@ def _preprocess_input_gates(text, view):
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
     # lowercased inputs. A lone lowercase single-abbrev sense is
     # quarantined, not dropped (led).
+    # T4 v14 smart gate (no word lists): a fired caps/abbrev entry still
+    # survives as living usage iff an abbreviation sense is digital-native
+    # (Internet tag) or expands to general language (helper below).
+    # Proper-name/technical expansions (February, Franklin Delano
+    # Roosevelt) keep the drop; rarity is owned downstream by R20.
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
     # Caps alone never drops (BOOK/PLAY stay); caps + at least one abbrev
-    # tag, or every-sense-abbrev (multi-sense), drops.
-    if (re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or \
-            (senses and n_abbr == len(senses) and len(senses) > 1):
+    # tag, or every-sense-abbrev (multi-sense), drops — unless the smart
+    # gate vouches for living usage (abbrev_expansion recorded downstream).
+    if ((re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or
+            (senses and n_abbr == len(senses) and len(senses) > 1)) \
+            and not (_has_internet_sense(senses)
+                     or _has_general_expansion(senses)):
         return "g4-abbrev", None
     if senses and len(senses) == 1 and n_abbr == 1:
         return None, "g4-abbrev"
