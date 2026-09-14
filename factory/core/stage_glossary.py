@@ -22,35 +22,35 @@ STAGE_IDS = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
 # telemetry, and files speak these.
 STAGE_NAMES = {
     "s0": "preprocess",
-    "s0b": "inflection",
+    "s0b": "inflection-review",
     "s1": "anchor",
-    "s2": "judge",
+    "s2": "sense-judge",
     "s3": "vectors",
-    "s4": "label",
+    "s4": "topic-label",
     "s5": "enrich",
 }
 
 # Finglish console tags, ASCII-only (Windows terminal safe). Console
-# shows "name (finglish)", e.g. "inflection (sarf)".
+# shows "name (finglish)", e.g. "inflection-review (Barresie-Sarf)".
 STAGE_FINGLESH = {
-    "s0": "pishpardazesh",
-    "s0b": "sarf",
-    "s1": "langar",
-    "s2": "davari",
-    "s3": "bordar",
-    "s4": "barchasb",
-    "s5": "ghanasazi",
+    "s0": "PishPardazesh",
+    "s0b": "Barresie-Sarf",
+    "s1": "Langar",
+    "s2": "Davarie-Mana",
+    "s3": "Bordar",
+    "s4": "Barchasbe-Mozu'",
+    "s5": "GhaniSazi",
 }
 
 # New on-disk progress filenames (T2 writes these; old files are read
 # only as a resume fallback and never written again).
 STAGE_FILES = {
     "s0": "preprocess.json",
-    "s0b": "inflection.json",
+    "s0b": "inflection-review.json",
     "s1": "anchor.json",
-    "s2": "judge.json",
+    "s2": "sense-judge.json",
     "s3": "vectors.json",
-    "s4": "label.json",
+    "s4": "topic-label.json",
     "s5": "enrich.json",
 }
 
@@ -140,18 +140,29 @@ REASON_SLUGS = (
 OLD_STAGE_TO_NEW = dict(STAGE_NAMES)
 
 # Domain name -> old stage id (accept names where ids were required).
+# Legacy v13 short names stay accepted (read shim, never written).
 NEW_STAGE_TO_OLD = {name: sid for sid, name in STAGE_NAMES.items()}
+NEW_STAGE_TO_OLD.update({
+    "inflection": "s0b",
+    "judge": "s2",
+    "label": "s4",
+})
 
 # Old progress filename -> new filename (prefer new, fallback old).
+# Intermediate v13 names (inflection/judge/label.json) sit in the chain
+# too: resume walks new -> intermediate -> sX.json, oldest last.
 OLD_PROGRESS_FILE_TO_NEW = {
     "s0.json": "preprocess.json",
-    "s0b.json": "inflection.json",
+    "s0b.json": "inflection-review.json",
     "s1.json": "anchor.json",
-    "s2.json": "judge.json",
+    "s2.json": "sense-judge.json",
     "s3.json": "vectors.json",
-    "s4.json": "label.json",
+    "s4.json": "topic-label.json",
     "s5.json": "enrich.json",
     "s4_topup_cache.json": "label_topup_cache.json",
+    "inflection.json": "inflection-review.json",
+    "judge.json": "sense-judge.json",
+    "label.json": "topic-label.json",
 }
 
 # Old gate id -> domain slug (log/telemetry backfill).

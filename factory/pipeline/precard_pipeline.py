@@ -3,26 +3,26 @@
 Factory-only research script. No bot/DB/handler changes. Reuses the
 existing pipeline scripts BY IMPORT (never a third copy of their logic):
 
-- anchor stage (S1 id) deterministic sense rank: card_pilot.anchor_item_en (the same
+- anchor stage (anchor id) deterministic sense rank: card_pilot.anchor_item_en (the same
   vendored-v14 scorer card_pilot already uses).
-- judge stage (S2 id) sense pick: run_v14_phase3_judge.call_responses transport +
+- sense-judge stage (sense-judge id) sense pick: run_v14_phase3_judge.call_responses transport +
   MODELS chain (Muse-only 1.3 -> 1.2 override), validate_picks /
   deterministic_picks reuse, 2 attempts, 401/403 loud abort,
-  other-errors fail-closed to the anchor top pick. judge today = single-pick
+  other-errors fail-closed to the anchor top pick. sense-judge today = single-pick
   per item; beginner-2/intermediate-3/advanced-4 picks + x1.5 EVP boost
   belong to v14c (run_v14_phase3_judge), not this pipeline.
-- vectors stage (S3 id) topic vector: run_v15_topics USER_TMPL + lemma_block prompt,
+- vectors stage (vectors id) topic vector: run_v15_topics USER_TMPL + lemma_block prompt,
   call_responses transport, validate_vectors / fallback_vectors.
-- label stage (S4 id) topic label: card_pilot.assign_topic two-leg (deterministic v16 leg
+- topic-label stage (topic-label id) topic label: card_pilot.assign_topic two-leg (deterministic v16 leg
   + v16b LLM top-up), run_v16b_topup.call_responses as the LLM leg.
-- enrich stage (S5 id) dataset enrichment: IPA + 8-20w examples + sense_id via
+- enrich stage (enrich id) dataset enrichment: IPA + 8-20w examples + sense_id via
   card_pilot.first_entry_ipa / sense_example_texts /
   filter_examples_by_length / tatoeba_candidates / score_senses.
 
 Conventions (same as run_v14_phase3 / run_v15 / run_v16b / phrase_judge):
-batch 8, sleep 2.5s between batches, per-model 2 attempts, resume
+batch 8 (sense-judge 12), sleep 2.5s between batches, per-model 2 attempts, resume
 progress rewritten every batch. One progress JSON PER STAGE lives in
---progress-dir (s1..s5, {done, failed, backoffs}); --resume is on by
+--progress-dir (one file per stage, {done, failed, backoffs}); --resume is on by
 default (done items are skipped). On HTTP 429: rotate the phrase_judge
 KeyRing to the next key (brief 5s pause) and retry the SAME call; when
 EVERY key 429s consecutively, flush progress and STOP with a SystemExit
@@ -42,11 +42,11 @@ Output: precard.jsonl, one line per SURVIVING item:
 Dropped items are NEVER written to precard.jsonl; their reasons live in
 the s0 progress state ({done: {key: {kept, reason, type_pending}}},
 failed=[dropped keys]) and on stdout. Never silent.
-V7: S1 drops proper-noun anchors (anchored entry POS in {name, propn},
+V7: anchor drops proper-noun anchors (anchored entry POS in {name, propn},
 reason anchor-proper-noun, recorded on the s1 done entry + failed list —
 the ONE anchor-drop place; card_pilot anchor helpers never drop).
-Post-S2 proper-noun routing: a JUDGED pick whose entry POS is proper
-while the S1 anchor was not is either routed to the proper-pool track
+Post-sense-judge proper-noun routing: a JUDGED pick whose entry POS is proper
+while the anchor was not is either routed to the proper-pool track
 (proper_route=<class> on the s2 done entry + the precard row, item
 continues to S3+) or dropped with reason pick-proper-noun/<suffix>
 (org-guard / person-name / no-class / zipf-low — recorded on the s2
@@ -98,7 +98,10 @@ from factory.pipeline.card_pilot import item_key  # noqa: E402
 from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from factory.lexicon.phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
 from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW as _OLD_PROGRESS_FILE_TO_NEW  # noqa: E402  (T2: sole on-disk naming owner)
+from factory.core.stage_glossary import NEW_STAGE_TO_OLD as _NEW_STAGE_TO_OLD  # noqa: E402  (names sole owner)
 from factory.core.stage_glossary import STAGE_FILES as _STAGE_FILES  # noqa: E402  (T2: sole on-disk naming owner)
+from factory.core.stage_glossary import STAGE_FINGLESH as STAGE_FINGLESH  # noqa: E402  (single source: stage_glossary)
+from factory.core.stage_glossary import STAGE_NAMES as STAGE_NAMES  # noqa: E402  (single source: stage_glossary)
 from factory.core.stage_glossary import TOPUP_NEW_NAME as _TOPUP_NEW_NAME  # noqa: E402  (T2: sole on-disk naming owner)
 from factory.core.stage_glossary import TOPUP_OLD_NAME as _TOPUP_OLD_NAME  # noqa: E402  (T2: sole on-disk naming owner)
 from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
@@ -111,6 +114,9 @@ DEFAULT_PROGRESS_DIR = "W:/hamzaban_data_factory/pilot/progress_precard"
 DEFAULT_AWL_FAMILIES = "W:/hamzaban_data_factory/raw/awl_families.json"
 
 BATCH = 8
+# Locked R6: sense-judge batches 12 items per transport call (other legs
+# stay on BATCH; 12 x ~10 senses x ~35 tokens stays under max_out=4000).
+JUDGE_BATCH = 12
 SLEEP = 2.5
 ROTATE_PAUSE = 5.0
 MAX_ATTEMPTS = 2
@@ -193,20 +199,8 @@ COUNTRY_NAMES = frozenset({
     "aland islands", "são tomé and príncipe",
 })
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
-# Human-readable stage names for logs (ids stay stable in files/progress).
-STAGE_NAMES = {
-    "s0": "preprocess", "s0b": "inflection", "s1": "anchor",
-    "s2": "judge", "s3": "vectors", "s4": "label", "s5": "enrich",
-}
-# Finglish stage tags for the console (plain ASCII — Windows terminal
-# safe). run.log speaks domain names (human-readable); stable ids live
-# in progress keys and filenames; the console shows
-# "name (finglish)" so a non-developer owner can follow the run.
-STAGE_FINGLESH = {
-    "s0": "pishpardazesh", "s0b": "sarf", "s1": "langar",
-    "s2": "davari", "s3": "bordar", "s4": "barchasb",
-    "s5": "ghanasazi",
-}
+# Human-readable stage names live in stage_glossary (single source);
+# STAGE_NAMES / STAGE_FINGLESH here are shared references, never copies.
 
 
 def stage_name(stage):
@@ -223,8 +217,9 @@ def stage_label(stage):
     return "%s (%s)" % (name, STAGE_FINGLESH.get(stage, stage))
 
 
-# Reverse map: --only/--stages accept ids or names ("judge" == "s2").
-_NAME_TO_STAGE = {name: sid for sid, name in STAGE_NAMES.items()}
+# Reverse map: --only/--stages accept ids, canonical names, or legacy
+# v13 short names ("sense-judge" == "judge" == "s2").
+_NAME_TO_STAGE = dict(_NEW_STAGE_TO_OLD)
 
 
 def _normalize_stage(pick):
@@ -235,13 +230,12 @@ def _normalize_stage(pick):
     return _NAME_TO_STAGE.get(key, key)
 
 
-# T2 on-disk rename (v13 coherence): new code writes domain filenames
-# (STAGE_FILES, sole owner: stage_glossary), reads the old sX.json names
-# only as a resume fallback, and never writes the old names again.
-# The reverse map resolves old names from the glossary too (no local copy
-# of either naming convention).
-_NEW_TO_OLD_PROGRESS = {new: old
-                        for old, new in _OLD_PROGRESS_FILE_TO_NEW.items()}
+# T2 on-disk rename (v13 coherence) + descriptive rename: new code writes
+# domain filenames (STAGE_FILES, sole owner: stage_glossary) and reads the
+# whole fallback chain new -> intermediate -> sX.json (never writes old).
+_NEW_TO_OLD_PROGRESS = {}
+for _old, _new in _OLD_PROGRESS_FILE_TO_NEW.items():
+    _NEW_TO_OLD_PROGRESS.setdefault(_new, []).append(_old)
 
 
 def _progress_write_path(progress_dir, stage):
@@ -249,22 +243,16 @@ def _progress_write_path(progress_dir, stage):
     return pathlib.Path(progress_dir) / _STAGE_FILES[stage]
 
 
-def _progress_old_path(progress_dir, stage):
-    """Old on-disk progress path for a stage (read-only resume fallback)."""
-    old_name = _NEW_TO_OLD_PROGRESS.get(_STAGE_FILES[stage])
-    if old_name is None:
-        return None
-    return pathlib.Path(progress_dir) / old_name
-
-
 def _progress_read_path(progress_dir, stage):
-    """Resume path: prefer the new domain file, fall back to the old one."""
+    """Resume path: new domain file, then the fallback chain newest-first."""
     new_path = _progress_write_path(progress_dir, stage)
     if new_path.exists():
         return new_path
-    old_path = _progress_old_path(progress_dir, stage)
-    if old_path is not None and old_path.exists():
-        return old_path
+    for old_name in reversed(
+            _NEW_TO_OLD_PROGRESS.get(_STAGE_FILES[stage]) or []):
+        old_path = pathlib.Path(progress_dir) / old_name
+        if old_path.exists():
+            return old_path
     return new_path
 
 
@@ -306,11 +294,11 @@ def parse_args(argv=None):
                     help="ignore existing stage progress (default: resume on)")
     ap.add_argument("--only", default="",
                     help="run a single stage only (id or name, e.g. "
-                    "--only judge; case-insensitive; "
+                    "--only sense-judge; case-insensitive; "
                     "other stages are skipped, resume still honored)")
     ap.add_argument("--stages", default="",
                     help="comma-separated stage subset (ids or names, e.g. "
-                    "--stages anchor,judge; "
+                    "--stages anchor,sense-judge; "
                     "mutually exclusive with --only)")
     ap.add_argument("--rekey", default="",
                     help="keyfile (one item key per line, # comments "
@@ -350,14 +338,14 @@ def parse_args(argv=None):
     ap.add_argument("--stage-provider", action="append", default=[],
                     metavar="STAGE=PROVIDER",
                     help="per-leg provider override, repeatable "
-                    "(e.g. --stage-provider judge=avalai --stage-provider "
-                    "label=zen). Legs: inflection, judge, vectors, label "
-                    "(ids s0b, s2, s3, s4 also work). Wins over "
+                    "(e.g. --stage-provider sense-judge=avalai --stage-provider "
+                    "topic-label=zen). Legs: inflection-review, sense-judge, vectors, topic-label "
+                    "(ids s0b, s2, s3, s4 and legacy names inflection, judge, label also work). Wins over "
                     "--llm-provider for that leg.")
     ap.add_argument("--stage-model", action="append", default=[],
                     metavar="STAGE=MODEL",
                     help="per-leg model override, repeatable "
-                    "(e.g. --stage-model judge=deepseek-v4-flash). "
+                    "(e.g. --stage-model sense-judge=deepseek-v4-flash). "
                     "Wins over --precard-model/--judge-model for that leg.")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
@@ -370,9 +358,9 @@ LLM_LEGS = ("s0b", "s2", "s3", "s4")
 
 
 def _parse_stage_map(values, allowed_values=None):
-    """Parse ["judge=avalai"] into {s2: avalai}. Bad entries raise SystemExit
+    """Parse ["sense-judge=avalai"] into {s2: avalai}. Bad entries raise SystemExit
     (fail-fast: a typo must not silently burn paid calls on the wrong leg).
-    Legs accept ids or domain names (judge == s2).
+    Legs accept ids or domain names (sense-judge == s2).
     """
     out = {}
     for raw in values or []:
@@ -467,11 +455,11 @@ def _load_rekey_keys(path):
             if line.strip() and not line.strip().startswith("#")]
 
 
-def _stage_range(selected, stage, items):
+def _stage_range(selected, stage, items, width=BATCH):
     """R26: batch base offsets ([] when the stage is not selected)."""
     if stage not in selected:
         return []
-    return list(range(0, len(items), BATCH))
+    return list(range(0, len(items), width))
 
 
 def _dry_run_needs(progress_dir, items, selected, rekeyed, resume):
@@ -1023,13 +1011,104 @@ def _mother_for_top(item, sense_id, index, read_entry):
         return None
 
 
+def _candidate_tag_map(item, cands, index, read_entry):
+    """{sense_id: sorted tag list} for anchor candidates in one scorer
+    pass per distinct lemma.
+
+    Same resolution as _target_sense_tags (xref-target switch included)
+    but a single score_senses call covers the whole window instead of one
+    per candidate — production read_entry seeks raw Kaikki per call, so
+    per-candidate passes would multiply disk I/O by the window size.
+    Lookup errors fail open to [] — tags are display-only for the
+    sense-judge prompt, never drops.
+    """
+    groups = {}
+    for cand in cands:
+        if not isinstance(cand, dict) or not cand.get("sense_id"):
+            continue
+        sid = cand.get("sense_id", "")
+        lemma = sid.rpartition("#")[0].strip().lower() or \
+            (item.get("text") or "").strip().lower()
+        groups.setdefault(lemma, []).append(cand)
+    out = {}
+    for lemma, group in groups.items():
+        try:
+            if lemma and lemma != (
+                    item.get("text") or "").strip().lower():
+                rows = (index or {}).get(lemma)
+                if rows:
+                    entries, pos = list(rows), ""
+                else:
+                    entries, pos = _entries_for(item, index)
+            else:
+                entries, pos = _entries_for(item, index)
+            scored = card_pilot.score_senses(
+                lemma or item.get("text", ""), entries, pos, read_entry)
+        except Exception:
+            continue
+        tags_by_idx = {}
+        for _score, idx, _entry, sense, _gloss in scored:
+            tags_by_idx.setdefault(idx, _sense_tag_set(sense))
+        for cand in group:
+            try:
+                want = int((cand.get("sense_id") or "").split("#")[-1])
+            except (TypeError, ValueError, AttributeError):
+                out[cand.get("sense_id", "")] = []
+                continue
+            out[cand.get("sense_id", "")] = sorted(
+                tags_by_idx.get(want, set()))
+    return out
+
+
+def _needs_tag_backfill(done_entry):
+    """True when a KEPT s1 entry predates the tags backfill (R4).
+
+    Dropped entries never backfill (drops are never re-run); entries
+    whose candidates all carry "tags" (even []) are current.
+    """
+    return (isinstance(done_entry, dict)
+            and "dropped" not in done_entry
+            and isinstance(done_entry.get("candidates"), list)
+            and any(isinstance(c, dict) and "tags" not in c
+                    for c in done_entry["candidates"]))
+
+
+def _backfill_candidate_tags(batch, anchor_map, index, read_entry):
+    """Attach missing candidate tags in place (selective-stage resume).
+
+    When s1 is skipped (--only/--stages without s1) the resume guard
+    never runs, yet sense-judge consumes the stored anchor entries — so
+    tagless entries get their tags attached here, in memory, before the
+    judge prompt is built. Deterministic local reads only, never LLM;
+    dropped entries are untouched. Mutations persist via the regular
+    per-batch progress flush.
+    """
+    for item in batch:
+        entry = (anchor_map or {}).get(item_key(item))
+        if not _needs_tag_backfill(entry):
+            continue
+        try:
+            tag_map = _candidate_tag_map(
+                item, entry["candidates"], index, read_entry)
+        except Exception:
+            continue
+        for cand in entry["candidates"]:
+            if isinstance(cand, dict) and "tags" not in cand:
+                cand["tags"] = list(
+                    tag_map.get(cand.get("sense_id", ""), []))
+
+
 def anchor_rank_item(item, index, read_entry):
     """Anchor deterministic rank (s1) via the card_pilot anchor path.
 
-    Returns {"candidates": [{sense_id, gloss, score}...],
+    Returns {"candidates": [{sense_id, gloss, score, tags}...],
              "top": {"sense_id", "gloss"} or None,
              "en_def": gloss or "",
              "anchor_pos": entry POS of the anchored sense ("" if none)}.
+    Candidates carry the full kaikki tag set (sorted list, [] when
+    unresolvable) so the sense-judge prompt can show [tags] next to each
+    gloss. Tags are display-only: scoring and the anchor top never read
+    them.
     V7: anchor_pos feeds the S1 anchor-proper-noun drop in main (the ONE
     place anchors are dropped — card_pilot anchor helpers never drop).
     R39 v10: candidates are the tiered judge window (up to
@@ -1046,6 +1125,9 @@ def anchor_rank_item(item, index, read_entry):
         candidate_k=card_pilot.JUDGE_WINDOW_CAP)
     cands = [c for c in (probe.get("sense_candidates") or [])
              if isinstance(c, dict) and c.get("sense_id")]
+    tag_map = _candidate_tag_map(item, cands, index, read_entry)
+    for cand in cands:
+        cand["tags"] = list(tag_map.get(cand.get("sense_id", ""), []))
     top = {"sense_id": cands[0]["sense_id"], "gloss": cands[0].get("gloss", "")} \
         if cands else None
     entries, pos = _entries_for(item, index)
@@ -1068,7 +1150,22 @@ def anchor_rank_item(item, index, read_entry):
 
 def _judge_prompt(batch, anchor_map):
     lines = ["PICK the single most useful sense per item for Persian "
-             "learners of English (most concrete everyday meaning first).",
+             "learners of English.",
+             "Prioritization hierarchy:",
+             "1. High-frequency tangible and conversational meaning over "
+             "technical, academic, or domain-specific jargon (e.g., "
+             "cooking/water boil > thermodynamic boil), UNLESS the item's "
+             "pool_level is C1/C2 or all candidates are strictly "
+             "abstract/technical.",
+             "2. Modern living usage over archaic, obsolete, or highly "
+             "regional dialectal senses.",
+             "3. If candidates contain both an independent lexical meaning "
+             "and a purely grammatical/inflectional reference, ALWAYS pick "
+             "the independent lexical meaning.",
+             "4. For modal/auxiliary verbs (would, could, should), the "
+             "grammatical main sense takes absolute precedence over any "
+             "nominal or philosophical sense.",
+             "",
              'Output: {"results": [{"key": "<item key>", '
              '"pick": "<sense_id>"}]}.',
              "Every pick MUST be one of that item's candidate ids "
@@ -1080,8 +1177,10 @@ def _judge_prompt(batch, anchor_map):
         lines.append("KEY %s (%s, pool %s):" % (
             key, item.get("kind", "?"), item.get("pool_level", "?")))
         for cand in cands:
-            lines.append("- %s %s" % (cand.get("sense_id", "?"),
-                                      (cand.get("gloss") or "")[:200]))
+            tags = sorted((cand.get("tags") or []))
+            tag_bit = " [%s]" % ", ".join(tags) if tags else ""
+            lines.append("- %s%s %s" % (cand.get("sense_id", "?"), tag_bit,
+                                        (cand.get("gloss") or "")[:200]))
         if not cands:
             lines.append("- (no candidates)")
     return "\n".join(lines)
@@ -2257,6 +2356,17 @@ GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
 GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
 
 
+def _google_payload(user_text):
+    """Pure Gemini REST payload (H5: temperature 0.0 locks determinism)."""
+    return {
+        "contents": [{"parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
+    }
+
+
 def _google_chat_transport(api_key, model, user_text):
     """Google-direct transport (Gemini REST): (text, None).
 
@@ -2265,12 +2375,7 @@ def _google_chat_transport(api_key, model, user_text):
     rotation fuel; the shared classify table owns meaning). No usage
     counters on this API shape -> None (telemetry records latency).
     """
-    payload = json.dumps({
-        "contents": [{"parts": [{"text": user_text}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
-    }).encode("utf-8")
+    payload = json.dumps(_google_payload(user_text)).encode("utf-8")
     req = urllib.request.Request(
         GOOGLE_MODELS_URL % model, data=payload,
         headers={"Content-Type": "application/json",
@@ -3026,11 +3131,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     and "dropped" not in done_entry
                     and not done_entry.get("rerouted_from_name")
                     and _is_name_gloss(done_top))
+                # Tags backfill: pre-tags s1 entries carry candidates
+                # without the "tags" key — re-rank so the sense-judge
+                # prompt renders [tags] identically on fresh and resumed
+                # runs (same deterministic scores, tags added).
+                needs_tag_backfill = _needs_tag_backfill(done_entry)
                 if not isinstance(done_entry, dict) \
                         or "anchor_pos" not in done_entry \
                         or "anchor_tags" not in done_entry \
                         or "xref_unresolvable" not in done_entry \
-                        or needs_name_eval:
+                        or needs_name_eval \
+                        or needs_tag_backfill:
                     try:
                         ranked = anchor_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
@@ -3185,13 +3296,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # judge (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
         run_logger.stage_start("s2")
-        n_judge_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_judge_batches = (len(items) + JUDGE_BATCH - 1) // JUDGE_BATCH or 1
         for batch_no, base in enumerate(
-                _stage_range(selected, "s2", items), start=1):
-            batch = items[base:base + BATCH]
+                _stage_range(selected, "s2", items, JUDGE_BATCH), start=1):
+            batch = items[base:base + JUDGE_BATCH]
             todo = [i for i in batch
                     if item_key(i) not in states["s2"]["done"]]
             if todo:
+                # Selective-stage resume (--only/--stages without s1)
+                # skips the anchor guard: attach missing tags in memory so
+                # the judge prompt is identical to a full run. Persists via
+                # the regular per-batch flush below.
+                _backfill_candidate_tags(
+                    todo, states["s1"]["done"], index, read_entry)
                 try:
                     verdicts = judge_batch(
                         todo, states["s1"]["done"],

@@ -57,28 +57,31 @@ DEFS = ("1 Daily Life & Home: everyday routines, household, clothing, time. "
         "15 Emotions & Relationships: feelings, family, friendship, love. "
         "16 Other / Abstract: abstract, grammatical, or unclassifiable meanings.")
 
-TIEBREAK = ("TIE-BREAK (apply strictly): a living being -> Animals & Living Beings even if edible "
-            "(a swimming fish = Animals, a fish on the table = Food & Drink); an eating/cooking/food act -> Food & Drink; "
-            "exam/school/study -> Education & Exams; job/meeting/office -> Work & Careers; "
-            "art/film/music/literature -> Arts & Culture; community/tradition -> Society.")
-
 SYS = ("You are a lexicographer tagging English word senses with topics for Persian learners. "
        "Return ONLY raw JSON, no markdown fences, no commentary.")
 
 USER_TMPL = (
     "For EACH sense below, pick ONE primary topic label (id 1..16) AND a weight vector of 1 to 3 "
     "labels (weights 0..1, summing to 1.0). The vector's top entry must be the primary label. "
-    "IMPORTANT — Other / Abstract (id 16) is a LAST RESORT. Assign a real topic (1..15) wherever "
-    "genuinely fitting, even if the fit is partial: express partial fit with a second/third label "
-    "and weights (e.g. a theatre ticket = Arts & Culture 0.6 + Society 0.4; exam nerves = Education & Exams 0.6 "
-    "+ Emotions & Relationships 0.4; a work outing = Work & Careers 0.5 + Society 0.5). "
-    "MULTI-LABEL IS EXPLICITLY ALLOWED AND ENCOURAGED: use up to 3 labels with weights summing to 1.0 "
-    "whenever a sense genuinely belongs to more than one head (e.g. rock music = Arts & Culture + Emotions & Relationships). "
-    "Do NOT force-fit: genuinely abstract, grammatical, or otherwise unclassifiable senses stay Other / Abstract @1.0 "
-    "(function words and vague placeholders such as about/always/anything/both/each, generic amount/time/degree words "
-    "with no topical anchor). Single-topic senses get one entry @1.0. "
+    "TIE-BREAK & DOMAIN MAPPING (apply strictly): "
+    "colors and visual themes (e.g. pink, reddish, bright) "
+    "-> Arts & Culture (0.60) + Daily Life & Home (0.40); do NOT leave color terms "
+    "as purely abstract. Other physical or sensory attributes (e.g. shallow, dirty, "
+    "smooth) belong to their natural domain (Nature & Environment, Daily Life & Home). "
+    "Functional, purely quantitative, or directional dimensions (e.g. low, high, once, few) "
+    "-> Other / Abstract (1.00); use Travel & Transportation (1.00) only if navigational. "
+    "Non-human animals & wildlife -> Animals & Living Beings even if edible "
+    "(a swimming fish = Animals, a fish on the table = Food & Drink). "
+    "Humans, family, and person nouns stay under Society or Emotions & Relationships. "
+    "Eating, cooking, or food acts -> Food & Drink. "
+    "Workplace, professions, and office activities -> Work & Careers. "
+    "Art, film, music, literature -> Arts & Culture. "
+    "Strictly abstract logic, function words, and grammatical operators with no topical anchor "
+    "(e.g. about, always, anything, both, each, would, by) -> Other / Abstract (1.00). "
+    "MULTI-TOPIC GUIDELINE: use 2 to 3 labels with weights summing to 1.0 whenever a sense "
+    "genuinely spans multiple domains. Distribute weights proportionally (e.g. 0.60/0.40 or "
+    "0.50/0.50) rather than forcing 1.00 into a single bucket. "
     f"Labels (use EXACT strings, id = position): {DEFS} "
-    f"{TIEBREAK} "
     f"Id map: {json.dumps(ID2LABEL)}. "
     'Output: {"results": [{"lemma": "...", "senses": [{"sense_id": "<exact sense id>", '
     '"topic_id": N, "topic_label": "<exact label>", "confidence": 0..1, '

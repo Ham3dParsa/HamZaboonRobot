@@ -328,19 +328,19 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
     rc, out, prog, _ = run_pipeline(tmp_path, monkeypatch)
     assert rc == 0
     logged = (tmp_path / "run.log").read_text(encoding="utf-8")
-    for label in ("preprocess", "inflection", "anchor", "judge",
-                  "vectors", "label", "enrich"):
+    for label in ("preprocess", "inflection-review", "anchor", "sense-judge",
+                  "vectors", "topic-label", "enrich"):
         assert ("stage %s start" % label) in logged
         assert ("stage %s end" % label) in logged
     captured = capsys.readouterr()
     # LLM stages show live bars; deterministic stages are <1s — no bar by design.
-    assert "[judge (davari)]" in captured.out \
+    assert "[sense-judge (Davarie-Mana)]" in captured.out \
         and "ok=2 fail=0" in captured.out
     assert "[STAGE preprocess" in captured.out
     assert "[STAGE enrich" in captured.out
     # Human pipeline log: every stage prints input → kept, dropped.
-    assert "preprocess (pishpardazesh): input 2" in captured.out
-    assert "enrich (ghanasazi): input 2" in captured.out
+    assert "preprocess (PishPardazesh): input 2" in captured.out
+    assert "enrich (GhaniSazi): input 2" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -434,7 +434,7 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
     assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
     assert sum(sleeps) < 60.0  # 5s rotation pause, never 60+300
     assert 60.0 not in sleeps and 300.0 not in sleeps
-    # Progress flushed before exit (per-batch + finally): judge.json on disk
+    # Progress flushed before exit (per-batch + finally): sense-judge.json on disk
     # with the stop event recorded.
     state = json.loads(open(os.path.join(prog, STAGE_FILES["s2"]), encoding="utf-8").read())
     assert any(e["outcome"] == "all-keys-429-stop"
@@ -590,6 +590,99 @@ def test_resume_old_only_progress_names(tmp_path, monkeypatch):
         assert (old_dir / STAGE_FILES[stage]).exists()  # new written
 
 
+def test_resume_oldest_sx_names_for_renamed_stages(tmp_path, monkeypatch):
+    """Descriptive rename: the oldest sX.json leg still resumes with zero
+    LLM rework for the three renamed stages (s0b/s2/s4)."""
+    import shutil
+    from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
+    assert [r["key"] for r in rows] == ["w:apple"]
+    oldest = {}
+    for old, new in OLD_PROGRESS_FILE_TO_NEW.items():
+        stem = old.rsplit(".", 1)[0]
+        if new in (STAGE_FILES["s0b"], STAGE_FILES["s2"],
+                   STAGE_FILES["s4"]) \
+                and stem in precard_pipeline.STAGES:
+            oldest[new] = old
+    assert set(oldest) == {STAGE_FILES["s0b"], STAGE_FILES["s2"],
+                           STAGE_FILES["s4"]}
+    oldest_dir = tmp_path / "prog_oldest"
+    shutil.copytree(tmp_path / "prog", oldest_dir)
+    for new, old in oldest.items():
+        (oldest_dir / new).rename(oldest_dir / old)
+    rows_oldest, calls_oldest = _run_with_counters(tmp_path, oldest_dir)
+    assert [r["key"] for r in rows_oldest] == ["w:apple"]
+    assert calls_oldest == {"judge": 0, "topics": 0}  # no LLM rework
+    for sid in ("s0b", "s2", "s4"):
+        assert (oldest_dir / STAGE_FILES[sid]).exists()  # new written
+
+
+def test_resume_pre_tags_s1_entries_rerank(tmp_path, monkeypatch):
+    """R4: s1 entries saved before the tags backfill re-rank on resume so
+    the sense-judge prompt renders [tags] on resumed runs too."""
+    import json as _json
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
+    assert [r["key"] for r in rows] == ["w:apple"]
+    s1_path = tmp_path / "prog" / STAGE_FILES["s1"]
+    state = _json.loads(s1_path.read_text(encoding="utf-8"))
+    for entry in state["done"].values():
+        for cand in entry.get("candidates", []):
+            cand.pop("tags", None)
+    s1_path.write_text(_json.dumps(state), encoding="utf-8")
+    rows_backfill, calls_backfill = _run_with_counters(tmp_path, tmp_path / "prog")
+    assert [r["key"] for r in rows_backfill] == ["w:apple"]
+    assert calls_backfill == {"judge": 0, "topics": 0}
+    state2 = _json.loads(s1_path.read_text(encoding="utf-8"))
+    for entry in state2["done"].values():
+        for cand in entry.get("candidates", []):
+            assert "tags" in cand
+
+
+def test_needs_tag_backfill_predicate():
+    """The backfill fires only on kept entries with tagless candidates."""
+    bn = precard_pipeline._needs_tag_backfill
+    assert bn({"candidates": [{"sense_id": "a#0"}]}) is True
+    assert bn({"candidates": [{"sense_id": "a#0", "tags": []}]}) is False
+    assert bn({"candidates": []}) is False
+    assert bn({"candidates": [{"sense_id": "a#0"}],
+               "dropped": "anchor-proper-noun"}) is False
+    assert bn({}) is False
+    assert bn(None) is False
+
+
+def test_google_payload_locks_temperature_zero():
+    """H5: google transport is deterministic (temperature 0.0)."""
+    payload = precard_pipeline._google_payload("hi")
+    assert payload["generationConfig"]["temperature"] == 0.0
+    assert payload["contents"][0]["parts"][0]["text"] == "hi"
+
+
+def test_backfill_attaches_tags_selective_resume():
+    """Selective-stage resume: tagless kept entries gain tags in memory;
+    dropped entries are untouched."""
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    anchor = precard_pipeline.anchor_rank_item(
+        item, make_index(), read_entry)
+    assert anchor["candidates"]
+    for cand in anchor["candidates"]:
+        cand.pop("tags", None)
+    anchor_map = {"w:apple": anchor}
+    precard_pipeline._backfill_candidate_tags(
+        [item], anchor_map, make_index(), read_entry)
+    assert all("tags" in c
+               for c in anchor_map["w:apple"]["candidates"])
+    dropped = {"candidates": [{"sense_id": "e#0"}],
+               "dropped": "anchor-proper-noun"}
+    am2 = {"w:evil": dropped}
+    precard_pipeline._backfill_candidate_tags(
+        [{"kind": "word", "text": "evil", "pool_level": "A1"}],
+        am2, make_index(), read_entry)
+    assert "tags" not in am2["w:evil"]["candidates"][0]
+
+
 def test_resume_mixed_progress_names(tmp_path, monkeypatch):
     """T2: a mixed dir (old s0/s1/s2 + new rest) resumes; new names win."""
     import shutil
@@ -598,17 +691,18 @@ def test_resume_mixed_progress_names(tmp_path, monkeypatch):
     assert [r["key"] for r in rows] == ["w:apple"]
     mixed_dir = tmp_path / "prog_mixed"
     shutil.copytree(tmp_path / "prog", mixed_dir)
-    from factory.pipeline.precard_pipeline import _progress_old_path
+    # s0/s1/s2 were never renamed: oldest name == "sX.json".
+    def _old_path(sid):
+        return mixed_dir / ("%s.json" % sid)
     for sid in ("s0", "s1", "s2"):
-        (mixed_dir / STAGE_FILES[sid]).rename(_progress_old_path(mixed_dir, sid))
-    old_bytes = {_progress_old_path(mixed_dir, sid).name:
-                 _progress_old_path(mixed_dir, sid).read_bytes()
+        (mixed_dir / STAGE_FILES[sid]).rename(_old_path(sid))
+    old_bytes = {_old_path(sid).name: _old_path(sid).read_bytes()
                  for sid in ("s0", "s1", "s2")}
     rows_mixed, calls_mixed = _run_with_counters(tmp_path, mixed_dir)
     assert [r["key"] for r in rows_mixed] == ["w:apple"]
     assert calls_mixed == {"judge": 0, "topics": 0}
     for sid in ("s0", "s1", "s2"):
-        old_path = _progress_old_path(mixed_dir, sid)
+        old_path = _old_path(sid)
         assert old_path.read_bytes() == \
             old_bytes[old_path.name]  # old never written
         assert (mixed_dir / STAGE_FILES[sid]).exists()  # new written
@@ -2161,9 +2255,114 @@ def test_stage_labels_cover_all_ids_ascii_only():
 def test_stage_selection_accepts_names():
     """v13 identity: --only/--stages take ids or display names."""
     ns = precard_pipeline._normalize_stage
+    assert ns("sense-judge") == "s2"
+    assert ns("topic-label") == "s4"
+    assert ns("inflection-review") == "s0b"
+    # Legacy domain names stay accepted (read shim).
     assert ns("judge") == "s2"
+    assert ns("label") == "s4"
+    assert ns("inflection") == "s0b"
     assert ns("S2") == "s2"
     assert ns("bogus") == "bogus"
+
+
+def test_judge_prompt_renders_tags_and_hierarchy():
+    """Locked R4: candidate lines carry [tags] when present; the prompt
+    states the everyday-first hierarchy with the C1/C2 exception."""
+    batch = [{"kind": "word", "text": "boil", "pool_level": "B1"}]
+    anchor_map = {"w:boil": {"candidates": [
+        {"sense_id": "boil#2", "gloss": "to heat liquid",
+         "tags": ["colloquial"]},
+        {"sense_id": "boil#5", "gloss": "a swelling",
+         "tags": []},
+    ]}}
+    prompt = precard_pipeline._judge_prompt(batch, anchor_map)
+    assert "- boil#2 [colloquial] to heat liquid" in prompt
+    assert "- boil#5 a swelling" in prompt
+    assert "UNLESS the item's pool_level is C1/C2" in prompt
+    assert "ALWAYS pick the independent lexical meaning" in prompt
+
+
+def test_judge_prompt_hotfix_modal_precedence():
+    """Hotfix round: modal auxiliaries keep their grammatical main sense."""
+    batch = [{"kind": "word", "text": "would", "pool_level": "A1"}]
+    anchor_map = {"w:would": {"candidates": [
+        {"sense_id": "would#0", "gloss": "past of will", "tags": []},
+    ]}}
+    prompt = precard_pipeline._judge_prompt(batch, anchor_map)
+    assert "absolute precedence" in prompt
+    assert "would" in prompt
+
+
+def test_judge_archive_sys_states_utility_goal():
+    """Locked R4: the judge transport SYS names communicative utility."""
+    from factory.archive.v14_v16 import run_v14_phase3_judge as judge
+    assert "highest communicative and practical utility" in judge.SYS
+
+
+def test_judge_batch_size_is_twelve():
+    """Locked R6: sense-judge batches 12 items per transport call."""
+    assert precard_pipeline.JUDGE_BATCH == 12
+
+
+def test_anchor_candidates_carry_tag_lists():
+    """R4 wiring: every anchor candidate carries a tags list (possibly
+    empty) for the sense-judge [tags] rendering."""
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    ranked = precard_pipeline.anchor_rank_item(
+        item, make_index(), read_entry)
+    assert ranked["candidates"]
+    for cand in ranked["candidates"]:
+        assert isinstance(cand.get("tags"), list)
+
+
+def test_s4_template_drops_last_resort_adds_domain_map():
+    """Locked R5: no LAST RESORT; strict domain map with the color rule
+    plus the multi-topic guideline."""
+    from factory.archive.v14_v16 import run_v16b_topup as topup
+    assert "LAST RESORT" not in topup.USER_TMPL
+    assert "TIE-BREAK & DOMAIN MAPPING" in topup.USER_TMPL
+    assert "Arts & Culture (0.60) + Daily Life & Home (0.40)" in \
+        topup.USER_TMPL
+    assert "MULTI-TOPIC GUIDELINE" in topup.USER_TMPL
+
+
+def test_s4_hotfix_human_animals_color_scope():
+    """Hotfix round: humans stay out of Animals; color rule covers only
+    colors/visual themes; physical attributes return to natural domains."""
+    from factory.archive.v14_v16 import run_v16b_topup as topup
+    assert "Non-human animals" in topup.USER_TMPL
+    assert "colors and visual themes" in topup.USER_TMPL
+    assert "natural domain" in topup.USER_TMPL
+
+
+def test_s4_prompt_head_frozen_across_batches():
+    """Locked R6: the static head is byte-identical across batches; only
+    the trailing lemma blocks vary (cache-friendly layout)."""
+    a = [{"key": "w:pink", "text": "pink", "gloss": "color",
+          "sense_id": "pink#0"}]
+    b = [{"key": "w:low", "text": "low", "gloss": "not high",
+          "sense_id": "low#3"}]
+    pa = precard_pipeline._label_prompt(a)
+    pb = precard_pipeline._label_prompt(b)
+    head_a, head_b = pa.split("LEMMA")[0], pb.split("LEMMA")[0]
+    assert head_a == head_b and len(head_a) > 200
+    assert "LEMMA low" in pb and "LEMMA pink" not in pb
+
+
+def test_s4_validate_accepts_color_split_vector():
+    """R5: the Arts/Daily color split validates with primary == top."""
+    from factory.archive.v14_v16 import run_v16b_topup as topup
+    rows = [{"sense_id": "pink#0", "topic_id": 8,
+             "topic_label": "Arts & Culture", "confidence": 0.7,
+             "vector": [
+                 {"topic_id": 8, "topic_label": "Arts & Culture",
+                  "weight": 0.6},
+                 {"topic_id": 1, "topic_label": "Daily Life & Home",
+                  "weight": 0.4}]}]
+    ok, normed = topup.validate_senses(rows, ["pink#0"])
+    assert ok and normed[0]["topic_label"] == "Arts & Culture"
 
 
 def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
@@ -2197,7 +2396,7 @@ def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
     assert headers, drop_log
     assert any(line == "=== preprocess drops ===" for line in headers), \
         headers
-    assert not any("langar" in line for line in headers), headers
+    assert not any("Langar" in line for line in headers), headers
 
 
 def test_stage_summary_input_is_distinct_on_fallback_overlap(
@@ -2217,7 +2416,7 @@ def test_stage_summary_input_is_distinct_on_fallback_overlap(
     precard_pipeline._stage_summary(
         "s2", states, str(tmp_path / "precard.jsonl"))
     out = capsys.readouterr().out
-    assert "judge (davari): input 2" in out, out
+    assert "sense-judge (Davarie-Mana): input 2" in out, out
     assert "s1-fallback" in out, out
 
 

@@ -341,10 +341,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Blind 4-way judge test.")
     ap.add_argument("--accept", required=True)
     ap.add_argument("--anchor", "--s1", dest="anchor", required=True,
-                    help="recorded anchor windows (progress s1.json)")
+                    help="recorded anchor windows (progress anchor.json)")
     ap.add_argument("--glm-judge", "--glm-s2", dest="glm_judge",
                     required=True,
-                    help="recorded GLM judge baseline (progress s2.json)")
+                    help="recorded GLM judge baseline (progress sense-judge.json)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--progress", required=True)
     ap.add_argument("--models", default="g35,g31,north",
