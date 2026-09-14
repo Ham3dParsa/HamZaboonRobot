@@ -24,6 +24,7 @@ from config import (
     DB_PATH,
     is_owner,
 )
+from config.catalog_settings_keys import settings_key
 from services import db
 from services.archive import (
     clear_archive_error,
@@ -39,6 +40,12 @@ from config.keyboards.admin import backup_restore_keyboard
 from config.keyboards import admin_awaiting_inline_keyboard
 
 logger = logging.getLogger(__name__)
+
+#: Single-flight for owner restore uploads (OP-001) + canonical settings key
+#: holding the sha256 of the last successfully applied restore file (the
+#: literal lives once in SETTINGS_KEYS; resolved here per single-source rule).
+_RESTORE_LOCK = asyncio.Lock()
+_LAST_RESTORE_KEY = settings_key("last_restore_sha256")["key"]
 
 __all__ = [
     "handle_admin_backup_callback",
@@ -211,18 +218,19 @@ async def _handle_restore_doc_locked(update: Update, context: ContextTypes.DEFAU
             raise ValueError("حجم فایل بیش از 100 مگابایت است.")
         file = await doc.get_file()
         data = await file.download_as_bytearray()
-        if len(data) > _MAX_RESTORE_BYTES:
+        raw = bytes(data)
+        if len(raw) > _MAX_RESTORE_BYTES:
             raise ValueError("حجم فایل بیش از 100 مگابایت است.")
-        if len(data) < 100 or data[:16] != b"SQLite format 3\x00":
+        if len(raw) < 100 or raw[:16] != b"SQLite format 3\x00":
             raise ValueError("فایل معتبر SQLite نیست.")
-        digest = hashlib.sha256(bytes(data)).hexdigest()
+        digest = hashlib.sha256(raw).hexdigest()
         if db.get_setting(_LAST_RESTORE_KEY, "") == digest:
             context.user_data.pop("awaiting", None)
             await say(update, context, "این فایل قبلاً اعمال شده و دیتابیس همان است. نیازی به بازگردانی دوباره نیست.", raw=RawFormat.PLAIN, mode="send")
             return
         was_maintenance = db.is_maintenance_mode()
         backup_path = f"{DB_PATH}.pre_restore"
-        await asyncio.to_thread(db.import_db_bytes, bytes(data), backup_path)
+        await asyncio.to_thread(db.import_db_bytes, raw, backup_path)
         context.user_data.pop("awaiting", None)
         db.set_setting(_LAST_RESTORE_KEY, digest)
         db.set_maintenance_mode(was_maintenance)
@@ -234,11 +242,6 @@ async def _handle_restore_doc_locked(update: Update, context: ContextTypes.DEFAU
 
 
 _AUTO_BACKUP_LOCK = asyncio.Lock()
-
-#: Single-flight for owner restore uploads (OP-001) + settings key holding
-#: the sha256 of the last successfully applied restore file.
-_RESTORE_LOCK = asyncio.Lock()
-_LAST_RESTORE_KEY = "last_restore_sha256"
 
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
     """Periodic auto-backup: save locally and push to archive group if configured.

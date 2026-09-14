@@ -202,6 +202,28 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("خطا در بازگردانی", rendered)
         self.assertEqual(context.user_data.get("awaiting"), "admin_restore")
 
+    async def test_busy_restore_reports_without_starting_import(self):
+        import handlers.admin_backup as admin_mod
+
+        backup = bytearray(db.export_db_bytes())
+        update, message, context = self._upload(backup)
+        await admin_mod._RESTORE_LOCK.acquire()
+        try:
+            with (
+                patch("handlers.admin_backup.is_owner", return_value=True),
+                patch("handlers.admin_backup.DB_PATH", self.live_path),
+                patch.object(
+                    admin_mod.db, "import_db_bytes",
+                    side_effect=AssertionError("must not import while busy"),
+                ),
+            ):
+                await handle_restore_doc(update, context)
+        finally:
+            admin_mod._RESTORE_LOCK.release()
+        rendered = message.reply_text.await_args.args[0]
+        self.assertIn("در حال اجراست", rendered)
+        self.assertFalse(admin_mod._RESTORE_LOCK.locked())
+
     def test_backup_restore_wiring(self):
         from services.routing import ROUTES
         from pathlib import Path
