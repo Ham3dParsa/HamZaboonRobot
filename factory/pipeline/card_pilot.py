@@ -138,6 +138,12 @@ def _rotate_cool_outcome(failure):
 # Unset = direct behavior, zero change. Lease target = provider, once
 # per run; transports ride the leased proxy via process env.
 SUPERVISOR_ROTATE_MAX = 3
+# Transient-403 backoff (measured 2026-09-14: google 403s through shared
+# egress IPs alternate with 200s across bursts — same lease usually
+# recovers after a short pause; burning a rotation per 403 exhausted
+# the rotation budget in seconds).
+SUPERVISOR_403_BACKOFF_S = 6
+SUPERVISOR_403_SAME_LEASE_MAX = 2
 NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
 DEFAULT_OUT_DIR = "W:/hamzaban_data_factory/pilot/"
@@ -5671,7 +5677,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # target=provider once per run, ride the proxy via process env.
     sup = None
     lease_id = ""
-    sup_state = {"rotations": 0, "lease_id": ""}
+    sup_state = {"rotations": 0, "lease_id": "", "same_lease_retries": 0}
     if args.supervisor:
         sup = _SupervisorClient(args.supervisor, args.sup_token)
         try:
@@ -5775,6 +5781,20 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
             except AuthError:
                 if sup is None:
                     raise
+                # Transient-403 pattern (measured 2026-09-14: same
+                # server+key+proxy alternates 200/403 across bursts):
+                # brief same-lease backoff retries first — a burn of a
+                # rotation per 403 exhausts the budget in seconds.
+                if sup_state["same_lease_retries"] < SUPERVISOR_403_SAME_LEASE_MAX:
+                    sup_state["same_lease_retries"] += 1
+                    print("supervisor: 403 on %s, backoff %ds (same "
+                          "lease, retry %d/%d)"
+                          % (label, SUPERVISOR_403_BACKOFF_S,
+                             sup_state["same_lease_retries"],
+                             SUPERVISOR_403_SAME_LEASE_MAX), flush=True)
+                    time.sleep(SUPERVISOR_403_BACKOFF_S)
+                    continue
+                sup_state["same_lease_retries"] = 0
                 if sup_state["rotations"] == 0 and _sup_rotate_same_server():
                     sup_state["rotations"] += 1
                     print("supervisor: refreshed %s tunnel, retrying %s"
@@ -5874,12 +5894,24 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                         tele_batch=batch_no)
                 except AuthError:
                     # Direct mode: loud abort (unchanged). Leased mode:
-                    # first try a same-server fresh tunnel (stale xray
-                    # child), then cross-server rotate (max 3), then
-                    # STOP with flushed progress.
+                    # transient-403 backoff retries on the same lease
+                    # first, then same-server fresh tunnel, then
+                    # cross-server rotate (max 3), then STOP with
+                    # flushed progress.
                     if sup is None:
                         raise
                     batch_marks["auth"] += 1
+                    if sup_state["same_lease_retries"] \
+                            < SUPERVISOR_403_SAME_LEASE_MAX:
+                        sup_state["same_lease_retries"] += 1
+                        print("supervisor: 403 gen, backoff %ds "
+                              "(same lease, retry %d/%d)"
+                              % (SUPERVISOR_403_BACKOFF_S,
+                                 sup_state["same_lease_retries"],
+                                 SUPERVISOR_403_SAME_LEASE_MAX), flush=True)
+                        time.sleep(SUPERVISOR_403_BACKOFF_S)
+                        continue
+                    sup_state["same_lease_retries"] = 0
                     if sup_state["rotations"] == 0 \
                             and _sup_rotate_same_server():
                         sup_state["rotations"] += 1
