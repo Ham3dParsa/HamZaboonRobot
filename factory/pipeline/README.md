@@ -1,4 +1,4 @@
-# factory/pipeline — PishCard v13 precard line
+# factory/pipeline — PishCard v14 precard line
 
 Live line code (package `factory.pipeline`, run with `python -m` from repo root):
 

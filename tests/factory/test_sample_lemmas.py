@@ -702,3 +702,10 @@ def test_classify_empty_pack_no_keyerror(monkeypatch):
 
     monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
     assert classify("wobbleaaa", "noun", {}, "en") is None
+
+
+def test_default_mix_is_target_driven_v14():
+    """T1: input mix compensates measured per-level survival (sums 3000)."""
+    from factory.lexicon.sample_lemmas import DEFAULT_MIX
+    assert DEFAULT_MIX == "276,448,753,700,438,385"
+    assert sum(int(x) for x in DEFAULT_MIX.split(",")) == 3000

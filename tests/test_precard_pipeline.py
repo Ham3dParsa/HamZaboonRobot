@@ -659,6 +659,28 @@ def test_google_payload_locks_temperature_zero():
     assert payload["contents"][0]["parts"][0]["text"] == "hi"
 
 
+def test_line_marker_written_v14(tmp_path, monkeypatch):
+    """T1: a fresh run stamps the progress dir with the v14 line."""
+    import json as _json
+    rc, _out, prog, _ = run_pipeline(tmp_path, monkeypatch)
+    assert rc == 0
+    marker = _json.loads(
+        (pathlib.Path(prog) / "line.json").read_text(encoding="utf-8"))
+    assert marker.get("line") == "v14"
+
+
+def test_line_marker_mismatch_aborts(tmp_path, monkeypatch):
+    """T1: resuming a foreign-line progress dir fails closed."""
+    import json as _json
+    import pytest as _pytest
+    rc, _out, prog, _ = run_pipeline(tmp_path, monkeypatch)
+    assert rc == 0
+    (pathlib.Path(prog) / "line.json").write_text(
+        _json.dumps({"line": "v13"}), encoding="utf-8")
+    with _pytest.raises(SystemExit):
+        run_pipeline(tmp_path, monkeypatch)
+
+
 def test_backfill_attaches_tags_selective_resume():
     """Selective-stage resume: tagless kept entries gain tags in memory;
     dropped entries are untouched."""

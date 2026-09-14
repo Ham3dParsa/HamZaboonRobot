@@ -86,7 +86,7 @@ from factory.lexicon.build_kaikki_index import fetch  # noqa: E402  (reuse; neve
 
 LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 LEVEL_RANK = {level: rank for rank, level in enumerate(LEVEL_ORDER)}
-DEFAULT_MIX = "364,485,667,727,454,303"  # locked R2: scaled pilot x6 = 3000
+DEFAULT_MIX = "276,448,753,700,438,385"  # v14 target-driven: measured survival compensates to the locked bell (sums 3000)
 DEFAULT_SEED = 7
 DEFAULT_BATCH = 50000
 ZIPF_CUTOFFS_FALLBACK = [5.2, 4.6, 4.0, 3.5, 3.0]

@@ -199,6 +199,27 @@ COUNTRY_NAMES = frozenset({
     "aland islands", "são tomé and príncipe",
 })
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
+# v14 line marker: the progress dir is stamped on start; resuming a
+# foreign-line dir fails closed (single-pick v13 states must never mix
+# with multi-pick v14 states).
+LINE = "v14"
+LINE_FILE = "line.json"
+
+
+def _check_line_marker(progress_dir):
+    """Stamp the v14 line or abort on a foreign line (fail-closed)."""
+    marker = pathlib.Path(progress_dir) / LINE_FILE
+    if marker.exists():
+        try:
+            seen = json.loads(marker.read_text(encoding="utf-8")).get("line")
+        except (OSError, ValueError):
+            seen = None
+        if seen != LINE:
+            raise SystemExit(
+                "refusing to resume %s: line %r is not this line (%r) — "
+                "use a fresh --progress-dir" % (marker, seen, LINE))
+        return
+    marker.write_text(json.dumps({"line": LINE}), encoding="utf-8")
 # Human-readable stage names live in stage_glossary (single source);
 # STAGE_NAMES / STAGE_FINGLESH here are shared references, never copies.
 
@@ -2606,6 +2627,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     progress_dir = pathlib.Path(args.progress_dir)
     progress_dir.mkdir(parents=True, exist_ok=True)
+    _check_line_marker(progress_dir)
     resume = not args.no_resume
     states = {}
     for stage in STAGES:
