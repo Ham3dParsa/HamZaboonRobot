@@ -66,6 +66,17 @@ def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch, de
                 fields,
             )
             return repaired
+        except CardPreparationError:
+            # OP-005: an already-meaningful preparation error (e.g. the
+            # persist failure above) keeps its own message instead of being
+            # re-wrapped as a generic repair failure — still logged so the
+            # path never goes silent.
+            logger.warning(
+                "cached card persist failed source=%s user_id=%s",
+                source,
+                user_id,
+            )
+            raise
         except Exception as repair_error:
             logger.exception(
                 "cached card repair failed source=%s user_id=%s fields=%s",
