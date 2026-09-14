@@ -31,6 +31,8 @@ STATE: phase 0/4 — status:awaiting-owner — focus: قفل D1 و عدد نسخ
 | ماژول | interface (آنچه فراخوان و تست باید بدانند) |
 |---|---|
 | `factory/precard/__init__.py` | فقط `__version__` و `run()` — تنها سطح عمومی |
+| `anchor.py` | مرحله anchor_rank: زنجیره scorer (حدود ۴۰۰ خط + جدول‌ها، vendored فریز با سربرگ provenance per تصمیم قفل‌شده) + دروازه‌های preprocess + rerouteها. تست parity رتبه با پایلوت |
+| `transport.py` | لوله مشترک شبکه همه legها: keyring و rotation و استخراج JSON و ثبت telemetry و transportهای avalai و google. خالص‌سازی‌شده و تزریقی |
 | `pipeline.py` | ترتیب stageها و assembly؛ transport و index تزریقی می‌گیرد تا hermetic بماند |
 | `judge.py` | مرحله sense_judge: ساخت prompt، اعتبارسنج multi-pick (۱ تا ۴، متمایز)، وتوی stub. مالک حقیقت picks همین است |
 | `topics.py` | مرحله‌های topic_vectors و topic_label: وکتور، برچسب، نگهبان، متن tie-break. تنها مالک موجودی برچسب (کپی فریز ۱۶تایی زنده با سربرگ provenance) |

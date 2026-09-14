@@ -60,6 +60,15 @@ STATE: tickets drafted from audit 2026-09-14, FOLDER locked 2026-09-14 — statu
   ران v141 برای آیتم‌های تک‌حس عیناً بازتولید می‌شوند.
 
 ### T4 — enrich.py و pipeline.py و CLI (استقلال غنی‌سازی و اجرا)
+
+**تصمیم قفل‌شده ۲۰۲۶-۰۹-۱۴: scorer لنگر vendored می‌شود** (حدود ۴۰۰ خط +
+جدول‌ها، با سربرگ provenance). استدلال ثبت‌شده: تابع قطعی خالص است و همین
+حالا عملاً فریز است؛ import یعنی نشت تغییر پایلوت به خط زنده (تکرار کلاس
+باگ ۱۳/۱۶)؛ تست parity هر واگرایی را بلند قرمز می‌کند؛ هزینه‌اش فیکس
+دوباره در صورت باگ فرمولی است. پس خانه جدید ماژول `anchor.py` هم می‌گیرد.
+اجرا در سه زیرگام: T4a لنگر و preprocess، T4b لوله مشترک شبکه
+(transport.py: keyring و rotation و JSON و telemetry)، T4c غنی‌سازی و
+مونتاژ و CLI و repoint کردن blind50.
 - دامنه: enrich_item و fallback لم و لینک CEFR و شناسه کارت به enrich.py.
   ماژول cefr_bridge با همان فایل‌های pack vendored می‌شود (دیتا جابه‌جا
   نمی‌شود). pipeline.py مونتاژ و assembly و CLI با نام‌های جدید stageها
