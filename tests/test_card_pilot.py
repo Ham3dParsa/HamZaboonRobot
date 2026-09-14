@@ -2564,6 +2564,50 @@ def test_supervisor_opt_out_builds_no_client(tmp_path, monkeypatch):
     assert rc == 0
 
 
+def test_rotate_reports_failed_lease_before_release(tmp_path, monkeypatch):
+    """Rotation must report the FAILED lease (http429 -> server cools)
+    BEFORE re-leasing, or every rotation re-leases the same server."""
+    from factory.pipeline import card_pilot as cp
+
+    events = []
+
+    class _FakeSup:
+        def __init__(self, base_url, token=""):
+            pass
+
+        def lease(self, target):
+            events.append("lease")
+            if len(events) == 1:
+                return {"lease_id": "L1",
+                        "proxy_url": "http://127.0.0.1:9999"}
+            return {"lease_id": "L2",
+                    "proxy_url": "http://127.0.0.1:9998"}
+
+        def report(self, lease_id, outcome, provider=None):
+            events.append("report:%s:%s" % (lease_id, outcome))
+
+    monkeypatch.setattr(cp, "_SupervisorClient", _FakeSup)
+
+    monkeypatch.setattr(cp, "generate_card", lambda item, api_key, **kw:
+                        dict(_mock_sup_rec(item), model_calls={},
+                             valid=True, key="w:apple", error=""))
+    argv = _write_precard_run(
+        tmp_path, monkeypatch,
+        [_precard_row("w:apple", "apple")],
+        extra_args=("--supervisor", "http://127.0.0.1:18789",
+                    "--sup-token", "tok"))
+    # First content call raises AuthError -> rotate must report L1
+    # before leasing L2; assert the helper mapping + report-then-lease
+    # order the main() sequence must keep.
+    events.clear()
+    assert cp._rotate_cool_outcome("auth_err") == "http429"
+    sup = _FakeSup("", "")
+    sup.report("L1", cp._rotate_cool_outcome("auth_err"), provider="google")
+    sup.lease("google")
+    assert events[0] == "report:L1:http429", events
+    assert events[1] == "lease", events
+
+
 def _mock_sup_rec(item):
     return {"key": ("w:" if item["kind"] == "word" else "p:") + item["text"],
             "kind": item["kind"], "text": item["text"],

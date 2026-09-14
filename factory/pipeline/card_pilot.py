@@ -120,6 +120,20 @@ GEN_BATCH_MAX = 16
 # stratification).
 N_CARDS_DEFAULT = 25
 
+def _rotate_cool_outcome(failure):
+    """Supervisor outcome reported for the failed lease on rotate.
+
+    Through a tunnel, 401/403/429 are server-level signals (location or
+    IP block, disables, quota): report http429 so the server cools and
+    the re-lease moves on. Anything else passes through unchanged.
+    A truly bad key still burns at most 1 + SUPERVISOR_ROTATE_MAX
+    leases, then STOPs (bounded, documented).
+    """
+    if failure in ("auth_err", "http429"):
+        return "http429"
+    return failure
+
+
 # R2 — opt-in leased egress (mirrors blind50._SupervisorClient shapes).
 # Unset = direct behavior, zero change. Lease target = provider, once
 # per run; transports ride the leased proxy via process env.
@@ -5652,7 +5666,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # target=provider once per run, ride the proxy via process env.
     sup = None
     lease_id = ""
-    sup_state = {"rotations": 0}
+    sup_state = {"rotations": 0, "lease_id": ""}
     if args.supervisor:
         sup = _SupervisorClient(args.supervisor, args.sup_token)
         try:
@@ -5667,15 +5681,16 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
             raise SystemExit(
                 "supervisor lease failed for %s: %s" % (provider, detail))
         lease_id = _lease.get("lease_id", "")
+        sup_state["lease_id"] = lease_id
         _apply_leased_proxy(_lease)
         print("supervisor: leased %s proxy=%s" % (
             provider, "yes" if (_lease.get("proxy_url") or "") else "no"))
 
     def _sup_report(outcome):
-        if sup is None or not lease_id:
+        if sup is None or not sup_state.get("lease_id"):
             return
         try:
-            sup.report(lease_id, outcome, provider=provider)
+            sup.report(sup_state["lease_id"], outcome, provider=provider)
         except Exception as exc:  # noqa: BLE001 (best-effort, warn-and-continue)
             print("supervisor report failed: %s" % exc, flush=True)
 
@@ -5685,11 +5700,23 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                                       if not v.get("valid")],
              "model_calls": model_calls}, ensure_ascii=False))
 
-    def _sup_rotate():
-        """Re-lease after a 429/403. True = rotated, False = budget spent."""
+    def _sup_rotate(failure="http429"):
+        """Re-lease after a 429/403. True = rotated, False = budget spent.
+
+        Reports the failed lease first so its server cools and the
+        re-lease moves on (without this every rotation re-leases the
+        same avail[0] server).
+        """
         if sup_state["rotations"] >= SUPERVISOR_ROTATE_MAX:
             return False
         sup_state["rotations"] += 1
+        old_id = sup_state.get("lease_id", "")
+        if old_id:
+            try:
+                sup.report(old_id, _rotate_cool_outcome(failure),
+                           provider=provider)
+            except Exception as exc:  # noqa: BLE001 (best-effort)
+                print("supervisor cool-report failed: %s" % exc, flush=True)
         try:
             _lease = sup.lease(provider)
         except Exception as exc:
@@ -5699,6 +5726,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                 or not _lease.get("lease_id")):
             raise SystemExit(
                 "supervisor re-lease failed for %s" % provider)
+        sup_state["lease_id"] = _lease.get("lease_id", "")
         _apply_leased_proxy(_lease)
         return True
 
@@ -5721,7 +5749,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
             except AuthError:
                 if sup is None:
                     raise
-                if not _sup_rotate():
+                if not _sup_rotate("auth_err"):
                     _sup_stop("auth_err")
                 print("supervisor: rotated %s lease, retrying %s"
                       % (provider, label))
@@ -5819,11 +5847,11 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                     if sup is None:
                         raise
                     batch_marks["auth"] += 1
-                    if not _sup_rotate():
+                    if not _sup_rotate("auth_err"):
                         _sup_stop("auth_err")
                     continue  # retry the same item on the fresh lease
                 if sup is not None and "429" in (rec.get("error") or ""):
-                    if not _sup_rotate():
+                    if not _sup_rotate("http429"):
                         _sup_stop("http429")
                     continue  # retry the same item on the fresh lease
                 break
