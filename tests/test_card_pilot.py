@@ -2461,7 +2461,14 @@ def test_google_card_transport_shape(capsys, monkeypatch):
         seen["payload"] = json.loads(req.data.decode("utf-8"))
         return _FakeResp()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    import factory.pipeline.card_pilot as _cp
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            fake_urlopen(req, timeout=timeout)
+            return _FakeResp()
+
+    monkeypatch.setattr(_cp, "_fresh_env_opener", lambda: _FakeOpener())
     out = _google_card_transport("SECRET-KEY", "gemini-3.5-flash-lite",
                                  "SYSTEM-LINE", "USER-LINE")
     assert out == '{"ok": true}'
@@ -2499,7 +2506,15 @@ def test_avalai_card_transport_shape(monkeypatch):
     _FakeResp.read = lambda self: json.dumps(
         {"choices": [{"message": {"content": '{"ok": true}'}}],
          "usage": {"input_tokens": 3, "output_tokens": 1}}).encode("utf-8")
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    import factory.pipeline.card_pilot as _cp
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            fake_urlopen(req, timeout=timeout)
+            return _FakeResp()
+
+    monkeypatch.setattr(_cp, "_fresh_env_opener", lambda: _FakeOpener())
     text, usage = _avalai_card_transport("SECRET-KEY", "glm-5.3-flash",
                                          "SYSTEM-LINE", "USER-LINE")
     assert text == '{"ok": true}'
@@ -2521,6 +2536,39 @@ def test_zen_removed():
     assert not hasattr(cp, "call_responses")
     with _pytest.raises(SystemExit):
         main(["--provider", "zen"])
+
+
+def test_google_transport_uses_leased_proxy_not_cached_opener(monkeypatch):
+    """Smoking gun (2026-09-14): urlopen caches the global opener on its
+    FIRST use — the supervisor lease call itself builds it with the
+    pre-lease env (no proxy), so every later urlopen goes DIRECT and
+    google 403s. Transports must build a FRESH opener per call so the
+    leased-proxy env is honored."""
+    from factory.pipeline import card_pilot as cp
+    seen = {}
+
+    real_build = cp.urllib.request.build_opener
+
+    def spy_build(*handlers):
+        opener = real_build(*handlers)
+        ph = [h for h in opener.handlers
+              if type(h).__name__ == "ProxyHandler"]
+        if ph:
+            seen["proxy"] = ph[0].proxies.get("https")
+        return opener
+
+    monkeypatch.setattr(cp.urllib.request, "build_opener", spy_build)
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9999")
+    monkeypatch.setattr(
+        cp, "CALL_TIMEOUT", 0.001) if hasattr(cp, "CALL_TIMEOUT") else None
+    # network is not reached: point the URL at a dead port via the
+    # proxy key — we only assert the handler SAW the leased proxy.
+    try:
+        cp._google_card_transport("k", "m", "sys", "user")
+    except Exception:
+        pass
+    assert seen.get("proxy") == "http://127.0.0.1:9999", seen
 
 
 def test_provider_model_defaults():

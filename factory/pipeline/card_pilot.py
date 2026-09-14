@@ -2740,6 +2740,19 @@ def load_provider_key(provider, env=None, factory_env_path=None,
     return merged.get(PROVIDER_KEY_NAME[provider], "")
 
 
+def _fresh_env_opener():
+    """OpenerDirector with a ProxyHandler built NOW.
+
+    urllib.request.urlopen caches the global opener on its first use —
+    the supervisor lease call itself caches it with the PRE-lease env
+    (no proxy), so later urlopens go direct and google 403s (measured
+    2026-09-14). Every provider transport builds a fresh opener per
+    call instead: getproxies() reads the leased env at call time.
+    """
+    return urllib.request.build_opener(urllib.request.ProxyHandler(
+        urllib.request.getproxies()))
+
+
 def _google_card_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
     """Google-direct card transport (Gemini REST generateContent).
 
@@ -2764,7 +2777,7 @@ def _google_card_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
                  "x-goog-api-key": api_key,
                  "User-Agent": "HamZaban-factory/1.0 (card pilot)",
                  "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _fresh_env_opener().open(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8", "replace"))
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"] or ""
@@ -2796,7 +2809,7 @@ def _avalai_card_transport(api_key, model, system, user,
                  "Authorization": "Bearer " + api_key,
                  "User-Agent": "HamZaban-factory/1.0 (card pilot)",
                  "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _fresh_env_opener().open(req, timeout=timeout) as resp:
         data = json.load(resp)
     msg = ((data.get("choices") or [{}])[0].get("message", {})
            if isinstance(data, dict) else {})
