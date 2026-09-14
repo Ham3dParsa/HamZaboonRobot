@@ -2420,6 +2420,17 @@ def test_stage_summary_input_is_distinct_on_fallback_overlap(
     assert "s1-fallback" in out, out
 
 
+def test_default_inflect_transport_fails_loud_on_retired_zen():
+    """Retired zen path must abort loudly, never silently degrade s0b
+    reviews to review-uncertain keeps (was: AttributeError swallowed by
+    inflection_review's per-attempt try)."""
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        precard_pipeline._default_inflect_transport("k", "m", "s", "u")
+    assert "retired" in str(exc.value).lower()
+
+
 def test_cand_cache_rebuilds_on_wrong_bridge_id():
     """_CAND_CACHE is keyed (lemma, pos) with value (bridge_id, cands):
     planting an entry under the real key shape but with a WRONG bridge_id

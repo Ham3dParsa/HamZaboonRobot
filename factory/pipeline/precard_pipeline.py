@@ -2417,7 +2417,11 @@ def _default_assign_transport(api_key, model, user_text):
 
 
 def _default_inflect_transport(api_key, model, sys_text, user_text):
-    return card_pilot.call_responses(api_key, model, sys_text, user_text)
+    # Zen path retired (card_pilot.call_responses deleted): fail loud so a
+    # bare-default run never silently degrades to review-uncertain keeps.
+    raise SystemExit(
+        "zen inflection path retired: rerun with "
+        "--llm-provider google|avalai")
 
 
 def _color(text, name):
