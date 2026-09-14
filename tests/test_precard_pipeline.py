@@ -652,6 +652,13 @@ def test_needs_tag_backfill_predicate():
     assert bn(None) is False
 
 
+def test_google_payload_locks_temperature_zero():
+    """H5: google transport is deterministic (temperature 0.0)."""
+    payload = precard_pipeline._google_payload("hi")
+    assert payload["generationConfig"]["temperature"] == 0.0
+    assert payload["contents"][0]["parts"][0]["text"] == "hi"
+
+
 def test_backfill_attaches_tags_selective_resume():
     """Selective-stage resume: tagless kept entries gain tags in memory;
     dropped entries are untouched."""
@@ -684,17 +691,18 @@ def test_resume_mixed_progress_names(tmp_path, monkeypatch):
     assert [r["key"] for r in rows] == ["w:apple"]
     mixed_dir = tmp_path / "prog_mixed"
     shutil.copytree(tmp_path / "prog", mixed_dir)
-    from factory.pipeline.precard_pipeline import _progress_old_path
+    # s0/s1/s2 were never renamed: oldest name == "sX.json".
+    def _old_path(sid):
+        return mixed_dir / ("%s.json" % sid)
     for sid in ("s0", "s1", "s2"):
-        (mixed_dir / STAGE_FILES[sid]).rename(_progress_old_path(mixed_dir, sid))
-    old_bytes = {_progress_old_path(mixed_dir, sid).name:
-                 _progress_old_path(mixed_dir, sid).read_bytes()
+        (mixed_dir / STAGE_FILES[sid]).rename(_old_path(sid))
+    old_bytes = {_old_path(sid).name: _old_path(sid).read_bytes()
                  for sid in ("s0", "s1", "s2")}
     rows_mixed, calls_mixed = _run_with_counters(tmp_path, mixed_dir)
     assert [r["key"] for r in rows_mixed] == ["w:apple"]
     assert calls_mixed == {"judge": 0, "topics": 0}
     for sid in ("s0", "s1", "s2"):
-        old_path = _progress_old_path(mixed_dir, sid)
+        old_path = _old_path(sid)
         assert old_path.read_bytes() == \
             old_bytes[old_path.name]  # old never written
         assert (mixed_dir / STAGE_FILES[sid]).exists()  # new written

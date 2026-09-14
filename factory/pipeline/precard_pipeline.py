@@ -243,14 +243,6 @@ def _progress_write_path(progress_dir, stage):
     return pathlib.Path(progress_dir) / _STAGE_FILES[stage]
 
 
-def _progress_old_path(progress_dir, stage):
-    """Most-recent old progress path for a stage (read-only resume)."""
-    olds = _NEW_TO_OLD_PROGRESS.get(_STAGE_FILES[stage]) or []
-    if not olds:
-        return None
-    return pathlib.Path(progress_dir) / olds[-1]
-
-
 def _progress_read_path(progress_dir, stage):
     """Resume path: new domain file, then the fallback chain newest-first."""
     new_path = _progress_write_path(progress_dir, stage)
@@ -2364,6 +2356,17 @@ GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
 GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
 
 
+def _google_payload(user_text):
+    """Pure Gemini REST payload (H5: temperature 0.0 locks determinism)."""
+    return {
+        "contents": [{"parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
+    }
+
+
 def _google_chat_transport(api_key, model, user_text):
     """Google-direct transport (Gemini REST): (text, None).
 
@@ -2372,12 +2375,7 @@ def _google_chat_transport(api_key, model, user_text):
     rotation fuel; the shared classify table owns meaning). No usage
     counters on this API shape -> None (telemetry records latency).
     """
-    payload = json.dumps({
-        "contents": [{"parts": [{"text": user_text}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
-    }).encode("utf-8")
+    payload = json.dumps(_google_payload(user_text)).encode("utf-8")
     req = urllib.request.Request(
         GOOGLE_MODELS_URL % model, data=payload,
         headers={"Content-Type": "application/json",
