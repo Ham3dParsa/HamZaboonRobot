@@ -138,6 +138,70 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
             await admin_mod.auto_backup_job(context2)
             context2.bot.send_document.assert_not_called()
 
+    def _upload(self, payload: bytearray, awaiting="admin_restore"):
+        telegram_file = MagicMock()
+        telegram_file.download_as_bytearray = AsyncMock(return_value=payload)
+        document = MagicMock()
+        document.get_file = AsyncMock(return_value=telegram_file)
+        message = MagicMock()
+        message.document = document
+        message.reply_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_message = message
+        update.message = message
+        context = MagicMock()
+        context.user_data = {"awaiting": awaiting} if awaiting else {}
+        return update, message, context
+
+    async def test_duplicate_upload_rejected_without_reimport(self):
+        backup = bytearray(db.export_db_bytes())
+        db.set_setting("restore_sentinel", "changed")
+        update, message, context = self._upload(backup)
+        with (
+            patch("handlers.admin_backup.is_owner", return_value=True),
+            patch("handlers.admin_backup.DB_PATH", self.live_path),
+        ):
+            await handle_restore_doc(update, context)
+            self.assertEqual(db.get_setting("restore_sentinel"), "live")
+            with open(self.live_path, "rb") as live_file:
+                after_first = live_file.read()
+            # Same file uploaded again (operator double-click) → rejected.
+            update2, message2, context2 = self._upload(backup)
+            await handle_restore_doc(update2, context2)
+        rendered = message2.reply_text.await_args.args[0]
+        self.assertIn("قبلاً اعمال شده", rendered)
+        with open(self.live_path, "rb") as live_file:
+            self.assertEqual(live_file.read(), after_first)
+
+    async def test_maintenance_flag_preserved_across_restore(self):
+        backup = bytearray(db.export_db_bytes())
+        db.set_maintenance_mode(True)
+        update, message, context = self._upload(backup)
+        with (
+            patch("handlers.admin_backup.is_owner", return_value=True),
+            patch("handlers.admin_backup.DB_PATH", self.live_path),
+        ):
+            await handle_restore_doc(update, context)
+        self.assertTrue(db.is_maintenance_mode())
+
+    async def test_invalid_file_keeps_awaiting_for_retry(self):
+        backup_path = os.path.join(self.tempdir.name, "old-backup.sqlite")
+        with closing(sqlite3.connect(backup_path)) as conn:
+            with conn:
+                conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+        with open(backup_path, "rb") as backup_file:
+            backup = bytearray(backup_file.read())
+        update, message, context = self._upload(backup)
+        with (
+            patch("handlers.admin_backup.is_owner", return_value=True),
+            patch("handlers.admin_backup.DB_PATH", self.live_path),
+        ):
+            await handle_restore_doc(update, context)
+        rendered = message.reply_text.await_args.args[0]
+        self.assertIn("خطا در بازگردانی", rendered)
+        self.assertEqual(context.user_data.get("awaiting"), "admin_restore")
+
     def test_backup_restore_wiring(self):
         from services.routing import ROUTES
         from pathlib import Path

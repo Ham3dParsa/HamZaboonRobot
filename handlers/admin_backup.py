@@ -13,6 +13,7 @@ monolith delegates to this module.
 """
 
 import asyncio
+import hashlib
 import logging
 
 from telegram import Update
@@ -174,12 +175,24 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     Contract L3: unified flow works in both PV and group for owner.
     Intentionally no strict awaiting gate — owner check is the safety
     boundary; file is still validated (size + SQLite header) before
-    import. Pop awaiting if present so retry upload works without
-    re-issuing /restore.
+    import. Awaiting is popped only on terminal outcomes (applied or
+    already-applied); failures keep the flow state so retry upload works
+    without re-issuing /restore. Repeat upload of an already-applied
+    file is rejected via its sha256 idempotency key (OP-001); the
+    pre-restore maintenance flag is preserved instead of forced off
+    (OP-002); concurrent restores are single-flighted.
     """
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
+    if _RESTORE_LOCK.locked():
+        await say(update, context, "یک بازگردانی در حال اجراست. لطفاً چند لحظه صبر کنید.", raw=RawFormat.PLAIN, mode="send")
+        return
+    async with _RESTORE_LOCK:
+        await _handle_restore_doc_locked(update, context)
+
+
+async def _handle_restore_doc_locked(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Audit log of restore attempt (P0) — include effective_chat.id
     try:
         cid = getattr(update.effective_chat, "id", None)
@@ -190,8 +203,6 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Per contract: allow owner .db upload in PV or group without
     # requiring awaiting == admin_restore (group flow would otherwise
     # need extra gate). Validation below is the destructive-op guard.
-    context.user_data.pop("awaiting", None)
-
     _MAX_RESTORE_BYTES = 100 * 1024 * 1024
     try:
         doc = update.effective_message.document
@@ -204,9 +215,17 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
             raise ValueError("حجم فایل بیش از 100 مگابایت است.")
         if len(data) < 100 or data[:16] != b"SQLite format 3\x00":
             raise ValueError("فایل معتبر SQLite نیست.")
+        digest = hashlib.sha256(bytes(data)).hexdigest()
+        if db.get_setting(_LAST_RESTORE_KEY, "") == digest:
+            context.user_data.pop("awaiting", None)
+            await say(update, context, "این فایل قبلاً اعمال شده و دیتابیس همان است. نیازی به بازگردانی دوباره نیست.", raw=RawFormat.PLAIN, mode="send")
+            return
+        was_maintenance = db.is_maintenance_mode()
         backup_path = f"{DB_PATH}.pre_restore"
         await asyncio.to_thread(db.import_db_bytes, bytes(data), backup_path)
-        db.set_maintenance_mode(False)  # A2-1-7: auto-exit maintenance after restore
+        context.user_data.pop("awaiting", None)
+        db.set_setting(_LAST_RESTORE_KEY, digest)
+        db.set_maintenance_mode(was_maintenance)
         await say(update, context, "✅ دیتابیس با موفقیت بازگردانی شد.\n"
             f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.", raw=RawFormat.PLAIN, keyboard=main_menu(True), mode="send")
     except Exception as exc:
@@ -215,6 +234,11 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 _AUTO_BACKUP_LOCK = asyncio.Lock()
+
+#: Single-flight for owner restore uploads (OP-001) + settings key holding
+#: the sha256 of the last successfully applied restore file.
+_RESTORE_LOCK = asyncio.Lock()
+_LAST_RESTORE_KEY = "last_restore_sha256"
 
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
     """Periodic auto-backup: save locally and push to archive group if configured.
