@@ -83,5 +83,36 @@ class GenerationCanonicalOwnershipTest(unittest.TestCase):
         self.assertEqual(len(raises), 3, "must keep exactly 3 CardPreparationError paths")
 
 
+    def test_persist_failure_keeps_own_message(self):
+        """OP-005: a failed persist must raise its own message instead of
+        being re-wrapped as a generic repair failure."""
+        from unittest.mock import MagicMock, patch
+
+        from services.utils.formatting_cards import CardPreparationError
+
+        legacy = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Hello one.", "Hello two."],
+            "example_translations": ["اول."],
+        }
+        with patch.object(
+            generation,
+            "_call_ai_limited",
+            return_value={"example_translations": ["اول.", "دوم."]},
+        ):
+            with self.assertRaises(CardPreparationError) as ctx:
+                generation._prepare_cached_card(
+                    legacy,
+                    lang="en",
+                    user_id=1,
+                    plan="free",
+                    source="daily",
+                    persist_patch=MagicMock(return_value=False),
+                )
+        self.assertIn("could not be persisted", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
