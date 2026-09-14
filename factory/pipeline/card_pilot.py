@@ -9,12 +9,17 @@ Scope: factory research only. No bot/DB/handler changes.
   prompt builder (``services.ai.prompts.custom_word_system_prompt``) and
   the REAL validator (``services.ai.ai.validate_card``). The prompt is
   reused by import, never forked.
-- Transport: Zen responses API with the factory key
-  (``factory/env_loader`` ``OPENCODE_ZEN_API_KEY``), free model chain,
-  per-call timeout 180s, 2.5s sleep between calls, bounded retry (2
-  attempts per model), 401/403 aborts loudly, every failure is recorded
-  with its error (no silent skip). Progress JSON supports resume.
-- Cost: free chain, $0 expected; per-model call counts are recorded.
+- Transport: provider adapters local to this file (``--provider
+  google/avalai``): Google is Gemini REST generateContent with a JSON
+  mime (system+user texts joined); AvalAI is OpenAI-compatible chat.
+  Key loading is env > factory/.env > tools/egress/.env. Per-call
+  timeout 180s, 2.5s sleep between calls, bounded retry (2
+  attempts on the single selected model), 401/403 aborts loudly
+  (direct mode) or rotates the supervisor lease (leased mode), every
+  failure is recorded with its error (no silent skip). Progress JSON
+  supports resume.
+- Cost: provider chain (see --provider/--model); per-model call counts
+  are recorded.
 - Render: Persian RTL gallery HTML with per-card sections.
 - Lexicon grounding (locked R6-R8 v3, v16b gold standard): per-item kaikki
   sense anchor (``item["sense_id"]`` + ``item["en_def"]`` = top scorer of the
@@ -89,13 +94,37 @@ CEFR_TO_BOT_LEVEL = {
 }
 SEED = 7
 
-ZEN_BASE = "https://opencode.ai/zen/v1"
-MODELS = ["muse-spark-1.3-contributor-free", "muse-spark-1.2-contributor-free",
-          "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-          "nemotron-3.5-lightning-free"]
+# R1 — providers. Content generation AND all review gates run on the
+# single selected model (no chain fallback). Defaults mirror the
+# precard pipeline leg models (GOOGLE_PRECARD_MODEL/AVALAI_PRECARD_MODEL).
+PROVIDERS = ("google", "avalai")
+PROVIDER_DEFAULT_MODEL = {"google": "gemini-3.5-flash-lite",
+                          "avalai": "glm-5.3-flash"}
+PROVIDER_KEY_NAME = {"google": "GOOGLE_AI_API_KEY",
+                     "avalai": "AVALAI_API_KEY"}
+# Local transports (this file only — factory/core/llm_json.py untouched).
+GOOGLE_GENERATE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
+                       "models/%s:generateContent")
+AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
 CALL_TIMEOUT = 180
 CALL_SLEEP = 2.5
 MAX_ATTEMPTS = 2
+
+# R4 — generation batch size (gen loop only; review batches untouched).
+GEN_BATCH_DEFAULT = 10
+GEN_BATCH_MIN = 8
+GEN_BATCH_MAX = 16
+
+# R5 — --from-precard sampling: reproducible random.sample of precard
+# items (same seed+file = same cards). Kind mix kept as-is (no
+# stratification).
+N_CARDS_DEFAULT = 25
+
+# R2 — opt-in leased egress (mirrors blind50._SupervisorClient shapes).
+# Unset = direct behavior, zero change. Lease target = provider, once
+# per run; transports ride the leased proxy via process env.
+SUPERVISOR_ROTATE_MAX = 3
+NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
 DEFAULT_OUT_DIR = "W:/hamzaban_data_factory/pilot/"
 DEFAULT_REPORT = "W:/hamzaban_data_factory/reports/card-pilot-2026-09-04.html"
@@ -113,8 +142,8 @@ VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
                "ethnic-slur", "slur"}
 
 # R6 — topic method tag: exact v16b path (deterministic v16 leg + v16b LLM
-# top-up for Others, same free model chain). Pilot resume is separate from
-# the v16b originals so the gold-standard files are never touched.
+# top-up for Others via the archive owner path). Pilot resume is separate
+# from the v16b originals so the gold-standard files are never touched.
 TOPIC_METHOD_TAG = "v16b-exact"
 PILOT_TOPIC_PROGRESS = "pilot_topic_progress.json"
 
@@ -2308,8 +2337,9 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
 
     Leg 1 (deterministic v16): run_v16_topics.evp_fallback_label by import.
     Leg 2 (v16b LLM top-up for Others): run_v16b_topup prompt + validation +
-    same free model chain, resume file pilot_topic_progress.json (separate
-    from the v16b originals). Hermetic when lookup/llm_transport injected;
+    archive owner transport, resume file pilot_topic_progress.json
+    (separate from the v16b originals). Hermetic when
+    lookup/llm_transport injected;
     without an LLM transport an Other stays Other (no network in tests).
     Returns {"label", "method", "vector", "topic_path"} with method tag
     "v16b-exact"; "topic_path" is the leg taken ("leg1" deterministic v16
@@ -2649,30 +2679,170 @@ def validate_card_obj(obj, timings=None):
                 + (time.perf_counter() - start)
 
 
-def call_responses(api_key, model, system, user, timeout=CALL_TIMEOUT):
-    body = json.dumps({"model": model, "input": [
-        {"role": "system", "content": system}, {"role": "user", "content": user}],
-        "reasoning": {"effort": "minimal"},
-        "max_output_tokens": 2000}).encode()
+def _parse_env_file(path):
+    """Key=value pairs from a dotenv file (first wins); missing -> {}.
+
+    Mirrors factory/pipeline/blind50.py load_keys parsing (same owner
+    layout); never logs values — the caller only checks emptiness.
+    """
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key, val = key.strip(), val.strip().strip("'\"")
+                if key and val and key not in out:
+                    out[key] = val
+    except OSError:
+        pass
+    return out
+
+
+def load_provider_key(provider, env=None, factory_env_path=None,
+                      egress_env_path=None):
+    """Provider API key: env > factory/.env > tools/egress/.env.
+
+    Mirrors factory/pipeline/blind50.py load_keys order (env wins, then
+    factory, then egress). Returns "" when absent (caller fails loud).
+    """
+    if factory_env_path is None:
+        factory_env_path = str(FACTORY_DIR / ".env")
+    if egress_env_path is None:
+        egress_env_path = str(REPO_ROOT / "tools" / "egress" / ".env")
+    merged = {}
+    merged.update(_parse_env_file(egress_env_path))
+    merged.update(_parse_env_file(factory_env_path))
+    merged.update({k: v for k, v in ((env if env is not None else os.environ)
+                                     or {}).items() if v})
+    return merged.get(PROVIDER_KEY_NAME[provider], "")
+
+
+def _google_card_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
+    """Google-direct card transport (Gemini REST generateContent).
+
+    Mirrors factory/pipeline/precard_pipeline.py _google_chat_transport
+    shape (JSON mime + MINIMAL thinking + temperature 0.0): the card
+    call carries system+user, so both texts are joined into the single
+    contents part. HTTP errors propagate untouched (429 is rotation
+    fuel; 401/403 aborts loud in direct mode). No usage counters on
+    this API shape — plain text is returned. Never logs the key.
+    """
+    text = "%s\n\n%s" % (system or "", user or "")
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
+    }).encode("utf-8")
     req = urllib.request.Request(
-        ZEN_BASE + "/responses", data=body,
-        headers={"Authorization": "Bearer %s" % api_key,
-                 "Content-Type": "application/json",
+        GOOGLE_GENERATE_URL % model, data=payload,
+        headers={"Content-Type": "application/json",
+                 "x-goog-api-key": api_key,
+                 "User-Agent": "HamZaban-factory/1.0 (card pilot)",
+                 "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"] or ""
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
+def _avalai_card_transport(api_key, model, system, user,
+                           timeout=CALL_TIMEOUT):
+    """AvalAI card transport (OpenAI-compatible chat completions).
+
+    Mirrors factory/pipeline/precard_pipeline.py _avalai_chat_transport
+    (temperature 0 + reasoning_effort low, belt-and-suspenders): the
+    card call carries system+user, so both ride as chat messages.
+    Returns (text, usage-or-None) like the precard shape (telemetry
+    records tokens None-tolerated). Never logs the key.
+    """
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "system", "content": system or ""},
+                     {"role": "user", "content": user or ""}],
+        "temperature": 0,
+        "reasoning_effort": "low",
+        "extra_body": {"reasoning_effort": "low"},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        AVALAI_CHAT_URL, data=payload,
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key,
                  "User-Agent": "HamZaban-factory/1.0 (card pilot)",
                  "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.load(resp)
-    parts = []
-    for out_item in data.get("output", []):
-        for chunk in out_item.get("content", []):
-            if chunk.get("type") == "output_text":
-                parts.append(chunk.get("text", ""))
-    return "".join(parts)
+    msg = ((data.get("choices") or [{}])[0].get("message", {})
+           if isinstance(data, dict) else {})
+    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+    return (msg.get("content") or "",
+            (usage if isinstance(usage, dict) else None))
+
+
+class _SupervisorClient:
+    """Minimal supervisor lease/report client (stdlib only).
+
+    Mirrors factory/pipeline/blind50.py _SupervisorClient lease/report
+    shapes without importing the egress tree (factory runners stay
+    stdlib-only). Constructed ONLY when --supervisor is set (opt-in).
+    """
+
+    def __init__(self, base_url, token=""):
+        self._base = (base_url or "").rstrip("/")
+        self._token = token or ""
+
+    def _call(self, path, payload):
+        body = json.dumps(payload or {}).encode()
+        req = urllib.request.Request(
+            self._base + path, data=body,
+            headers={"Content-Type": "application/json",
+                      "Authorization": "Bearer " + self._token})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.load(resp)
+
+    def lease(self, target):
+        """Lease an egress target (google/avalai)."""
+        return self._call("/v1/lease", {"target": target})
+
+    def report(self, lease_id, outcome, provider=None):
+        """Report outcome (ok|http429|net_err|auth_err|unknown).
+
+        provider selects per-(server,provider) cooldowns.
+        """
+        payload = {"lease_id": lease_id, "outcome": outcome}
+        if provider is not None:
+            payload["provider"] = provider
+        return self._call("/v1/report", payload)
+
+
+def _apply_leased_proxy(lease):
+    """Route this process via the leased proxy (mirror
+    tools/egress/run_with_lease.py: HTTPS_PROXY/HTTP_PROXY set, NO_PROXY
+    keeps domestic hosts direct). Returns the proxy url ("" when none).
+    """
+    proxy = (lease or {}).get("proxy_url") or ""
+    if proxy:
+        os.environ["HTTPS_PROXY"] = proxy
+        os.environ["HTTP_PROXY"] = proxy
+        no_proxy = os.environ.get("NO_PROXY", "")
+        domestic = [h for h in NO_PROXY_DOMESTIC.split(",") if h]
+        if no_proxy:
+            domestic = (no_proxy.split(",") + domestic)
+        os.environ["NO_PROXY"] = ",".join(dict.fromkeys(
+            h.strip() for h in domestic if h.strip()))
+    return proxy
 
 
 def generate_card(item, api_key, transport=None, model_calls=None,
                    timings=None, telemetry=None, tele_stage="card",
-                   tele_batch=0, tele_key_idx=0, cloze_zipf_fn=None):
+                   tele_batch=0, tele_key_idx=0, cloze_zipf_fn=None,
+                   models=None):
     """Generate + validate one card. Failures recorded, never raised.
 
     Only auth failures (401/403 via AuthError) propagate to abort loudly.
@@ -2705,8 +2875,15 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     stored pre-card values in code, discards kept-tamper alterations +
     flags them. Legacy full-card replies are still accepted (robustness:
     older transports / retry echoes fall through the unchanged path).
+    R1: generation runs on the single selected provider model (models,
+    default google default; main() always passes [args.model]
+    explicitly). Only auth failures (401/403 via AuthError) propagate
+    to abort loudly (direct mode; leased mode rotates instead).
+    R-fields: sense_cefr/sense_cefr_method/register/lexical_type ride
+    from the item into the record (gallery meta chips).
     """
-    transport = transport or call_responses
+    transport = transport or _google_card_transport
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     if model_calls is None:
         model_calls = {}
     try:
@@ -2730,6 +2907,10 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                 "topic_method": item.get("topic_method", ""),
                 "topic_vector": list(item.get("topic_vector") or []),
                 "pos": [], "pos_src": item.get("pos_src", "none"),
+                "sense_cefr": item.get("sense_cefr", ""),
+                "sense_cefr_method": item.get("sense_cefr_method", ""),
+                "register": item.get("register", ""),
+                "lexical_type": item.get("lexical_type", ""),
                 "abbrev_expansion": (item.get("abbrev_expansion") or ""),
                 "content_flags": dict(item.get("content_flags") or {}),
                 "grammar_review": None,
@@ -2768,11 +2949,15 @@ def generate_card(item, api_key, transport=None, model_calls=None,
               "en_source": "dataset" if item.get("en_def") else "none",
               "sense_candidates": list(item.get("sense_candidates") or []),
               "also_sense": item.get("also_sense"),
-              "topic": item.get("topic", ""),
-              "topic_method": item.get("topic_method", ""),
-              "topic_vector": list(item.get("topic_vector") or []),
-              "pos": pos_list, "pos_src": item.get("pos_src", "none"),
-              "abbrev_expansion": (item.get("abbrev_expansion") or ""),
+                "topic": item.get("topic", ""),
+                "topic_method": item.get("topic_method", ""),
+                "topic_vector": list(item.get("topic_vector") or []),
+                "pos": pos_list, "pos_src": item.get("pos_src", "none"),
+                "sense_cefr": item.get("sense_cefr", ""),
+                "sense_cefr_method": item.get("sense_cefr_method", ""),
+                "register": item.get("register", ""),
+                "lexical_type": item.get("lexical_type", ""),
+                "abbrev_expansion": (item.get("abbrev_expansion") or ""),
               "content_flags": dict(item.get("content_flags") or {}),
               "grammar_review": None,
               "ipa": item.get("ipa", ""),
@@ -2791,7 +2976,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
               "model_calls": dict(model_calls or {})}
     last_error = ""
     regen_used = False
-    for model in MODELS:
+    for model in chain:
         for attempt in range(MAX_ATTEMPTS):
             prompt = user if attempt == 0 else REPAIR_PREFIX + user
             try:
@@ -2992,14 +3177,14 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     return record
 
 
-# R30 v8 — grammar fact-review (Muse chain, batch 16, tips are short).
+# R30 v8 — grammar fact-review (single provider model, batch 16, tips
+# are short).
 # Wired as a card_pilot POST-STEP (tips exist only after generation, so a
 # precard S5b stage could never see them — stated choice). Batched pass
 # review_grammar_tips + resume in review_records_grammar + fail-closed
 # (review infra failure keeps the original tip; a rejected tip gets 1
 # focused regen of the tip field only, then the outcome is recorded).
 GRAMMAR_REVIEW_BATCH = 16
-GRAMMAR_REVIEW_MODELS = MODELS[:2]
 GRAMMAR_REVIEW_SYS = (
     "You are an English grammar fact-checker for Persian learners. "
     "Given word/sense-gloss/tip, reply {ok:bool, problem:string}. Reject "
@@ -3069,19 +3254,21 @@ def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
 
 
 def review_grammar_tips(items, transport, api_key="", model_calls=None,
-                        telemetry=None, tele_stage="grammar-review",
-                        tele_key_idx=0):
+                         telemetry=None, tele_stage="grammar-review",
+                         tele_key_idx=0, models=None):
     """R30: batched grammar fact-check. Returns {key: {ok, problem, model}}.
 
-    Muse-only chain (MODELS[:2]), batch 16, 2 attempts per model. Auth
-    (401/403) aborts loudly; any other failure fails closed per item to
-    {ok: True, problem: "", model: "review-fallback"} (a broken reviewer
-    must never sink cards). Hermetic with an injected transport.
-    Tuple (text, usage) transports surface token counts into one
-    terminal telemetry record per batch (None-tolerated).
+    R1: runs on the single selected provider model (models, default
+    google default; main() passes [args.model]). Batch 16, 2 attempts.
+    Auth (401/403) aborts loudly; any other failure fails closed per
+    item to {ok: True, problem: "", model: "review-fallback"} (a broken
+    reviewer must never sink cards). Hermetic with an injected
+    transport. Tuple (text, usage) transports surface token counts into
+    one terminal telemetry record per batch (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items), GRAMMAR_REVIEW_BATCH), start=1):
@@ -3090,7 +3277,7 @@ def review_grammar_tips(items, transport, api_key="", model_calls=None,
         prompt = _grammar_review_prompt(batch)
         settled = False
         win_model, win_usage = "review-fallback", None
-        for model in GRAMMAR_REVIEW_MODELS:
+        for model in chain:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
@@ -3142,17 +3329,19 @@ def review_grammar_tips(items, transport, api_key="", model_calls=None,
 
 
 def regen_grammar_tip(item_text, en_def, bad_tip, problem, api_key,
-                      transport, model_calls=None,
-                      telemetry=None, tele_stage="grammar-review",
-                      tele_key_idx=0):
+                       transport, model_calls=None,
+                       telemetry=None, tele_stage="grammar-review",
+                       tele_key_idx=0, models=None):
     """R30: 1 focused regen of the tip field only. Returns the new tip.
 
     Returns "" when the regen fails (caller keeps the original tip and
     records the outcome — fail-closed). The winning attempt's surfaced
-    tokens are telemetry-recorded (None-tolerated).
+    tokens are telemetry-recorded (None-tolerated). R1: single
+    provider model (models, default google default).
     """
     if model_calls is None:
         model_calls = {}
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     user_text = (
         "Word: %s\nSense gloss: %s\nRejected tip: %s\nProblem: %s\n"
         "Write ONE correct short grammar tip in Persian about this word "
@@ -3160,7 +3349,7 @@ def regen_grammar_tip(item_text, en_def, bad_tip, problem, api_key,
         'Output: {"grammar_tip": "..."}.'
         % (item_text or "", (en_def or "")[:200], (bad_tip or "")[:500],
            (problem or "")[:500]))
-    for model in GRAMMAR_REVIEW_MODELS:
+    for model in chain:
         try:
             model_calls[model] = model_calls.get(model, 0) + 1
             res = transport(api_key, model, GRAMMAR_REGEN_SYS, user_text)
@@ -3208,8 +3397,9 @@ def _save_review_progress(path, state):
 
 
 def review_records_grammar(records, api_key, transport=None, model_calls=None,
-                           progress_path=None, telemetry=None,
-                           tele_stage="grammar-review", tele_key_idx=0):
+                            progress_path=None, telemetry=None,
+                            tele_stage="grammar-review", tele_key_idx=0,
+                            models=None):
     """R30 post-step: fact-check valid records' tips, 1 focused regen each.
 
     Mutates records in place: rec["grammar_review"] = {verdict
@@ -3218,7 +3408,8 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
     (checked, regens). Fail-closed: review errors keep the original tip.
     transport=None skips the pass entirely (hermetic tests): records are
     untouched, (0, 0) returned. Telemetry (when given) is forwarded to
-    the verdict + regen transports (tokens None-tolerated).
+    the verdict + regen transports (tokens None-tolerated). R1: the
+    review + regen run on the single selected provider model (models).
     """
     if transport is None:
         return 0, 0
@@ -3252,7 +3443,7 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
                  for r in batch],
                 transport, api_key, model_calls,
                 telemetry=telemetry, tele_stage=tele_stage,
-                tele_key_idx=tele_key_idx)
+                tele_key_idx=tele_key_idx, models=models)
         except AuthError:
             raise
         except Exception:
@@ -3278,7 +3469,7 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
                         verdict.get("problem") or "", api_key, transport,
                         model_calls, telemetry=telemetry,
                         tele_stage=tele_stage,
-                        tele_key_idx=tele_key_idx)
+                        tele_key_idx=tele_key_idx, models=models)
                 except AuthError:
                     raise
                 except Exception:
@@ -3301,12 +3492,11 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
 
 # R41b — LLM sense-consistency micro-pass for token-undecided cards.
 # The deterministic check returns True (overlap: pass) or None (paraphrase
-# gap: undecided). Undecided cards reach this batched pass: Muse-only
-# chain, batch 8, resume via sense_coherence_progress.json. False ->
+# gap: undecided). Undecided cards reach this batched pass: single
+# provider model, batch 8, resume via sense_coherence_progress.json. False ->
 # valid=False reason sense-incoherence (REJECT per R41). Errors fail
 # closed KEEP (review-uncertain) — a broken reviewer must never sink cards.
 SENSE_REVIEW_BATCH = 8
-SENSE_REVIEW_MODELS = MODELS[:2]
 SENSE_REVIEW_SYS = (
     "You are a lexicographer checking sense consistency for Persian "
     "learners of English. Given an anchor sense gloss and a card built "
@@ -3335,11 +3525,12 @@ def _sense_review_prompt(batch):
 
 
 def review_sense_items(items, transport, api_key="", model_calls=None,
-                       telemetry=None, tele_stage="sense-review",
-                       tele_key_idx=0):
+                        telemetry=None, tele_stage="sense-review",
+                        tele_key_idx=0, models=None):
     """R41b: batched sense-consistency check. Returns {key: {...}}.
 
-    Muse-only chain, 2 attempts per model. Auth aborts loudly; any other
+    R1: single selected provider model (models, default google
+    default), 2 attempts. Auth aborts loudly; any other
     failure fails closed per item to {coherent: True, ...review-uncertain}.
     Hermetic with an injected transport. Tuple (text, usage) transports
     surface token counts into one terminal telemetry record per batch
@@ -3347,6 +3538,7 @@ def review_sense_items(items, transport, api_key="", model_calls=None,
     """
     if model_calls is None:
         model_calls = {}
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items), SENSE_REVIEW_BATCH), start=1):
@@ -3355,7 +3547,7 @@ def review_sense_items(items, transport, api_key="", model_calls=None,
         prompt = _sense_review_prompt(batch)
         settled = False
         win_model, win_usage = "review-fallback", None
-        for model in SENSE_REVIEW_MODELS:
+        for model in chain:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
@@ -3408,8 +3600,9 @@ def review_sense_items(items, transport, api_key="", model_calls=None,
 
 
 def review_records_sense(records, api_key, transport=None, model_calls=None,
-                         progress_path=None, telemetry=None,
-                         tele_stage="sense-review", tele_key_idx=0):
+                          progress_path=None, telemetry=None,
+                          tele_stage="sense-review", tele_key_idx=0,
+                          models=None):
     """R41b post-step: judge token-undecided valid records, reject mismatch.
 
     Mutates records in place: rec["sense_coherence"] = {verdict
@@ -3417,6 +3610,7 @@ def review_records_sense(records, api_key, transport=None, model_calls=None,
     get valid=False reason sense-incoherence. Resume via progress_path.
     transport=None skips entirely (hermetic tests): (0, 0). Telemetry
     (when given) is forwarded to the review transport (None-tolerated).
+    R1: the micro-pass runs on the single selected provider model.
     """
     if transport is None:
         return 0, 0
@@ -3445,7 +3639,7 @@ def review_records_sense(records, api_key, transport=None, model_calls=None,
                  for r in batch],
                 transport, api_key, model_calls,
                 telemetry=telemetry, tele_stage=tele_stage,
-                tele_key_idx=tele_key_idx)
+                tele_key_idx=tele_key_idx, models=models)
         except AuthError:
             raise
         except Exception:
@@ -3493,7 +3687,6 @@ def _apply_sense_review(rec, review):
 # item["content_flags"]). Wired as a card_pilot PRE-STEP (examples are
 # known before generation in both sampling and precard modes).
 CONTENT_REVIEW_BATCH = 16
-CONTENT_REVIEW_MODELS = MODELS[:2]
 CONTENT_REVIEW_SYS = (
     "You are a content appropriateness reviewer for English learners. "
     "Given dataset example sentences, reply {flagged:bool, reason:string}. "
@@ -3520,19 +3713,22 @@ def _content_review_prompt(batch):
 
 
 def review_dataset_examples(items, transport, api_key="", model_calls=None,
-                              telemetry=None, tele_stage="content-gate",
-                              tele_key_idx=0):
+                               telemetry=None, tele_stage="content-gate",
+                               tele_key_idx=0, models=None):
     """R31: batched appropriateness review.
 
     items: [{key, examples[]}]. Returns {key: {flagged:[exact examples],
-    reason, model}}. Flagged entries not quoting a given example exactly
-    are dropped. Auth aborts loudly; anything else fails closed to
-    {flagged: [], ...} (fail-open keep — a broken reviewer never drops
-    dataset content). Tuple (text, usage) transports surface token counts
-    into one terminal telemetry record per batch (None-tolerated).
+    reason, model}}. R1: single selected provider model (models,
+    default google default). Flagged entries not quoting a given
+    example exactly are dropped. Auth aborts loudly; anything else
+    fails closed to {flagged: [], ...} (fail-open keep — a broken
+    reviewer never drops dataset content). Tuple (text, usage)
+    transports surface token counts into one terminal telemetry record
+    per batch (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items), CONTENT_REVIEW_BATCH), start=1):
@@ -3542,7 +3738,7 @@ def review_dataset_examples(items, transport, api_key="", model_calls=None,
         prompt = _content_review_prompt(batch)
         settled = False
         win_model, win_usage = "review-fallback", None
-        for model in CONTENT_REVIEW_MODELS:
+        for model in chain:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
@@ -3598,8 +3794,9 @@ def review_dataset_examples(items, transport, api_key="", model_calls=None,
 
 
 def run_content_gate(items, api_key, transport=None, model_calls=None,
-                     progress_path=None, sleep_fn=None, telemetry=None,
-                     tele_stage="content-gate", tele_key_idx=0):
+                      progress_path=None, sleep_fn=None, telemetry=None,
+                      tele_stage="content-gate", tele_key_idx=0,
+                      models=None):
     """R31 pre-step: review dataset examples, set item["content_flags"].
 
     {example: reason} per item; flagged examples are released by
@@ -3609,6 +3806,7 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
     transport=None skips the gate entirely (hermetic tests / dry runs):
     items only get the default empty content_flags. Telemetry (when
     given) is forwarded to the review transport (None-tolerated).
+    R1: the review runs on the single selected provider model (models).
     """
     if transport is None:
         for item in items or []:
@@ -3635,7 +3833,7 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
                  for i in batch],
                 transport, api_key, model_calls,
                 telemetry=telemetry, tele_stage=tele_stage,
-                tele_key_idx=tele_key_idx)
+                tele_key_idx=tele_key_idx, models=models)
         except AuthError:
             raise
         except Exception:
@@ -3661,16 +3859,17 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
     return (flagged_total,)
 
 
-# R36 v9 — inflection judge (batched LLM micro-pass, Muse chain).
+# R36 v9 — inflection judge (batched LLM micro-pass, single provider
+# model).
 # Items whose anchor gloss is an inflection stub ("plural of X", "past
 # of X", ...) are reviewed: keep IFF the inflected form has its own
 # learner value (irregulars, common usage as a headword), else drop in
 # favor of the base lemma. Same conventions as the R30/R31 review
-# passes (MODELS[:2], 2 attempts, repair prefix, hermetic with an
+# passes (single provider model, 2 attempts, repair prefix, hermetic
+# with an
 # injected transport). Fail-closed: any error keeps the item (never
 # drop on uncertainty) with the review-uncertain flag.
 INFLECTION_REVIEW_BATCH = 16
-INFLECTION_REVIEW_MODELS = MODELS[:2]
 INFLECTION_REVIEW_SYS = (
     "You are an English learner-dictionary editor for Persian learners. "
     "Given an inflected word form and its dictionary gloss, reply "
@@ -3714,21 +3913,23 @@ def _inflection_review_prompt(batch):
 
 
 def inflection_review(items, transport, api_key="", model_calls=None,
-                      telemetry=None, tele_stage="s0b",
-                      tele_key_idx=0):
+                       telemetry=None, tele_stage="s0b",
+                       tele_key_idx=0, models=None):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
-    model:str, uncertain:bool}}. keep=False only on an explicit LLM
-    drop verdict; every failure (transport error, bad JSON, envelope
-    mismatch) fails closed to {keep: True, uncertain: True} flagged
-    review-uncertain (never drop on uncertainty). Auth aborts loudly.
-    Hermetic with an injected transport. Tuple (text, usage) transports
-    surface token counts into one terminal telemetry record per batch
-    (None-tolerated).
+    model:str, uncertain:bool}}. R1: single selected provider model
+    (models, default google default). keep=False only on an explicit
+    LLM drop verdict; every failure (transport error, bad JSON,
+    envelope mismatch) fails closed to {keep: True, uncertain: True}
+    flagged review-uncertain (never drop on uncertainty). Auth aborts
+    loudly. Hermetic with an injected transport. Tuple (text, usage)
+    transports surface token counts into one terminal telemetry record
+    per batch (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
+    chain = list(models) if models else [PROVIDER_DEFAULT_MODEL["google"]]
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
@@ -3737,7 +3938,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         prompt = _inflection_review_prompt(batch)
         settled = False
         win_model, win_usage = "review-fallback", None
-        for model in INFLECTION_REVIEW_MODELS:
+        for model in chain:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
@@ -4666,6 +4867,48 @@ def render_diff_table(rec, card):
         "</div>\n%s\n</div>" % "\n".join(rows))
 
 
+def _meta_chip_row(rec):
+    """Design A per-card meta chip row: CEFR + pos + topic + register +
+    lexical_type (one chip each; FA row label dir=rtl, EN values in
+    isolated dir=ltr spans). Empty values are skipped (legacy records
+    without the R-fields render the row from pool_level/pos/topic)."""
+    rec = rec or {}
+    chips = []
+    cefr = ((rec.get("sense_cefr") or "").strip()
+            or (rec.get("pool_level") or "").strip())
+    if cefr:
+        chips.append('<span class="tchip">CEFR '
+                     '<span class="en" dir="ltr" lang="en">%s</span></span>'
+                     % esc(cefr))
+        method = (rec.get("sense_cefr_method") or "").strip()
+        if method:
+            chips.append('<span class="srctag"><span class="en">[%s]</span>'
+                         '</span>' % esc(method))
+    pos_raw = rec.get("pos")
+    pos_tags = [t.strip() for t in (
+        pos_raw if isinstance(pos_raw, list)
+        else ([pos_raw] if pos_raw else []))
+        if isinstance(t, str) and t.strip()][:3]
+    for tag in pos_tags:
+        chips.append('<span class="tchip"><span class="en" dir="ltr" '
+                     'lang="en">%s</span></span>' % esc(tag))
+    topic = (rec.get("topic") or "").strip()
+    if topic:
+        chips.append('<span class="tchip"><span class="en" dir="ltr" '
+                     'lang="en">%s</span></span>' % esc(topic))
+    for value in ((rec.get("register") or "").strip(),
+                  (rec.get("lexical_type") or "").strip()):
+        if value:
+            chips.append('<span class="tchip"><span class="en" dir="ltr" '
+                         'lang="en">%s</span></span>' % esc(value))
+    if not chips:
+        return ""
+    return ('<div class="dh-row meta"><div class="dh-label" dir="rtl" '
+            'lang="fa">نشان‌ها</div>'
+            '<div class="blk" dir="rtl" lang="fa">%s</div></div>'
+            % " ".join(chips))
+
+
 def render_diff_header(rec, phrase_types=None):
     """R14: stage-strip essentials folded into the diff header.
 
@@ -4772,7 +5015,7 @@ def render_diff_header(rec, phrase_types=None):
         "%s%s"
         '<div class="dh-row"><div class="dh-label" dir="rtl" lang="fa">'
         "موضوع</div>%s</div>"
-        "%s%s"
+        "%s%s%s"
         '<div class="dh-row"><div class="dh-label" dir="rtl" lang="fa">'
         "مدل</div>%s</div>"
         '<div class="dh-row chips-row">%s</div>'
@@ -4782,7 +5025,7 @@ def render_diff_header(rec, phrase_types=None):
            _blk_en("[%s]" % en_source) if en_source else "",
            cand_row, also_row,
            _topic_chips_html(rec),
-           pos_row, type_row,
+           _meta_chip_row(rec), pos_row, type_row,
            _blk_en(model_used),
            " ".join(checks)))
 
@@ -4959,13 +5202,14 @@ def render_gallery(cards, meta, phrase_types=None):
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>گذرنامه کارت‌ها</title>\n"
         "<style>\n"
-        ":root{--ink:#241f18;--muted:#6f6455;--line:#d8cbb4;"
-        "--paper:#efe7d8;--card:#f6f0e3;--soft:#e7dcc6;--accent:#8a5a2b;"
-        "--kept:#33602a;--kept-soft:#dcebd3;"
-        "--filled:#2f5b88;--filled-soft:#dbe7f4;"
-        "--improved:#7c5515;--improved-soft:#f5e8cb;"
-        "--error:#8f2f2f;--error-soft:#f4dbdb;"
-        "--taggray:#6b6b6b;--taggray-soft:#e3e0d8;--radius:12px;}\n"
+        # Gallery Design A: dark wave9 theme (v12 structure kept).
+        ":root{--ink:#e9eaf2;--muted:#9aa0b5;--line:#2c2e4a;"
+        "--paper:#101322;--card:#181b30;--soft:#1f2338;--accent:#e8b64c;"
+        "--kept:#4ade80;--kept-soft:#14291c;"
+        "--filled:#7cb3ff;--filled-soft:#16263e;"
+        "--improved:#e8b64c;--improved-soft:#2e2510;"
+        "--error:#f87171;--error-soft:#331a1a;"
+        "--taggray:#9aa0b5;--taggray-soft:#23263d;--radius:12px;}\n"
         "*{box-sizing:border-box;}\n"
         "body{font-family:Vazirmatn,\"Segoe UI\",Tahoma,sans-serif;margin:0;"
         "color:var(--ink);line-height:2.1;background:var(--paper);}\n"
@@ -5040,7 +5284,7 @@ def render_gallery(cards, meta, phrase_types=None):
         ".diff-row{display:grid;grid-template-columns:7em 1fr auto 1fr;"
         "gap:.8em;align-items:start;border-bottom:1px dashed var(--line);"
         "padding:.6em 0;}\n"
-        ".diff-row:nth-child(even){background:rgba(255,255,255,.28);}\n"
+        ".diff-row:nth-child(even){background:rgba(255,255,255,.04);}\n"
         ".diff-head{font-weight:700;border-bottom:2px solid var(--line);}\n"
         ".diff-label{font-weight:700;}\n"
         ".diff-pre,.diff-fin{min-width:0;}\n"
@@ -5095,8 +5339,10 @@ def render_gallery(cards, meta, phrase_types=None):
         + '<div class="blk en" dir="ltr" lang="en">'
         + ", ".join("%s: %d" % (m, n) for m, n in calls.items())
         + "</div>\n"
-        + '<div class="blk" dir="rtl" lang="fa">هزینه مورد انتظار: $0 '
-        "(زنجیره رایگان)</div>\n"
+        + '<div class="blk" dir="rtl" lang="fa">ارائه‌دهنده</div>\n'
+        + '<div class="blk en" dir="ltr" lang="en">'
+        + esc("%s / %s" % (meta.get("provider") or "—",
+                           meta.get("model") or "—")) + "</div>\n"
         + '<div class="blk" dir="rtl" lang="fa">روش موضوع</div>\n'
         + '<div class="blk en" dir="ltr" lang="en">v16b-exact</div>\n'
         + '<div class="blk" dir="rtl" lang="fa">مسیر دقیق v16b (قطعی v16 از '
@@ -5159,6 +5405,10 @@ def load_precard_items(path):
             "topic": vec[0]["label"] if vec else "",
             "topic_method": PIPELINE_METHOD_TAG,
             "topic_vector": vec,
+            "sense_cefr": rec.get("sense_cefr", ""),
+            "sense_cefr_method": rec.get("sense_cefr_method", ""),
+            "register": rec.get("register", ""),
+            "lexical_type": rec.get("lexical_type", ""),
             "ipa": rec.get("ipa", ""),
             "ipa_src": rec.get("ipa_src", IPA_SRC_MODEL),
             "dataset_examples": list(rec.get("dataset_examples") or []),
@@ -5168,8 +5418,25 @@ def load_precard_items(path):
     return items
 
 
+def sample_precard_items(items, n_cards=N_CARDS_DEFAULT, seed=SEED):
+    """R5: reproducible random.sample of precard items.
+
+    Same seed+file = same cards (random.Random(seed)). Short inputs
+    keep every item (never drops, never pads); kind mix kept as-is
+    (no stratification).
+    """
+    items = list(items or [])
+    try:
+        want = int(n_cards)
+    except (TypeError, ValueError):
+        return items
+    if want <= 0 or len(items) <= want:
+        return items
+    return random.Random(seed).sample(items, want)
+
+
 # Sentinel for main() review transports: _DEFAULT means the real
-# call_responses leg; None means skip the gate (hermetic tests).
+# provider leg; None means skip the gate (hermetic tests).
 _DEFAULT_REVIEW_TRANSPORT = object()
 
 
@@ -5194,6 +5461,26 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                     help="opportunistic phrase-type audit log for the "
                     "gallery display (missing file = unjudged, never fails)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--provider", default="google",
+                    choices=PROVIDERS,
+                    help="LLM provider for content generation AND all "
+                    "review gates (default google).")
+    ap.add_argument("--model", default="",
+                    help="provider model (default per provider: "
+                    "google=gemini-3.5-flash-lite, avalai=glm-5.3-flash).")
+    ap.add_argument("--gen-batch", type=int, default=GEN_BATCH_DEFAULT,
+                    help="generation batch size, clamped to [%d,%d] "
+                    "(fail-fast SystemExit outside; review batches "
+                    "16/8/16 untouched)." % (GEN_BATCH_MIN, GEN_BATCH_MAX))
+    ap.add_argument("--n-cards", type=int, default=N_CARDS_DEFAULT,
+                    help="--from-precard sampling: reproducible "
+                    "random.sample of precard items (seed --seed, kind "
+                    "mix kept as-is).")
+    ap.add_argument("--supervisor", default="",
+                    help="supervisor base URL for opt-in lease/report "
+                    "(empty=off: direct behavior, zero change).")
+    ap.add_argument("--sup-token", default="",
+                    help="supervisor bearer token.")
     ap.add_argument("--from-precard", default="",
                     help="pre-card pipeline file (precard.jsonl): when given, "
                     "sampling/anchor/topic/enrichment are SKIPPED and items "
@@ -5211,6 +5498,13 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         render_only(args.out_dir, args.report)
         return 0
 
+    # R4 — gen-batch clamp [8,16], fail-fast before touching disk/keys.
+    if not (GEN_BATCH_MIN <= args.gen_batch <= GEN_BATCH_MAX):
+        sys.exit("bad --gen-batch %d: want [%d,%d]"
+                 % (args.gen_batch, GEN_BATCH_MIN, GEN_BATCH_MAX))
+    provider = args.provider
+    model = args.model or PROVIDER_DEFAULT_MODEL[provider]
+
     precard_sample = None
     if args.from_precard:
         try:
@@ -5218,6 +5512,9 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         except OSError as exc:
             sys.exit("cannot load pre-card %s: %s"
                      % (args.from_precard, exc))
+        # R5 — reproducible sample of the precard file (seed --seed).
+        precard_sample = sample_precard_items(
+            precard_sample, args.n_cards, args.seed)
         if args.dry_run:
             print("dry-run: %d pre-card items from %s, no files written, "
                   "no network calls"
@@ -5247,6 +5544,14 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         print("dry-run: %d words + %d phrases sampled, no files written, "
               "no network calls" % (args.n_words, args.n_phrases))
         return 0
+
+    # R1 — provider key (env > factory/.env > tools/egress/.env).
+    # Fail-fast: no key, no run. No fallback across providers.
+    key_name = PROVIDER_KEY_NAME[provider]
+    api_key = load_provider_key(provider)
+    if not api_key:
+        sys.exit("no %s (provider %s needs it: env > factory/.env > "
+                 "tools/egress/.env)" % (key_name, provider))
 
     tele_store = []  # R27: per-attempt records (key_idx only, never values)
     if precard_sample is not None:
@@ -5281,11 +5586,6 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         gloss_s = 0.0
         print("using pre-card items (%d from %s): anchor/topic/ "
               "enrichment skipped" % (len(sample), args.from_precard))
-        from factory.core.env_loader import load_factory_env
-        try:
-            _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
-        except KeyError as exc:
-            sys.exit("missing env: %s" % exc)
     else:
         sample_path = out_dir / "sample.json"
         if sample_path.exists():
@@ -5297,12 +5597,14 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                                      row["length"])
 
         gloss_start = time.perf_counter()
-        from factory.core.env_loader import load_factory_env
-        try:
-            _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
-        except KeyError as exc:
-            sys.exit("missing env: %s" % exc)
-        _topic_key = _env.get("OPENCODE_ZEN_API_KEY", "")
+        # Legacy sampling path: the archive topic top-up leg still reads
+        # the Zen key best-effort (no hard requirement — precard mode is
+        # Zen-free; an empty key fails loud at the top-up call, never
+        # silent).
+        _zen_key = os.environ.get("OPENCODE_ZEN_API_KEY", "") \
+            or _parse_env_file(
+                str(FACTORY_DIR / ".env")).get("OPENCODE_ZEN_API_KEY", "")
+        _topic_key = _zen_key
         from factory.archive.v14_v16.run_v16b_topup import call_responses as _topup_transport
         topic_calls = {}
         topic_prog = out_dir / PILOT_TOPIC_PROGRESS
@@ -5339,10 +5641,90 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # pass exists, so log it honestly instead of a fake ok=len(sample).
     run_logger.log("stage anchor done inside sample stage (no separate pass)")
 
-    env = _env
-    api_key = env["OPENCODE_ZEN_API_KEY"]
-    if not api_key:
-        sys.exit("no OPENCODE_ZEN_API_KEY in factory/.env")
+    # R1 — content + review transports for the selected provider.
+    if provider == "avalai":
+        content_transport = _avalai_card_transport
+    else:
+        content_transport = _google_card_transport
+    chain = [model]
+
+    # R2 — opt-in leased egress (unset = direct, zero change): lease
+    # target=provider once per run, ride the proxy via process env.
+    sup = None
+    lease_id = ""
+    sup_state = {"rotations": 0}
+    if args.supervisor:
+        sup = _SupervisorClient(args.supervisor, args.sup_token)
+        try:
+            _lease = sup.lease(provider)
+        except Exception as exc:
+            raise SystemExit(
+                "supervisor lease failed for %s: %s" % (provider, exc))
+        if (not isinstance(_lease, dict) or _lease.get("error")
+                or not _lease.get("lease_id")):
+            detail = (_lease.get("message") if isinstance(_lease, dict)
+                      else _lease)
+            raise SystemExit(
+                "supervisor lease failed for %s: %s" % (provider, detail))
+        lease_id = _lease.get("lease_id", "")
+        _apply_leased_proxy(_lease)
+        print("supervisor: leased %s proxy=%s" % (
+            provider, "yes" if (_lease.get("proxy_url") or "") else "no"))
+
+    def _sup_report(outcome):
+        if sup is None or not lease_id:
+            return
+        try:
+            sup.report(lease_id, outcome, provider=provider)
+        except Exception as exc:  # noqa: BLE001 (best-effort, warn-and-continue)
+            print("supervisor report failed: %s" % exc, flush=True)
+
+    def _flush_progress():
+        _atomic_write_text(prog_path, json.dumps(
+            {"done": done, "failed": [k for k, v in done.items()
+                                      if not v.get("valid")],
+             "model_calls": model_calls}, ensure_ascii=False))
+
+    def _sup_rotate():
+        """Re-lease after a 429/403. True = rotated, False = budget spent."""
+        if sup_state["rotations"] >= SUPERVISOR_ROTATE_MAX:
+            return False
+        sup_state["rotations"] += 1
+        try:
+            _lease = sup.lease(provider)
+        except Exception as exc:
+            raise SystemExit(
+                "supervisor re-lease failed for %s: %s" % (provider, exc))
+        if (not isinstance(_lease, dict) or _lease.get("error")
+                or not _lease.get("lease_id")):
+            raise SystemExit(
+                "supervisor re-lease failed for %s" % provider)
+        _apply_leased_proxy(_lease)
+        return True
+
+    def _sup_stop(outcome):
+        _sup_report(outcome)
+        _flush_progress()
+        run_logger.log("supervisor rotations exhausted; STOP")
+        run_logger.close()
+        raise SystemExit(
+            "supervisor %s rotations exhausted (max %d); progress flushed"
+            % (outcome, SUPERVISOR_ROTATE_MAX))
+
+    def _leased_review(label, call):
+        """Run a review pass; leased mode rotates on auth (max 3) then
+        STOPs with flushed progress. Direct mode aborts loud (unchanged).
+        """
+        while True:
+            try:
+                return call()
+            except AuthError:
+                if sup is None:
+                    raise
+                if not _sup_rotate():
+                    _sup_stop("auth_err")
+                print("supervisor: rotated %s lease, retrying %s"
+                      % (provider, label))
 
     # Reviewer F3: precard mode uses its own progress file so stale
     # sampling-mode done[] records can never leak into precard runs.
@@ -5359,13 +5741,16 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # via content_review_progress.json; fail-open keep on review errors.
     run_logger.stage_start("content-gate")
     try:
-        flagged_n, = run_content_gate(
-            sample, api_key,
-            transport=(call_responses
-                       if _content_transport is _DEFAULT_REVIEW_TRANSPORT
-                       else _content_transport),
-            progress_path=out_dir / "content_review_progress.json",
-            model_calls=model_calls, telemetry=tele_store)
+        flagged_n, = _leased_review(
+            "content-gate",
+            lambda: run_content_gate(
+                sample, api_key,
+                transport=(content_transport
+                           if _content_transport is _DEFAULT_REVIEW_TRANSPORT
+                           else _content_transport),
+                progress_path=out_dir / "content_review_progress.json",
+                model_calls=model_calls, telemetry=tele_store,
+                models=chain))
     except AuthError:
         raise
     except Exception:
@@ -5373,13 +5758,43 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     run_logger.stage_end("content-gate", ok=len(sample), fail=flagged_n)
     gen_start = time.perf_counter()
     run_logger.stage_start("generate")
-    # V7: ONE stdout line per batch of 8 (no per-item spam); ok = valid
-    # cards in the batch, fail = invalid cards, model = total calls.
-    GEN_BATCH = 8
+    # R4 — ONE stdout line per gen batch (--gen-batch, [8,16]); ok =
+    # valid cards in the batch, fail = invalid cards, model = total
+    # calls. The line rewrites in place (precard _batch_progress
+    # pattern); run.log keeps full history (unchanged).
+    GEN_BATCH = args.gen_batch
+    # R2 — per-batch outcome counters for the leased report
+    # (auth_err > http429 > net_err > ok); direct mode unaffected.
+    batch_marks = {"auth": 0, "http429": 0, "net": 0}
+
+    def _tracked_transport(track_api_key, track_model, system, user):
+        try:
+            return content_transport(track_api_key, track_model,
+                                     system, user)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                batch_marks["http429"] += 1
+            elif exc.code in (401, 403):
+                batch_marks["auth"] += 1
+            raise
+        except Exception:
+            batch_marks["net"] += 1
+            raise
+
+    def _batch_outcome():
+        if batch_marks["auth"]:
+            return "auth_err"
+        if batch_marks["http429"]:
+            return "http429"
+        if batch_marks["net"]:
+            return "net_err"
+        return "ok"
+
     n_gen_batches = (len(sample) + GEN_BATCH - 1) // GEN_BATCH or 1
     for batch_no, base in enumerate(range(0, len(sample), GEN_BATCH),
                                     start=1):
         batch_ok = batch_fail = 0
+        batch_marks.update(auth=0, http429=0, net=0)
         for item in sample[base:base + GEN_BATCH]:
             key = item_key(item)
             if key in done:
@@ -5388,23 +5803,44 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                 else:
                     batch_fail += 1
                 continue
-            card_start = time.perf_counter()
-            rec = generate_card(item, api_key, model_calls=model_calls,
-                                timings=gen_timings, telemetry=tele_store,
-                                tele_batch=batch_no)
+            while True:
+                card_start = time.perf_counter()
+                try:
+                    rec = generate_card(
+                        item, api_key,
+                        transport=(_tracked_transport if sup is not None
+                                   else content_transport),
+                        models=chain, model_calls=model_calls,
+                        timings=gen_timings, telemetry=tele_store,
+                        tele_batch=batch_no)
+                except AuthError:
+                    # Direct mode: loud abort (unchanged). Leased mode:
+                    # rotate (max 3) then STOP with flushed progress.
+                    if sup is None:
+                        raise
+                    batch_marks["auth"] += 1
+                    if not _sup_rotate():
+                        _sup_stop("auth_err")
+                    continue  # retry the same item on the fresh lease
+                if sup is not None and "429" in (rec.get("error") or ""):
+                    if not _sup_rotate():
+                        _sup_stop("http429")
+                    continue  # retry the same item on the fresh lease
+                break
             per_card.append({"key": key,
                              "seconds": time.perf_counter() - card_start})
             done[key] = rec
-            _atomic_write_text(prog_path, json.dumps(
-                {"done": done, "failed": [k for k, v in done.items() if not v.get("valid")],
-                 "model_calls": model_calls}, ensure_ascii=False))
+            _flush_progress()
             if rec.get("valid"):
                 batch_ok += 1
             else:
                 batch_fail += 1
             time.sleep(CALL_SLEEP)
-        print(batch_log_line("gen", batch_no, n_gen_batches,
-                             batch_ok, batch_fail, model_calls))
+        print("\r%s" % batch_log_line("gen", batch_no, n_gen_batches,
+                                      batch_ok, batch_fail, model_calls),
+              end="", flush=True)
+        _sup_report(_batch_outcome())
+    print()  # terminate the rewritten progress line
     gen_total = time.perf_counter() - gen_start
     run_logger.stage_end(
         "generate",
@@ -5419,13 +5855,16 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # kept on review errors).
     run_logger.stage_start("grammar-review")
     try:
-        checked_n, regens_n = review_records_grammar(
-            records, api_key,
-            transport=(call_responses
-                       if _grammar_transport is _DEFAULT_REVIEW_TRANSPORT
-                       else _grammar_transport),
-            progress_path=out_dir / "review_grammar_progress.json",
-            model_calls=model_calls, telemetry=tele_store)
+        checked_n, regens_n = _leased_review(
+            "grammar-review",
+            lambda: review_records_grammar(
+                records, api_key,
+                transport=(content_transport
+                           if _grammar_transport is _DEFAULT_REVIEW_TRANSPORT
+                           else _grammar_transport),
+                progress_path=out_dir / "review_grammar_progress.json",
+                model_calls=model_calls, telemetry=tele_store,
+                models=chain))
     except AuthError:
         raise
     except Exception:
@@ -5436,13 +5875,16 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     # keep on review errors. Resume via sense_coherence_progress.json.
     run_logger.stage_start("sense-review")
     try:
-        s_checked, s_rejected = review_records_sense(
-            records, api_key,
-            transport=(call_responses
-                       if _sense_transport is _DEFAULT_REVIEW_TRANSPORT
-                       else _sense_transport),
-            progress_path=out_dir / "sense_coherence_progress.json",
-            model_calls=model_calls, telemetry=tele_store)
+        s_checked, s_rejected = _leased_review(
+            "sense-review",
+            lambda: review_records_sense(
+                records, api_key,
+                transport=(content_transport
+                           if _sense_transport is _DEFAULT_REVIEW_TRANSPORT
+                           else _sense_transport),
+                progress_path=out_dir / "sense_coherence_progress.json",
+                model_calls=model_calls, telemetry=tele_store,
+                models=chain))
     except AuthError:
         raise
     except Exception:
@@ -5473,7 +5915,8 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         tele_summary["history_corrupt_lines"] = _tele_corrupt
     meta = {"date_tehran": tehran_now_str(), "commit": git_commit(),
             "model_calls": model_calls, "timings": timings,
-            "telemetry": tele_summary}
+            "telemetry": tele_summary,
+            "provider": provider, "model": model}
     render_start = time.perf_counter()
     gallery_html = render_gallery(records, meta, phrase_types=phrase_types)
     timings["render"] = time.perf_counter() - render_start

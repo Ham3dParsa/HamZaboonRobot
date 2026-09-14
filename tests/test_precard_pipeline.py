@@ -794,7 +794,7 @@ def test_from_precard_bypasses_anchor(tmp_path, monkeypatch):
             card_pilot, name,
             (lambda n: (lambda *a, **k: (_ for _ in ()).throw(
                 AssertionError("%s must be skipped" % n))))(name))
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "test-key")
     monkeypatch.setattr(card_pilot, "CALL_SLEEP", 0)
     monkeypatch.setattr(card_pilot, "generate_card",
                         lambda item, api_key, **kw: _mock_rec(item))

@@ -135,8 +135,8 @@ def test_generate_success_mocked():
     rec = generate_card(item, "key", transport=transport, model_calls=calls)
     assert rec["valid"] is True
     assert rec["card"]["word"] == "resilient"
-    assert rec["model_used"] == card_pilot.MODELS[0]
-    assert calls[card_pilot.MODELS[0]] == 1
+    assert rec["model_used"] == card_pilot.PROVIDER_DEFAULT_MODEL["google"]
+    assert calls[card_pilot.PROVIDER_DEFAULT_MODEL["google"]] == 1
 
 
 def test_validation_fail_recorded_not_raised():
@@ -172,7 +172,7 @@ def test_rate_limit_recorded_not_raised():
     rec = generate_card(item, "key", transport=transport, model_calls=calls)
     assert rec["valid"] is False
     assert "429" in rec["error"]  # recorded, never raised
-    assert sum(calls.values()) == len(card_pilot.MODELS) * card_pilot.MAX_ATTEMPTS
+    assert sum(calls.values()) == card_pilot.MAX_ATTEMPTS  # single model
 
 
 def test_dry_run_writes_nothing(tmp_path):
@@ -794,7 +794,7 @@ def test_gallery_diff_operation_chips():
     assert "پیش‌کارت" in html_out and "عملیات" in html_out
     assert "نهایی" in html_out
     assert "[dataset]" in html_out  # per-value source tags
-    assert "#efe7d8" in html_out and "#241f18" in html_out  # v8 palette
+    assert "#101322" in html_out and "#e9eaf2" in html_out  # wave9 dark
     assert "600px" in html_out  # narrow-screen stacking
     assert "tchip primary" in html_out
     assert "0.40" in html_out  # secondary weight, tabular-nums
@@ -1414,7 +1414,8 @@ def test_review_grammar_tips_mocked():
 
     verdicts = review_grammar_tips(items, transport, "k", model_calls={})
     assert verdicts["w:a"] == {"ok": True, "problem": "",
-                               "model": card_pilot.MODELS[0]}
+                               "model": card_pilot.PROVIDER_DEFAULT_MODEL[
+                                   "google"]}
     assert verdicts["w:b"]["ok"] is False
     assert "ed" in verdicts["w:b"]["problem"]
 
@@ -1635,7 +1636,7 @@ def test_gallery_v8_theme_and_op_colors():
           "card": dict(VALID_CARD, word="apple"), "valid": True,
           "reason": "", "error": ""}],
         {"date_tehran": "d", "commit": "c", "model_calls": {"m1": 1}})
-    assert "#efe7d8" in html_out and "#241f18" in html_out  # darker pastel
+    assert "#101322" in html_out and "#e9eaf2" in html_out  # wave9 dark
     for token in ("--kept-soft", "--filled-soft", "--improved-soft",
                   "--error-soft", ".op.kept", ".op.filled", ".op.improved",
                   ".op.error"):
@@ -1802,7 +1803,8 @@ def test_inflection_review_keep_and_drop():
     out = inflection_review(_inflect_items(), transport, "k", {})
     assert out["w:cats"] == {"keep": False,
                              "reason": "regular plural, use cat",
-                             "model": card_pilot.MODELS[0],
+                             "model": card_pilot.PROVIDER_DEFAULT_MODEL[
+                                 "google"],
                              "uncertain": False}
     assert out["w:went"]["keep"] is True
     assert out["w:went"]["uncertain"] is False
@@ -2336,3 +2338,343 @@ def test_review_auth_tele_forwards_code():
     _review_auth_tele(store, "s", 0, 0, "m", http_status=403)
     assert store[0]["http_status"] == 403
     assert store[0]["outcome"] == "auth"
+
+
+# ---------------- card-pilot providers/lease/sampling/gallery-A ----------------
+
+def _precard_row(key, text, kind="word", pool_level="A1"):
+    return {"key": key, "kind": kind, "text": text,
+            "pool_level": pool_level, "sense_id": "%s#0" % text,
+            "en_def": "gloss of %s" % text, "ipa": "", "ipa_src": "model",
+            "dataset_examples": [], "topic_vector": [{"label": "Other / Abstract",
+                                                      "weight": 1.0}],
+            "topic_method": "v16b-exact", "stage_calls": {},
+            "pos": ["noun"], "pos_src": "dataset",
+            "sense_cefr": "A1", "sense_cefr_method": "bridge",
+            "register": "neutral", "lexical_type": "word"}
+
+
+def _write_precard_run(tmp_path, monkeypatch, rows, extra_args=()):
+    """Hermetic precard main run dir: precard + pool + phrase log."""
+    from factory.pipeline import card_pilot as cp
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "test-key")
+    monkeypatch.setattr(cp, "CALL_SLEEP", 0)
+    precard = tmp_path / "precard.jsonl"
+    with open(precard, "w", encoding="utf-8") as handle:
+        for rec in rows:
+            handle.write(json.dumps(rec) + "\n")
+    pool = tmp_path / "lemmas.csv"
+    pool.write_text("lemma,pos,cefr\napple,noun,A1\n", encoding="utf-8")
+    plog = tmp_path / "judge.jsonl"
+    plog.write_text("", encoding="utf-8")
+    return ["--from-precard", str(precard),
+            "--out-dir", str(tmp_path / "pilot"),
+            "--report", str(tmp_path / "r.html"),
+            "--word-pool", str(pool), "--phrase-log", str(plog),
+            *extra_args]
+
+
+def test_precard_field_carry_through():
+    """R-fields: sense_cefr/method + register + lexical_type survive
+    load_precard_items -> generate_card record."""
+    from factory.pipeline.card_pilot import generate_card, load_precard_items
+    import tempfile, os
+    row = _precard_row("w:resilient", "resilient")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "precard.jsonl")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+        items = load_precard_items(path)
+    assert len(items) == 1
+    item = items[0]
+    assert item["sense_cefr"] == "A1"
+    assert item["sense_cefr_method"] == "bridge"
+    assert item["register"] == "neutral"
+    assert item["lexical_type"] == "word"
+
+    def transport(api_key, model, system, user):
+        return json.dumps(dict(VALID_CARD))
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert rec["sense_cefr"] == "A1"
+    assert rec["sense_cefr_method"] == "bridge"
+    assert rec["register"] == "neutral"
+    assert rec["lexical_type"] == "word"
+
+
+def test_precard_seeded_sampling_reproducible():
+    """R5: same seed+file = same cards; different seed differs."""
+    from factory.pipeline.card_pilot import sample_precard_items
+    rows = [{"key": "w:w%02d" % i, "kind": "word", "text": "w%02d" % i}
+            for i in range(30)]
+    first = sample_precard_items(rows, 25, 7)
+    second = sample_precard_items(rows, 25, 7)
+    assert [r["key"] for r in first] == [r["key"] for r in second]
+    assert len(first) == 25
+    other = sample_precard_items(rows, 25, 8)
+    assert [r["key"] for r in other] != [r["key"] for r in first]
+    # Short input keeps every item (never drops, never pads).
+    assert sample_precard_items(rows[:3], 25, 7) == rows[:3]
+
+
+def test_gen_batch_clamp_rejects_out_of_range():
+    """R4: --gen-batch outside [8,16] fails fast with SystemExit."""
+    from factory.pipeline.card_pilot import main
+    import pytest as _pytest
+    for bad in ("7", "17"):
+        with _pytest.raises(SystemExit) as excinfo:
+            main(["--gen-batch", bad])
+        assert "gen-batch" in str(excinfo.value)
+    # Valid values pass the clamp (they fail later on the missing
+    # pre-card file — proving the clamp itself did not fire).
+    for good in ("8", "10", "16"):
+        with _pytest.raises(SystemExit) as excinfo:
+            main(["--gen-batch", good, "--from-precard",
+                  "no-such-precard.jsonl"])
+        assert "gen-batch" not in str(excinfo.value)
+
+
+def test_google_card_transport_shape(capsys, monkeypatch):
+    """R1: google adapter joins system+user, JSON mime, key header,
+    no secret in logs."""
+    import urllib.request
+    from factory.pipeline.card_pilot import _google_card_transport
+    seen = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {"candidates": [{"content": {"parts": [
+                    {"text": '{"ok": true}'}]}}]}).encode("utf-8")
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["headers"] = {k.lower(): v
+                           for k, v in req.header_items()}
+        seen["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = _google_card_transport("SECRET-KEY", "gemini-3.5-flash-lite",
+                                 "SYSTEM-LINE", "USER-LINE")
+    assert out == '{"ok": true}'
+    body_text = seen["payload"]["contents"][0]["parts"][0]["text"]
+    assert "SYSTEM-LINE" in body_text and "USER-LINE" in body_text
+    assert seen["payload"]["generationConfig"]["responseMimeType"] == \
+        "application/json"
+    assert seen["headers"].get("x-goog-api-key") == "SECRET-KEY"
+    assert "generateContent" in seen["url"]
+    captured = capsys.readouterr()
+    assert "SECRET-KEY" not in captured.out + captured.err
+
+
+def test_avalai_card_transport_shape(monkeypatch):
+    """R1: avalai adapter is OpenAI-compatible chat with Bearer auth."""
+    import urllib.request
+    from factory.pipeline.card_pilot import _avalai_card_transport
+    seen = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["headers"] = {k.lower(): v
+                           for k, v in req.header_items()}
+        seen["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    import io as _io
+    _FakeResp.read = lambda self: json.dumps(
+        {"choices": [{"message": {"content": '{"ok": true}'}}],
+         "usage": {"input_tokens": 3, "output_tokens": 1}}).encode("utf-8")
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    text, usage = _avalai_card_transport("SECRET-KEY", "glm-5.3-flash",
+                                         "SYSTEM-LINE", "USER-LINE")
+    assert text == '{"ok": true}'
+    assert usage == {"input_tokens": 3, "output_tokens": 1}
+    assert seen["url"].endswith("/chat/completions")
+    assert seen["headers"].get("authorization") == "Bearer SECRET-KEY"
+    assert seen["payload"]["model"] == "glm-5.3-flash"
+    contents = [m["content"] for m in seen["payload"]["messages"]]
+    assert any("SYSTEM-LINE" in c for c in contents)
+    assert any("USER-LINE" in c for c in contents)
+
+
+def test_zen_removed():
+    """R3: zen transport gone; provider flag has no zen choice."""
+    import pytest as _pytest
+    from factory.pipeline import card_pilot as cp
+    from factory.pipeline.card_pilot import main
+    assert not hasattr(cp, "ZEN_BASE")
+    assert not hasattr(cp, "call_responses")
+    with _pytest.raises(SystemExit):
+        main(["--provider", "zen"])
+
+
+def test_provider_model_defaults():
+    """R1: per-provider default models; generate_card runs the single
+    selected model."""
+    from factory.pipeline.card_pilot import (
+        PROVIDER_DEFAULT_MODEL, generate_card)
+    assert PROVIDER_DEFAULT_MODEL["google"] == "gemini-3.5-flash-lite"
+    assert PROVIDER_DEFAULT_MODEL["avalai"] == "glm-5.3-flash"
+    seen = []
+
+    def transport(api_key, model, system, user):
+        seen.append(model)
+        return json.dumps(dict(VALID_CARD))
+
+    rec = generate_card({"kind": "word", "text": "resilient",
+                         "pool_level": "B2"},
+                        "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert seen == [PROVIDER_DEFAULT_MODEL["google"]] * len(seen)
+    assert rec["model_used"] == PROVIDER_DEFAULT_MODEL["google"]
+
+
+def test_supervisor_opt_out_builds_no_client(tmp_path, monkeypatch):
+    """R2: without --supervisor no lease client is constructed."""
+    from factory.pipeline import card_pilot as cp
+
+    def boom(*args, **kwargs):
+        raise AssertionError("supervisor must stay off without flags")
+
+    monkeypatch.setattr(cp, "_SupervisorClient", boom)
+    monkeypatch.setattr(cp, "generate_card",
+                        lambda item, api_key, **kw: dict(
+                            _mock_sup_rec(item), model_calls={}))
+    argv = _write_precard_run(
+        tmp_path, monkeypatch,
+        [_precard_row("w:apple", "apple"),
+         _precard_row("w:brave", "brave")])
+    rc = cp.main(argv, _content_transport=None,
+                 _grammar_transport=None, _sense_transport=None)
+    assert rc == 0
+
+
+def _mock_sup_rec(item):
+    return {"key": ("w:" if item["kind"] == "word" else "p:") + item["text"],
+            "kind": item["kind"], "text": item["text"],
+            "pool_level": item.get("pool_level", ""),
+            "topic": item.get("topic", ""),
+            "topic_method": item.get("topic_method", ""),
+            "bot_level": "beginner", "model_used": "mock",
+            "card": None, "valid": False, "reason": "mock",
+            "error": "mock"}
+
+
+def test_supervisor_opt_in_leases_once_with_provider(tmp_path, monkeypatch):
+    """R2: with --supervisor the lease fires once for the provider and
+    per-batch reports carry provider=."""
+    from factory.pipeline import card_pilot as cp
+    calls = {"lease": [], "report": []}
+    import os as _os
+    # Seed proxy vars so monkeypatch teardown restores them after the
+    # run routes process env via the leased proxy.
+    for _var in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"):
+        monkeypatch.setenv(_var, _os.environ.get(_var, ""))
+
+    class _FakeSup:
+        def __init__(self, base_url, token=""):
+            calls["init"] = (base_url, token)
+
+        def lease(self, target):
+            calls["lease"].append(target)
+            return {"lease_id": "L1",
+                    "proxy_url": "http://127.0.0.1:9999"}
+
+        def report(self, lease_id, outcome, provider=None):
+            calls["report"].append(
+                {"lease_id": lease_id, "outcome": outcome,
+                 "provider": provider})
+
+    monkeypatch.setattr(cp, "_SupervisorClient", _FakeSup)
+    monkeypatch.setattr(cp, "generate_card",
+                        lambda item, api_key, **kw: dict(
+                            _mock_sup_rec(item), model_calls={}))
+    argv = _write_precard_run(
+        tmp_path, monkeypatch,
+        [_precard_row("w:apple", "apple"),
+         _precard_row("w:brave", "brave")],
+        extra_args=("--supervisor", "http://127.0.0.1:18789",
+                    "--sup-token", "tok"))
+    rc = cp.main(argv, _content_transport=None,
+                 _grammar_transport=None, _sense_transport=None)
+    assert rc == 0
+    assert calls["lease"] == ["google"]  # once per run, target=provider
+    assert calls["init"] == ("http://127.0.0.1:18789", "tok")
+    assert calls["report"]  # per-batch reports fired
+    assert all(r["provider"] == "google" for r in calls["report"])
+    assert all(r["lease_id"] == "L1" for r in calls["report"])
+    import os as _os
+    assert _os.environ.get("HTTPS_PROXY") == "http://127.0.0.1:9999"
+    assert "api.avalai.ir" in _os.environ.get("NO_PROXY", "")
+
+
+def test_telemetry_store_to_table_key_idx_only():
+    """R8: tele_store -> summary -> gallery table end to end; per-attempt
+    records stay key_idx-only (no key values)."""
+    import json as _json
+    from factory.core.telemetry import summarize
+    from factory.pipeline.card_pilot import generate_card, render_gallery
+    store = []
+
+    def transport(api_key, model, system, user):
+        return (json.dumps(dict(VALID_CARD)),
+                {"input_tokens": 11, "output_tokens": 22})
+
+    rec = generate_card({"kind": "word", "text": "resilient",
+                         "pool_level": "B2"},
+                        "SUPER-SECRET-KEY", transport=transport,
+                        model_calls={}, telemetry=store, tele_batch=3)
+    assert rec["valid"] is True
+    assert store
+    blob = _json.dumps(store)
+    assert "SUPER-SECRET-KEY" not in blob
+    assert all(isinstance(e["key_idx"], int) for e in store)
+    summary = summarize(store)
+    html_out = render_gallery(
+        [dict(rec, card=dict(rec["card"] or VALID_CARD))],
+        {"date_tehran": "d", "commit": "c", "model_calls": {"m": 1},
+         "telemetry": summary})
+    assert "تله‌متری فراخوانی‌ها" in html_out
+
+
+def test_gallery_design_a_dark_theme_and_meta_row():
+    """Gallery Design A: dark wave9 theme + per-card meta chip row
+    (CEFR + pos + topic + register + lexical_type), diff open."""
+    from factory.pipeline.card_pilot import render_gallery
+    card = dict(VALID_CARD, word="apple")
+    rec = {"key": "w:apple", "kind": "word", "text": "apple",
+           "pool_level": "A1", "bot_level": "beginner", "model_used": "m1",
+           "sense_id": "apple#1", "en_def": "a fruit",
+           "en_source": "dataset", "topic": "Food & Drink",
+           "topic_method": "v16b-exact",
+           "pos": ["noun"], "pos_src": "dataset",
+           "sense_cefr": "A1", "sense_cefr_method": "bridge",
+           "register": "neutral", "lexical_type": "word",
+           "card": card, "valid": True, "reason": "", "error": ""}
+    html_out = render_gallery(
+        [rec], {"date_tehran": "d", "commit": "c",
+                "model_calls": {"m1": 1}})
+    for token in ("#101322", "#181b30", "#1f2338", "#e9eaf2", "#9aa0b5",
+                  "#2c2e4a", "#e8b64c", "#4ade80", "#7cb3ff", "#f87171",
+                  "Vazirmatn"):
+        assert token in html_out, token
+    for value in ("A1", "noun", "Food &amp; Drink", "neutral", "word"):
+        assert value in html_out, value
+    assert "<details open>" in html_out  # diff table open by default
+    assert 'class="debug"' in html_out  # technical debug kept
+    assert "نوار مراحل" in html_out  # pipeline strip kept

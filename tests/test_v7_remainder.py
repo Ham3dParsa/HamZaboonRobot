@@ -338,7 +338,7 @@ def test_generate_card_telemetry_records_attempts():
     assert all(e["stage"] == "card" and e["key_idx"] == 0 for e in store)
     assert all(e["outcome"] == "ok" for e in store)
     assert store[0]["batch_id"] == 2
-    assert store[0]["model"] == card_pilot.MODELS[0]
+    assert store[0]["model"] == card_pilot.PROVIDER_DEFAULT_MODEL["google"]
 
 
 def test_gallery_telemetry_table_and_final_head():
