@@ -19,8 +19,10 @@ import ast
 import inspect
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from services.ai import generation, llm_services
+from services.utils.formatting_cards import CardPreparationError
 
 
 class GenerationCanonicalOwnershipTest(unittest.TestCase):
@@ -86,10 +88,6 @@ class GenerationCanonicalOwnershipTest(unittest.TestCase):
     def test_persist_failure_keeps_own_message(self):
         """OP-005: a failed persist must raise its own message instead of
         being re-wrapped as a generic repair failure."""
-        from unittest.mock import MagicMock, patch
-
-        from services.utils.formatting_cards import CardPreparationError
-
         legacy = {
             "word": "hello",
             "fa_meaning": "سلام",
@@ -112,6 +110,33 @@ class GenerationCanonicalOwnershipTest(unittest.TestCase):
                     persist_patch=MagicMock(return_value=False),
                 )
         self.assertIn("could not be persisted", str(ctx.exception))
+        self.assertNotIn("could not be repaired safely", str(ctx.exception))
+
+    def test_genuine_repair_failure_still_wraps(self):
+        """A persist that RAISES (not just False) still wraps as a generic
+        repair failure — the passthrough only covers CardPreparationError."""
+        legacy = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Hello one.", "Hello two."],
+            "example_translations": ["اول."],
+        }
+        with patch.object(
+            generation,
+            "_call_ai_limited",
+            return_value={"example_translations": ["اول.", "دوم."]},
+        ):
+            with self.assertRaises(CardPreparationError) as ctx:
+                generation._prepare_cached_card(
+                    legacy,
+                    lang="en",
+                    user_id=1,
+                    plan="free",
+                    source="daily",
+                    persist_patch=MagicMock(side_effect=RuntimeError("db down")),
+                )
+        self.assertIn("could not be repaired safely", str(ctx.exception))
 
 
 if __name__ == "__main__":
