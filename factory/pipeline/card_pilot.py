@@ -2824,6 +2824,11 @@ class _SupervisorClient:
         """Lease an egress target (google/avalai)."""
         return self._call("/v1/lease", {"target": target})
 
+    def lease_refresh(self, target):
+        """Lease a FRESH tunnel for the same best server (stale-xray
+        restart): the daemon re-runs the tunnel without cooling it."""
+        return self._call("/v1/lease", {"target": target, "refresh": True})
+
     def report(self, lease_id, outcome, provider=None):
         """Report outcome (ok|http429|net_err|auth_err|unknown).
 
@@ -5730,6 +5735,25 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         _apply_leased_proxy(_lease)
         return True
 
+    def _sup_rotate_same_server():
+        """Fresh tunnel for the same best server (stale-xray restart).
+
+        One retry: lease with refresh=True so the daemon re-runs the
+        same server's tunnel without cooling it; re-applies the proxy.
+        False when the refresh lease fails (caller falls back to the
+        cross-server rotate path).
+        """
+        try:
+            _lease = sup.lease_refresh(provider)
+        except Exception:
+            return False
+        if (not isinstance(_lease, dict) or _lease.get("error")
+                or not _lease.get("lease_id")):
+            return False
+        sup_state["lease_id"] = _lease.get("lease_id", "")
+        _apply_leased_proxy(_lease)
+        return True
+
     def _sup_stop(outcome):
         _sup_report(outcome)
         _flush_progress()
@@ -5742,6 +5766,8 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     def _leased_review(label, call):
         """Run a review pass; leased mode rotates on auth (max 3) then
         STOPs with flushed progress. Direct mode aborts loud (unchanged).
+        First auth failure tries a same-server fresh tunnel (stale xray
+        child); only cross-server rotation follows.
         """
         while True:
             try:
@@ -5749,6 +5775,11 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
             except AuthError:
                 if sup is None:
                     raise
+                if sup_state["rotations"] == 0 and _sup_rotate_same_server():
+                    sup_state["rotations"] += 1
+                    print("supervisor: refreshed %s tunnel, retrying %s"
+                          % (provider, label))
+                    continue
                 if not _sup_rotate("auth_err"):
                     _sup_stop("auth_err")
                 print("supervisor: rotated %s lease, retrying %s"
@@ -5843,10 +5874,19 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                         tele_batch=batch_no)
                 except AuthError:
                     # Direct mode: loud abort (unchanged). Leased mode:
-                    # rotate (max 3) then STOP with flushed progress.
+                    # first try a same-server fresh tunnel (stale xray
+                    # child), then cross-server rotate (max 3), then
+                    # STOP with flushed progress.
                     if sup is None:
                         raise
                     batch_marks["auth"] += 1
+                    if sup_state["rotations"] == 0 \
+                            and _sup_rotate_same_server():
+                        sup_state["rotations"] += 1
+                        print("supervisor: refreshed %s tunnel, "
+                              "retrying batch %d" % (provider, batch_no),
+                              flush=True)
+                        continue
                     if not _sup_rotate("auth_err"):
                         _sup_stop("auth_err")
                     continue  # retry the same item on the fresh lease

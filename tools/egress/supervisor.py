@@ -369,12 +369,16 @@ class TunnelOwner:
         self._tunnel = None
         self._server_id = None
 
-    def acquire(self, provider=None):
+    def acquire(self, provider=None, refresh=False):
         """Start (or reuse) the tunnel for the best server. Returns
         (proxy_url, egress_ip, server_id) or raises RuntimeError.
 
         Availability skips only servers cooling for ``provider``: a
         zen-429 never blocks a google lease on the same server.
+        ``refresh=True`` (a caller reporting an unstable egress) drops
+        and re-runs the SAME best server's tunnel first — a long-lived
+        xray child can go stale mid-run; the egress check below then
+        fails forever without this restart path.
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -387,7 +391,8 @@ class TunnelOwner:
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
-            if self._tunnel is not None and self._server_id == avail[0]["id"] \
+            if not refresh and self._tunnel is not None \
+                    and self._server_id == avail[0]["id"] \
                     and self._tunnel.proc is not None \
                     and self._tunnel.proc.poll() is None:
                 return (self._tunnel.proxy_url,
@@ -473,9 +478,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/v1/lease":
             data = POOL.lease(data.get("target", ""))
             if data.get("mode") == "tunnel":
+                refresh = data.get("refresh") is True
                 try:
                     proxy, ip, _sid = TUNNELS.acquire(
-                        provider=data.get("provider"))
+                        provider=data.get("provider"), refresh=refresh)
                 except (RuntimeError, ValueError, OSError) as exc:
                     # Acquire failed: drop the minted lease (no orphan
                     # records) and park with a message.
