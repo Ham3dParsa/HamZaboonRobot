@@ -1073,6 +1073,42 @@ def _needs_tag_backfill(done_entry):
                     for c in done_entry["candidates"]))
 
 
+def _needs_fanout_relabel(s4_entry, s2_entry):
+    """True when an s4 row predates the v14.1 fan-out (R1 resume-compat).
+
+    Pre-fan-out s4 rows carry no "extra" list; when the s2 entry holds
+    more than one judged pick the secondaries still need labels, so the
+    item rejoins todo (deterministic re-resolution, same legs — the
+    primary row resolves identically, extras are additive). Single-pick
+    items and complete rows never re-run.
+    """
+    try:
+        if not isinstance(s4_entry, dict) or not isinstance(s2_entry, dict):
+            return False
+        if "extra" in s4_entry:
+            return False
+        return len(fanout_picks({}, s2_entry)) > 1
+    except Exception:
+        return False
+
+
+def _needs_fanout_reenrich(s5_entry, s2_entry):
+    """True when an s5 row predates the v14.1 fan-out (R1 resume-compat).
+
+    Same shape as _needs_fanout_relabel: no "extra" list while the s2
+    entry holds judged secondaries. Re-enrichment is deterministic
+    (dataset-only, zero LLM).
+    """
+    try:
+        if not isinstance(s5_entry, dict) or not isinstance(s2_entry, dict):
+            return False
+        if "extra" in s5_entry:
+            return False
+        return len(fanout_picks({}, s2_entry)) > 1
+    except Exception:
+        return False
+
+
 def _backfill_candidate_tags(batch, anchor_map, index, read_entry):
     """Attach missing candidate tags in place (selective-stage resume).
 
@@ -1149,8 +1185,10 @@ def anchor_rank_item(item, index, read_entry):
 # ---------------------------------------------------------------- judge ---
 
 def _judge_prompt(batch, anchor_map):
-    lines = ["PICK the single most useful sense per item for Persian "
-             "learners of English.",
+    lines = ["PICK the 1-4 most useful senses per item for Persian "
+             "learners of English, ordered most-useful-first (one card "
+             "= one atomic sense downstream, so rank every sense worth "
+             "its own card).",
              "Prioritization hierarchy:",
              "1. High-frequency tangible and conversational meaning over "
              "technical, academic, or domain-specific jargon (e.g., "
@@ -1165,12 +1203,14 @@ def _judge_prompt(batch, anchor_map):
              "4. For modal/auxiliary verbs (would, could, should), the "
              "grammatical main sense takes absolute precedence over any "
              "nominal or philosophical sense.",
-             "",
-             'Output: {"results": [{"key": "<item key>", '
-             '"pick": "<sense_id>"}]}.',
-             "Every pick MUST be one of that item's candidate ids "
-             "(empty pick only when the item has no candidates).",
-             "Input follows:"]
+              "",
+              'Output: {"results": [{"key": "<item key>", '
+              '"picks": ["<sense_id>", ... up to 4]}]}.',
+              "A single \"pick\": \"<sense_id>\" row is also accepted "
+              "(one sense).",
+              "Every pick MUST be one of that item's candidate ids "
+              "(empty picks only when the item has no candidates).",
+              "Input follows:"]
     for item in batch:
         key = item_key(item)
         cands = (anchor_map.get(key) or {}).get("candidates", [])
@@ -1187,11 +1227,17 @@ def _judge_prompt(batch, anchor_map):
 
 
 def _judge_fallback(item, anchor_res):
-    """Fail-closed pick: anchor top (via the imported deterministic_picks)."""
+    """Fail-closed pick: anchor top (via the imported deterministic_picks).
+
+    v14.1: the fallback fans out to a single pick (the anchor top) —
+    "picks" rides along so fanout_picks and the S3/S4/S5 runners need
+    no fallback-shaped special case.
+    """
     from factory.archive.v14_v16.run_v14_phase3_judge import deterministic_picks
     cands = (anchor_res or {}).get("candidates", [])
     if not cands:
-        return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty"}
+        return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty",
+                "picks": []}
     pseudo = {"ranked_senses": [
         {"sense_id": c["sense_id"]} for c in cands]}
     try:
@@ -1201,15 +1247,45 @@ def _judge_fallback(item, anchor_res):
         first = cands[0]["sense_id"]
     gloss = next((c.get("gloss", "") for c in cands
                   if c["sense_id"] == first), "")
-    return {"sense_id": first, "gloss": gloss, "model": "s1-fallback"}
+    return {"sense_id": first, "gloss": gloss, "model": "s1-fallback",
+            "picks": [{"sense_id": first, "gloss": gloss}]}
 
 
 def _judge_validate(data, batch, anchor_map):
     """Accept single {"key","pick"} rows (plus lemma-style "picks" rows).
 
-    Lemma-style rows are validated with the imported validate_picks and
-    collapse to their first pick. Returns {key: {"sense_id","gloss"}}
+    Thin single-pick view over judge_validate_multi: multi-pick rows
+    collapse to their primary pick. Returns {key: {"sense_id","gloss"}}
     for valid rows only; invalid rows are left out (caller fails closed).
+    """
+    multi = judge_validate_multi(data, batch, anchor_map)
+    if multi is None:
+        return None
+    return {k: {"sense_id": v["sense_id"], "gloss": v["gloss"]}
+            for k, v in multi.items()}
+
+
+# v14.1 P1 fan-out (R1): one card = one atomic sense. The sense-judge
+# may crown 1-4 senses per lemma; the pipeline fans out into that many
+# independent precard rows (each with its own pre_card_id, topic
+# vector, CEFR, IPA, examples). Secondary senses are NEVER stored in
+# an also_senses list inside a single card.
+MAX_FANOUT = 4
+
+
+def judge_validate_multi(data, batch, anchor_map):
+    """Validate ordered multi-pick {"key","picks":[...]} rows (R1).
+
+    Each pick must be one of the item's candidate ids; unknown ids are
+    dropped, duplicates collapse (first wins), the list caps at
+    MAX_FANOUT. A legacy single {"key","pick"} row is accepted as a
+    one-pick list (same shape _judge_validate accepts, including its
+    lemma-style "picks"-dict collapse to the first pick and the empty
+    pick for candidatelss items). Returns {key: {"sense_id", "gloss",
+    "picks": [{sense_id, gloss}, ...]}} with sense_id/gloss = the
+    primary (first) pick — downstream stages keep reading those keys
+    unchanged. Invalid rows are left out (caller fails closed); None
+    unless every batch item validates.
     """
     from factory.archive.v14_v16.run_v14_phase3_judge import validate_picks
     if not isinstance(data, dict) or not isinstance(
@@ -1225,27 +1301,66 @@ def _judge_validate(data, batch, anchor_map):
         row = by_key.get(key)
         cands = (anchor_map.get(key) or {}).get("candidates", [])
         ids = [c["sense_id"] for c in cands]
+        gloss_of = {c["sense_id"]: c.get("gloss", "") for c in cands}
         if not isinstance(row, dict):
             continue
-        pick = row.get("pick")
-        if pick is None and isinstance(row.get("picks"), dict):
-            if validate_picks(row["picks"], ids):
+        raw_picks = row.get("picks")
+        if raw_picks is None and row.get("pick") is not None:
+            raw_picks = [row.get("pick")]
+        if isinstance(raw_picks, dict):
+            if validate_picks(raw_picks, ids):
                 flat = (row["picks"].get("beginner")
                         or row["picks"].get("intermediate")
                         or row["picks"].get("advanced") or [])
-                pick = flat[0] if flat else None
+                raw_picks = flat[:1] if flat else None
             else:
                 continue
-        if pick == "" and not ids:
-            out[key] = {"sense_id": "", "gloss": ""}
-        elif isinstance(pick, str) and pick in ids:
-            gloss = next(c.get("gloss", "") for c in cands
-                         if c["sense_id"] == pick)
-            out[key] = {"sense_id": pick, "gloss": gloss}
+        if not isinstance(raw_picks, list):
+            continue
+        seen, picks = set(), []
+        for sid in raw_picks:
+            if not isinstance(sid, str) or sid in seen:
+                continue
+            if sid == "" and not ids:
+                continue
+            if sid in ids and len(picks) < MAX_FANOUT:
+                seen.add(sid)
+                picks.append({"sense_id": sid,
+                              "gloss": gloss_of.get(sid, "")})
+        if not picks:
+            if not ids and not any(
+                    isinstance(s, str) and s != "" for s in raw_picks):
+                out[key] = {"sense_id": "", "gloss": "", "picks": []}
+            continue
+        out[key] = {"sense_id": picks[0]["sense_id"],
+                    "gloss": picks[0]["gloss"], "picks": picks}
     want = {item_key(i) for i in batch}
     if set(out) != want:
         return None
     return out
+
+
+def fanout_picks(item, pick_entry):
+    """Ordered [{sense_id, gloss}] for one item's precard rows (R1).
+
+    Primary first, then judged secondaries (capped at MAX_FANOUT);
+    entries without a stored picks list fan out to their single pick.
+    """
+    try:
+        picks = (pick_entry or {}).get("picks")
+        if isinstance(picks, list) and picks:
+            out = []
+            for pick in picks[:MAX_FANOUT]:
+                if isinstance(pick, dict) and pick.get("sense_id"):
+                    out.append({"sense_id": pick["sense_id"],
+                                "gloss": pick.get("gloss", "")})
+            if out:
+                return out
+        sid = (pick_entry or {}).get("sense_id", "")
+        return [{"sense_id": sid,
+                 "gloss": (pick_entry or {}).get("gloss", "")}]
+    except Exception:
+        return [{"sense_id": "", "gloss": ""}]
 
 
 def _veto_inflection_pick(pick, anchor_res):
@@ -1290,22 +1405,38 @@ def _apply_inflection_veto(out, batch, anchor_map):
             sid, gloss = _veto_inflection_pick(
                 out[key], (anchor_map or {}).get(key))
             out[key]["sense_id"], out[key]["gloss"] = sid, gloss
+            # v14.1: the veto reroutes every fanned-out pick, not just
+            # the primary — a stub crowned second still falls back to
+            # the anchor-top non-stub (veto reroutes, never drops).
+            vetoed = []
+            for pick in (out[key].get("picks") or []):
+                vsid, vgloss = _veto_inflection_pick(
+                    pick, (anchor_map or {}).get(key))
+                vetoed.append({"sense_id": vsid, "gloss": vgloss})
+            if vetoed:
+                out[key]["picks"] = vetoed
+                out[key]["sense_id"] = vetoed[0]["sense_id"]
+                out[key]["gloss"] = vetoed[0]["gloss"]
     return out
 
 
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None):
-    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
+    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
     Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
     list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
     it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     all-keys-429 raises RateLimited so the runner flushes and STOPS),
-    anything else fail-closed to the S1 top pick per item. F4: every
-    pick (judge-model AND s1-fallback) passes the inflection-stub veto
-    — a stub gloss falls back to the anchor-top non-stub candidate.
+    anything else fail-closed to the S1 top pick per item. v14.1: the
+    judge returns 1-4 ordered picks per item (judge_validate_multi —
+    legacy single "pick" rows still validate as one pick); the ordered
+    list rides on "picks" with sense_id/gloss = the primary. F4: every
+    pick (judge-model AND s1-fallback, primary AND secondaries) passes
+    the inflection-stub veto — a stub gloss falls back to the
+    anchor-top non-stub candidate.
     R27: one
     telemetry record per batch (ok on a judge-model pick, fallback on
     s1-fallback, error on all-keys-429); tuple (text, usage) transports
@@ -1351,7 +1482,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
             except Exception:
                 continue
             try:
-                valid = _judge_validate(data, batch, anchor_map)
+                valid = judge_validate_multi(data, batch, anchor_map)
             except Exception:
                 valid = None
             if valid is not None:
@@ -1496,23 +1627,29 @@ def judge_proper_route(item, pick, anchor_res, index, read_entry, zipf_fn=None):
 # ---------------------------------------------------------------- vectors ---
 
 def _vectors_pseudo_records(batch, judge_map, anchor_map):
-    """Group batch picks into run_v15 pseudo lemma records."""
+    """Group batch picks into run_v15 pseudo lemma records.
+
+    v14.1: every fanned-out pick (primary + judged secondaries) joins
+    the pseudo record, so vectors_batch returns a vector per picked
+    sense (deduped by sense_id as before).
+    """
     groups = {}
     for item in batch:
         key = item_key(item)
         pick = (judge_map.get(key) or {})
-        sid = pick.get("sense_id", "")
-        if not sid:
-            continue
         lemma = (item.get("text") or "").strip()
         rec = groups.setdefault(
             lemma, {"lemma": lemma, "ranked_senses": []})
-        if all(s["sense_id"] != sid for s in rec["ranked_senses"]):
-            gloss = pick.get("gloss", "") or (
-                anchor_map.get(key) or {}).get("en_def", "")
-            rec["ranked_senses"].append(
-                {"sense_id": sid, "gloss": gloss,
-                 "topic_label": "Other / Abstract"})
+        for sub in fanout_picks(item, pick):
+            sid = sub.get("sense_id", "")
+            if not sid:
+                continue
+            if all(s["sense_id"] != sid for s in rec["ranked_senses"]):
+                gloss = sub.get("gloss", "") or (
+                    anchor_map.get(key) or {}).get("en_def", "")
+                rec["ranked_senses"].append(
+                    {"sense_id": sid, "gloss": gloss,
+                     "topic_label": "Other / Abstract"})
     return list(groups.values())
 
 
@@ -1636,9 +1773,11 @@ def _label_prompt(entries):
     """Batched S4 prompt: USER_TMPL + one lemma_block per entry.
 
     entries: [{text, sense_id, gloss}]. Shape pinned by the B1 hermetic
-    test (16 items -> 1 call, prompt contains all 16). Raises
-    ImportError when run_v16b_topup is unimportable (the caller fails
-    closed — never a stage crash).
+    test (16 items -> 1 call, prompt contains all 16). v14.1 appends
+    the topic tie-break addendum AFTER the lemma blocks (the head-
+    frozen test splits on the first LEMMA block, so the static head
+    stays byte-identical). Raises ImportError when run_v16b_topup is
+    unimportable (the caller fails closed — never a stage crash).
     """
     try:
         from factory.archive.v14_v16.run_v16b_topup import USER_TMPL as _TOPUP_TMPL
@@ -1648,7 +1787,7 @@ def _label_prompt(entries):
     return _TOPUP_TMPL + "\n\n".join(
         _topup_block(e["text"], [{"sense_id": e["sense_id"],
                                   "gloss": e.get("gloss") or ""}])
-        for e in entries)
+        for e in entries) + "\n\n" + card_pilot.TOPIC_TIEBREAK_V141
 
 
 def _label_fallback_result(vector_lookup, sense_id):
@@ -1852,15 +1991,18 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 ring=None, models=None, lookup=None):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
-    batch: sample items; picks: {key: {sense_id, gloss}};
+    batch: sample items; picks: {key: {sense_id, gloss, picks?}};
     vector_lookups: {key: {sense_id: vector}} (S3 vectors, optional).
     Leg 1 (deterministic v16, injectable `lookup` for hermetic tests)
     and the file cache resolve per item with zero LLM; the remaining
-    items share one LLM call per LABEL_BATCH chunk. Returns
-    {key: assign_topic-shaped row}. transport=None skips the LLM leg
-    (all remaining fall back, stated). RateLimited/AuthError propagate
-    (caller flushes + stops/aborts); anything else fails closed per
-    item to Other / Abstract.
+    items share one LLM call per LABEL_BATCH chunk. v14.1: judged
+    secondary picks resolve through the same legs and ride on the
+    primary row as "extra": [{sense_id, gloss, label, vector, method,
+    topic_path}] — one row per fanned-out sense, each with its own
+    topic vector. Returns {key: assign_topic-shaped row}. transport=None
+    skips the LLM leg (all remaining fall back, stated). RateLimited/
+    AuthError propagate (caller flushes + stops/aborts); anything else
+    fails closed per item to Other / Abstract.
     """
     if ring is None:
         ring = KeyRing([api_key])
@@ -1870,16 +2012,35 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
     prog_path = pathlib.Path(progress_path) if progress_path else None
     out = {}
     pending = []
+    # v14.1 fan-out expansion: one resolution entry per picked sense.
+    # Primary entries keep the item key (existing shape); secondaries
+    # carry composite keys folded back into "extra" after the chunk
+    # resolves (the chunk matcher keys on sense_id, never on key).
+    expanded = []
     for item in batch:
         key = item_key(item)
         pick = (picks or {}).get(key) or {}
         text = item.get("text", "")
-        gloss = pick.get("gloss", "")
-        # Same default as card_pilot.assign_topic (text#0): an empty pick
-        # still labels under a well-formed sense id in the LLM block.
-        sense_id = pick.get("sense_id", "") or (
-            "%s#0" % (text or "").strip().lower())
         vector_lookup = (vector_lookups or {}).get(key)
+        subs = fanout_picks(item, pick) or [
+            {"sense_id": "", "gloss": ""}]
+        for pos, sub in enumerate(subs):
+            gloss = sub.get("gloss", "")
+            # Same default as card_pilot.assign_topic (text#0): an empty
+            # pick still labels under a well-formed sense id in the LLM
+            # block.
+            sense_id = sub.get("sense_id", "") or (
+                "%s#0" % (text or "").strip().lower())
+            expanded.append({"key": key if pos == 0 else "%s\x1fs4x\x1f%s"
+                             % (key, sense_id),
+                             "item_key": key, "primary": pos == 0,
+                             "text": text, "gloss": gloss,
+                             "sense_id": sense_id,
+                             "vector_lookup": vector_lookup})
+    for entry in expanded:
+        key, text = entry["item_key"], entry["text"]
+        gloss, sense_id = entry["gloss"], entry["sense_id"]
+        vector_lookup = entry["vector_lookup"]
         label = None
         if lookup is not None:
             try:
@@ -1893,11 +2054,12 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                              batch_id=tele_batch, key_idx=0,
                              model="deterministic", latency_s=0.0,
                              outcome="ok")
-            out[key] = {"label": label,
-                        "method": card_pilot.TOPIC_METHOD_TAG,
-                        "vector": list(vec) if vec
-                        else card_pilot.single_topic_vector(label),
-                        "topic_path": "leg1"}
+            entry["resolved"] = card_pilot.apply_topic_guard(
+                {"label": label,
+                 "method": card_pilot.TOPIC_METHOD_TAG,
+                 "vector": list(vec) if vec
+                 else card_pilot.single_topic_vector(label),
+                 "topic_path": "leg1"}, text, gloss)
             continue
         hit = _label_cache_hit(cache, text, gloss, sense_id,
                                vector_lookup)
@@ -1907,11 +2069,10 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                              batch_id=tele_batch, key_idx=0,
                              model="deterministic", latency_s=0.0,
                              outcome="ok")
-            out[key] = hit
+            entry["resolved"] = card_pilot.apply_topic_guard(
+                hit, text, gloss)
             continue
-        pending.append({"key": key, "text": text, "gloss": gloss,
-                        "sense_id": sense_id,
-                        "vector_lookup": vector_lookup})
+        pending.append(entry)
     for chunk_no in range(0, len(pending), LABEL_BATCH):
         chunk = pending[chunk_no:chunk_no + LABEL_BATCH]
         resolved = None
@@ -1920,20 +2081,24 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 chunk, api_key, transport, sleep_fn, state, model_calls,
                 telemetry, tele_stage, tele_batch, ring, models)
         for entry in chunk:
-            key, sense_id = entry["key"], entry["sense_id"]
-            if resolved is not None and key in resolved:
-                got = resolved[key]
-                out[key] = {"label": got["label"],
-                            "method": card_pilot.TOPIC_METHOD_TAG,
-                            "vector": got["vector"], "topic_path": "llm"}
+            ekey, sense_id = entry["key"], entry["sense_id"]
+            if resolved is not None and ekey in resolved:
+                got = resolved[ekey]
+                entry["resolved"] = card_pilot.apply_topic_guard(
+                    {"label": got["label"],
+                     "method": card_pilot.TOPIC_METHOD_TAG,
+                     "vector": got["vector"], "topic_path": "llm"},
+                    entry["text"], entry["gloss"])
                 if isinstance(cache, dict):
                     cache["%s\t%s\t%s" % (
                         entry["text"], entry["gloss"] or "",
                         sense_id)] = {"label": got["label"],
                                       "vector": got["vector"]}
             else:
-                out[key] = _label_fallback_result(entry["vector_lookup"],
-                                                  sense_id)
+                entry["resolved"] = card_pilot.apply_topic_guard(
+                    _label_fallback_result(entry["vector_lookup"],
+                                           sense_id),
+                    entry["text"], entry["gloss"])
         # One atomic cache write per chunk (tmp + rename — a crash
         # mid-write never truncates the resume cache).
         if isinstance(cache, dict) and prog_path is not None and \
@@ -1945,6 +2110,32 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 os.replace(tmp, prog_path)
             except Exception:
                 pass
+    # v14.1 fold-back: primaries keep the {key: row} shape; secondaries
+    # collect under the primary row's additive "extra" list (empty when
+    # the judge picked a single sense — existing shape unchanged).
+    for entry in expanded:
+        row = entry.get("resolved")
+        if not isinstance(row, dict) or not row.get("label"):
+            row = card_pilot.apply_topic_guard(
+                _label_fallback_result(entry["vector_lookup"],
+                                       entry["sense_id"]),
+                entry["text"], entry["gloss"])
+        if entry["primary"]:
+            out[entry["item_key"]] = row
+        else:
+            primary = out.setdefault(entry["item_key"], None)
+            if primary is None:
+                out[entry["item_key"]] = row
+            else:
+                extra = primary.setdefault("extra", [])
+                if all(e.get("sense_id") != entry["sense_id"]
+                       for e in extra):
+                    extra.append({"sense_id": entry["sense_id"],
+                                  "gloss": entry["gloss"],
+                                  "label": row.get("label"),
+                                  "vector": row.get("vector"),
+                                  "method": row.get("method"),
+                                  "topic_path": row.get("topic_path")})
     return out
 
 
@@ -2142,6 +2333,42 @@ def compute_pre_card_id(lemma, pos, en_def):
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
+def _lemma_fallback_examples(entries, read_entry, seen):
+    """Lemma-level example fallback (R3, deterministic, zero LLM).
+
+    All kaikki senses of the lemma's entries (not just the judged
+    sense), length-filtered, excluding already-seen strings. Lookup
+    errors fail open to [] (the caller keeps whatever it has).
+    """
+    out = []
+    try:
+        rows = list(entries or [])
+    except Exception:
+        return out
+    for row in rows:
+        try:
+            entry = read_entry(row) or {}
+        except Exception:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        try:
+            senses = entry.get("senses") or []
+        except Exception:
+            continue
+        for sense in senses:
+            if not isinstance(sense, dict):
+                continue
+            try:
+                texts = card_pilot.sense_example_texts(sense)
+            except Exception:
+                continue
+            for text in card_pilot.filter_examples_by_length(texts or []):
+                if text not in seen and text not in out:
+                    out.append(text)
+    return out
+
+
 def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
     """Bridge sense-CEFR with the never-null pool fallback.
 
@@ -2179,6 +2406,13 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     "enrich_path" is "full" when the dataset carriers cover IPA + all
     N_EXAMPLES slots, else "partial" (the model fills gaps downstream)
     so the fallback is counted in stage_calls, not silent.
+    v14.1 (R3) example-preservation fallback: when the picked sense
+    lacks examples (sense switching for `for`/`call` emptied A1 fields),
+    the pool backfills from lemma-level kaikki examples (all senses),
+    then the tatoeba pool; "example_fallback" names the first tier that
+    yielded an example ("sense"/"lemma"/"pool"/"synthetic-needed") and
+    "example_synthetic_needed" flags rows still empty so the downstream
+    model synthesizes instead of emitting a blank field.
     C3: also returns lexical_type + register (picked-sense kaikki tags /
     phrase-type log entry) and pre_card_id (stable EN-content id) —
     dataset sources only, zero LLM calls.
@@ -2197,7 +2431,9 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             item, lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
-                "dataset_examples": [], "abbrev_expansion": "",
+                "dataset_examples": [], "example_fallback": "synthetic-needed",
+                "example_synthetic_needed": True,
+                "abbrev_expansion": "",
                 "pos": [], "pos_src": "none", "enrich_path": "partial",
                 "sense_cefr": sense_cefr,
                 "sense_cefr_method": sense_cefr_method,
@@ -2233,14 +2469,23 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 entry, sense = cand_entry, cand_sense
                 break
     ipa = card_pilot.first_entry_ipa(entry) if entry else ""
-    pool = card_pilot.filter_examples_by_length(
+    sense_texts = card_pilot.filter_examples_by_length(
         card_pilot.sense_example_texts(sense)) if sense else []
+    pool = list(sense_texts)
+    seen = set(pool)
+    # v14.1 (R3): lemma-level fallback BEFORE the tatoeba pool — a
+    # sense switch that empties the picked sense (for/call A1) inherits
+    # sibling-sense kaikki examples first (dataset-dataset, zero LLM).
+    lemma_texts = _lemma_fallback_examples(entries, read_entry, seen)
+    for cand in lemma_texts:
+        if cand not in seen:
+            pool.append(cand)
+            seen.add(cand)
     extra = card_pilot.filter_examples_by_length(
         card_pilot.tatoeba_candidates(
             tatoeba_pool, item.get("text", ""),
             item.get("kind") or "word"),
         loose_cap=True)
-    seen = set(pool)
     for cand in extra:
         if cand not in seen:
             pool.append(cand)
@@ -2248,6 +2493,14 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     picked = card_pilot.prefer_cloze_passing(
         pool, item.get("text", ""), item.get("kind") or "word",
         item.get("pool_level", ""), card_pilot.N_EXAMPLES, zipf_fn)
+    if sense_texts:
+        example_fallback = "sense"
+    elif lemma_texts:
+        example_fallback = "lemma"
+    elif [c for c in extra if c in pool]:
+        example_fallback = "pool"
+    else:
+        example_fallback = "synthetic-needed"
     pos_tags = card_pilot.anchor_pos_tags(
         item.get("text", ""), entries, pos, read_entry)
     picked_examples = picked[:card_pilot.N_EXAMPLES]
@@ -2262,6 +2515,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
             else card_pilot.IPA_SRC_MODEL,
             "dataset_examples": picked_examples,
+            "example_fallback": example_fallback,
+            "example_synthetic_needed": not picked_examples,
             "abbrev_expansion": card_pilot.parse_abbrev_expansion(
                 gloss or ""),
             "pos": pos_tags,
@@ -2277,6 +2532,126 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
 
 
 # ------------------------------------------------------------- main ---
+
+def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
+                       vec3, pick, preprocess_view, s0b, s1r,
+                       pos, n, label_calls=None):
+    """One precard row for one fanned-out pick (R1 assembly helper).
+
+    sub_enrich/sub_label carry the per-sense S5/S4 payloads (primary
+    payloads for pos 0); sub_vec is the resolved per-sense topic
+    vector. Row shape matches the pre-fan-out single row plus
+    pick_index/fanout_n and the R3 example flags.
+    """
+    sub_enrich = sub_enrich if isinstance(sub_enrich, dict) else {}
+    sub_label = sub_label if isinstance(sub_label, dict) else {}
+    rec = {
+        "key": key, "kind": item.get("kind") or "word",
+        "text": item.get("text", ""),
+        "pool_level": item.get("pool_level", ""),
+        "redirect_to": item.get("redirect_to", "") or "",
+        "redirected_from": item.get("redirected_from", "") or "",
+        "sense_id": sub_enrich.get("sense_id", ""),
+        "en_def": sub_enrich.get("en_def", ""),
+        "ipa": sub_enrich.get("ipa", ""),
+        "ipa_src": sub_enrich.get("ipa_src",
+                                  card_pilot.IPA_SRC_MODEL),
+        "dataset_examples": sub_enrich.get("dataset_examples", []),
+        "example_fallback": sub_enrich.get("example_fallback",
+                                           "synthetic-needed"),
+        "example_synthetic_needed": bool(
+            sub_enrich.get("example_synthetic_needed",
+                           not sub_enrich.get("dataset_examples"))),
+        "abbrev_expansion": sub_enrich.get("abbrev_expansion", ""),
+        "pos": sub_enrich.get("pos", []),
+        "pos_src": sub_enrich.get("pos_src", "none"),
+        "lexical_type": sub_enrich.get("lexical_type",
+                                       LEXICAL_TYPE_DEFAULT),
+        "register": sub_enrich.get("register", REGISTER_DEFAULT),
+        "sense_cefr": sub_enrich.get("sense_cefr"),
+        "sense_cefr_method": sub_enrich.get("sense_cefr_method",
+                                            "unmapped"),
+        "pre_card_id": sub_enrich.get("pre_card_id", ""),
+        "pick_index": pos, "fanout_n": n,
+        "mother_lemma": (s1r.get("mother_lemma", "") or ""),
+        "mother_lemmas": list(s1r.get("mother_lemmas") or []),
+        "mother_multi": bool(s1r.get("mother_multi", False)),
+        "topic_vector": sub_vec,
+        "topic_method": sub_label.get("method")
+        or card_pilot.TOPIC_METHOD_TAG,
+        "drop_reason": None,
+        "stage_calls": {
+            "s0": ("kept:type-pending" if preprocess_view.get("type_pending")
+                    else "kept:quarantine-%s" % preprocess_view.get("quarantine")
+                    if preprocess_view.get("quarantine") else "kept"),
+            "s0b": (s0b.get("reason", "") or "kept"),
+            "s2": pick.get("model", ""),
+            "s3": vec3.get("model", ""),
+            "s4": sub_label.get("method", ""),
+            "s4_path": sub_label.get("topic_path", ""),
+            "s4_models": dict(label_calls or {}),
+            "s5": sub_enrich.get("enrich_path", "")},
+    }
+    if preprocess_view.get("type_pending"):
+        rec["type_pending"] = True
+    if preprocess_view.get("quarantine"):
+        # Advisory review flag flows downstream (card stays live;
+        # owner filters quarantine=* for the review list).
+        rec["quarantine"] = preprocess_view["quarantine"]
+    if (pick.get("proper_route") or ""):
+        rec["proper_route"] = pick["proper_route"]
+    return rec
+
+
+def audit_sample_accounting(items, precards, states):
+    """Keys with neither a precard row nor a structured drop (R2).
+
+    v14.1 fail-closed accounting: every sample key must resolve to >=1
+    precard row or a drop verdict in s0 (kept False), s1 ("dropped"),
+    s0b (not kept), or the s2 proper-drop marker. Returns the sorted
+    list of unaccounted keys ([] = nothing vanished silently).
+    Hostile inputs fail open to [] (the audit never crashes a run —
+    the caller logs a non-empty result loudly).
+    """
+    try:
+        rows_of = precards if isinstance(precards, dict) else {}
+        states = states if isinstance(states, dict) else {}
+        missing = []
+        for item in items or []:
+            try:
+                key = item_key(item)
+            except Exception:
+                continue
+            rows = rows_of.get(key)
+            if isinstance(rows, dict):
+                rows = [rows]
+            if rows:
+                continue
+            accounted = False
+            try:
+                s0 = (states.get("s0") or {}).get("done", {})
+                if isinstance(s0.get(key), dict) \
+                        and not s0[key].get("kept", True):
+                    accounted = True
+                s1 = (states.get("s1") or {}).get("done", {})
+                if isinstance(s1.get(key), dict) and s1[key].get("dropped"):
+                    accounted = True
+                s0b = (states.get("s0b") or {}).get("done", {})
+                if isinstance(s0b.get(key), dict) \
+                        and not s0b[key].get("kept", True):
+                    accounted = True
+                s2 = (states.get("s2") or {}).get("done", {})
+                if isinstance(s2.get(key), dict) \
+                        and s2[key].get("proper_drop"):
+                    accounted = True
+            except Exception:
+                pass
+            if not accounted:
+                missing.append(key)
+        return sorted(set(missing))
+    except Exception:
+        return []
+
 
 def _default_judge_transport(api_key, model, user_text):
     from factory.archive.v14_v16.run_v14_phase3_judge import call_responses
@@ -3426,8 +3801,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 "switch VPN server then re-run"))
                 for item in todo:
                     key = item_key(item)
-                    sid = (states["s2"]["done"].get(key) or {}).get(
-                        "sense_id", "")
+                    picks = fanout_picks(
+                        item, states["s2"]["done"].get(key) or {})
+                    sid = picks[0].get("sense_id", "") if picks else ""
                     hit = vecs.get(sid) if sid else None
                     if hit is None:
                         hit = {"vector": [{"label": "Other / Abstract",
@@ -3435,6 +3811,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                "model": "deterministic"}
                         if key not in states["s3"]["failed"]:
                             states["s3"]["failed"].append(key)
+                    # v14.1: secondary vectors ride on the primary s3
+                    # entry (additive "extra_vec") so the S4 label leg
+                    # and assembly resolve per-sense vectors without a
+                    # second LLM pass; resume-safe (plain JSON).
+                    if len(picks) > 1:
+                        extra_vec = {}
+                        for sub in picks[1:]:
+                            sub_sid = sub.get("sense_id", "")
+                            if sub_sid and sub_sid in vecs:
+                                extra_vec[sub_sid] = vecs[sub_sid]
+                        if extra_vec:
+                            hit = {**hit, "extra_vec": extra_vec}
                     states["s3"]["done"][key] = hit
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
@@ -3466,25 +3854,43 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         (states["s2"]["done"].get(key) or {}).get(
                             "sense_id", ""),
                         []).append(entry)
+            # v14.1: secondary vectors stashed on the s3 entry join the
+            # lookup so label extras resolve per-sense vectors.
+            for sub_sid, sub_hit in (
+                    hit.get("extra_vec") or {}).items():
+                for entry in ((sub_hit or {}).get("vector") or []):
+                    if isinstance(entry, dict) and entry.get("label"):
+                        vec_lookup.setdefault(sub_sid, []).append(entry)
         n_label_batches = (len(items) + LABEL_BATCH - 1) // LABEL_BATCH or 1
         _s4_offsets = (list(range(0, len(items), LABEL_BATCH))
                        if "s4" in selected else [])
         for batch_no, base in enumerate(_s4_offsets, start=1):
             batch = items[base:base + LABEL_BATCH]
             todo = [i for i in batch
-                    if item_key(i) not in states["s4"]["done"]]
+                    if item_key(i) not in states["s4"]["done"]
+                    or _needs_fanout_relabel(
+                        states["s4"]["done"].get(item_key(i)),
+                        states["s2"]["done"].get(item_key(i)))]
             if todo:
-                picks = {item_key(i): {
-                    "sense_id": (states["s2"]["done"].get(item_key(i))
-                                 or {}).get("sense_id", ""),
-                    "gloss": (states["s2"]["done"].get(item_key(i))
-                              or {}).get("gloss", "")} for i in todo}
+                picks = {}
+                for i in todo:
+                    key = item_key(i)
+                    s2entry = states["s2"]["done"].get(key) or {}
+                    picks[key] = {
+                        "sense_id": s2entry.get("sense_id", ""),
+                        "gloss": s2entry.get("gloss", ""),
+                        "picks": fanout_picks(i, s2entry)}
                 lookups = {}
                 for i in todo:
                     key = item_key(i)
-                    sid = picks[key]["sense_id"]
-                    if sid in vec_lookup:
-                        lookups[key] = {sid: vec_lookup[sid]}
+                    per_sid = {}
+                    for sub in fanout_picks(
+                            i, states["s2"]["done"].get(key) or {}):
+                        sid = sub.get("sense_id", "")
+                        if sid and sid in vec_lookup:
+                            per_sid[sid] = vec_lookup[sid]
+                    if per_sid:
+                        lookups[key] = per_sid
                 try:
                     assigned_map = label_batch(
                         todo, picks, lookups or None,
@@ -3527,19 +3933,36 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 done = states["s5"]["done"].get(key)
                 # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
                 # re-enrich deterministically (no LLM) instead of skipping.
-                # Same for pre-bridge entries (no sense_cefr_method).
+                # Same for pre-bridge entries (no sense_cefr_method) and
+                # pre-fan-out entries (judged secondaries, no "extra").
                 if not isinstance(done, dict) \
                         or "pre_card_id" not in done \
-                        or "sense_cefr_method" not in done:
+                        or "sense_cefr_method" not in done \
+                        or "example_fallback" not in done \
+                        or _needs_fanout_reenrich(
+                            done, states["s2"]["done"].get(key)):
                     phrase_entry = None
                     if (item.get("kind") or "word") == "phrase" \
                             and type_log_available:
                         phrase_entry = (type_map or {}).get(
                             (item.get("text") or "").strip())
-                    states["s5"]["done"][key] = enrich_item(
+                    primary = enrich_item(
                         item, states["s2"]["done"].get(key) or {},
                         index, read_entry, tatoeba_pool,
                         phrase_entry=phrase_entry)
+                    # v14.1: every fanned-out pick enriches independently
+                    # (own IPA/examples/CEFR/pre_card_id, dataset-only).
+                    extras = []
+                    for sub in fanout_picks(
+                            item, states["s2"]["done"].get(key) or {})[1:]:
+                        if not sub.get("sense_id"):
+                            continue
+                        extras.append(enrich_item(
+                            item, sub, index, read_entry, tatoeba_pool,
+                            phrase_entry=phrase_entry))
+                    if extras:
+                        primary["extra"] = extras
+                    states["s5"]["done"][key] = primary
             _flush(progress_dir, states)
             # Deterministic stage: <1s per batch, no progress bar by design
             # (LLM stages use _batch_progress for live per-batch feedback).
@@ -3547,6 +3970,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s5", states, args.out)
         # Assemble output (survivors only; drops live in s0/s1 progress).
+        # v14.1 (R1): one row per judged pick — the lemma fans out into
+        # N independent precard records (own pre_card_id, topic vector,
+        # CEFR, IPA, examples each).
         for item in items:
             key = item_key(item)
             enrich = states["s5"]["done"].get(key) or {}
@@ -3556,61 +3982,39 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             preprocess_view = preprocess_info.get(key) or {}
             s0b = states["s0b"]["done"].get(key) or {}
             s1r = states["s1"]["done"].get(key) or {}
-            topic_vector = (label.get("vector")
-                            or vec3.get("vector")
-                            or [{"label": "Other / Abstract",
-                                 "weight": 1.0}])
-            rec = {
-                "key": key, "kind": item.get("kind") or "word",
-                "text": item.get("text", ""),
-                "pool_level": item.get("pool_level", ""),
-                "redirect_to": item.get("redirect_to", "") or "",
-                "redirected_from": item.get("redirected_from", "") or "",
-                "sense_id": enrich.get("sense_id", ""),
-                "en_def": enrich.get("en_def", ""),
-                "ipa": enrich.get("ipa", ""),
-                "ipa_src": enrich.get("ipa_src",
-                                      card_pilot.IPA_SRC_MODEL),
-                "dataset_examples": enrich.get("dataset_examples", []),
-                "abbrev_expansion": enrich.get("abbrev_expansion", ""),
-                "pos": enrich.get("pos", []),
-                "pos_src": enrich.get("pos_src", "none"),
-                "lexical_type": enrich.get("lexical_type",
-                                           LEXICAL_TYPE_DEFAULT),
-                "register": enrich.get("register", REGISTER_DEFAULT),
-                "sense_cefr": enrich.get("sense_cefr"),
-                "sense_cefr_method": enrich.get("sense_cefr_method",
-                                                "unmapped"),
-                "pre_card_id": enrich.get("pre_card_id", ""),
-                "mother_lemma": (s1r.get("mother_lemma", "") or ""),
-                "mother_lemmas": list(s1r.get("mother_lemmas") or []),
-                "mother_multi": bool(s1r.get("mother_multi", False)),
-                "topic_vector": topic_vector,
-                "topic_method": label.get("method")
-                or card_pilot.TOPIC_METHOD_TAG,
-                "drop_reason": None,
-                "stage_calls": {
-                    "s0": ("kept:type-pending" if preprocess_view.get("type_pending")
-                            else "kept:quarantine-%s" % preprocess_view.get("quarantine")
-                            if preprocess_view.get("quarantine") else "kept"),
-                    "s0b": (s0b.get("reason", "") or "kept"),
-                    "s2": pick.get("model", ""),
-                    "s3": vec3.get("model", ""),
-                    "s4": label.get("method", ""),
-                    "s4_path": label.get("topic_path", ""),
-                    "s4_models": dict(label_calls),
-                    "s5": enrich.get("enrich_path", "")},
-            }
-            if preprocess_view.get("type_pending"):
-                rec["type_pending"] = True
-            if preprocess_view.get("quarantine"):
-                # Advisory review flag flows downstream (card stays live;
-                # owner filters quarantine=* for the review list).
-                rec["quarantine"] = preprocess_view["quarantine"]
-            if (pick.get("proper_route") or ""):
-                rec["proper_route"] = pick["proper_route"]
+            label_extras = label.get("extra") or []
+            enrich_extras = enrich.get("extra") or []
+            extra_vec = (vec3.get("extra_vec") or {}) \
+                if isinstance(vec3.get("extra_vec"), dict) else {}
+            label_by_sid = {}
+            for extra_row in label_extras:
+                if isinstance(extra_row, dict) and extra_row.get("sense_id"):
+                    label_by_sid[extra_row["sense_id"]] = extra_row
+            enrich_by_sid = {}
+            for extra_row in enrich_extras:
+                if isinstance(extra_row, dict) and extra_row.get("sense_id"):
+                    enrich_by_sid[extra_row["sense_id"]] = extra_row
+            subs = fanout_picks(item, pick) or [
+                {"sense_id": "", "gloss": ""}]
+            rows = []
+            for pos, sub in enumerate(subs):
+                sub_enrich = enrich if pos == 0 else enrich_by_sid.get(
+                    sub.get("sense_id", ""), {})
+                sub_label = label if pos == 0 else label_by_sid.get(
+                    sub.get("sense_id", ""), {})
+                sub_vec = (sub_label.get("vector")
+                           if isinstance(sub_label, dict) else None) \
+                    or (extra_vec.get(sub.get("sense_id", ""), {}) or {}
+                        ).get("vector") \
+                    or (vec3.get("vector") if pos == 0 else None) \
+                    or [{"label": "Other / Abstract", "weight": 1.0}]
+                rec = _build_precard_row(
+                    item, key, sub, sub_enrich, sub_label, sub_vec,
+                    vec3, pick, preprocess_view, s0b, s1r,
+                    pos, len(subs), label_calls)
+                rows.append(rec)
             if key not in precards:
-                precards[key] = rec
+                precards[key] = rows
             # else F2: duplicate-redirect loser — first item wins the
             # merged key (last-writer content is silently wrong); the
             # loser is recorded as a duplicate-redirect drop at
@@ -3634,6 +4038,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # never truncate precard.jsonl and force a full re-run.
     seen_keys: set = set()
     dup_redirect: list = []
+    # v14.1 (R2) fail-closed accounting: no sample key may vanish
+    # without a precard row or a structured drop verdict — unaccounted
+    # keys are logged loudly (console + dropped.log), never silent.
+    unaccounted = audit_sample_accounting(items, precards, states)
+    if unaccounted:
+        print(_color("accounting-no-verdict: %d key(s) with no precard "
+                     "row and no drop verdict: %s (see dropped.log)"
+                     % (len(unaccounted), ", ".join(unaccounted)),
+                     "red"))
+        try:
+            drop_log = out_path.parent / "dropped.log"
+            with open(drop_log, "a", encoding="utf-8") as handle:
+                handle.write("=== accounting-no-verdict ===\n")
+                for key in unaccounted:
+                    handle.write("%s: accounting-no-verdict\n" % key)
+        except OSError as exc:
+            print("warning: dropped.log append failed (%s)" % exc)
     _tmp = str(out_path) + ".tmp"
     with open(_tmp, "w", encoding="utf-8") as handle:
         for item in items:
@@ -3643,8 +4064,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     key, item.get("redirected_from", "?")))
                 continue
             seen_keys.add(key)
-            handle.write(json.dumps(
-                precards[key], ensure_ascii=False) + "\n")
+            for rec in precards.get(key) or []:
+                handle.write(json.dumps(
+                    rec, ensure_ascii=False) + "\n")
     os.replace(_tmp, out_path)
     if dup_redirect:
         print("duplicate-redirect drops (merged into base, FSRS-safe): %s"

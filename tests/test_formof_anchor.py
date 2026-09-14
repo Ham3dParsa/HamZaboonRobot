@@ -197,9 +197,11 @@ def test_judge_window_all_stub_keeps():
 
 
 def test_judge_prompt_template_unchanged():
+    """v14.1: the judge picks 1-4 ordered senses (fan-out); the
+    candidate-id grounding and hierarchy lines are unchanged."""
     import inspect
     src = inspect.getsource(precard_pipeline._judge_prompt)
-    assert "PICK the single most useful sense per item" in src
+    assert "PICK the 1-4 most useful senses per item" in src
     assert "candidate ids" in src
 
 
