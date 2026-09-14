@@ -43,6 +43,9 @@ abbreviation instead of entering phrase candidates):
   - ``drop:apostrophe``: ``'`` or U+2019 (``'d``).
   - ``drop:period``: contains ``.`` (``A. M. A.``, ``e.g.``).
   - ``drop:single_char``: stripped length < 2.
+  - ``drop:proper`` (T2 v14): Titlecase alpha (``Olivia``) — R4-doomed names
+    burn no reservoir slots. ALL-CAPS (``WHO``) passes: acronyms belong to
+    the T4 frequency+sense gate, never the shape gate.
   - keep-gate: alphabetic, len >= 2, containing a vowel (aeiouAEIOU).
     A-list lemmas (``April``, ``about``) stay via the vowel rule — no
     special-casing. Anything else (``co-op``, ``rhythm``) drops.
@@ -101,7 +104,7 @@ FREQUENT_ZIPF_MIN = 3.0
 # dropped); v2 = F2b allowlist (pack-hit or frequent vowel-less kept).
 # Stored in the checkpoint header; a mismatch aborts fail-closed so a
 # resume never mixes counters/reservoirs across rule regimes.
-SHAPE_VERSION = 2
+SHAPE_VERSION = 3
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -252,8 +255,8 @@ def shape_verdict(word: object) -> str:
     """Single-source lemma shape gate (locked R5, TICKET F2).
 
     Returns ``"keep"``, ``"phrase"``, or ``"drop:<reason>"`` where reason
-    is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel/
-    non_string.
+    is one of affix/digit/apostrophe/period/single_char/non_alpha/proper/
+    no_vowel/non_string.
     Pure string logic — deterministic, zero LLM. Shape DROP markers for
     affix/digit/apostrophe/period/single_char win over phrase-routing;
     ``non_alpha``/``no_vowel`` are checked after the phrase branch, so a
@@ -277,6 +280,12 @@ def shape_verdict(word: object) -> str:
         return "phrase"
     if not text.isalpha():
         return "drop:non_alpha"
+    # T2 (v14): Titlecase citation forms are proper names — precard R4
+    # drops them downstream, so they must not burn reservoir slots.
+    # ALL-CAPS passes through untouched: initialisms belong to the T4
+    # acronym policy (frequency + general-sense gate), not the shape gate.
+    if text[0].isupper() and not text.isupper():
+        return "drop:proper"
     if not any(ch in VOWELS for ch in text):
         return "drop:no_vowel"
     return "keep"
