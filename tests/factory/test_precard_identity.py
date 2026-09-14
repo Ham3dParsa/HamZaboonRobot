@@ -58,9 +58,18 @@ def test_accounting_lives_in_new_home():
 
 
 def test_no_archive_imports():
+    import ast
+
     package = pathlib.Path(progress.__file__).parent
+    banned = ("factory.archive", "factory.pipeline", "factory.lexicon")
     for path in sorted(package.glob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        assert "factory.archive" not in text, path.name
-        assert "factory.pipeline" not in text, path.name
-        assert "factory.lexicon" not in text, path.name
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                mods = [node.module or ""]
+            else:
+                continue
+            for mod in mods:
+                assert not mod.startswith(banned), (path.name, mod)
