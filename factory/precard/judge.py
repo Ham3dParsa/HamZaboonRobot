@@ -298,3 +298,249 @@ def apply_inflection_veto(out, batch, anchor_map):
                 out[key]["sense_id"] = vetoed[0]["sense_id"]
                 out[key]["gloss"] = vetoed[0]["gloss"]
     return out
+
+
+# ---- T4b: network loops (moved verbatim, imports rewired) ----
+
+import urllib.error
+
+from factory.precard.transport import (
+    AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
+    record_call, extract_usage,
+    _call_with_rotation, _tele_tokens, _unwrap_transport_result,
+    MAX_ATTEMPTS, RETRY_PREFIX)
+
+_tele_record = record_call
+_tele_usage = extract_usage
+from factory.precard.prompts import INFLECTION_REVIEW_SYS
+
+
+INFLECTION_REVIEW_BATCH = 16
+INFLECTION_REVIEW_MODELS = JUDGE_MODELS[:2]
+JUDGE_BATCH = 12
+
+
+
+def _inflection_review_prompt(batch):
+    """Batch prompt: one KEY/word/gloss block per item."""
+    lines = ["Judge EACH inflected form against its dictionary gloss.",
+             'Output: {"results": [{"key": "<item key>", '
+             '"keep": true/false, "reason": "<why>"}]}.',
+             "Input follows:"]
+    for entry in batch:
+        lines.append("KEY %s" % entry["key"])
+        lines.append("word: %s" % (entry.get("text") or ""))
+        lines.append("gloss: %s" % ((entry.get("gloss") or "")[:200]))
+    return "\n".join(lines)
+
+
+def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                      http_status=401):
+    """Auth record before a loud 401/403 abort (never silent)."""
+    if telemetry is None:
+        return
+    record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        latency_s=0.0, outcome="auth", http_status=http_status)
+
+
+def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                 usage, outcome):
+    """One terminal review-batch record (tokens None-tolerated)."""
+    if telemetry is None:
+        return
+    prompt_tokens, completion_tokens = _tele_tokens(usage)
+    record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        latency_s=0.0, outcome=outcome)
+
+
+def _validate_review_results(data, want_keys, key_field="key"):
+    """Shared envelope check for the R30/R31 review passes.
+
+    Returns the {key: row} mapping when every wanted key is present,
+    else None (caller fails closed / retries).
+    """
+    if not isinstance(data, dict) or not isinstance(
+            data.get("results"), list):
+        return None
+    by_key = {}
+    for row in data["results"]:
+        if isinstance(row, dict) and isinstance(row.get(key_field), str):
+            by_key[row[key_field]] = row
+    if set(by_key) != set(want_keys):
+        return None
+    return by_key
+
+
+def inflection_review(items, transport, api_key="", model_calls=None,
+                      telemetry=None, tele_stage="s0b",
+                      tele_key_idx=0):
+    """R36: batched inflection-form review.
+
+    items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
+    model:str, uncertain:bool}}. keep=False only on an explicit LLM
+    drop verdict; every failure (transport error, bad JSON, envelope
+    mismatch) fails closed to {keep: True, uncertain: True} flagged
+    review-uncertain (never drop on uncertainty). Auth aborts loudly.
+    Hermetic with an injected transport. Tuple (text, usage) transports
+    surface token counts into one terminal telemetry record per batch
+    (None-tolerated).
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for batch_no, base in enumerate(
+            range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
+        batch = items[base:base + INFLECTION_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        prompt = _inflection_review_prompt(batch)
+        settled = False
+        win_model, win_usage = "review-fallback", None
+        for model in INFLECTION_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    res = transport(api_key, model,
+                                    INFLECTION_REVIEW_SYS, text)
+                    raw, usage = _unwrap_transport_result(res)
+                    data = extract_json(raw)
+                except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                rows_ok = True
+                for key in want:
+                    row = by_key[key]
+                    keep = row.get("keep")
+                    reason = row.get("reason", "")
+                    if not isinstance(keep, bool):
+                        rows_ok = False
+                        break
+                    out[key] = {
+                        "keep": keep,
+                        "reason": reason if isinstance(reason, str)
+                        else "",
+                        "model": model, "uncertain": False}
+                if not rows_ok:
+                    out = {k: v for k, v in out.items() if k not in want}
+                    continue
+                settled = True
+                win_model, win_usage = model, usage
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                if key not in out:
+                    out[key] = {"keep": True, "reason": "review-error",
+                                "model": "review-fallback",
+                                "uncertain": True}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
+    return out
+
+
+def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
+                   telemetry=None, tele_stage="s2", tele_batch=0,
+                   ring=None, models=None):
+    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
+
+    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
+    list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
+    it. 2 attempts per model, 401/403
+    loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
+    all-keys-429 raises RateLimited so the runner flushes and STOPS),
+    anything else fail-closed to the S1 top pick per item. v14.1: the
+    judge returns 1-4 ordered picks per item (judge_validate_multi —
+    legacy single "pick" rows still validate as one pick); the ordered
+    list rides on "picks" with sense_id/gloss = the primary. F4: every
+    pick (judge-model AND s1-fallback, primary AND secondaries) passes
+    the inflection-stub veto — a stub gloss falls back to the
+    anchor-top non-stub candidate.
+    R27: one
+    telemetry record per batch (ok on a judge-model pick, fallback on
+    s1-fallback, error on all-keys-429); tuple (text, usage) transports
+    surface token counts (None-tolerated).
+    """
+    models = list(models) if models else list(JUDGE_MODELS[:2])
+    prompt = judge_prompt(batch, anchor_map)
+    transport = transport  # default wired by caller to judge call_responses
+    if ring is None:
+        ring = KeyRing([api_key])
+    for model in models:
+        for attempt in range(MAX_ATTEMPTS):
+            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+            label = "%s/%s#%d" % (model, "+".join(
+                item_key(i) for i in batch), attempt)
+            usage = None
+            try:
+                raw, usage = _call_with_rotation(
+                    transport, ring, model, text, sleep_fn, state, label)
+            except AuthError:
+                raise
+            except RateLimited:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0,
+                                 outcome="error", http_status=429)
+                raise
+            except urllib.error.HTTPError as exc:
+                if getattr(exc, "code", None) in (401, 403):
+                    raise_for_auth(exc)
+                raw, usage = None, None
+            except Exception:
+                raw, usage = None, None
+            if raw is None:
+                continue
+            try:
+                data = extract_json(raw)
+            except AuthError:
+                raise
+            except Exception:
+                continue
+            try:
+                valid = judge_validate_multi(data, batch, anchor_map)
+            except Exception:
+                valid = None
+            if valid is not None:
+                out = {k: {**v, "model": model} for k, v in valid.items()}
+                apply_inflection_veto(out, batch, anchor_map)  # F4
+                if telemetry is not None:
+                    prompt_tokens, completion_tokens = _tele_tokens(usage)
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0, outcome="ok",
+                                 prompt_tokens=prompt_tokens,
+                                 completion_tokens=completion_tokens)
+                return out
+    out = {item_key(i): {**judge_fallback(i, anchor_map.get(item_key(i))),
+                         } for i in batch}
+    apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:
+    # the anchor top itself can be a stub when inflection kept it)
+    if telemetry is not None:
+        _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                     key_idx=0, model="s1-fallback", latency_s=0.0,
+                     outcome="fallback")
+    return out

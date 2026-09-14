@@ -1,0 +1,464 @@
+"""Network plumbing for the precard line (sole owner in new home).
+
+Vendored frozen with provenance (precard line R1-R6, 2026-09-14):
+KeyRing/RateLimited/write_progress from factory/lexicon/phrase_judge;
+AuthError/extract_json/raise_for_auth from factory/core/llm_json (the
+classify error-taxonomy stays single-sourced there per its owner guard);
+telemetry recorders from factory/core/telemetry; RunLogger +
+_unwrap_transport_result from factory/pipeline/card_pilot; rotation,
+consts, and AvalAI/Google transports from factory/pipeline/
+precard_pipeline; the three Zen leg transports (+ their SYS texts, one
+shared ZEN_BASE) from the v14/v15/v16b archive scripts.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+
+class AuthError(RuntimeError):
+    """Raised when the provider rejects our credentials (401/403)."""
+
+
+def extract_json(text):
+    dec = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = dec.raw_decode(text, i)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    raise ValueError("no JSON object in model reply")
+
+
+def raise_for_auth(exc):
+    """Re-raise HTTP 401/403 as AuthError (loud abort); pass through else."""
+    code = getattr(exc, "code", None)
+    if isinstance(exc, urllib.error.HTTPError) and code in (401, 403):
+        raise AuthError(
+            "provider auth failed (HTTP %s): check keys in factory/.env — "
+            "aborting with no silent fallback" % code)
+    raise exc
+
+
+GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
+
+
+GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
+                     "models/%s:generateContent")
+
+
+AVALAI_PRECARD_MODEL = "glm-5.3-flash"
+
+
+AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
+
+
+RETRY_PREFIX = ("Your last reply was not valid JSON. "
+                "Re-send ONLY the JSON object.\n")
+
+
+ROTATE_PAUSE = 5.0
+
+
+MAX_ATTEMPTS = 2
+
+
+OUTCOMES = ("ok", "invalid", "fallback", "error", "auth")
+
+
+def _read_egress_env_key(path, key):
+    """Single key from a dotenv file (owner layout fallback); "" when
+    absent. Never logs values — the caller only checks emptiness."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                if k.strip() == key:
+                    return v.strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
+def _google_payload(user_text):
+    """Pure Gemini REST payload (H5: temperature 0.0 locks determinism)."""
+    return {
+        "contents": [{"parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingLevel": "MINIMAL"}},
+    }
+
+
+def _google_remap_transport(default_model):
+    """Adapter letting Zen-model loops run unchanged on Google direct.
+
+    Same shape as the AvalAI remap: substitutes the leg model for any
+    requested name; extra leading texts are prepended. Telemetry keeps
+    the requested (Zen) name — runs are told apart by progress dirs.
+    """
+    def wrap(api_key, model, *texts):
+        text = "\n\n".join(t for t in texts if t)
+        return _google_chat_transport(api_key, default_model, text)
+    return wrap
+
+
+def _google_chat_transport(api_key, model, user_text):
+    """Google-direct transport (Gemini REST): (text, None).
+
+    thinkingLevel MINIMAL (closest to off on 3.x Lites) +
+    responseMimeType JSON. HTTP errors propagate untouched (429 is
+    rotation fuel; the shared classify table owns meaning). No usage
+    counters on this API shape -> None (telemetry records latency).
+    """
+    payload = json.dumps(_google_payload(user_text)).encode("utf-8")
+    req = urllib.request.Request(
+        GOOGLE_MODELS_URL % model, data=payload,
+        headers={"Content-Type": "application/json",
+                 "x-goog-api-key": api_key})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        text = ""
+    return text or "", None
+
+
+def _avalai_remap_transport(default_model):
+    """Adapter letting Zen-model loops run unchanged on AvalAI.
+
+    S0b/S3/S4 loops live in card_pilot (shared with card-gen — untouched
+    by design) and request Zen model names. This wraps
+    _avalai_chat_transport, substituting the precard model for any
+    requested name; extra leading texts (the inflect sys prompt) are
+    prepended. Telemetry keeps the requested (Zen) name — runs are told
+    apart by their progress dirs, not by these labels.
+    Cost bound (#4 review): a fully-failing item repeats the SAME paid
+    model through the loop (S4 up to 5 models x 2 attempts, S0b 2 x 2);
+    worst case ~$0.001/item at GLM rates, only on total failure. PENDING
+    owner cost sign-off; single-model collapse is follow-up.
+    """
+    def wrap(api_key, model, *texts):
+        text = "\n\n".join(t for t in texts if t)
+        return _avalai_chat_transport(api_key, default_model, text)
+    return wrap
+
+
+def _avalai_chat_transport(api_key, model, user_text):
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": user_text}],
+        "temperature": 0,
+        # reasoning_effort low in BOTH places (verified 2026-09-06:
+        # nested-only, top-only, and both all return reasoning_tokens=0;
+        # either alone works, both together is belt-and-suspenders).
+        "reasoning_effort": "low",
+        "extra_body": {"reasoning_effort": "low"},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        AVALAI_CHAT_URL, data=payload,
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.load(resp)
+    msg = ((data.get("choices") or [{}])[0].get("message", {})
+           if isinstance(data, dict) else {})
+    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+    return (msg.get("content") or ""), (usage if isinstance(usage, dict)
+                                        else None)
+
+
+def _unwrap_transport_result(res):
+    """Split a transport reply into (raw_text, usage-dict-or-None)."""
+    if isinstance(res, tuple) and len(res) == 2:
+        usage = res[1] if isinstance(res[1], dict) else None
+        return res[0], usage
+    return res, None
+
+
+class RunLogger:
+    """V7 compact run.log writer (stage start/end + counts + timings)."""
+
+    def __init__(self, path, namer=None):
+        import atexit as _atexit
+        self.path = pathlib.Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = open(self.path, "w", encoding="utf-8")
+        self._starts = {}
+        # Human voice: namer(stage)->display name. run.log is read by
+        # humans, so callers pass stage labels; ids stay in data files.
+        self._namer = namer
+        # Exception-safe close: every exit path (raise/sys.exit) still
+        # releases the handle at interpreter shutdown; close() is
+        # idempotent so the explicit happy-path close stays as-is.
+        _atexit.register(self.close)
+
+    def log(self, line):
+        if self._handle.closed:
+            # Reopen in append mode: close() may already have run in a
+            # finally block while the caller still has summary lines.
+            self._handle = open(self.path, "a", encoding="utf-8")
+        self._handle.write(line + "\n")
+        self._handle.flush()
+
+    def _shown(self, stage):
+        try:
+            return self._namer(stage) if self._namer else stage
+        except (TypeError, LookupError):
+            return stage
+
+    def stage_start(self, stage):
+        self._starts[stage] = time.perf_counter()
+        self.log("stage %s start" % self._shown(stage))
+
+    def stage_end(self, stage, ok=0, fail=0):
+        start = self._starts.get(stage, time.perf_counter())
+        secs = time.perf_counter() - start
+        self.log("stage %s end ok=%d fail=%d secs=%.2f"
+                 % (self._shown(stage), ok, fail, secs))
+
+    def close(self):
+        try:
+            self._handle.close()
+        except Exception:
+            pass
+
+
+def _rotating_llm_transport(transport, sleep_fn, state, ring):
+    """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
+
+    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
+    SAME call. When EVERY key 429s consecutively, raises RateLimited —
+    the S4 caller converts it to SystemExit AFTER flushing progress
+    (OC must-fix: raising SystemExit here bypassed the flush and lost
+    in-memory s4.done entries). card_pilot.assign_topic re-raises
+    RateLimited through its fail-closed handler for the same reason.
+    """
+    def wrap(_api_key, model, user_text):
+        while True:
+            try:
+                out = transport(ring.current, model, user_text)
+                ring.used = 0
+                return out
+            except urllib.error.HTTPError as exc:
+                if getattr(exc, "code", None) != 429:
+                    raise
+                _note_backoff(state, "%s/s4" % model, [ROTATE_PAUSE],
+                              "rotating")
+                sleep_fn(ROTATE_PAUSE)
+                if ring.rotate():
+                    continue
+                _note_backoff(state, "%s/s4" % model, [],
+                              "all-keys-429-stop")
+                raise RateLimited(
+                    "all keys 429 (provider quotas exhausted) — re-run "
+                    "later (progress flushed, resume safe)")
+    return wrap
+
+
+def _note_backoff(state, label, waits, outcome):
+    state.setdefault("backoffs", []).append(
+        {"label": label, "waits": list(waits), "outcome": outcome})
+
+
+def _tele_tokens(usage):
+    """Token pair from a surfaced usage dict (None-tolerated)."""
+    if isinstance(usage, dict):
+        return extract_usage(usage)
+    return None, None
+
+
+def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
+                        label):
+    """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
+
+    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
+    SAME call. Success resets the ring streak (same F1 rule as
+    phrase_judge.call_with_backoff). When EVERY key 429s consecutively,
+    records the stop event and raises RateLimited — the caller flushes
+    progress and STOPS for a VPN-server switch. Auth (401/403) and
+    other errors propagate to the caller.
+    Returns (raw_text, usage-dict-or-None): tuple (text, usage)
+    transports surface token counts (None-tolerated); plain-text
+    transports yield None.
+    """
+    while True:
+        try:
+            out = transport(ring.current, model, text)
+            ring.used = 0
+            if isinstance(out, tuple) and len(out) == 2:
+                return out[0], (out[1] if isinstance(out[1], dict)
+                                else None)
+            return out, None
+        except urllib.error.HTTPError as exc:
+            if getattr(exc, "code", None) != 429:
+                raise
+            _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
+            sleep_fn(ROTATE_PAUSE)
+            if ring.rotate():
+                continue
+            _note_backoff(state, label, [], "all-keys-429-stop")
+            raise RateLimited(
+                "all keys 429 (provider quotas exhausted) — re-run later")
+
+
+def write_summary(path, calls):
+    """Write telemetry_summary.json (summary + record count)."""
+    summary = summarize(calls)
+    dest = pathlib.Path(str(path))
+    if str(dest.parent) not in ("", "."):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(summary, ensure_ascii=False))
+    return summary
+
+
+def summarize(calls):
+    """Aggregate {by_stage, by_model, by_key_idx} (None tokens count 0)."""
+    summary = {"by_stage": {}, "by_model": {}, "by_key_idx": {}}
+    for call in calls or []:
+        for dim, raw in (("by_stage", call.get("stage")),
+                         ("by_model", call.get("model")),
+                         ("by_key_idx", call.get("key_idx"))):
+            key = str(raw)
+            bucket = summary[dim].setdefault(key, _bucket())
+            bucket["calls"] += 1
+            for token_key in ("prompt_tokens", "completion_tokens"):
+                try:
+                    number = call.get(token_key)
+                    bucket[token_key] += int(number) if number is not None \
+                        else 0
+                except (TypeError, ValueError):
+                    pass
+    summary["records"] = len(list(calls or []))
+    return summary
+
+
+def _bucket():
+    return {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+
+
+def record_call(store, *, stage, batch_id, key_idx, model,
+                prompt_tokens=None, completion_tokens=None,
+                latency_s=0.0, outcome="ok", http_status=None):
+    """Append one call record. ``key_idx`` MUST be an int (never a key).
+
+    Raises ``TypeError`` when ``key_idx`` is not an int — a literal key
+    string must never reach the persisted file.
+    """
+    if not isinstance(key_idx, int) or isinstance(key_idx, bool):
+        raise TypeError("key_idx must be an int (key values never persist)")
+    try:
+        batch_id = int(batch_id)
+    except (TypeError, ValueError):
+        batch_id = 0
+    try:
+        latency = float(latency_s or 0.0)
+    except (TypeError, ValueError):
+        latency = 0.0
+    entry = {
+        "ts": now_ts(),
+        "stage": str(stage or ""),
+        "batch_id": batch_id,
+        "key_idx": key_idx,
+        "model": str(model or ""),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "latency_s": round(latency, 3),
+        "outcome": outcome if outcome in OUTCOMES else "error",
+        "http_status": http_status,
+    }
+    store.append(entry)
+    return entry
+
+
+def now_ts() -> str:
+    """UTC ISO timestamp for one record."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def extract_usage(data) -> tuple:
+    """Probe a Zen responses payload for token usage.
+
+    Accepts the full response JSON (``{"usage": {...}}``) or a bare
+    usage dict. Probes ``input_tokens``/``output_tokens`` first, then
+    ``prompt_tokens``/``completion_tokens``. Anything missing or
+    non-numeric -> ``None`` (tolerated, never raises).
+    """
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict) and isinstance(data, dict):
+        usage = data
+    if not isinstance(usage, dict):
+        return None, None
+
+    def _num(*names):
+        for name in names:
+            try:
+                value = usage.get(name)
+            except AttributeError:
+                continue
+            if isinstance(value, bool):
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            return int(number)
+        return None
+
+    return (_num("input_tokens", "prompt_tokens"),
+            _num("output_tokens", "completion_tokens"))
+
+
+def write_progress(path: str, payload: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False))
+    os.replace(tmp, path)
+
+
+class RateLimited(Exception):
+    """All keys 429 — caller flushes progress and exits for a server switch."""
+
+
+class KeyRing:
+    """Round-robin Zen keys. rotate() on 429; exhausted after a full circle."""
+
+    def __init__(self, keys):
+        self.keys = [k for k in keys if k]
+        if not self.keys:
+            raise ValueError(
+                "KeyRing needs at least one non-empty key "
+                "(set OPENCODE_ZEN_API_KEY in factory/.env)")
+        self.idx = 0
+        self.used = 0
+
+    @property
+    def current(self):
+        return self.keys[self.idx]
+
+    def rotate(self):
+        """Move to next key. Returns False when every key just 429'd."""
+        if not self.keys:
+            return False
+        self.used += 1
+        self.idx = (self.idx + 1) % len(self.keys)
+        if self.used >= len(self.keys):
+            self.used = 0
+            return False
+        return True
