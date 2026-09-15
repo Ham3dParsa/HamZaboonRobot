@@ -300,7 +300,8 @@ def report_lease(cfg, lease_id, outcome, provider=None):
 
 
 def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
-             key_var="", sleep_fn=None, state=None, label=""):
+             key_var="", sleep_fn=None, state=None, label="",
+             file_label="factory/.env"):
     """One LLM leg with KeyRing rotation. Returns (text, usage-or-None).
 
     leg selects the provider through TARGETS (e.g. "zen"); keys default
@@ -339,4 +340,5 @@ def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
     return _call_with_rotation(
         transport, ring, model, prompt, sleep_fn or cfg._sleep,
         state, label or ("%s/%s" % (model, norm_target(leg))),
-        provider=provider or "zen", key_var=var)
+        provider=provider or "zen", key_var=var,
+        file_label=file_label)

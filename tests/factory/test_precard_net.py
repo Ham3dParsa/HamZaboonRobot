@@ -518,3 +518,35 @@ def test_judge_batch_threads_provider_to_classify():
                       ring=T.KeyRing(["k1", "k2"]), provider="google",
                       key_var="GOOGLE_AI_API_KEY")
     assert calls == ["k1"]  # single attempt, no rotation
+
+
+def test_file_label_threads_to_auth_errors():
+    """file_label (default factory/.env) reaches the AuthError message
+    through judge_batch and net.call_leg — an egress-fallback key
+    names the file actually searched, values never surface."""
+    from factory.precard import judge as J
+
+    def fake401(api_key, model, text):
+        raise _http(401)
+
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+    with pytest.raises(LJ.AuthError) as exc:
+        J.judge_batch(batch, amap, "zz-secret-9", fake401,
+                      lambda s: None, {},
+                      ring=T.KeyRing(["zz-secret-9"]),
+                      provider="google",
+                      key_var="GOOGLE_AI_API_KEY",
+                      file_label="tools/egress/.env")
+    msg = str(exc.value)
+    assert "GOOGLE_AI_API_KEY" in msg
+    assert "tools/egress/.env" in msg
+    assert "zz-secret-9" not in msg
+    cfg = _cfg(keys={"zen": ["zz-secret-1"]})
+    with pytest.raises(LJ.AuthError) as exc2:
+        NET.call_leg(cfg, "zen", "prompt", transport=fake401, model="m",
+                     sleep_fn=lambda s: None, state={},
+                     file_label="custom.env")
+    assert "custom.env" in str(exc2.value)
+    assert "zz-secret-1" not in str(exc2.value)

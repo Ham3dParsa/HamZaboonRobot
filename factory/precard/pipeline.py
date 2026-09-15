@@ -630,6 +630,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         vars_ = PROVIDER_KEY_VARS.get(provider or "", ("",))
         return vars_[0] if vars_ else ""
 
+    def _leg_file_label(provider):
+        """Env-file label for a leg's auth errors (never a value).
+
+        Zen/AvalAI keys load from factory/.env; a Google key that came
+        from the owner-layout egress fallback names tools/egress/.env
+        so the operator re-checks the file actually searched.
+        """
+        if provider == "google" and google_key_from_egress:
+            return "tools/egress/.env"
+        return "factory/.env"
+
     def _leg_model(leg):
         if leg in stage_model:
             return stage_model[leg]
@@ -702,6 +713,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # inflection/vectors/label share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
+    google_key_from_egress = False
     # full_avalai/judge_avalai/judge_google computed above.
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if avalai_needed:
@@ -742,6 +754,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             google_key = _read_egress_env_key(
                 str(here / "tools" / "egress" / ".env"),
                 "GOOGLE_AI_API_KEY")
+            google_key_from_egress = bool(google_key)
         if not google_key:
             raise SystemExit("no GOOGLE_AI_API_KEY in factory/.env "
                              "(google provider needs it)")
@@ -1162,6 +1175,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         ring=judge_ring or ring, models=judge_models,
                         provider=providers["sense_judge"],
                         key_var=_provider_key_var(
+                            providers["sense_judge"]),
+                        file_label=_leg_file_label(
                             providers["sense_judge"]))
                 except AuthError:
                     raise
@@ -1261,6 +1276,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         models=vectors_models_override,
                         provider=providers["topic_vectors"],
                         key_var=_provider_key_var(
+                            providers["topic_vectors"]),
+                        file_label=_leg_file_label(
                             providers["topic_vectors"]))
                 except AuthError:
                     raise
@@ -1376,6 +1393,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         ring=leg_ring.get("topic_label", ring),
                         provider=providers["topic_label"],
                         key_var=_provider_key_var(
+                            providers["topic_label"]),
+                        file_label=_leg_file_label(
                             providers["topic_label"]))
                 except AuthError:
                     raise
