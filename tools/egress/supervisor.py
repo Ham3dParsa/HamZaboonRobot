@@ -45,6 +45,7 @@ TOKEN_VAR = "EGRESS_SUP_TOKEN"
 DEFAULT_PORT = 18789
 PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
+LEASE_FALLBACK_N = 5
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 COOLDOWN_S = 300
 
@@ -241,6 +242,11 @@ class Pool:
         valid = [s for s in servers
                  if isinstance(s, dict) and s.get("id")
                  and s.get("host") and s.get("port")]
+        # Whitelist rows predate the alive flag: they were TCP-verified
+        # at probe time, so alive-missing means alive (never a dead pool).
+        for s in valid:
+            if "alive" not in s:
+                s["alive"] = True
         self.load(valid)
         # Restore the saved rank order (load() only appends).
         order = [s["id"] for s in valid]
@@ -370,11 +376,13 @@ class TunnelOwner:
         self._server_id = None
 
     def acquire(self, provider=None):
-        """Start (or reuse) the tunnel for the best server. Returns
-        (proxy_url, egress_ip, server_id) or raises RuntimeError.
+        """Tunnel the best server, trying up to LEASE_FALLBACK_N candidates.
 
         Availability skips only servers cooling for ``provider``: a
-        zen-429 never blocks a google lease on the same server.
+        zen-429 never blocks a google lease on the same server. A
+        candidate whose tunnel/egress check fails is cooled (so the next
+        lease skips it) and the NEXT candidate is tried immediately —
+        one dead server never parks the whole pool.
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -392,18 +400,28 @@ class TunnelOwner:
                     and self._tunnel.proc.poll() is None:
                 return (self._tunnel.proxy_url,
                         self._tunnel.egress_ip(), self._server_id)
-            self._drop_locked()
-            server = avail[0]
+        last_err = "no candidate succeeded"
+        for server in avail[:LEASE_FALLBACK_N]:
+            with self._lock:
+                self._drop_locked()
             tun = _tunnel_mod.Tunnel(server, server["link"])
-            proxy = tun.start()
             try:
+                tun.start()
                 ip = tun.egress_ip()
-            except Exception:
+            except Exception as exc:
                 tun.stop()
-                raise RuntimeError("tunnel up but egress check failed")
-            self._tunnel = tun
-            self._server_id = server["id"]
-            return proxy, ip, server["id"]
+                self._pool.cool(server["id"], provider)
+                last_err = str(exc)
+                continue
+            with self._lock:
+                self._drop_locked()
+                self._tunnel = tun
+                self._server_id = server["id"]
+            return tun.proxy_url, ip, server["id"]
+        with self._lock:
+            self._drop_locked()
+        raise RuntimeError("all top-%d candidates failed (%s)"
+                           % (LEASE_FALLBACK_N, last_err))
 
     def rotate(self, reason="", provider=None):
         """Stop the current tunnel (429/quit); next acquire() moves on.
@@ -904,6 +922,13 @@ def main(argv=None):
     n_saved = POOL.load_pool()
     if n_saved:
         print("pool loaded: %d servers from whitelist" % n_saved)
+    # TCP self-heal at boot (owner-locked flow step 3): refresh+load_pool
+    # alone can serve a stale order — a quick concurrent TCP pass refreshes
+    # the ranking; dead servers sink, alive stay link-bearing candidates.
+    heal_rows = probe_pool(top_n=args.top_n)
+    POOL.load_ranked(heal_rows)
+    if any(r["alive"] for r in heal_rows):
+        POOL.save_pool()
     server = HTTPServer(("127.0.0.1", args.port), Handler)
     print("egress supervisor on 127.0.0.1:%d (%d servers)" % (
         args.port, POOL.health()["servers"]))
