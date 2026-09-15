@@ -9,7 +9,7 @@ Contract lock 2026-09-06: B1 tools/egress, B2 loopback HTTP lease/report,
 B3 secrets in tools/egress/.env (EGRESS_SUB_URL, EGRESS_SUP_TOKEN).
 
 Endpoints (127.0.0.1 only):
-  GET  /v1/health                          -> {ok, servers, leases}
+  GET  /v1/health                          -> {ok, servers, leases, healthy}
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
                                               egress_ip, provider, target}
   POST /v1/report {lease_id, outcome, provider?} -> {action}
@@ -237,13 +237,16 @@ class Pool:
         """Persist the whitelist via the net home's single writer.
 
         Thin caller: write_pool_file owns the bytes (refuses empty,
-        strips link credentials); OSError still prints here."""
+        strips link credentials, writes atomically); the lock is held
+        across the write (pre-move semantics) so concurrent save_pool
+        calls serialize and a stale snapshot can never overwrite a
+        newer one. OSError still prints here."""
         with self._lock:
             servers = list(self.servers)
-        try:
-            write_pool_file(path, servers)
-        except OSError as exc:
-            print("pool save failed: %s" % exc)
+            try:
+                write_pool_file(path, servers)
+            except OSError as exc:
+                print("pool save failed: %s" % exc)
 
     def load_pool(self, path=POOL_PATH):
         try:

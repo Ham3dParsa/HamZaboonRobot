@@ -683,6 +683,59 @@ def test_p1_cooldown_parity_per_provider():
     assert pool.is_cool("s1", "zen", now=10 ** 12) is False
 
 
+def test_p1_build_probe_rows_skips_malformed():
+    """Reviewer hardening: junk pairs never raise — only clean server
+    dicts become rows, ranked as usual."""
+    ranked = [_pair("fast", 120),
+              "junk-row",
+              ("not-a-pair",),
+              (50, "not-a-dict"),
+              (60, {"scheme": "vless", "host": "h", "port": 1}),  # no id
+              (70, {"scheme": "vless", "host": "h", "id": "x"}),  # no port
+              _pair("slow", 900)]
+    rows = NET.build_probe_rows(ranked, top_n=5)
+    assert [r["id"] for r in rows] == ["fast", "slow"]
+    assert NET.build_probe_rows(None, top_n=1) == []
+
+
+def test_p1_order_pool_by_rank_skips_malformed_servers():
+    """Reviewer hardening: non-dict/id-less pool entries are dropped
+    from the output instead of raising KeyError."""
+    servers = [{"scheme": "vless", "host": "a", "port": 1, "id": "s1"},
+               "junk-server",
+               {"scheme": "vless", "host": "b", "port": 1},  # no id
+               {"scheme": "vless", "host": "c", "port": 1, "id": "s2"}]
+    ordered = NET.order_pool_by_rank(
+        servers, [{"id": "s2", "alive": True}])
+    assert [s["id"] for s in ordered] == ["s2", "s1"]
+
+
+def test_p1_order_google_first_skips_malformed_rows():
+    """Reviewer hardening: non-dict rows never raise; clean rows keep
+    the moved google-first order."""
+    rows = [{"id": "a", "alive": True}, "junk-row",
+            {"id": "b", "alive": True}, {"id": "c", "alive": False}]
+    assert [r["id"] for r in NET.order_google_first(rows, ["b"])] == \
+        ["b", "a", "c"]
+
+
+def test_p1_write_pool_file_atomic_keeps_old_on_failure(tmp_path):
+    """Reviewer hardening: a failed write never truncates the good
+    file (tmp + os.replace) and leaves no .tmp behind."""
+    from unittest import mock
+    path = tmp_path / "pool.json"
+    servers = [{"scheme": "vless", "host": "h", "port": 1, "id": "s1"}]
+    assert NET.write_pool_file(str(path), servers) == 1
+    before = path.read_text(encoding="utf-8")
+    assert not (tmp_path / "pool.json.tmp").exists()  # no tmp leftover
+    with mock.patch.object(NET.json, "dump",
+                           side_effect=OSError("boom")):
+        with pytest.raises(OSError):
+            NET.write_pool_file(str(path), servers)
+    assert path.read_text(encoding="utf-8") == before  # old file intact
+    assert not (tmp_path / "pool.json.tmp").exists()
+
+
 def test_p1_supervisor_calls_home_functions():
     """Supervisor holds zero probe logic: the moved names are the home
     objects (same function, no twin defs)."""

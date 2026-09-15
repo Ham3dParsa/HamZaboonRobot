@@ -329,11 +329,25 @@ def build_probe_rows(ranked, top_n):
     Moved verbatim from supervisor.probe_pool (sort key, dead
     sentinel, and row shape unchanged): ascending latency, dead
     servers last with latency_ms None, top-N alive marked
-    zen_candidate. ``ranked`` must already hold clean server dicts
-    (the supervisor skips id/host/port-less entries before calling).
-    Pure: no network, no clock, no I/O.
+    zen_candidate. Malformed pairs (not a 2-tuple, non-dict server,
+    or a dict missing host/port/scheme/id) are skipped — the same
+    filter the supervisor applies before calling — so a junk entry
+    can never crash the probe with KeyError. Pure: no network, no
+    clock, no I/O.
     """
-    ordered = sorted(ranked, key=lambda pair: pair[0])
+    clean = []
+    for pair in ranked or []:
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            continue
+        ms, s = pair
+        if not isinstance(s, dict):
+            continue
+        if not s.get("id"):
+            continue
+        if not all(k in s for k in ("host", "port", "scheme")):
+            continue
+        clean.append((ms, s))
+    ordered = sorted(clean, key=lambda pair: pair[0])
     return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
              "id": s["id"],
              "latency_ms": (None if ms >= PROBE_DEAD_MS else ms),
@@ -348,9 +362,11 @@ def order_pool_by_rank(servers, ranked):
     Moved verbatim from supervisor Pool.load_ranked: ranked rows that
     are alive and still pooled move to the front in probe order;
     unknown (ghost) ids are ignored; everything else (dead,
-    unranked) keeps its relative order after. Pure.
+    unranked) keeps its relative order after. Non-dict or id-less
+    servers are skipped (both loops), so direct callers that bypass
+    Pool.load's filter can never raise KeyError. Pure.
     """
-    by_id = {s["id"]: s for s in servers
+    by_id = {s["id"]: s for s in (servers or [])
              if isinstance(s, dict) and s.get("id")}
     ordered = []
     for row in ranked or []:
@@ -359,9 +375,13 @@ def order_pool_by_rank(servers, ranked):
         hit = by_id.get(row.get("id"))
         if row.get("alive") and hit is not None:
             ordered.append(hit)
-    for s in servers:
-        if s["id"] not in {r["id"] for r in ordered}:
+    ordered_ids = {s["id"] for s in ordered}
+    for s in servers or []:
+        if not isinstance(s, dict) or not s.get("id"):
+            continue
+        if s["id"] not in ordered_ids:
             ordered.append(s)
+            ordered_ids.add(s["id"])
     return ordered
 
 
@@ -373,10 +393,13 @@ def order_google_first(rows, good_ids):
     behavior, not a fix): a good id that is dead in ``rows`` lands in
     neither list, i.e. it drops out — in practice good ids always come
     from live pings of alive candidates, so the set is empty.
+    Non-dict rows are skipped; dicts are read with .get so a row
+    missing "id"/"alive" can never raise KeyError.
     """
     good = set(good_ids or ())
-    first = [r for r in rows if r["id"] in good and r["alive"]]
-    first += [r for r in rows if r["id"] not in good]
+    rows = [r for r in (rows or []) if isinstance(r, dict)]
+    first = [r for r in rows if r.get("id") in good and r.get("alive")]
+    first += [r for r in rows if r.get("id") not in good]
     return first
 
 
@@ -399,6 +422,11 @@ def write_pool_file(path, servers):
     keep host/port/scheme/id only: links carry credentials and are
     never written (relink on refresh). Raises OSError to the caller
     (the supervisor prints it); no printing here. Synchronous I/O.
+    The write is atomic: the payload goes to a temp file in the same
+    directory and is then os.replace()d over the destination, so a
+    crash mid-write can never leave a corrupt egress_pool.json behind
+    (a stale reader keeps the previous good file). A failed write
+    removes the temp file best-effort and still raises OSError.
     """
     live = [s for s in (servers or [])
             if isinstance(s, dict) and s.get("id")]
@@ -407,10 +435,21 @@ def write_pool_file(path, servers):
     payload = {"saved_at": datetime.datetime.now(
         datetime.timezone.utc).isoformat(),
         "servers": [{k: s[k] for k in
-                      ("scheme", "host", "port", "id")
-                      if k in s} for s in live]}
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
+                       ("scheme", "host", "port", "id")
+                       if k in s} for s in live]}
+    tmp_path = str(path) + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     return len(live)
 
 
