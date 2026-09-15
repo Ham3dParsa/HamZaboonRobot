@@ -1307,7 +1307,7 @@ TOPIC_TIEBREAK_V141 = (
     "V14.1 TIE-BREAK ADDENDUM (apply strictly): "
     "biological sex and sociological gender (gender, male/female roles) "
     "are NEVER Animals & Living Beings — map biological/anatomical senses "
-    "to Health & Body and social-role senses to Society & Culture. "
+    "to Health & Body and social-role senses to Society. "
     "Functional and social concepts (phone calls, employment, public "
     "performances, money accumulation, lifting) are NEVER Other / "
     "Abstract — assign the concrete domain (technology, work, society, "
@@ -1322,10 +1322,10 @@ _ANIMALS_LABEL = "Animals & Living Beings"
 # Abstract, so a real leg-1/LLM label is never overridden.
 _ABSTRACT_REANCHOR = {
     "call": [(("telephone", "phone"), "Science & Technology"),
-             ((), "Society & Culture")],
-    "working": [(("employ", "job", "work"), "Work & Education")],
+             ((), "Society")],
+    "working": [(("employ", "job", "work"), "Work & Careers")],
     "spectacle": [(("perform", "show", "event", "display"),
-                   "Society & Culture")],
+                   "Society")],
     "accrue": [(("accumulat", "money", "interest", "financ"),
                 "Business & Economy")],
     "elevate": [(("lift", "raise"), "Daily Life & Home")],
@@ -1362,8 +1362,8 @@ def topic_post_guard(text, gloss, label):
     Narrow by design — it only ever remaps two failure modes, never a
     real label:
     - gender leak: an Animals & Living Beings label on a sex/gender
-      gloss moves to Health & Body (biological cue) or Society &
-      Culture (social-role default).
+      gloss moves to Health & Body (biological cue) or Society
+      (social-role default).
     - abstract dumping: an Other / Abstract label on a re-anchored
       (lemma, gloss-keyword) concept moves to its concrete domain.
     Everything else passes through unchanged (fail-closed to the
@@ -1380,7 +1380,7 @@ def topic_post_guard(text, gloss, label):
         if _gender_signal_rx().search(blob):
             if _gender_rx().search(gloss or ""):
                 return "Health & Body"
-            return "Society & Culture"
+            return "Society"
         return lab
     if lab == _OTHER_ABSTRACT:
         for keywords, concrete in _ABSTRACT_REANCHOR.get(lemma, []):

@@ -235,13 +235,13 @@ def test_r5_gender_never_maps_to_animals():
                   "the socially constructed roles of men and women"):
         label = card_pilot.topic_post_guard(
             "gender", gloss, "Animals & Living Beings")
-        assert label in ("Society & Culture", "Health & Body"), gloss
+        assert label in ("Society", "Health & Body"), gloss
 
 
 def test_r5_functional_concepts_not_dumped_to_abstract():
     cases = [("call", "a telephone conversation", "Science & Technology"),
-             ("working", "paid employment", "Work & Education"),
-             ("spectacle", "a public performance", "Society & Culture"),
+             ("working", "paid employment", "Work & Careers"),
+             ("spectacle", "a public performance", "Society"),
              ("accrue", "to accumulate money", "Business & Economy"),
              ("elevate", "to lift something up", "Daily Life & Home")]
     for lemma, gloss, want in cases:

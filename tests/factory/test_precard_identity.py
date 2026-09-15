@@ -62,7 +62,7 @@ def test_no_archive_imports():
 
     package = pathlib.Path(progress.__file__).parent
     banned = ("factory.archive", "factory.pipeline", "factory.lexicon")
-    for path in sorted(package.glob("*.py")):
+    for path in sorted(package.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
