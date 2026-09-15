@@ -111,13 +111,11 @@ def test_pipeline_reproduces_old_rows(tmp_path):
     out_old = str(tmp_path / "old.jsonl")
     prog_old = str(tmp_path / "prog_old")
     assert old.main(["--sample", str(sample), "--out", out_old,
-                     "--progress-dir", prog_old,
-                     "--llm-provider", "google"], **kwargs) == 0
+                     "--progress-dir", prog_old], **kwargs) == 0
     out_new = str(tmp_path / "new.jsonl")
     prog_new = str(tmp_path / "prog_new")
     assert new.main(["--sample", str(sample), "--out", out_new,
-                     "--progress-dir", prog_new,
-                     "--llm-provider", "google"], **kwargs) == 0
+                     "--progress-dir", prog_new], **kwargs) == 0
 
     def rows(path):
         with open(path, encoding="utf-8") as handle:
