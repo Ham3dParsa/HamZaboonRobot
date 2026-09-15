@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>گالری کارت‌ها — template خط لوله (v4 باریک وسط‌چین)</title>
+<style>
+/* GALLERY v4 (locked): narrow ~600px centered cards, faint topic/CEFR tags,
+   centered word+IPA headers, centered example pairs, syn=green/ant=red text.
+   TEMPLATE: sample data lives between GALLERY_DATA_START/END below.
+   Regenerate: python -m factory.pipeline.render_gallery --data <rows.json> --out <run.html>
+   (see factory/pipeline/README.md). Do NOT hand-edit the data block. */
+:root {
+  --font-sans: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+  /* LIGHT THEME */
+  --bg-page: #f4f5f8;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f8f9fb;
+  --bg-surface-active: #e9ecf2;
+  --border-subtle: #e1e4eb;
+  --border-strong: #c7cbd6;
+
+  --text-primary: #12141a;
+  --text-secondary: #484e5d;
+  --text-muted: #858b99;
+
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+
+  --ok-text: #059669; --ok-bg: #ecfdf5; --ok-border: #a7f3d0;
+  --bad-text: #dc2626; --bad-bg: #fef2f2; --bad-border: #fecaca;
+  --warn-text: #d97706; --warn-bg: #fffbeb; --warn-border: #fde68a;
+  --info-text: #0284c7; --info-bg: #f0f9ff; --info-border: #bae6fd;
+  --purple-text: #7c3aed; --purple-bg: #f5f3ff; --purple-border: #ddd6fe;
+
+  --cefr-a: #059669; --cefr-a-bg: #ecfdf5;
+  --cefr-b: #0284c7; --cefr-b-bg: #f0f9ff;
+  --cefr-c: #7c3aed; --cefr-c-bg: #f5f3ff;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-card: 0 4px 16px rgba(0,0,0,0.06);
+}
+
+[data-theme="dark"] {
+  /* DARK THEME (True Charcoal Zinc) */
+  --bg-page: #121316;
+  --bg-surface: #191a20;
+  --bg-surface-hover: #22232c;
+  --bg-surface-active: #2b2d38;
+  --border-subtle: #272935;
+  --border-strong: #383a4c;
+
+  --text-primary: #f4f5f8;
+  --text-secondary: #9da2b2;
+  --text-muted: #676c7d;
+
+  --accent: #38bdf8;
+  --accent-soft: #0369a133;
+
+  --ok-text: #34d399; --ok-bg: #064e3b33; --ok-border: #065f46;
+  --bad-text: #f87171; --bad-bg: #450a0a33; --bad-border: #7f1d1d;
+  --warn-text: #fbbf24; --warn-bg: #451a0333; --warn-border: #78350f;
+  --info-text: #38bdf8; --info-bg: #0369a126; --info-border: #075985;
+  --purple-text: #c084fc; --purple-bg: #581c8733; --purple-border: #6b21a8;
+
+  --cefr-a: #34d399; --cefr-a-bg: #064e3b33;
+  --cefr-b: #38bdf8; --cefr-b-bg: #0369a133;
+  --cefr-c: #c084fc; --cefr-c-bg: #581c8733;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-card: 0 4px 20px rgba(0,0,0,0.6);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  line-height: 1.6;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+.en { direction: ltr; unicode-bidi: isolate; font-family: var(--font-sans); }
+.mono { font-family: var(--font-mono); }
+
+.app-shell {
+  max-width: 1680px;
+  width: 100%;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: 0 0 50px rgba(0,0,0,0.3);
+  overflow: hidden;
+}
+
+/* TOP APP BAR */
+.top-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 16px;
+}
+.brand-zone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.brand-title {
+  font-size: 17px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.badge-version {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 1px 7px;
+  border-radius: 5px;
+}
+.kpi-strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.kpi-pill {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  font-weight: 700;
+}
+.kpi-pill.ok { color: var(--ok-text); border-color: var(--ok-border); background: var(--ok-bg); }
+.kpi-pill.bad { color: var(--bad-text); border-color: var(--bad-border); background: var(--bad-bg); }
+
+.controls-zone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hotkey-tag {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.kbd-btn {
+  background: var(--bg-page);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+.theme-btn {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+}
+.theme-btn:hover {
+  background: var(--bg-surface-active);
+  border-color: var(--border-strong);
+}
+
+/* FILTER TOOLBAR (Clean human typography, no terminal font) */
+.filter-bar {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 24px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.search-input {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 230px;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.15s;
+}
+.search-input:focus { border-color: var(--accent); }
+
+.filter-group { display: flex; gap: 4px; }
+.pill-btn {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s;
+}
+.pill-count {
+  font-size: 11px;
+  opacity: 0.75;
+  font-weight: 600;
+}
+.pill-btn.active {
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  border-color: var(--text-primary);
+}
+.pill-btn.active .pill-count {
+  opacity: 1;
+}
+
+.select-box {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  outline: none;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* SPLIT WORKSPACE */
+.split-workspace {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* SIDEBAR LIST */
+.sidebar {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.card-nav-tile {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.12s;
+}
+.card-nav-tile:hover { background: var(--bg-surface-hover); }
+.card-nav-tile.selected {
+  background: var(--bg-surface-active);
+  border-right: 3px solid var(--accent);
+}
+.tile-info { display: flex; flex-direction: column; gap: 2px; }
+.tile-word { font-weight: 700; font-size: 14.5px; display: flex; align-items: baseline; gap: 6px; }
+.tile-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-sans); }
+.tile-badges { display: flex; gap: 5px; align-items: center; }
+
+.cefr-pill {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.cefr-A1, .cefr-A2 { background: var(--cefr-a-bg); color: var(--cefr-a); }
+.cefr-B1, .cefr-B2 { background: var(--cefr-b-bg); color: var(--cefr-b); }
+.cefr-C1, .cefr-C2 { background: var(--cefr-c-bg); color: var(--cefr-c); }
+
+.verdict-pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.verdict-pill.ok { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok-border); }
+.verdict-pill.bad { background: var(--bad-bg); color: var(--bad-text); border: 1px solid var(--bad-border); }
+
+/* DETAIL PANE */
+.detail-pane {
+  background: var(--bg-page);
+  overflow-y: auto;
+  padding: 24px 32px 60px;
+}
+.detail-container {
+  max-width: 640px;
+  margin: 0 auto;
+}
+/* R1: narrow learner cards — centered column, taller not wider */
+.learner-card-bot, .learner-card-lexico, .learner-card-editorial {
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+/* R3: faint topic/CEFR tags in hero — present but not loud */
+.hero-box .chip-tag, .hero-box .cefr-pill { opacity: 0.6; font-weight: 600; }
+/* R5: synonym=green / antonym=red text (no emoji) */
+.syn-text { color: var(--ok-text); font-weight: 700; }
+.ant-text { color: var(--bad-text); font-weight: 700; }
+
+/* HERO BOX (Strictly LTR IPA Alignment) */
+.hero-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.hero-main {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.hero-title {
+  font-size: 26px;
+  font-weight: 800;
+  direction: ltr;
+  text-align: left;
+}
+.hero-ipa {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--text-muted);
+}
+.hero-sense-tag {
+  font-size: 11px;
+  background: var(--bg-page);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  direction: ltr;
+}
+
+.chip-tag {
+  font-size: 12px;
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 9px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* TAB SWITCHER */
+.view-tabs-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.tabs-left { display: flex; gap: 8px; }
+.style-switch-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+.style-switch-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.style-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.style-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.vtab-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s;
+}
+.vtab-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =========================================================
+   STYLE 1: AUTHENTIC BOT REPLICA (Exact User Spec)
+   ========================================================= */
+.learner-card-bot {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 28px 32px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  line-height: 1.85;
+}
+
+.bot-header {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.bot-word {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  direction: ltr;
+  text-align: center;
+}
+.bot-ipa {
+  direction: ltr;
+  text-align: center;
+  unicode-bidi: isolate;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.bot-def-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bot-en-def {
+  font-size: 14px;
+  color: var(--text-secondary);
+  direction: ltr;
+  text-align: center;
+  unicode-bidi: isolate;
+  margin-bottom: 4px;
+}
+.bot-fa-meaning {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--accent);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+}
+.bot-fa-meaning .glyph { color: var(--accent); font-size: 16px; }
+.bot-fa-explanation {
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  padding-right: 0;
+  text-align: center;
+}
+
+.bot-syn-ant {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+.bot-syn-line, .bot-ant-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bot-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+.bot-ex-heading {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-align: center;
+}
+.bot-ex-card {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  padding: 10px 16px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+.bot-ex-en {
+  direction: ltr;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+.bot-ex-en .bullet { color: var(--accent); font-size: 11px; }
+.bot-ex-fa {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  padding-right: 0;
+  text-align: center;
+}
+
+.bot-grammar {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  font-size: 14px;
+}
+.bot-grammar-heading {
+  font-weight: 800;
+  color: var(--warn-text);
+}
+.bot-grammar-body {
+  color: var(--text-primary);
+}
+
+/* =========================================================
+   STYLE 2: MODERN LEXICO (Structured Card UI)
+   ========================================================= */
+.learner-card-lexico {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 28px 32px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.lex-top {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 16px;
+  gap: 8px;
+}
+.lex-word-group {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  direction: ltr;
+}
+.lex-word { font-size: 28px; font-weight: 800; }
+.lex-ipa { font-size: 16px; color: var(--text-muted); }
+.lex-meaning-card {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+.lex-fa-lead { font-size: 20px; font-weight: 800; color: var(--accent); text-align: center; }
+.lex-fa-desc { font-size: 14.5px; color: var(--text-secondary); text-align: center; }
+.lex-en-def {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  direction: ltr;
+  text-align: center;
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 6px;
+  margin-top: 4px;
+}
+.lex-chips-wrap {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lex-chip-item {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* =========================================================
+   STYLE 3: EDITORIAL MINIMAL (Print Dictionary Feel)
+   ========================================================= */
+.learner-card-editorial {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 32px 36px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 15px;
+}
+.ed-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  direction: ltr;
+  border-bottom: 2px solid var(--text-primary);
+  padding-bottom: 8px;
+}
+.ed-word { font-size: 30px; font-weight: 900; letter-spacing: -0.5px; text-align: center; }
+.ed-ipa { font-size: 17px; color: var(--text-muted); text-align: center; }
+.ed-def-line {
+  direction: ltr;
+  text-align: center;
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  font-style: normal;
+}
+.ed-fa-line {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-align: center;
+}
+.ed-ex-block {
+  border-right: none;
+  border-top: 2px solid var(--border-strong);
+  padding-right: 0;
+  padding-top: 10px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+.ed-ex-en { font-weight: 600; direction: ltr; text-align: center; font-size: 14px; }
+.ed-ex-fa { color: var(--text-secondary); font-size: 13.5px; text-align: center; }
+
+/* =========================================================
+   AUDIT & PIPELINE SECTION
+   ========================================================= */
+.audit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pipeline-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+.pipeline-box h4 {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.pipe-card {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.pipe-card-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.pipe-gates-wrap {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.gate-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.gate-chip.pass { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok-border); }
+.gate-chip.fail { background: var(--bad-bg); color: var(--bad-text); border: 1px solid var(--bad-border); }
+
+.diff-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 12px;
+}
+.diff-table th, .diff-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  vertical-align: top;
+}
+.diff-table th {
+  background: var(--bg-page);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.diff-table tr:hover td {
+  background: var(--bg-surface-hover);
+}
+
+/* DISTINCT OPERATION BADGES (Color coded accurately) */
+.op-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.op-kept {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+  border: 1px solid var(--ok-border);
+}
+.op-filled {
+  background: var(--info-bg);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+.op-improved {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+.op-released {
+  background: var(--purple-bg);
+  color: var(--purple-text);
+  border: 1px solid var(--purple-border);
+}
+.op-aborted {
+  background: var(--bad-bg);
+  color: var(--bad-text);
+  border: 1px solid var(--bad-border);
+}
+.op-none {
+  background: var(--bg-page);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ERROR NOTICE CARD */
+.error-fallback-card {
+  background: var(--bad-bg);
+  border: 1px solid var(--bad-border);
+  border-radius: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.error-fallback-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--bad-text);
+}
+.error-fallback-reason {
+  font-size: 13px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bad-border);
+  color: var(--bad-text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+.error-jump-btn {
+  background: var(--bad-text);
+  color: #fff;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 6px;
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- TOP APP BAR -->
+  <header class="top-header">
+    <div class="brand-zone">
+      <div class="brand-title">
+        <span>گذرنامه کارت‌ها</span>
+        <span class="badge-version">v1.4.1</span>
+      </div>
+      <div class="kpi-strip">
+        <span class="kpi-pill" id="kpiTotal">23 کارت</span>
+        <span class="kpi-pill ok" id="kpiOk">18 تأیید شد</span>
+        <span class="kpi-pill bad" id="kpiBad">5 خطا</span>
+      </div>
+    </div>
+
+    <div class="controls-zone">
+      <div class="hotkey-tag">
+        <span class="kbd-btn">↑</span><span class="kbd-btn">↓</span> یا <span class="kbd-btn">J</span><span class="kbd-btn">K</span> ناوبری
+      </div>
+      <button class="theme-btn" onclick="toggleTheme()">
+        <span id="themeIcon">☀️</span> تم
+      </button>
+    </div>
+  </header>
+
+  <!-- FILTER TOOLBAR -->
+  <div class="filter-bar">
+    <input type="text" id="searchInput" class="search-input" placeholder="جستجوی واژه، حس یا خطا... (/)" oninput="applyFilters()">
+
+    <div class="filter-group" id="statusPills">
+      <button class="pill-btn active" data-status="ALL" onclick="filterStatus('ALL')">همه <span class="pill-count" id="c-stat-all"></span></button>
+      <button class="pill-btn" data-status="OK" onclick="filterStatus('OK')">تأییدشده <span class="pill-count" id="c-stat-ok"></span></button>
+      <button class="pill-btn" data-status="BAD" onclick="filterStatus('BAD')">خطادار <span class="pill-count" id="c-stat-bad"></span></button>
+    </div>
+
+    <div class="filter-group" id="kindPills">
+      <button class="pill-btn active" data-kind="ALL" onclick="filterKind('ALL')">همه انواع</button>
+      <button class="pill-btn" data-kind="واژه" onclick="filterKind('واژه')">واژه <span class="pill-count" id="c-kind-word"></span></button>
+      <button class="pill-btn" data-kind="عبارت" onclick="filterKind('عبارت')">عبارت <span class="pill-count" id="c-kind-phrase"></span></button>
+    </div>
+
+    <div class="filter-group" id="cefrPills">
+      <button class="pill-btn active" data-cefr="ALL" onclick="filterCefr('ALL')">همه سطوح</button>
+      <button class="pill-btn" data-cefr="A1" onclick="filterCefr('A1')">A1 <span class="pill-count" id="c-cefr-A1"></span></button>
+      <button class="pill-btn" data-cefr="A2" onclick="filterCefr('A2')">A2 <span class="pill-count" id="c-cefr-A2"></span></button>
+      <button class="pill-btn" data-cefr="B1" onclick="filterCefr('B1')">B1 <span class="pill-count" id="c-cefr-B1"></span></button>
+      <button class="pill-btn" data-cefr="B2" onclick="filterCefr('B2')">B2 <span class="pill-count" id="c-cefr-B2"></span></button>
+      <button class="pill-btn" data-cefr="C1" onclick="filterCefr('C1')">C1 <span class="pill-count" id="c-cefr-C1"></span></button>
+      <button class="pill-btn" data-cefr="C2" onclick="filterCefr('C2')">C2 <span class="pill-count" id="c-cefr-C2"></span></button>
+    </div>
+
+    <select id="topicFilter" class="select-box" onchange="applyFilters()">
+      <option value="ALL">همه موضوعات</option>
+    </select>
+  </div>
+
+  <!-- MAIN SPLIT WORKSPACE -->
+  <div class="split-workspace">
+    <aside class="sidebar" id="sidebarList"></aside>
+    <main class="detail-pane" id="detailPane">
+      <div class="detail-container" id="detailContainer"></div>
+    </main>
+  </div>
+
+</div>
+
+<script>
+const CARDS = /*GALLERY_DATA_START*/[{"id": 0, "word": "kiss", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "A1", "sense_id": "kiss#0", "anchor_def": "To touch with the lips or press the lips against, usually to show love or affection or passion, or as part of a greeting.", "topic": "Emotions &amp; Relationships", "model": "muse-spark-1.3-contributor-free", "ipa": "/kɪs/", "fa_meaning": "بوسیدن", "fa_explanation": "لب‌ها را روی کسی گذاشتن برای نشان دادن عشق یا محبت یا سلام کردن", "en_def": "To touch with the lips or press the lips against, usually to show love or affection or passion, or as part of a greeting.", "examples": ["I never see her without wanting to kiss her.", "Beth will not allow Chris to kiss her because he is terribly dirty."], "example_translations": ["من هرگز او را نمی‌بینم بدون اینکه بخواهم او را ببوسم.", "بت اجازه نمی‌دهد کریس او را ببوسد چون او خیلی کثیف است."], "synonyms": ["peck"], "antonyms": [], "grammar_tip": "این واژه هم اسم (noun) است هم فعل (verb) و شکل گذشته (past) آن با افزودن پسوند ed- ساخته می‌شود: kissed", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "بوسیدن"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "لب‌ها را روی کسی گذاشتن برای نشان دادن عشق یا محبت یا سلام کردن"}, {"label": "تعریف انگلیسی", "pre": "To touch with the lips or press the lips against, usually to show love or affection or passion, or as part of a greeting.", "op": "نگه‌داشت dataset", "fin": "To touch with the lips or press the lips against, usually to show love or affection or passion, or as part of a greeting."}, {"label": "تلفظ", "pre": "/kɪs/", "op": "نگه‌داشت dataset", "fin": "/kɪs/"}, {"label": "مثال 1", "pre": "I never see her without wanting to kiss her.", "op": "نگه‌داشت dataset", "fin": "I never see her without wanting to kiss her."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "من هرگز او را نمی‌بینم بدون اینکه بخواهم او را ببوسم."}, {"label": "مثال 2", "pre": "Beth will not allow Chris to kiss her because he is terribly dirty.", "op": "نگه‌داشت dataset", "fin": "Beth will not allow Chris to kiss her because he is terribly dirty."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "بت اجازه نمی‌دهد کریس او را ببوسد چون او خیلی کثیف است."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "peck"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه هم اسم (noun) است هم فعل (verb) و شکل گذشته (past) آن با افزودن پسوند ed- ساخته می‌شود: kissed"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}, {"name": "sense-coherence", "status": "llm-pass", "pass": true}], "raw_json": {"word": "kiss", "phonetic": {"ipa": "/kɪs/"}, "fa_meaning": "بوسیدن", "fa_explanation": "لب‌ها را روی کسی گذاشتن برای نشان دادن عشق یا محبت یا سلام کردن", "synonyms": ["peck"], "antonyms": [], "examples": ["I never see her without wanting to kiss her.", "Beth will not allow Chris to kiss her because he is terribly dirty."], "example_translations": ["من هرگز او را نمی‌بینم بدون اینکه بخواهم او را ببوسم.", "بت اجازه نمی‌دهد کریس او را ببوسد چون او خیلی کثیف است."], "grammar_tip": "این واژه هم اسم (noun) است هم فعل (verb) و شکل گذشته (past) آن با افزودن پسوند ed- ساخته می‌شود: kissed"}}, {"id": 1, "word": "good", "kind": "واژه", "status_ok": false, "error_msg": "HTTPError 500: HTTP Error 500: Internal Server Error", "cefr": "A1", "sense_id": "good#0", "anchor_def": "Of a person or an animal:", "topic": "Animals &amp; Living Beings", "model": "—", "ipa": "", "fa_meaning": "", "fa_explanation": "", "en_def": "Of a person or an animal:", "examples": [], "example_translations": [], "synonyms": [], "antonyms": [], "grammar_tip": "", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "تعریف انگلیسی", "pre": "Of a person or an animal:", "op": "لغوشده", "fin": "Of a person or an animal:"}, {"label": "تلفظ", "pre": "/ˈɡʊd/", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 1", "pre": "When we are happy, we are always good, but when we are good, we are not always happy.", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 2", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مترادف‌ها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {}}, {"id": 2, "word": "nothing", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "A1", "sense_id": "nothing#0", "anchor_def": "Not any thing; no thing.", "topic": "Other / Abstract", "model": "muse-spark-1.3-contributor-free", "ipa": "/ˈnʌθɪŋ/", "fa_meaning": "هیچ‌چیز", "fa_explanation": "یعنی هیچ چیز وجود ندارد یا هیچ کاری انجام نمی‌شود و صفر است.", "en_def": "Not any thing; no thing.", "examples": ["Don't just say nothing. Tell me what's going on.", "the players see little or nothing of their cards at first starting"], "example_translations": ["فقط سکوت نکن. به من بگو چه اتفاقی در حال رخ دادن است.", "بازیکنان در شروع اول کارت‌های خود را کم می‌بینند یا اصلا نمی‌بینند."], "synonyms": ["not anything", "zero"], "antonyms": ["everything", "something"], "grammar_tip": "این واژه بیشتر به عنوان ضمیر نامعین به کار می‌رود و معادل انگلیسی آن pronoun است و بعد از آن فعل مفرد می‌آید.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "هیچ‌چیز"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "یعنی هیچ چیز وجود ندارد یا هیچ کاری انجام نمی‌شود و صفر است."}, {"label": "تعریف انگلیسی", "pre": "Not any thing; no thing.", "op": "نگه‌داشت dataset", "fin": "Not any thing; no thing."}, {"label": "تلفظ", "pre": "/ˈnʌθɪŋ/", "op": "نگه‌داشت dataset", "fin": "/ˈnʌθɪŋ/"}, {"label": "مثال 1", "pre": "Don&#x27;t just say nothing. Tell me what&#x27;s going on.", "op": "نگه‌داشت dataset", "fin": "Don&#x27;t just say nothing. Tell me what&#x27;s going on."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "فقط سکوت نکن. به من بگو چه اتفاقی در حال رخ دادن است."}, {"label": "مثال 2", "pre": "the players see little or nothing of their cards at first starting", "op": "نگه‌داشت dataset", "fin": "the players see little or nothing of their cards at first starting"}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "بازیکنان در شروع اول کارت‌های خود را کم می‌بینند یا اصلا نمی‌بینند."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "not anything, zero"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "everything, something"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه بیشتر به عنوان ضمیر نامعین به کار می‌رود و معادل انگلیسی آن pronoun است و بعد از آن فعل مفرد می‌آید."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "nothing", "phonetic": {"ipa": "/ˈnʌθɪŋ/"}, "fa_meaning": "هیچ‌چیز", "fa_explanation": "یعنی هیچ چیز وجود ندارد یا هیچ کاری انجام نمی‌شود و صفر است.", "synonyms": ["not anything", "zero"], "antonyms": ["everything", "something"], "examples": ["Don't just say nothing. Tell me what's going on.", "the players see little or nothing of their cards at first starting"], "example_translations": ["فقط سکوت نکن. به من بگو چه اتفاقی در حال رخ دادن است.", "بازیکنان در شروع اول کارت‌های خود را کم می‌بینند یا اصلا نمی‌بینند."], "grammar_tip": "این واژه بیشتر به عنوان ضمیر نامعین به کار می‌رود و معادل انگلیسی آن pronoun است و بعد از آن فعل مفرد می‌آید."}}, {"id": 3, "word": "Note", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "A2", "sense_id": "note#3", "anchor_def": "A written or printed communication or commitment.", "topic": "Society", "model": "muse-spark-1.2-contributor-free", "ipa": "/nəʊ̯t/", "fa_meaning": "یادداشت کتبی یا نوشتهٔ کوتاه برای اطلاع‌رسانی یا تعهد", "fa_explanation": "متنی کوتاه و نوشته‌شده روی کاغذ یا به صورت چاپی که برای انتقال پیام، یادآوری یا ثبت تعهد به کار می‌رود.", "en_def": "A written or printed communication or commitment.", "examples": ["She wrote a short note to thank her teacher.", "Please read the note on the door before entering."], "example_translations": ["او یادداشت کوتاهی برای تشکر از معلمش نوشت.", "لطفا قبل از ورود، یادداشت روی در را بخوانید."], "synonyms": ["message", "memo"], "antonyms": [], "grammar_tip": "این واژه هم اسم (noun) و هم فعل (verb) است؛ به عنوان اسم قابل شمارش است و جمع آن notes می‌شود.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "یادداشت کتبی یا نوشتهٔ کوتاه برای اطلاع‌رسانی یا تعهد"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "متنی کوتاه و نوشته‌شده روی کاغذ یا به صورت چاپی که برای انتقال پیام، یادآوری یا ثبت تعهد به کار می‌رود."}, {"label": "تعریف انگلیسی", "pre": "A written or printed communication or commitment.", "op": "نگه‌داشت dataset", "fin": "A written or printed communication or commitment."}, {"label": "تلفظ", "pre": "/nəʊ̯t/", "op": "نگه‌داشت dataset", "fin": "/nəʊ̯t/"}, {"label": "مثال 1", "pre": "I left him a note to remind him to take out the trash.", "op": "آزادشده (cloze-density)", "fin": "She wrote a short note to thank her teacher."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "او یادداشت کوتاهی برای تشکر از معلمش نوشت."}, {"label": "مثال 2", "pre": "خالی", "op": "بازبینی‌شده", "fin": "Please read the note on the door before entering."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "لطفا قبل از ورود، یادداشت روی در را بخوانید."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "message, memo"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه هم اسم (noun) و هم فعل (verb) است؛ به عنوان اسم قابل شمارش است و جمع آن notes می‌شود."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}, {"name": "sense-coherence", "status": "llm-pass", "pass": true}], "raw_json": {"word": "Note", "phonetic": {"ipa": "/nəʊ̯t/"}, "fa_meaning": "یادداشت کتبی یا نوشتهٔ کوتاه برای اطلاع‌رسانی یا تعهد", "fa_explanation": "متنی کوتاه و نوشته‌شده روی کاغذ یا به صورت چاپی که برای انتقال پیام، یادآوری یا ثبت تعهد به کار می‌رود.", "synonyms": ["message", "memo"], "antonyms": [], "examples": ["She wrote a short note to thank her teacher.", "Please read the note on the door before entering."], "example_translations": ["او یادداشت کوتاهی برای تشکر از معلمش نوشت.", "لطفا قبل از ورود، یادداشت روی در را بخوانید."], "grammar_tip": "این واژه هم اسم (noun) و هم فعل (verb) است؛ به عنوان اسم قابل شمارش است و جمع آن notes می‌شود."}}, {"id": 4, "word": "log", "kind": "واژه", "status_ok": false, "error_msg": "HTTPError 500: HTTP Error 500: Internal Server Error", "cefr": "B1", "sense_id": "log#0", "anchor_def": "The trunk of a dead tree, cleared of branches.", "topic": "Nature &amp; Environment", "model": "—", "ipa": "", "fa_meaning": "", "fa_explanation": "", "en_def": "The trunk of a dead tree, cleared of branches.", "examples": [], "example_translations": [], "synonyms": [], "antonyms": [], "grammar_tip": "", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "تعریف انگلیسی", "pre": "The trunk of a dead tree, cleared of branches.", "op": "لغوشده", "fin": "The trunk of a dead tree, cleared of branches."}, {"label": "تلفظ", "pre": "/lɒɡ/", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 1", "pre": "They walked across the stream on a fallen log.", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 2", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مترادف‌ها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {}}, {"id": 5, "word": "trash", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B1", "sense_id": "trash#0", "anchor_def": "Useless physical things to be discarded; rubbish; refuse.", "topic": "Daily Life &amp; Home", "model": "muse-spark-1.3-contributor-free", "ipa": "/tɹæʃ/", "fa_meaning": "زباله و آشغال دورریختنی", "fa_explanation": "به چیزهای بی‌مصرف و دورریختنی گفته می‌شود که معمولا در سطل ریخته می‌شوند.", "en_def": "Useless physical things to be discarded; rubbish; refuse.", "examples": ["Please take out the trash before it starts to smell.", "They sorted the trash into plastic, glass, and paper."], "example_translations": ["لطفا زباله را بیرون ببر قبل از اینکه بو بگیرد.", "آن‌ها زباله را به پلاستیک، شیشه و کاغذ تفکیک کردند."], "synonyms": ["rubbish", "garbage", "waste"], "antonyms": [], "grammar_tip": "این واژه معمولا اسم غیرقابل شمارش (uncountable noun) است و با فعل مفرد می‌آید.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "زباله و آشغال دورریختنی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "به چیزهای بی‌مصرف و دورریختنی گفته می‌شود که معمولا در سطل ریخته می‌شوند."}, {"label": "تعریف انگلیسی", "pre": "Useless physical things to be discarded; rubbish; refuse.", "op": "نگه‌داشت dataset", "fin": "Useless physical things to be discarded; rubbish; refuse."}, {"label": "تلفظ", "pre": "/tɹæʃ/", "op": "نگه‌داشت dataset", "fin": "/tɹæʃ/"}, {"label": "مثال 1", "pre": "A haunch of venison would be trash to a Brahmin.", "op": "آزادشده (cloze-zipf)", "fin": "Please take out the trash before it starts to smell."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "لطفا زباله را بیرون ببر قبل از اینکه بو بگیرد."}, {"label": "مثال 2", "pre": "خالی", "op": "بازبینی‌شده", "fin": "They sorted the trash into plastic, glass, and paper."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "آن‌ها زباله را به پلاستیک، شیشه و کاغذ تفکیک کردند."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "rubbish, garbage, waste"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه معمولا اسم غیرقابل شمارش (uncountable noun) است و با فعل مفرد می‌آید."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "trash", "phonetic": {"ipa": "/tɹæʃ/"}, "fa_meaning": "زباله و آشغال دورریختنی", "fa_explanation": "به چیزهای بی‌مصرف و دورریختنی گفته می‌شود که معمولا در سطل ریخته می‌شوند.", "synonyms": ["rubbish", "garbage", "waste"], "antonyms": [], "examples": ["Please take out the trash before it starts to smell.", "They sorted the trash into plastic, glass, and paper."], "example_translations": ["لطفا زباله را بیرون ببر قبل از اینکه بو بگیرد.", "آن‌ها زباله را به پلاستیک، شیشه و کاغذ تفکیک کردند."], "grammar_tip": "این واژه معمولا اسم غیرقابل شمارش (uncountable noun) است و با فعل مفرد می‌آید."}}, {"id": 6, "word": "securities", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B1", "sense_id": "securities#0", "anchor_def": "plural of security", "topic": "Business &amp; Economy", "model": "muse-spark-1.3-contributor-free", "ipa": "/sɪˈkjʊəɹɪtiz/", "fa_meaning": "اوراق بهادار", "fa_explanation": "دارایی‌های مالی قابل خرید و فروش در بازار مانند سهام و سند بدهی که سود یا مالکیت ایجاد می‌کنند", "en_def": "plural of security", "examples": ["Many investors buy securities to grow their money.", "The company sold securities to raise new funds."], "example_translations": ["بسیاری از سرمایه‌گذاران برای افزایش پول خود اوراق بهادار می‌خرند.", "آن شرکت برای جذب سرمایه جدید اوراق بهادار فروخت."], "synonyms": ["stocks", "bonds", "shares"], "antonyms": [], "grammar_tip": "این واژه اسم جمع است و همیشه با فعل جمع به کار می‌رود (plural noun)", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "اوراق بهادار"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "دارایی‌های مالی قابل خرید و فروش در بازار مانند سهام و سند بدهی که سود یا مالکیت ایجاد می‌کنند"}, {"label": "تعریف انگلیسی", "pre": "plural of security", "op": "نگه‌داشت dataset", "fin": "plural of security"}, {"label": "تلفظ", "pre": "/sɪˈkjʊəɹɪtiz/", "op": "نگه‌داشت dataset", "fin": "/sɪˈkjʊəɹɪtiz/"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "Many investors buy securities to grow their money."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "بسیاری از سرمایه‌گذاران برای افزایش پول خود اوراق بهادار می‌خرند."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "The company sold securities to raise new funds."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "آن شرکت برای جذب سرمایه جدید اوراق بهادار فروخت."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "stocks, bonds, shares"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه اسم جمع است و همیشه با فعل جمع به کار می‌رود (plural noun)"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}, {"name": "sense-coherence", "status": "llm-pass", "pass": true}], "raw_json": {"word": "securities", "phonetic": {"ipa": "/sɪˈkjʊəɹɪtiz/"}, "fa_meaning": "اوراق بهادار", "fa_explanation": "دارایی‌های مالی قابل خرید و فروش در بازار مانند سهام و سند بدهی که سود یا مالکیت ایجاد می‌کنند", "synonyms": ["stocks", "bonds", "shares"], "antonyms": [], "examples": ["Many investors buy securities to grow their money.", "The company sold securities to raise new funds."], "example_translations": ["بسیاری از سرمایه‌گذاران برای افزایش پول خود اوراق بهادار می‌خرند.", "آن شرکت برای جذب سرمایه جدید اوراق بهادار فروخت."], "grammar_tip": "این واژه اسم جمع است و همیشه با فعل جمع به کار می‌رود (plural noun)"}}, {"id": 7, "word": "DOS", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "dos#5", "anchor_def": "Initialism of disk operating system", "topic": "Science &amp; Technology", "model": "muse-spark-1.3-contributor-free", "ipa": "/diː oː ˈɛs/", "fa_meaning": "سیستم‌عامل دیسک", "fa_explanation": "نام دسته‌ای از سیستم‌های عامل قدیمی که دستورها را با تایپ در صفحه متنی اجرا می‌کردند", "en_def": "Initialism of disk operating system", "examples": ["My old computer still boots into DOS.", "He learned basic commands to manage files in DOS."], "example_translations": ["رایانه قدیمی من هنوز با سیستم‌عامل دیسک بالا می‌آید.", "او فرمان‌های پایه را برای مدیریت فایل‌ها در سیستم‌عامل دیسک یاد گرفت."], "synonyms": [], "antonyms": [], "grammar_tip": "واژه‌ی DOS سرواژه (initialism) به‌معنی denial of service است و جمع (plural) آن با s به‌صورت DOSs ساخته نمی‌شود؛ برای جمع معمولاً ترکیب DOS attacks به کار می‌رود.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "سیستم‌عامل دیسک"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "نام دسته‌ای از سیستم‌های عامل قدیمی که دستورها را با تایپ در صفحه متنی اجرا می‌کردند"}, {"label": "تعریف انگلیسی", "pre": "Initialism of disk operating system", "op": "نگه‌داشت dataset", "fin": "Initialism of disk operating system"}, {"label": "تلفظ", "pre": "/diː oː ˈɛs/", "op": "نگه‌داشت dataset", "fin": "/diː oː ˈɛs/"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "My old computer still boots into DOS."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "رایانه قدیمی من هنوز با سیستم‌عامل دیسک بالا می‌آید."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "He learned basic commands to manage files in DOS."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "او فرمان‌های پایه را برای مدیریت فایل‌ها در سیستم‌عامل دیسک یاد گرفت."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "واژه‌ی DOS سرواژه (initialism) به‌معنی denial of service است و جمع (plural) آن با s به‌صورت DOSs ساخته نمی‌شود؛ برای جمع معمولاً ترکیب DOS a…نمایش کاملواژه‌ی DOS سرواژه (initialism) به‌معنی denial of service است و جمع (plural) آن با s به‌صورت DOSs ساخته نمی‌شود؛ برای جمع معمولاً ترکیب DOS attacks به کار می‌رود."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}, {"name": "sense-coherence", "status": "llm-pass", "pass": true}], "raw_json": {"word": "DOS", "phonetic": {"ipa": "/diː oː ˈɛs/"}, "fa_meaning": "سیستم‌عامل دیسک", "fa_explanation": "نام دسته‌ای از سیستم‌های عامل قدیمی که دستورها را با تایپ در صفحه متنی اجرا می‌کردند", "synonyms": [], "antonyms": [], "examples": ["My old computer still boots into DOS.", "He learned basic commands to manage files in DOS."], "example_translations": ["رایانه قدیمی من هنوز با سیستم‌عامل دیسک بالا می‌آید.", "او فرمان‌های پایه را برای مدیریت فایل‌ها در سیستم‌عامل دیسک یاد گرفت."], "grammar_tip": "واژه‌ی DOS سرواژه (initialism) به‌معنی denial of service است و جمع (plural) آن با s به‌صورت DOSs ساخته نمی‌شود؛ برای جمع معمولاً ترکیب DOS attacks به کار می‌رود."}}, {"id": 8, "word": "MF", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "mf#1", "anchor_def": "Initialism of medium frequency.", "topic": "Science &amp; Technology", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "بسامد متوسط", "fa_explanation": "به بخشی از موج‌های رادیویی گفته می‌شود که طول موج آن‌ها نه خیلی بلند و نه خیلی کوتاه است و بیشتر برای پخش برنامه‌های رادیویی در نزدیکی به کار می‌رود", "en_def": "Initialism of medium frequency.", "examples": ["The station broadcasts news on MF every morning.", "Older car radios can still receive MF signals well."], "example_translations": ["این ایستگاه هر صبح اخبار را روی بسامد متوسط پخش می‌کند.", "رادیوهای قدیمی خودرو هنوز هم سیگنال‌های بسامد متوسط را خوب می‌گیرند."], "synonyms": ["medium wave"], "antonyms": ["high frequency", "low frequency"], "grammar_tip": "این واژه سرواژه است و همیشه با حروف بزرگ نوشته می‌شود initialism و معمولا بدون حرف تعریف جمع به کار نمی‌رود", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "بسامد متوسط"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "به بخشی از موج‌های رادیویی گفته می‌شود که طول موج آن‌ها نه خیلی بلند و نه خیلی کوتاه است و بیشتر برای پخش برنامه‌های رادیویی در نزدیکی به کا…نمایش کاملبه بخشی از موج‌های رادیویی گفته می‌شود که طول موج آن‌ها نه خیلی بلند و نه خیلی کوتاه است و بیشتر برای پخش برنامه‌های رادیویی در نزدیکی به کار می‌رود"}, {"label": "تعریف انگلیسی", "pre": "Initialism of medium frequency.", "op": "نگه‌داشت dataset", "fin": "Initialism of medium frequency."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "The station broadcasts news on MF every morning."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "این ایستگاه هر صبح اخبار را روی بسامد متوسط پخش می‌کند."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "Older car radios can still receive MF signals well."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "رادیوهای قدیمی خودرو هنوز هم سیگنال‌های بسامد متوسط را خوب می‌گیرند."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "medium wave"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "high frequency, low frequency"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه سرواژه است و همیشه با حروف بزرگ نوشته می‌شود initialism و معمولا بدون حرف تعریف جمع به کار نمی‌رود"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "MF", "phonetic": {"ipa": ""}, "fa_meaning": "بسامد متوسط", "fa_explanation": "به بخشی از موج‌های رادیویی گفته می‌شود که طول موج آن‌ها نه خیلی بلند و نه خیلی کوتاه است و بیشتر برای پخش برنامه‌های رادیویی در نزدیکی به کار می‌رود", "synonyms": ["medium wave"], "antonyms": ["high frequency", "low frequency"], "examples": ["The station broadcasts news on MF every morning.", "Older car radios can still receive MF signals well."], "example_translations": ["این ایستگاه هر صبح اخبار را روی بسامد متوسط پخش می‌کند.", "رادیوهای قدیمی خودرو هنوز هم سیگنال‌های بسامد متوسط را خوب می‌گیرند."], "grammar_tip": "این واژه سرواژه است و همیشه با حروف بزرگ نوشته می‌شود initialism و معمولا بدون حرف تعریف جمع به کار نمی‌رود"}}, {"id": 9, "word": "licensing", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "licensing#1", "anchor_def": "A giving of license to do something; sanction.", "topic": "Law &amp; Politics", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "صدور مجوز رسمی و اجازه قانونی", "fa_explanation": "یعنی عمل اجازه رسمی دادن برای انجام کاری که بدون آن اجازه ممنوع است، مانند فعالیت تجاری یا پخش یک اثر.", "en_def": "A giving of license to do something; sanction.", "examples": ["The city requires licensing for all street vendors.", "They paid a fee for the licensing of their new product."], "example_translations": ["شهر برای همه دست‌فروشان خیابانی صدور مجوز رسمی را لازم می‌داند.", "آن‌ها برای صدور مجوز رسمی محصول جدیدشان مبلغی پرداخت کردند."], "synonyms": ["authorization", "permission", "sanction"], "antonyms": ["prohibition", "ban"], "grammar_tip": "این واژه اسم مصدر است و ساخت غیرقابل شمارش دارد؛ برای اشاره به قاعده کلی از شکل مفرد استفاده می‌شود مثل Gerund (اسم مصدر) و Uncountable Noun (اسم غیرقابل شمارش).", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "صدور مجوز رسمی و اجازه قانونی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "یعنی عمل اجازه رسمی دادن برای انجام کاری که بدون آن اجازه ممنوع است، مانند فعالیت تجاری یا پخش یک اثر."}, {"label": "تعریف انگلیسی", "pre": "A giving of license to do something; sanction.", "op": "نگه‌داشت dataset", "fin": "A giving of license to do something; sanction."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "The city requires licensing for all street vendors."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "شهر برای همه دست‌فروشان خیابانی صدور مجوز رسمی را لازم می‌داند."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "They paid a fee for the licensing of their new product."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "آن‌ها برای صدور مجوز رسمی محصول جدیدشان مبلغی پرداخت کردند."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "authorization, permission, sanction"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "prohibition, ban"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه اسم مصدر است و ساخت غیرقابل شمارش دارد؛ برای اشاره به قاعده کلی از شکل مفرد استفاده می‌شود مثل Gerund (اسم مصدر) و Uncountable Noun…نمایش کاملاین واژه اسم مصدر است و ساخت غیرقابل شمارش دارد؛ برای اشاره به قاعده کلی از شکل مفرد استفاده می‌شود مثل Gerund (اسم مصدر) و Uncountable Noun (اسم غیرقابل شمارش)."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "licensing", "phonetic": {"ipa": ""}, "fa_meaning": "صدور مجوز رسمی و اجازه قانونی", "fa_explanation": "یعنی عمل اجازه رسمی دادن برای انجام کاری که بدون آن اجازه ممنوع است، مانند فعالیت تجاری یا پخش یک اثر.", "synonyms": ["authorization", "permission", "sanction"], "antonyms": ["prohibition", "ban"], "examples": ["The city requires licensing for all street vendors.", "They paid a fee for the licensing of their new product."], "example_translations": ["شهر برای همه دست‌فروشان خیابانی صدور مجوز رسمی را لازم می‌داند.", "آن‌ها برای صدور مجوز رسمی محصول جدیدشان مبلغی پرداخت کردند."], "grammar_tip": "این واژه اسم مصدر است و ساخت غیرقابل شمارش دارد؛ برای اشاره به قاعده کلی از شکل مفرد استفاده می‌شود مثل Gerund (اسم مصدر) و Uncountable Noun (اسم غیرقابل شمارش)."}}, {"id": 10, "word": "Hispanic", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "hispanic#2", "anchor_def": "Of or relating to a Spanish-speaking people or culture, especially as in Latin America.", "topic": "Society", "model": "muse-spark-1.3-contributor-free", "ipa": "/hɪˈspænɪk/", "fa_meaning": "مربوط به مردم اسپانیایی‌زبان", "fa_explanation": "به افراد یا فرهنگی گفته می‌شود که زبان و ریشه آن‌ها به اسپانیا یا آمریکای لاتین برمی‌گردد و در آن‌جا رایج است.", "en_def": "Of or relating to a Spanish-speaking people or culture, especially as in Latin America.", "examples": ["Many Hispanic neighborhoods hold lively music festivals every year.", "She visited a Hispanic restaurant and tried traditional dishes."], "example_translations": ["بسیاری از محله‌های اسپانیایی‌زبان هر سال جشنواره‌های پرشور موسیقی برگزار می‌کنند.", "او به یک رستوران اسپانیایی‌زبان رفت و غذاهای سنتی را امتحان کرد."], "synonyms": ["latino", "spanish-speaking"], "antonyms": [], "grammar_tip": "این واژه هم صفت و هم اسم است و همیشه با حرف بزرگ نوشته می‌شود چون به گروه فرهنگی اشاره دارد. (Capitalization)", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "مربوط به مردم اسپانیایی‌زبان"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "به افراد یا فرهنگی گفته می‌شود که زبان و ریشه آن‌ها به اسپانیا یا آمریکای لاتین برمی‌گردد و در آن‌جا رایج است."}, {"label": "تعریف انگلیسی", "pre": "Of or relating to a Spanish-speaking people or culture, especially as in Latin America.", "op": "نگه‌داشت dataset", "fin": "Of or relating to a Spanish-speaking people or culture, especially as in Latin America."}, {"label": "تلفظ", "pre": "/hɪˈspænɪk/", "op": "نگه‌داشت dataset", "fin": "/hɪˈspænɪk/"}, {"label": "مثال 1", "pre": "Houses in New Mexico, California and Florida exhibit a strong Hispanic architectural influence.", "op": "آزادشده (cloze-dialogue)", "fin": "Many Hispanic neighborhoods hold lively music festivals every year."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "بسیاری از محله‌های اسپانیایی‌زبان هر سال جشنواره‌های پرشور موسیقی برگزار می‌کنند."}, {"label": "مثال 2", "pre": "خالی", "op": "بازبینی‌شده", "fin": "She visited a Hispanic restaurant and tried traditional dishes."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "او به یک رستوران اسپانیایی‌زبان رفت و غذاهای سنتی را امتحان کرد."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "latino, spanish-speaking"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه هم صفت و هم اسم است و همیشه با حرف بزرگ نوشته می‌شود چون به گروه فرهنگی اشاره دارد. (Capitalization)"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "Hispanic", "phonetic": {"ipa": "/hɪˈspænɪk/"}, "fa_meaning": "مربوط به مردم اسپانیایی‌زبان", "fa_explanation": "به افراد یا فرهنگی گفته می‌شود که زبان و ریشه آن‌ها به اسپانیا یا آمریکای لاتین برمی‌گردد و در آن‌جا رایج است.", "synonyms": ["latino", "spanish-speaking"], "antonyms": [], "examples": ["Many Hispanic neighborhoods hold lively music festivals every year.", "She visited a Hispanic restaurant and tried traditional dishes."], "example_translations": ["بسیاری از محله‌های اسپانیایی‌زبان هر سال جشنواره‌های پرشور موسیقی برگزار می‌کنند.", "او به یک رستوران اسپانیایی‌زبان رفت و غذاهای سنتی را امتحان کرد."], "grammar_tip": "این واژه هم صفت و هم اسم است و همیشه با حرف بزرگ نوشته می‌شود چون به گروه فرهنگی اشاره دارد. (Capitalization)"}}, {"id": 11, "word": "torrential", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "C2", "sense_id": "torrential#0", "anchor_def": "Coming or characterized by torrents; flowing heavily or in large quantities.", "topic": "Nature &amp; Environment", "model": "muse-spark-1.3-contributor-free", "ipa": "/təˈɹɛn.tʃəl/", "fa_meaning": "سیل‌آسا و بسیار شدید", "fa_explanation": "برای توصیف جریانی به کار می‌رود که با حجم بسیار زیاد و شدت مهارناپذیر جاری می‌شود؛ بیشتر درباره بارش و جریان آب گفته می‌شود و گاهی برای سیل احساسات یا سخنان نیز کاربرد دارد.", "en_def": "Coming or characterized by torrents; flowing heavily or in large quantities.", "examples": ["There was a torrential downpour and we were all soaked.", "The torrential rain did quite a bit of damage."], "example_translations": ["بارش سیل‌آسایی آمد و همه ما کاملا خیس شدیم.", "باران سیل‌آسا خسارت قابل توجهی به بار آورد."], "synonyms": ["pouring", "teeming", "relentless"], "antonyms": ["light", "gentle", "scant"], "grammar_tip": "این واژه صفت است و معمولا پیش از اسم می‌آید؛ مثل باران سیل‌آسا. شکل قیدی آن با پسوند رایج قیدساز ساخته می‌شود.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "سیل‌آسا و بسیار شدید"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "برای توصیف جریانی به کار می‌رود که با حجم بسیار زیاد و شدت مهارناپذیر جاری می‌شود؛ بیشتر درباره بارش و جریان آب گفته می‌شود و گاهی برای سیل …نمایش کاملبرای توصیف جریانی به کار می‌رود که با حجم بسیار زیاد و شدت مهارناپذیر جاری می‌شود؛ بیشتر درباره بارش و جریان آب گفته می‌شود و گاهی برای سیل احساسات یا سخنان نیز کاربرد دارد."}, {"label": "تعریف انگلیسی", "pre": "Coming or characterized by torrents; flowing heavily or in large quantities.", "op": "نگه‌داشت dataset", "fin": "Coming or characterized by torrents; flowing heavily or in large quantities."}, {"label": "تلفظ", "pre": "/təˈɹɛn.tʃəl/", "op": "نگه‌داشت dataset", "fin": "/təˈɹɛn.tʃəl/"}, {"label": "مثال 1", "pre": "There was a torrential downpour and we were all soaked.", "op": "نگه‌داشت dataset", "fin": "There was a torrential downpour and we were all soaked."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "بارش سیل‌آسایی آمد و همه ما کاملا خیس شدیم."}, {"label": "مثال 2", "pre": "The torrential rain did quite a bit of damage.", "op": "نگه‌داشت dataset", "fin": "The torrential rain did quite a bit of damage."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "باران سیل‌آسا خسارت قابل توجهی به بار آورد."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "pouring, teeming, relentless"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "light, gentle, scant"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه صفت است و معمولا پیش از اسم می‌آید؛ مثل باران سیل‌آسا. شکل قیدی آن با پسوند رایج قیدساز ساخته می‌شود."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "torrential", "phonetic": {"ipa": "/təˈɹɛn.tʃəl/"}, "fa_meaning": "سیل‌آسا و بسیار شدید", "fa_explanation": "برای توصیف جریانی به کار می‌رود که با حجم بسیار زیاد و شدت مهارناپذیر جاری می‌شود؛ بیشتر درباره بارش و جریان آب گفته می‌شود و گاهی برای سیل احساسات یا سخنان نیز کاربرد دارد.", "synonyms": ["pouring", "teeming", "relentless"], "antonyms": ["light", "gentle", "scant"], "examples": ["There was a torrential downpour and we were all soaked.", "The torrential rain did quite a bit of damage."], "example_translations": ["بارش سیل‌آسایی آمد و همه ما کاملا خیس شدیم.", "باران سیل‌آسا خسارت قابل توجهی به بار آورد."], "grammar_tip": "این واژه صفت است و معمولا پیش از اسم می‌آید؛ مثل باران سیل‌آسا. شکل قیدی آن با پسوند رایج قیدساز ساخته می‌شود."}}, {"id": 12, "word": "bodyboarding", "kind": "واژه", "status_ok": true, "error_msg": "", "cefr": "C2", "sense_id": "bodyboarding#0", "anchor_def": "A water sport, similar to surfing, in which one kneels or lies on a bodyboard and is carried by breaking waves.", "topic": "Sports &amp; Leisure", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "موج‌سواری خوابیده یا زانوزده روی تخته کوتاه", "fa_explanation": "ورزشی آبی شبیه به موج‌سواری ایستاده است که در آن فرد روی تخته‌ای کوتاه به شکم می‌خوابد یا زانو می‌زند و با نیروی موج‌های شکسته به سمت ساحل رانده می‌شود.", "en_def": "A water sport, similar to surfing, in which one kneels or lies on a bodyboard and is carried by breaking waves.", "examples": ["He spent the morning bodyboarding on the breaking waves near the reef.", "She bought fins and wax before starting bodyboarding lessons."], "example_translations": ["او صبح را با موج‌سواری خوابیده روی تخته کوتاه بر موج‌های شکسته نزدیک صخره گذراند.", "او پیش از شروع کلاس‌های موج‌سواری خوابیده روی تخته کوتاه، کفش غواصی و واکس خرید."], "synonyms": ["wave riding", "boardsurfing"], "antonyms": [], "grammar_tip": "این واژه اسم غیرقابل شمارش (uncountable noun) و همچنین اسم مصدر (gerund) است؛ با حرف اضافه on همراه می‌شود، مثل go bodyboarding.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "موج‌سواری خوابیده یا زانوزده روی تخته کوتاه"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "ورزشی آبی شبیه به موج‌سواری ایستاده است که در آن فرد روی تخته‌ای کوتاه به شکم می‌خوابد یا زانو می‌زند و با نیروی موج‌های شکسته به سمت ساحل ر…نمایش کاملورزشی آبی شبیه به موج‌سواری ایستاده است که در آن فرد روی تخته‌ای کوتاه به شکم می‌خوابد یا زانو می‌زند و با نیروی موج‌های شکسته به سمت ساحل رانده می‌شود."}, {"label": "تعریف انگلیسی", "pre": "A water sport, similar to surfing, in which one kneels or lies on a bodyboard and is carried by breaking waves.", "op": "نگه‌داشت dataset", "fin": "A water sport, similar to surfing, in which one kneels or lies on a bodyboard and is carried by breaking waves."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "He spent the morning bodyboarding on the breaking waves near the reef."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "او صبح را با موج‌سواری خوابیده روی تخته کوتاه بر موج‌های شکسته نزدیک صخره گذراند."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "She bought fins and wax before starting bodyboarding lessons."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "او پیش از شروع کلاس‌های موج‌سواری خوابیده روی تخته کوتاه، کفش غواصی و واکس خرید."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "wave riding, boardsurfing"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این واژه اسم غیرقابل شمارش (uncountable noun) و همچنین اسم مصدر (gerund) است؛ با حرف اضافه on همراه می‌شود، مثل go bodyboarding."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "bodyboarding", "phonetic": {"ipa": ""}, "fa_meaning": "موج‌سواری خوابیده یا زانوزده روی تخته کوتاه", "fa_explanation": "ورزشی آبی شبیه به موج‌سواری ایستاده است که در آن فرد روی تخته‌ای کوتاه به شکم می‌خوابد یا زانو می‌زند و با نیروی موج‌های شکسته به سمت ساحل رانده می‌شود.", "synonyms": ["wave riding", "boardsurfing"], "antonyms": [], "examples": ["He spent the morning bodyboarding on the breaking waves near the reef.", "She bought fins and wax before starting bodyboarding lessons."], "example_translations": ["او صبح را با موج‌سواری خوابیده روی تخته کوتاه بر موج‌های شکسته نزدیک صخره گذراند.", "او پیش از شروع کلاس‌های موج‌سواری خوابیده روی تخته کوتاه، کفش غواصی و واکس خرید."], "grammar_tip": "این واژه اسم غیرقابل شمارش (uncountable noun) و همچنین اسم مصدر (gerund) است؛ با حرف اضافه on همراه می‌شود، مثل go bodyboarding."}}, {"id": 13, "word": "be on the lookout", "kind": "عبارت", "status_ok": false, "error_msg": "example-containment", "cefr": "B1", "sense_id": "be on the lookout#0", "anchor_def": "BOLO.", "topic": "Law &amp; Politics", "model": "—", "ipa": "", "fa_meaning": "", "fa_explanation": "", "en_def": "BOLO.", "examples": [], "example_translations": [], "synonyms": [], "antonyms": [], "grammar_tip": "", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "تعریف انگلیسی", "pre": "BOLO.", "op": "لغوشده", "fin": "BOLO."}, {"label": "تلفظ", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 1", "pre": "I put out a “be on the lookout” for a lady in a blue dress.", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 2", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مترادف‌ها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {}}, {"id": 14, "word": "ad lib", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "C1", "sense_id": "ad lib#4", "anchor_def": "Extemporaneous, impromptu.", "topic": "Arts &amp; Culture", "model": "muse-spark-1.3-contributor-free", "ipa": "/æd ˈlɪb/", "fa_meaning": "بداهه، فی‌البداهه و بدون آمادگی قبلی", "fa_explanation": "برای گفتار یا اجرایی به کار می‌رود که از پیش آماده نشده و در لحظه و به‌صورت خودجوش ساخته و اجرا می‌شود", "en_def": "Extemporaneous, impromptu.", "examples": ["He delivered the entire speech ad lib without any notes.", "She answered the tricky interview questions ad lib with confidence."], "example_translations": ["او کل سخنرانی را بداهه و بدون هیچ یادداشتی ایراد کرد.", "او با اعتمادبه‌نفس به پرسش‌های دشوار مصاحبه به‌صورت بداهه پاسخ داد."], "synonyms": ["impromptu", "extemporaneous", "spontaneous"], "antonyms": ["rehearsed", "scripted", "premeditated"], "grammar_tip": "این عبارت هم صفت (adjective) و قید (adverb) است و هم فعل (verb) به معنای بداهه گفتن؛ پس از آن حرف اضافه خاصی لازم نیست", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "بداهه، فی‌البداهه و بدون آمادگی قبلی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "برای گفتار یا اجرایی به کار می‌رود که از پیش آماده نشده و در لحظه و به‌صورت خودجوش ساخته و اجرا می‌شود"}, {"label": "تعریف انگلیسی", "pre": "Extemporaneous, impromptu.", "op": "نگه‌داشت dataset", "fin": "Extemporaneous, impromptu."}, {"label": "تلفظ", "pre": "/æd ˈlɪb/", "op": "نگه‌داشت dataset", "fin": "/æd ˈlɪb/"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "He delivered the entire speech ad lib without any notes."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "او کل سخنرانی را بداهه و بدون هیچ یادداشتی ایراد کرد."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "She answered the tricky interview questions ad lib with confidence."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "او با اعتمادبه‌نفس به پرسش‌های دشوار مصاحبه به‌صورت بداهه پاسخ داد."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "impromptu, extemporaneous, spontaneous"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "rehearsed, scripted, premeditated"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت هم صفت (adjective) و قید (adverb) است و هم فعل (verb) به معنای بداهه گفتن؛ پس از آن حرف اضافه خاصی لازم نیست"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "ad lib", "phonetic": {"ipa": "/æd ˈlɪb/"}, "fa_meaning": "بداهه، فی‌البداهه و بدون آمادگی قبلی", "fa_explanation": "برای گفتار یا اجرایی به کار می‌رود که از پیش آماده نشده و در لحظه و به‌صورت خودجوش ساخته و اجرا می‌شود", "synonyms": ["impromptu", "extemporaneous", "spontaneous"], "antonyms": ["rehearsed", "scripted", "premeditated"], "examples": ["He delivered the entire speech ad lib without any notes.", "She answered the tricky interview questions ad lib with confidence."], "example_translations": ["او کل سخنرانی را بداهه و بدون هیچ یادداشتی ایراد کرد.", "او با اعتمادبه‌نفس به پرسش‌های دشوار مصاحبه به‌صورت بداهه پاسخ داد."], "grammar_tip": "این عبارت هم صفت (adjective) و قید (adverb) است و هم فعل (verb) به معنای بداهه گفتن؛ پس از آن حرف اضافه خاصی لازم نیست"}}, {"id": 15, "word": "alpha and omega", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "C1", "sense_id": "alpha and omega#0", "anchor_def": "The first and last; the beginning and end.", "topic": "Other / Abstract", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "آغاز و پایان؛ ابتدا و انتها", "fa_explanation": "این عبارت برای اشاره به کامل بودن یک چیز به کار می رود؛ یعنی از نخستین بخش تا واپسین بخش آن را در بر می گیرد. بیشتر در متن های رسمی، ادبی و دینی دیده می شود و بر جامعیت و فراگیری تأکید دارد.", "en_def": "The first and last; the beginning and end.", "examples": ["They described this reform as the alpha and omega of progress.", "Trust is the alpha and omega of any lasting partnership."], "example_translations": ["آنان این اصلاح را آغاز و پایان پیشرفت توصیف کردند.", "اعتماد آغاز و پایان هر همکاری پایدار است."], "synonyms": ["beginning and end", "first and last", "start to finish"], "antonyms": ["middle", "midpoint"], "grammar_tip": "این عبارت نقش گروه اسمی دارد و معمولا پس از حرف اضافه یا فعل ربطی می آید؛ مثل کاربرد به عنوان متمم حرف اضافه (prepositional complement) یا مسند (subject complement). حرف تعریف معین (definite article) پیش از آن ثابت است.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "آغاز و پایان؛ ابتدا و انتها"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت برای اشاره به کامل بودن یک چیز به کار می رود؛ یعنی از نخستین بخش تا واپسین بخش آن را در بر می گیرد. بیشتر در متن های رسمی، ادبی و …نمایش کاملاین عبارت برای اشاره به کامل بودن یک چیز به کار می رود؛ یعنی از نخستین بخش تا واپسین بخش آن را در بر می گیرد. بیشتر در متن های رسمی، ادبی و دینی دیده می شود و بر جامعیت و فراگیری تأکید دارد."}, {"label": "تعریف انگلیسی", "pre": "The first and last; the beginning and end.", "op": "نگه‌داشت dataset", "fin": "The first and last; the beginning and end."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "They described this reform as the alpha and omega of progress."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "آنان این اصلاح را آغاز و پایان پیشرفت توصیف کردند."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "Trust is the alpha and omega of any lasting partnership."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "اعتماد آغاز و پایان هر همکاری پایدار است."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "beginning and end, first and last, start to finish"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "middle, midpoint"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت نقش گروه اسمی دارد و معمولا پس از حرف اضافه یا فعل ربطی می آید؛ مثل کاربرد به عنوان متمم حرف اضافه (prepositional complement) یا م…نمایش کاملاین عبارت نقش گروه اسمی دارد و معمولا پس از حرف اضافه یا فعل ربطی می آید؛ مثل کاربرد به عنوان متمم حرف اضافه (prepositional complement) یا مسند (subject complement). حرف تعریف معین (definite article) پیش از آن ثابت است."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "alpha and omega", "phonetic": {"ipa": ""}, "fa_meaning": "آغاز و پایان؛ ابتدا و انتها", "fa_explanation": "این عبارت برای اشاره به کامل بودن یک چیز به کار می رود؛ یعنی از نخستین بخش تا واپسین بخش آن را در بر می گیرد. بیشتر در متن های رسمی، ادبی و دینی دیده می شود و بر جامعیت و فراگیری تأکید دارد.", "synonyms": ["beginning and end", "first and last", "start to finish"], "antonyms": ["middle", "midpoint"], "examples": ["They described this reform as the alpha and omega of progress.", "Trust is the alpha and omega of any lasting partnership."], "example_translations": ["آنان این اصلاح را آغاز و پایان پیشرفت توصیف کردند.", "اعتماد آغاز و پایان هر همکاری پایدار است."], "grammar_tip": "این عبارت نقش گروه اسمی دارد و معمولا پس از حرف اضافه یا فعل ربطی می آید؛ مثل کاربرد به عنوان متمم حرف اضافه (prepositional complement) یا مسند (subject complement). حرف تعریف معین (definite article) پیش از آن ثابت است."}}, {"id": 16, "word": "back and forth", "kind": "عبارت", "status_ok": false, "error_msg": "HTTPError 500: HTTP Error 500: Internal Server Error", "cefr": "A1", "sense_id": "back and forth#2", "anchor_def": "Going from one place or position to another and back again.", "topic": "Travel &amp; Transportation", "model": "—", "ipa": "", "fa_meaning": "", "fa_explanation": "", "en_def": "Going from one place or position to another and back again.", "examples": [], "example_translations": [], "synonyms": [], "antonyms": [], "grammar_tip": "", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "تعریف انگلیسی", "pre": "Going from one place or position to another and back again.", "op": "لغوشده", "fin": "Going from one place or position to another and back again."}, {"label": "تلفظ", "pre": "/ˈbæ.kənˌfɔːθ/", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 1", "pre": "The back and forth movement of the tide causes erosion of the coastline.", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 2", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مترادف‌ها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {}}, {"id": 17, "word": "brass monkey", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "C1", "sense_id": "brass monkey#0", "anchor_def": "Very cold.", "topic": "Nature &amp; Environment", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "سرمای بسیار شدید و استخوان‌سوز", "fa_explanation": "این عبارت کوتاه‌شده یک اصطلاح عامیانه برای توصیف هوایی به شدت سرد است و معمولا به صورت وصفی برای هوا به کار می‌رود.", "en_def": "Very cold.", "examples": ["This is brass monkey weather and it'll get worse.", "I forgot it'd be brass monkey weather in good old London."], "example_translations": ["هوا به شدت سرد است و بدتر هم خواهد شد.", "یادم رفته بود که در لندن عزیز قدیمی هوا به شدت سرد می‌شود."], "synonyms": ["freezing", "bitterly cold"], "antonyms": ["sweltering", "mild"], "grammar_tip": "این عبارت عمدتا به عنوان عبارت اسمی (noun phrase) و به صورت وصفی همراه با واژه هوا به کار می‌رود و شکل جمع نمی‌گیرد.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "سرمای بسیار شدید و استخوان‌سوز"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت کوتاه‌شده یک اصطلاح عامیانه برای توصیف هوایی به شدت سرد است و معمولا به صورت وصفی برای هوا به کار می‌رود."}, {"label": "تعریف انگلیسی", "pre": "Very cold.", "op": "نگه‌داشت dataset", "fin": "Very cold."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "This is brass monkey weather and it&#x27;ll get worse.", "op": "نگه‌داشت dataset", "fin": "This is brass monkey weather and it&#x27;ll get worse."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "هوا به شدت سرد است و بدتر هم خواهد شد."}, {"label": "مثال 2", "pre": "I forgot it&#x27;d be brass monkey weather in good old London.", "op": "نگه‌داشت dataset", "fin": "I forgot it&#x27;d be brass monkey weather in good old London."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "یادم رفته بود که در لندن عزیز قدیمی هوا به شدت سرد می‌شود."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "freezing, bitterly cold"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "sweltering, mild"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت عمدتا به عنوان عبارت اسمی (noun phrase) و به صورت وصفی همراه با واژه هوا به کار می‌رود و شکل جمع نمی‌گیرد."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "brass monkey", "phonetic": {"ipa": ""}, "fa_meaning": "سرمای بسیار شدید و استخوان‌سوز", "fa_explanation": "این عبارت کوتاه‌شده یک اصطلاح عامیانه برای توصیف هوایی به شدت سرد است و معمولا به صورت وصفی برای هوا به کار می‌رود.", "synonyms": ["freezing", "bitterly cold"], "antonyms": ["sweltering", "mild"], "examples": ["This is brass monkey weather and it'll get worse.", "I forgot it'd be brass monkey weather in good old London."], "example_translations": ["هوا به شدت سرد است و بدتر هم خواهد شد.", "یادم رفته بود که در لندن عزیز قدیمی هوا به شدت سرد می‌شود."], "grammar_tip": "این عبارت عمدتا به عنوان عبارت اسمی (noun phrase) و به صورت وصفی همراه با واژه هوا به کار می‌رود و شکل جمع نمی‌گیرد."}}, {"id": 18, "word": "dead pan", "kind": "عبارت", "status_ok": false, "error_msg": "example-containment", "cefr": "B2", "sense_id": "deadpan#0", "anchor_def": "Deliberately impassive or expressionless.", "topic": "Emotions &amp; Relationships", "model": "—", "ipa": "", "fa_meaning": "", "fa_explanation": "", "en_def": "Deliberately impassive or expressionless.", "examples": [], "example_translations": [], "synonyms": [], "antonyms": [], "grammar_tip": "", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "تعریف انگلیسی", "pre": "Deliberately impassive or expressionless.", "op": "لغوشده", "fin": "Deliberately impassive or expressionless."}, {"label": "تلفظ", "pre": "/ˈdɛdpæn/", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مثال 2", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "مترادف‌ها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "متضادها", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "لغوشده", "fin": "خالی"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {}}, {"id": 19, "word": "flat out", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "flat out#4", "anchor_def": "At top speed.", "topic": "Travel &amp; Transportation", "model": "muse-spark-1.3-contributor-free", "ipa": "/ˌflæt ˈaʊt/", "fa_meaning": "با بیشترین سرعت ممکن", "fa_explanation": "یعنی با تمام توان و بالاترین سرعت دویدن یا حرکت کردن بدون کم کردن سرعت", "en_def": "At top speed.", "examples": ["After 10 minutes of running flat out, he was out of breath.", "I was already sliding and too dedicated to change my line and just went flat out completely off the course."], "example_translations": ["بعد از ده دقیقه دویدن با بیشترین سرعت، نفسش بند آمده بود.", "من قبلا در حال لیز خوردن بودم و برای عوض کردن مسیرم خیلی مصمم بودم و فقط با بیشترین سرعت کاملا از مسیر خارج شدم."], "synonyms": ["at full speed", "full tilt"], "antonyms": ["slowly"], "grammar_tip": "این عبارت در این معنی صفت (adjective) به معنای کامل و تمام‌عیار است و به صورت وصفی قبل از اسم (attributive) می‌آید، نه در پایان جمله.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "با بیشترین سرعت ممکن"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "یعنی با تمام توان و بالاترین سرعت دویدن یا حرکت کردن بدون کم کردن سرعت"}, {"label": "تعریف انگلیسی", "pre": "At top speed.", "op": "نگه‌داشت dataset", "fin": "At top speed."}, {"label": "تلفظ", "pre": "/ˌflæt ˈaʊt/", "op": "نگه‌داشت dataset", "fin": "/ˌflæt ˈaʊt/"}, {"label": "مثال 1", "pre": "After 10 minutes of running flat out, he was out of breath.", "op": "نگه‌داشت dataset", "fin": "After 10 minutes of running flat out, he was out of breath."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "بعد از ده دقیقه دویدن با بیشترین سرعت، نفسش بند آمده بود."}, {"label": "مثال 2", "pre": "I was already sliding and too dedicated to change my line and just went flat out completely off the course.", "op": "نگه‌داشت dataset", "fin": "I was already sliding and too dedicated to change my line and just went flat out completely off the course."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "من قبلا در حال لیز خوردن بودم و برای عوض کردن مسیرم خیلی مصمم بودم و فقط با بیشترین سرعت کاملا از مسیر خارج شدم."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "at full speed, full tilt"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "slowly"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت در این معنی صفت (adjective) به معنای کامل و تمام‌عیار است و به صورت وصفی قبل از اسم (attributive) می‌آید، نه در پایان جمله."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "flat out", "phonetic": {"ipa": "/ˌflæt ˈaʊt/"}, "fa_meaning": "با بیشترین سرعت ممکن", "fa_explanation": "یعنی با تمام توان و بالاترین سرعت دویدن یا حرکت کردن بدون کم کردن سرعت", "synonyms": ["at full speed", "full tilt"], "antonyms": ["slowly"], "examples": ["After 10 minutes of running flat out, he was out of breath.", "I was already sliding and too dedicated to change my line and just went flat out completely off the course."], "example_translations": ["بعد از ده دقیقه دویدن با بیشترین سرعت، نفسش بند آمده بود.", "من قبلا در حال لیز خوردن بودم و برای عوض کردن مسیرم خیلی مصمم بودم و فقط با بیشترین سرعت کاملا از مسیر خارج شدم."], "grammar_tip": "این عبارت در این معنی صفت (adjective) به معنای کامل و تمام‌عیار است و به صورت وصفی قبل از اسم (attributive) می‌آید، نه در پایان جمله."}}, {"id": 20, "word": "full speed ahead", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "B1", "sense_id": "full speed ahead#0", "anchor_def": "A command to move forward at maximum speed.", "topic": "Travel &amp; Transportation", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "با تمام توان به پیش", "fa_explanation": "این عبارت فرمان حرکت با بیشترین سرعت رو به جلو است و برای ادامه پرانرژی یک کار یا برنامه بدون توقف به کار می‌رود.", "en_def": "A command to move forward at maximum speed.", "examples": ["After the break, it was full speed ahead toward the deadline.", "The captain shouted full speed ahead as the storm approached us."], "example_translations": ["بعد از استراحت، حرکت با تمام سرعت به سوی مهلت پایانی ادامه یافت.", "ناخدا با نزدیک شدن طوفان فرمان حرکت با بیشترین سرعت را صادر کرد."], "synonyms": ["at full throttle", "full tilt"], "antonyms": ["slow down"], "grammar_tip": "این عبارت نقش قیدی دارد (adverbial phrase) و معمولا بعد از فعل قرار می‌گیرد و نیازی به تغییر شکل ندارد.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "با تمام توان به پیش"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت فرمان حرکت با بیشترین سرعت رو به جلو است و برای ادامه پرانرژی یک کار یا برنامه بدون توقف به کار می‌رود."}, {"label": "تعریف انگلیسی", "pre": "A command to move forward at maximum speed.", "op": "نگه‌داشت dataset", "fin": "A command to move forward at maximum speed."}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "After the break, it was full speed ahead toward the deadline."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "بعد از استراحت، حرکت با تمام سرعت به سوی مهلت پایانی ادامه یافت."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "The captain shouted full speed ahead as the storm approached us."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "ناخدا با نزدیک شدن طوفان فرمان حرکت با بیشترین سرعت را صادر کرد."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "at full throttle, full tilt"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "slow down"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت نقش قیدی دارد (adverbial phrase) و معمولا بعد از فعل قرار می‌گیرد و نیازی به تغییر شکل ندارد."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "full speed ahead", "phonetic": {"ipa": ""}, "fa_meaning": "با تمام توان به پیش", "fa_explanation": "این عبارت فرمان حرکت با بیشترین سرعت رو به جلو است و برای ادامه پرانرژی یک کار یا برنامه بدون توقف به کار می‌رود.", "synonyms": ["at full throttle", "full tilt"], "antonyms": ["slow down"], "examples": ["After the break, it was full speed ahead toward the deadline.", "The captain shouted full speed ahead as the storm approached us."], "example_translations": ["بعد از استراحت، حرکت با تمام سرعت به سوی مهلت پایانی ادامه یافت.", "ناخدا با نزدیک شدن طوفان فرمان حرکت با بیشترین سرعت را صادر کرد."], "grammar_tip": "این عبارت نقش قیدی دارد (adverbial phrase) و معمولا بعد از فعل قرار می‌گیرد و نیازی به تغییر شکل ندارد."}}, {"id": 21, "word": "heads up", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "B1", "sense_id": "heads up#0", "anchor_def": "Used as an informal warning, caution, or call for attention; pay attention!", "topic": "Other / Abstract", "model": "muse-spark-1.3-contributor-free", "ipa": "", "fa_meaning": "هشدار برای توجه و احتیاط!", "fa_explanation": "برای خبر دادن از خطر یا اتفاق نزدیک به کار می رود تا شنونده سریع توجه کند و آماده باشد.", "en_def": "Used as an informal warning, caution, or call for attention; pay attention!", "examples": ["Heads up! The floor is wet near the entrance.", "Heads up, the meeting starts in five minutes."], "example_translations": ["مواظب باش! زمین نزدیک ورودی خیس است.", "توجه کن! جلسه پنج دقیقه دیگر شروع می شود."], "synonyms": ["watch out", "be careful", "attention please"], "antonyms": [], "grammar_tip": "این عبارت بیشتر نقش ندا دارد و معمولا در آغاز جمله با علامت تعجب یا ویرگول می آید (interjection)", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "هشدار برای توجه و احتیاط!"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "برای خبر دادن از خطر یا اتفاق نزدیک به کار می رود تا شنونده سریع توجه کند و آماده باشد."}, {"label": "تعریف انگلیسی", "pre": "Used as an informal warning, caution, or call for attention; pay attention!", "op": "نگه‌داشت dataset", "fin": "Used as an informal warning, caution, or call for attention; pay attention!"}, {"label": "تلفظ", "pre": "خالی", "op": "بدون‌کار", "fin": "خالی"}, {"label": "مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "Heads up! The floor is wet near the entrance."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "مواظب باش! زمین نزدیک ورودی خیس است."}, {"label": "مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "Heads up, the meeting starts in five minutes."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "توجه کن! جلسه پنج دقیقه دیگر شروع می شود."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "watch out, be careful, attention please"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "خالی"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت بیشتر نقش ندا دارد و معمولا در آغاز جمله با علامت تعجب یا ویرگول می آید (interjection)"}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "heads up", "phonetic": {"ipa": ""}, "fa_meaning": "هشدار برای توجه و احتیاط!", "fa_explanation": "برای خبر دادن از خطر یا اتفاق نزدیک به کار می رود تا شنونده سریع توجه کند و آماده باشد.", "synonyms": ["watch out", "be careful", "attention please"], "antonyms": [], "examples": ["Heads up! The floor is wet near the entrance.", "Heads up, the meeting starts in five minutes."], "example_translations": ["مواظب باش! زمین نزدیک ورودی خیس است.", "توجه کن! جلسه پنج دقیقه دیگر شروع می شود."], "grammar_tip": "این عبارت بیشتر نقش ندا دارد و معمولا در آغاز جمله با علامت تعجب یا ویرگول می آید (interjection)"}}, {"id": 22, "word": "nickel and dime", "kind": "عبارت", "status_ok": true, "error_msg": "", "cefr": "B2", "sense_id": "nickel and dime#0", "anchor_def": "Small time; operating on a small scale; involving small amounts of money; petty or cheap.", "topic": "Business &amp; Economy", "model": "muse-spark-1.3-contributor-free", "ipa": "/ˌnɪkəl ən ˈdaɪm/", "fa_meaning": "ناچیز و کم‌اهمیت از نظر 규모 مالی", "fa_explanation": "برای توصیف کسب‌وکار، معامله یا رفتاری به کار می‌رود که در مقیاسی بسیار کوچک، کم‌ارزش یا خسیسانه انجام می‌شود.", "en_def": "Small time; operating on a small scale; involving small amounts of money; petty or cheap.", "examples": ["I bought my new ride from some nickel and dime used-car salesman.", "Don't waste your time with that; their operations are nickel and dime."], "example_translations": ["ماشین جدیدم را از یک فروشنده ناچیز ماشین دست‌دوم خریدم.", "وقتت را با آن تلف نکن؛ کارهایشان در مقیاسی بسیار کوچک است."], "synonyms": ["small-time", "petty", "cheap"], "antonyms": ["big-time", "major"], "grammar_tip": "این عبارت اغلب به‌عنوان صفت مرکب (compound adjective) پیش از اسم می‌آید و گاهی با خط تیره نوشته می‌شود.", "diff_rows": [{"label": "معنی فارسی", "pre": "خالی", "op": "پرشده model", "fin": "ناچیز و کم‌اهمیت از نظر 규모 مالی"}, {"label": "توضیح فارسی", "pre": "خالی", "op": "پرشده model", "fin": "برای توصیف کسب‌وکار، معامله یا رفتاری به کار می‌رود که در مقیاسی بسیار کوچک، کم‌ارزش یا خسیسانه انجام می‌شود."}, {"label": "تعریف انگلیسی", "pre": "Small time; operating on a small scale; involving small amounts of money; petty or cheap.", "op": "نگه‌داشت dataset", "fin": "Small time; operating on a small scale; involving small amounts of money; petty or cheap."}, {"label": "تلفظ", "pre": "/ˌnɪkəl ən ˈdaɪm/", "op": "نگه‌داشت dataset", "fin": "/ˌnɪkəl ən ˈdaɪm/"}, {"label": "مثال 1", "pre": "I bought my new ride from some nickel and dime used-car salesman.", "op": "نگه‌داشت dataset", "fin": "I bought my new ride from some nickel and dime used-car salesman."}, {"label": "ترجمه مثال 1", "pre": "خالی", "op": "پرشده model", "fin": "ماشین جدیدم را از یک فروشنده ناچیز ماشین دست‌دوم خریدم."}, {"label": "مثال 2", "pre": "Don&#x27;t waste your time with that; their operations are nickel and dime.", "op": "نگه‌داشت dataset", "fin": "Don&#x27;t waste your time with that; their operations are nickel and dime."}, {"label": "ترجمه مثال 2", "pre": "خالی", "op": "پرشده model", "fin": "وقتت را با آن تلف نکن؛ کارهایشان در مقیاسی بسیار کوچک است."}, {"label": "مترادف‌ها", "pre": "خالی", "op": "پرشده model", "fin": "small-time, petty, cheap"}, {"label": "متضادها", "pre": "خالی", "op": "پرشده model", "fin": "big-time, major"}, {"label": "نکته گرامری", "pre": "خالی", "op": "پرشده model", "fin": "این عبارت اغلب به‌عنوان صفت مرکب (compound adjective) پیش از اسم می‌آید و گاهی با خط تیره نوشته می‌شود."}], "gates": [{"name": "meta-leak", "status": "گذشت", "pass": true}, {"name": "fa-dominant", "status": "گذشت", "pass": true}, {"name": "headword", "status": "گذشت", "pass": true}], "raw_json": {"word": "nickel and dime", "phonetic": {"ipa": "/ˌnɪkəl ən ˈdaɪm/"}, "fa_meaning": "ناچیز و کم‌اهمیت از نظر 규모 مالی", "fa_explanation": "برای توصیف کسب‌وکار، معامله یا رفتاری به کار می‌رود که در مقیاسی بسیار کوچک، کم‌ارزش یا خسیسانه انجام می‌شود.", "synonyms": ["small-time", "petty", "cheap"], "antonyms": ["big-time", "major"], "examples": ["I bought my new ride from some nickel and dime used-car salesman.", "Don't waste your time with that; their operations are nickel and dime."], "example_translations": ["ماشین جدیدم را از یک فروشنده ناچیز ماشین دست‌دوم خریدم.", "وقتت را با آن تلف نکن؛ کارهایشان در مقیاسی بسیار کوچک است."], "grammar_tip": "این عبارت اغلب به‌عنوان صفت مرکب (compound adjective) پیش از اسم می‌آید و گاهی با خط تیره نوشته می‌شود."}}]/*GALLERY_DATA_END*/;
+
+let selectedIndex = 0;
+let activeTab = "learner"; // 'learner' or 'audit'
+let learnerStyle = "bot"; // 'bot', 'lexico', 'editorial'
+
+let filterState = {
+  status: "ALL",
+  kind: "ALL",
+  cefr: "ALL",
+  topic: "ALL",
+  query: ""
+};
+
+let filteredCards = [];
+
+function filterStatus(val) {
+  filterState.status = val;
+  document.querySelectorAll("#statusPills .pill-btn").forEach(b => b.classList.toggle("active", b.getAttribute("data-status") === val));
+  applyFilters();
+}
+
+function filterKind(val) {
+  filterState.kind = val;
+  document.querySelectorAll("#kindPills .pill-btn").forEach(b => b.classList.toggle("active", b.getAttribute("data-kind") === val));
+  applyFilters();
+}
+
+function filterCefr(val) {
+  filterState.cefr = val;
+  document.querySelectorAll("#cefrPills .pill-btn").forEach(b => b.classList.toggle("active", b.getAttribute("data-cefr") === val));
+  applyFilters();
+}
+
+function setLearnerStyle(style) {
+  learnerStyle = style;
+  renderWorkspace();
+}
+
+function applyFilters() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const topic = document.getElementById("topicFilter").value;
+  filterState.query = q;
+  filterState.topic = topic;
+
+  filteredCards = CARDS.filter(c => {
+    if (q && !c.word.toLowerCase().includes(q) && !(c.sense_id || "").toLowerCase().includes(q) && !(c.fa_meaning || "").includes(q) && !(c.error_msg || "").toLowerCase().includes(q)) {
+      return false;
+    }
+    if (filterState.status === "OK" && !c.status_ok) return false;
+    if (filterState.status === "BAD" && c.status_ok) return false;
+    if (filterState.kind !== "ALL" && c.kind !== filterState.kind) return false;
+    if (filterState.cefr !== "ALL" && c.cefr !== filterState.cefr) return false;
+    if (topic !== "ALL" && c.topic !== topic) return false;
+    return true;
+  });
+
+  if (selectedIndex >= filteredCards.length) selectedIndex = 0;
+  renderSidebar();
+  renderWorkspace();
+}
+
+function renderSidebar() {
+  const sidebar = document.getElementById("sidebarList");
+  sidebar.innerHTML = "";
+  filteredCards.forEach((c, idx) => {
+    const el = document.createElement("div");
+    el.className = `card-nav-tile ${idx === selectedIndex ? "selected" : ""}`;
+    el.id = `card-nav-${idx}`;
+    el.onclick = () => selectCard(idx);
+    el.innerHTML = `
+      <div class="tile-info">
+        <span class="tile-word">
+          ${c.word}
+          <span style="font-size:11px; color:var(--text-muted); font-weight:normal;">(${c.kind})</span>
+        </span>
+        <span class="tile-sub en">${c.sense_id || "—"}</span>
+      </div>
+      <div class="tile-badges">
+        <span class="cefr-pill cefr-${c.cefr}">${c.cefr}</span>
+        <span class="verdict-pill ${c.status_ok ? "ok" : "bad"}">${c.status_ok ? "تأیید" : "خطا"}</span>
+      </div>
+    `;
+    sidebar.appendChild(el);
+  });
+}
+
+function selectCard(idx) {
+  if (idx < 0 || idx >= filteredCards.length) return;
+  selectedIndex = idx;
+  document.querySelectorAll(".card-nav-tile").forEach((el, i) => {
+    el.classList.toggle("selected", i === idx);
+  });
+  const activeTile = document.getElementById(`card-nav-${idx}`);
+  if (activeTile) activeTile.scrollIntoView({ block: "nearest" });
+
+  document.getElementById("detailPane").scrollTop = 0;
+  renderWorkspace();
+}
+
+function setActiveTab(tab) {
+  activeTab = tab;
+  renderWorkspace();
+}
+
+function getOpClass(opText) {
+  if (!opText) return "op-none";
+  if (opText.includes("نگه‌داشت") || opText.includes("kept") || opText.includes("keep") || opText.includes("dataset")) return "op-kept";
+  if (opText.includes("پرشده") || opText.includes("model") || opText.includes("filled")) return "op-filled";
+  if (opText.includes("بازبینی") || opText.includes("improved") || opText.includes("review")) return "op-improved";
+  if (opText.includes("آزادشده")) return "op-released";
+  if (opText.includes("لغوشده") || opText.includes("aborted") || opText.includes("خطا") || opText.includes("error") || opText.includes("rejected")) return "op-aborted";
+  return "op-none";
+}
+
+function renderWorkspace() {
+  const c = filteredCards[selectedIndex];
+  const container = document.getElementById("detailContainer");
+  if (!c) {
+    container.innerHTML = `<div style="text-align:center; padding:100px; color:var(--text-muted);">موردی مطابق با فیلترها یافت نشد.</div>`;
+    return;
+  }
+
+  // Hero Bar with STRICT LTR IPA
+  const heroHtml = `
+    <div class="hero-box">
+      <div class="hero-main">
+        <div class="hero-title">${c.word}</div>
+        ${c.ipa ? `<div class="hero-ipa">${c.ipa}</div>` : ""}
+        <div class="hero-sense-tag">${c.sense_id || "—"}</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="cefr-pill cefr-${c.cefr}" style="font-size:11.5px; padding:3px 8px;">${c.cefr}</span>
+        <span class="chip-tag">${c.kind}</span>
+        <span class="chip-tag">${c.topic}</span>
+        <span class="chip-tag mono" style="font-size:11px;">${c.model}</span>
+        <span class="verdict-pill ${c.status_ok ? "ok" : "bad"}" style="font-size:11.5px; padding:3px 8px;">
+          ${c.status_ok ? "✓ تأیید شد" : "✕ خطا"}
+        </span>
+      </div>
+    </div>
+  `;
+
+  // Tab Switcher with 3 Presentation Styles switcher for Learner View
+  const tabsHtml = `
+    <div class="view-tabs-bar">
+      <div class="tabs-left">
+        <button class="vtab-btn ${activeTab === 'learner' ? 'active' : ''}" onclick="setActiveTab('learner')">
+          <span>👁️</span> نمای زبان‌آموز (Learner Card)
+        </button>
+        <button class="vtab-btn ${activeTab === 'audit' ? 'active' : ''}" onclick="setActiveTab('audit')">
+          <span>⚙️</span> خط لوله و ممیزی (Pipeline & Diff)
+        </button>
+      </div>
+
+      ${activeTab === 'learner' && (c.status_ok || c.fa_meaning) ? `
+      <div class="style-switch-group">
+        <span class="style-switch-label">سبک کارت:</span>
+        <button class="style-btn ${learnerStyle === 'bot' ? 'active' : ''}" onclick="setLearnerStyle('bot')">هم‌زبون (Bot)</button>
+        <button class="style-btn ${learnerStyle === 'lexico' ? 'active' : ''}" onclick="setLearnerStyle('lexico')">ساختاریافته (Lexico)</button>
+        <button class="style-btn ${learnerStyle === 'editorial' ? 'active' : ''}" onclick="setLearnerStyle('editorial')">مینیمال (Editorial)</button>
+      </div>` : ''}
+    </div>
+  `;
+
+  let bodyHtml = "";
+
+  if (activeTab === "learner") {
+    if (!c.status_ok && !c.fa_meaning) {
+      bodyHtml = `
+        <div class="error-fallback-card">
+          <div class="error-fallback-title">این کارت به دلیل خطا تأیید نشده است</div>
+          <div class="error-fallback-reason">دلیل رد شدن: ${c.error_msg}</div>
+          <p style="font-size:13.5px; color:var(--text-secondary); max-width:500px;">
+            خروجی نهایی زبان‌آموز برای این کارت به دلیل عدم عبور از گیت‌های کیفی مسدود شده است.
+          </p>
+          <button class="error-jump-btn" onclick="setActiveTab('audit')">
+            مشاهده گزارش دیف و گیت‌های خط لوله ➔
+          </button>
+        </div>
+      `;
+    } else {
+      const synStr = (c.synonyms && c.synonyms.length > 0) ? c.synonyms.join("، ") : "—";
+      const antStr = (c.antonyms && c.antonyms.length > 0) ? c.antonyms.join("، ") : "—";
+
+      if (learnerStyle === "bot") {
+        // PROTOTYPE A: TELEGRAM BOT REPLICA (Exact User Spec)
+        let exsHtml = "";
+        if (c.examples && c.examples.length > 0) {
+          exsHtml = c.examples.map((ex, i) => `
+            <div class="bot-ex-card">
+              <div class="bot-ex-en">
+                <span class="bullet">✦</span>
+                <span>${ex}</span>
+              </div>
+              <div class="bot-ex-fa">${c.example_translations[i] || ""}</div>
+            </div>
+          `).join("");
+        } else {
+          exsHtml = `<div style="color:var(--text-muted); font-size:13px; font-style:italic;">— (بدون مثال)</div>`;
+        }
+
+        bodyHtml = `
+          <article class="learner-card-bot">
+            <div class="bot-header">
+              <div class="bot-word">${c.word}</div>
+              ${c.ipa ? `<div class="bot-ipa">${c.ipa}</div>` : ""}
+            </div>
+
+            <!-- CORRECT SPEC: def, then ✤ persian def, then explanation -->
+            <div class="bot-def-block">
+              ${c.en_def ? `<div class="bot-en-def">${c.en_def}</div>` : ""}
+              <div class="bot-fa-meaning">
+                <span class="glyph">✤</span>
+                <span>${c.fa_meaning || "—"}</span>
+              </div>
+              ${c.fa_explanation ? `<div class="bot-fa-explanation">${c.fa_explanation}</div>` : ""}
+            </div>
+
+            <div class="bot-syn-ant">
+              <div class="bot-syn-line">
+                <span class="en syn-text">${synStr}</span>
+              </div>
+              <div class="bot-ant-line">
+                <span class="en ant-text">${antStr}</span>
+              </div>
+            </div>
+
+            <div class="bot-examples">
+              <div class="bot-ex-heading">📝 مثال‌ها + ترجمه:</div>
+              ${exsHtml}
+            </div>
+
+            ${c.grammar_tip ? `
+            <div class="bot-grammar">
+              <div class="bot-grammar-heading">✍️ نکته‌ی گرامری:</div>
+              <div class="bot-grammar-body">${c.grammar_tip}</div>
+            </div>` : ""}
+          </article>
+        `;
+      } else if (learnerStyle === "lexico") {
+        // PROTOTYPE B: STRUCTURED LEXICO CARD
+        let exsHtml = (c.examples || []).map((ex, i) => `
+          <div style="background:var(--bg-page); border:1px solid var(--border-subtle); padding:10px 14px; border-radius:8px; display:flex; flex-direction:column; align-items:center; text-align:center; gap:3px;">
+            <div style="direction:ltr; text-align:center; font-weight:700; font-size:14px;">${ex}</div>
+            <div style="color:var(--text-secondary); font-size:13.5px; text-align:center;">${c.example_translations[i] || ""}</div>
+          </div>
+        `).join("");
+
+        bodyHtml = `
+          <article class="learner-card-lexico">
+            <div class="lex-top">
+              <div class="lex-word-group">
+                <span class="lex-word">${c.word}</span>
+                ${c.ipa ? `<span class="lex-ipa">${c.ipa}</span>` : ""}
+              </div>
+              <span class="cefr-pill cefr-${c.cefr}" style="font-size:12px; padding:3px 9px;">${c.cefr}</span>
+            </div>
+
+            <div class="lex-meaning-card">
+              <div class="lex-fa-lead">${c.fa_meaning || "—"}</div>
+              <div class="lex-fa-desc">${c.fa_explanation || ""}</div>
+              ${c.en_def ? `<div class="lex-en-def">${c.en_def}</div>` : ""}
+            </div>
+
+            <div class="lex-chips-wrap">
+              <div class="lex-chip-item"><strong class="en syn-text">${synStr}</strong></div>
+              <div class="lex-chip-item"><strong class="en ant-text">${antStr}</strong></div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px;">
+              <div style="font-size:14px; font-weight:800;">مثال‌ها و ترجمه:</div>
+              ${exsHtml || '<div style="color:var(--text-muted); font-size:13px;">بدون مثال</div>'}
+            </div>
+
+            ${c.grammar_tip ? `
+            <div style="background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:8px; padding:12px 16px; font-size:13.5px; text-align:center;">
+              <strong style="color:var(--warn-text);">نکته گرامری:</strong> ${c.grammar_tip}
+            </div>` : ""}
+          </article>
+        `;
+      } else {
+        // PROTOTYPE C: EDITORIAL COMPACT
+        let exsHtml = (c.examples || []).map((ex, i) => `
+          <div class="ed-ex-block">
+            <div class="ed-ex-en">${ex}</div>
+            <div class="ed-ex-fa">${c.example_translations[i] || ""}</div>
+          </div>
+        `).join("");
+
+        bodyHtml = `
+          <article class="learner-card-editorial">
+            <div class="ed-head">
+              <span class="ed-word">${c.word}</span>
+              ${c.ipa ? `<span class="ed-ipa">${c.ipa}</span>` : ""}
+            </div>
+
+            ${c.en_def ? `<div class="ed-def-line">${c.en_def}</div>` : ""}
+            <div class="ed-fa-line">✤ ${c.fa_meaning || "—"}</div>
+            ${c.fa_explanation ? `<div style="color:var(--text-secondary); text-align:center;">${c.fa_explanation}</div>` : ""}
+
+            <div style="font-size:13.5px; margin:4px 0; text-align:center;">
+              <strong class="en syn-text">${synStr}</strong>
+              <span style="margin:0 12px; color:var(--border-strong)">|</span>
+              <strong class="en ant-text">${antStr}</strong>
+            </div>
+
+            <div style="text-align:center;">
+              <div style="font-weight:800; font-size:14px; margin-bottom:6px;">مثال‌ها:</div>
+              ${exsHtml || '<div style="color:var(--text-muted); font-size:13px;">بدون مثال</div>'}
+            </div>
+
+            ${c.grammar_tip ? `
+            <div style="font-size:13.5px; border-top:1px dashed var(--border-subtle); padding-top:10px; color:var(--text-secondary); text-align:center;">
+              <strong style="color:var(--text-primary);">نکته گرامری:</strong> ${c.grammar_tip}
+            </div>` : ""}
+          </article>
+        `;
+      }
+    }
+  } else {
+    // Pipeline & Diff View
+    const gatesChips = (c.gates || []).map(g => `
+      <span class="gate-chip ${g.pass ? 'pass' : 'fail'}">${g.name}: ${g.status}</span>
+    `).join("");
+
+    const diffRows = (c.diff_rows || []).map(d => `
+      <tr>
+        <td style="font-weight:700; width:130px;">${d.label}</td>
+        <td style="color:var(--text-muted); font-size:12.5px; width:30%;">${d.pre || "—"}</td>
+        <td style="width:140px;"><span class="op-pill ${getOpClass(d.op)}">${d.op}</span></td>
+        <td style="font-size:13px; font-weight:500;">${d.fin || "—"}</td>
+      </tr>
+    `).join("");
+
+    bodyHtml = `
+      <div class="audit-panel">
+        <div class="pipeline-box">
+          <h4><span>⚡</span> مراحل خط لوله و گیت‌های کنترل کیفیت</h4>
+          <div class="pipeline-grid">
+            <div class="pipe-card">
+              <span class="pipe-card-title">۱. ورودی پیش‌کارت</span>
+              <div class="en" style="font-weight:700;">${c.sense_id || "—"}</div>
+              <div style="font-size:11.5px; color:var(--text-secondary);">${c.anchor_def || ""}</div>
+            </div>
+
+            <div class="pipe-card">
+              <span class="pipe-card-title">۲. فراخوانی مدل</span>
+              <div class="en" style="font-weight:700; color:var(--accent);">${c.model}</div>
+              <div style="font-size:11px; color:var(--text-muted);">تکمیل فیلدهای شکاف و داوری</div>
+            </div>
+
+            <div class="pipe-card">
+              <span class="pipe-card-title">۳. گیت‌های ممیزی</span>
+              <div class="pipe-gates-wrap">
+                ${gatesChips || '<span style="color:var(--text-muted); font-size:11px;">بدون گیت</span>'}
+              </div>
+            </div>
+
+            <div class="pipe-card" style="border-color:${c.status_ok ? 'var(--ok-border)' : 'var(--bad-border)'}; background:${c.status_ok ? 'var(--ok-bg)' : 'var(--bad-bg)'};">
+              <span class="pipe-card-title" style="color:${c.status_ok ? 'var(--ok-text)' : 'var(--bad-text)'};">۴. نتیجه نهایی</span>
+              <div style="font-weight:800; color:${c.status_ok ? 'var(--ok-text)' : 'var(--bad-text)'};">
+                ${c.status_ok ? "تأیید شد (OK)" : "رد شد (Error)"}
+              </div>
+              <div style="font-size:11px; color:${c.status_ok ? 'var(--ok-text)' : 'var(--bad-text)'};" class="en">
+                ${c.status_ok ? "قبول تمام آزمون‌ها" : c.error_msg}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="diff-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h4 style="font-size:14px; font-weight:800;"><span>📊</span> جدول تغییرات پیش‌کارت و مدل (Diff)</h4>
+            <span style="font-size:11px; color:var(--text-muted);">${c.diff_rows.length} فیلد مقایسه شد</span>
+          </div>
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th>میدان</th>
+                <th>ورودی پیش‌کارت</th>
+                <th>عملیات</th>
+                <th>خروجی نهایی</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${diffRows || '<tr><td colspan="4" style="text-align:center;">بدون جدول تغییرات</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = heroHtml + tabsHtml + bodyHtml;
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  document.getElementById("themeIcon").textContent = next === "dark" ? "🌙" : "☀️";
+}
+
+function initStatsAndTopics() {
+  let okCount = 0, badCount = 0;
+  let wordCount = 0, phraseCount = 0;
+  const topics = {};
+  const cefrCounts = { "A1": 0, "A2": 0, "B1": 0, "B2": 0, "C1": 0, "C2": 0 };
+
+  CARDS.forEach(c => {
+    if (c.status_ok) okCount++; else badCount++;
+    if (c.kind === "واژه") wordCount++; else phraseCount++;
+    if (cefrCounts[c.cefr] !== undefined) cefrCounts[c.cefr]++;
+    if (c.topic) topics[c.topic] = (topics[c.topic] || 0) + 1;
+  });
+
+  document.getElementById("c-stat-all").textContent = `(${CARDS.length})`;
+  document.getElementById("c-stat-ok").textContent = `(${okCount})`;
+  document.getElementById("c-stat-bad").textContent = `(${badCount})`;
+  document.getElementById("c-kind-word").textContent = `(${wordCount})`;
+  document.getElementById("c-kind-phrase").textContent = `(${phraseCount})`;
+
+  for (const [lvl, count] of Object.entries(cefrCounts)) {
+    const el = document.getElementById(`c-cefr-${lvl}`);
+    if (el) el.textContent = `(${count})`;
+  }
+
+  document.getElementById("kpiTotal").textContent = `${CARDS.length} کارت`;
+  document.getElementById("kpiOk").textContent = `${okCount} تأیید شد`;
+  document.getElementById("kpiBad").textContent = `${badCount} خطا`;
+
+  const topicSel = document.getElementById("topicFilter");
+  topicSel.innerHTML = `<option value="ALL">همه موضوعات (${Object.keys(topics).length})</option>`;
+  Object.keys(topics).sort().forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = `${t} (${topics[t]})`;
+    topicSel.appendChild(opt);
+  });
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") {
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "j" || e.key === "J") {
+    e.preventDefault();
+    if (selectedIndex < filteredCards.length - 1) selectCard(selectedIndex + 1);
+  } else if (e.key === "ArrowUp" || e.key === "k" || e.key === "K") {
+    e.preventDefault();
+    if (selectedIndex > 0) selectCard(selectedIndex - 1);
+  } else if (e.key === "/") {
+    e.preventDefault();
+    document.getElementById("searchInput").focus();
+  }
+});
+
+initStatsAndTopics();
+applyFilters();
+</script>
+</body>
+</html>
