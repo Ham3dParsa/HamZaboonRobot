@@ -29,7 +29,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 
 | Label | Paths |
 |---|---|
-| `domain-bot` | `bot.py`, `config/keyboards.py` |
+| `domain-bot` | `bot.py`, `config/keyboards/**/*` |
 | `domain-handlers` | `handlers/` (non-bot routing) |
 | `domain-ai` | `services/ai/**/*` |
 | `domain-db` | `services/db/**/*` |
@@ -43,7 +43,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `domain-ci` | `.github/**/*`, `requirements.txt` |
 | `domain-utils` | `services/utils/**/*` |
 | `domain-scheduling` | `services/scheduling.py` |
-| `domain-tts` | `services/tts.py`, `tts_cache/` |
+| `domain-tts` | `services/tts.py` |
 | `domain-quota` | `services/quota_service.py`, `services/grade_service.py` |
 | `domain-activity` | `services/activity_log.py` |
 | `domain-theme` | `config/themes.py`, `config/catalog.py` (theme catalog) |
@@ -75,7 +75,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 
 ## Rules
 
-1. **Exactly one Type label per PR.** This is the primary classification.
+1. **Exactly one Type label per PR (human-trimmed).** The auto-labeler may suggest multiple types from file paths (e.g. a DB file matches bugfix/refactor/perf). **Pick one** before merging. The canonical type assignment is per-PR judgment; `.github/labeler.yml` provides starting suggestions only.
 2. **Zero or more Domain labels.** Use all domains the PR touches.
 3. **Special labels only when clearly applicable.** Do not guess.
 4. **Priority only when clearly stated in PR title/body.** Do not infer urgency.
@@ -83,6 +83,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 6. **Do not use standard GitHub labels** (`bug`, `documentation`, `enhancement`, etc.) — use the `type-*` equivalents instead to avoid confusion with the auto-labeler.
 7. **If a PR spans multiple domains, list all** — this is the whole point of the taxonomy.
 8. **For `type-chore` PRs**, always add `domain-ci` or `domain-tools` as appropriate.
+9. **`.github/labeler.yml` is canonical** for path-to-label mapping; this doc may drift — when in doubt, check the YAML.
 
 ## Inheritance from existing labels
 

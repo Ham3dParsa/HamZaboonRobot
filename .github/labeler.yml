@@ -1,5 +1,5 @@
 domain-bot:
-  - any: ['bot.py', 'config/keyboards.py']
+  - any: ['bot.py', 'config/keyboards/**/*']
 
 domain-handlers:
   - any: ['handlers/**/*']
@@ -41,7 +41,7 @@ domain-scheduling:
   - any: ['services/scheduling.py']
 
 domain-tts:
-  - any: ['services/tts.py', 'tts_cache/**/*']
+  - any: ['services/tts.py']
 
 domain-quota:
   - any: ['services/quota_service.py', 'services/grade_service.py']
@@ -53,10 +53,10 @@ domain-theme:
   - any: ['config/themes.py', 'config/catalog.py']
 
 type-feature:
-  - any: ['handlers/**/*', 'factory/**/*', 'config/keyboards.py']
+  - any: ['handlers/**/*', 'factory/**/*', 'config/keyboards/**/*']
 
 type-bugfix:
-  - any: ['bot.py', 'services/db/**/*.py', 'tools/**/*.py']
+  - any: ['bot.py', 'tools/**/*.py']
 
 type-refactor:
   - any: ['services/**/*.py', 'config/**/*.py', 'handlers/admin.py']
@@ -71,10 +71,10 @@ type-test:
   - any: ['tests/**/*']
 
 type-perf:
-  - any: ['services/db/**/*.py', 'services/scheduling.py']
+  - any: ['services/scheduling.py']
 
 type-design:
-  - any: ['services/ai/**/*', 'factory/**/*']
+  - any: ['services/ai/**/*']
 
 i18n:
   - any: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py']
