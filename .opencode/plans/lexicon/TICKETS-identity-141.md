@@ -4,7 +4,29 @@ description: تیکت‌های دقیق فاز هویت (خانه مستقل fac
 created: 2026-09-14
 status: in-progress
 ---
-STATE: tickets drafted from audit 2026-09-14, FOLDER locked 2026-09-14 — status:LOCKED — focus: execute T0..T5 in order on owner go
+STATE: T0..T4c done+committed; T5 IN PROGRESS — status:paused-for-compaction
+
+## T5 resume notes (2026-09-15, exact)
+
+- Done: W2 fixture fixed; blind50 repointed (committed); 6 test files
+  mechanically repointed (proper_route, v7, v10, cloze, v141, cefr_bridge);
+  graphify blast radius clean (only tests reference old module).
+- Open bug: `gen_t5.py` drop patterns miss multi-line/`# noqa` from-imports
+  (test_proper_route.py got mangled once — restored; do NOT rerun blindly).
+  Verify drop on one file before batch.
+- Hand rewrites pending: display-string tests in
+  tests/test_precard_pipeline.py (Finglish assertions -> progress.display),
+  tests/test_stage_glossary.py:92 (glossary-vs-live parity -> normalize
+  based), STAGE_FINGLESH/STAGE_NAMES refs.
+- Then: delete factory/pipeline/precard_pipeline.py; docs + AGENTS table;
+  CI guards already exist (test_no_archive_imports); commit; push.
+- CI state at pause: PR #697 red (tests + ram-gate + Kilo review failed).
+  Root cause found+fixed after the red run: hermetic equivalence test left
+  s0b leg uninjected so CI (keyless) hit the GOOGLE key gate (commit
+  683b069, pushed, rerun in flight). Kilo failure unevaluated.
+- Known live quirk: throwaway scripts under TEMP/opencode must be
+  idempotent-guarded (append sections re-ran and duplicated blocks twice
+  this session — always restore-then-run-once or guard appends).
 
 ## موجودی ممیزی (سند هر تیکت — ۲۰۲۶-۰۹-۱۴)
 
