@@ -464,7 +464,8 @@ def inflection_review(items, transport, api_key="", model_calls=None,
 
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
-                   ring=None, models=None):
+                   ring=None, models=None, provider="zen", key_var="",
+                   file_label="factory/.env"):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
     Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
@@ -497,7 +498,9 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
             usage = None
             try:
                 raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label)
+                    transport, ring, model, text, sleep_fn, state, label,
+                    provider=provider, key_var=key_var,
+                    file_label=file_label)
             except AuthError:
                 raise
             except RateLimited:

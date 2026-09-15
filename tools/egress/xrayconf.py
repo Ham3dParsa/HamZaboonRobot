@@ -68,6 +68,11 @@ def _parse_vless_trojan(link, scheme):
         "sni": sni,
         "path": get("path", ""),
         "host": get("host", ""),
+        "flow": get("flow", ""),
+        "pbk": get("pbk", ""),
+        "sid": get("sid", ""),
+        "fp": get("fp", ""),
+        "spx": get("spx", ""),
     }
 
 
@@ -111,7 +116,19 @@ def parse_link(link):
 def xray_config(node, http_port):
     """Build an xray-core config dict: loopback HTTP inbound + one node."""
     stream = {"network": node.get("network") or "tcp"}
-    if node.get("tls"):
+    if node.get("security") == "reality":
+        reality = {"serverName": node.get("sni") or node.get("address")}
+        if node.get("fp"):
+            reality["fingerprint"] = node["fp"]
+        if node.get("pbk"):
+            reality["publicKey"] = node["pbk"]
+        if node.get("sid"):
+            reality["shortId"] = node["sid"]
+        if node.get("spx"):
+            reality["spiderX"] = node["spx"]
+        stream["security"] = "reality"
+        stream["realitySettings"] = reality
+    elif node.get("tls"):
         tls = {"serverName": node.get("sni") or node.get("address")}
         stream["security"] = "tls"
         stream["tlsSettings"] = tls
@@ -135,7 +152,8 @@ def xray_config(node, http_port):
                                             "port": node["port"],
                                             "users": [{"id": node["uuid"],
                                                        "encryption": "none",
-                                                       "flow": ""}]}]},
+                                                       "flow": node.get(
+                                                           "flow") or ""}]}]},
                     "streamSettings": stream}
     elif scheme == "trojan":
         outbound = {"protocol": "trojan",

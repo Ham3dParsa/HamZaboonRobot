@@ -29,10 +29,12 @@ FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(FACTORY_DIR)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+from factory.core.env_loader import load_factory_env
 from factory.precard import progress
 from factory.precard import transport
 from factory.precard.accounting import audit_sample_accounting
 from factory.precard.accounting import item_key
+from factory.precard.net import PROVIDER_KEY_VARS
 from factory.precard.anchor import (
     PROPER_NOUN_POS, VULGAR_TAGS, anchor_rank_item, build_pos_sets,
     default_zipf, judge_proper_route, kaikki_pos_set,
@@ -96,10 +98,6 @@ DEFAULT_TATOEBA_POOL = ("W:/hamzaban_data_factory/fixtures/"
 
 DEFAULT_PHRASE_TYPE_LOG = ("W:/hamzaban_data_factory/fixtures/"
                            "phrase_type_log.jsonl")
-
-
-KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
-        "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY", "AVALAI_API_KEY")
 
 
 def load_sample(path):
@@ -623,6 +621,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             return args.judge_provider
         return args.llm_provider
 
+    def _provider_key_var(provider):
+        """Primary key variable for a provider (auth errors name it).
+
+        Single pairing lives in net.PROVIDER_KEY_VARS; "" falls back
+        to the wrapper's generic "keys" hint.
+        """
+        vars_ = PROVIDER_KEY_VARS.get(provider or "", ("",))
+        return vars_[0] if vars_ else ""
+
+    def _leg_file_label(provider):
+        """Env-file label for a leg's auth errors (never a value).
+
+        Zen/AvalAI keys load from factory/.env; a Google key that came
+        from the owner-layout egress fallback names tools/egress/.env
+        so the operator re-checks the file actually searched.
+        """
+        if provider == "google" and google_key_from_egress:
+            return "tools/egress/.env"
+        return "factory/.env"
+
     def _leg_model(leg):
         if leg in stage_model:
             return stage_model[leg]
@@ -695,6 +713,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # inflection/vectors/label share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
+    google_key_from_egress = False
     # full_avalai/judge_avalai/judge_google computed above.
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if avalai_needed:
@@ -735,6 +754,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             google_key = _read_egress_env_key(
                 str(here / "tools" / "egress" / ".env"),
                 "GOOGLE_AI_API_KEY")
+            google_key_from_egress = bool(google_key)
         if not google_key:
             raise SystemExit("no GOOGLE_AI_API_KEY in factory/.env "
                              "(google provider needs it)")
@@ -1152,7 +1172,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         judge_api_key or api_key,
                         judge_transport, sleep_fn, states["sense_judge"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=judge_ring or ring, models=judge_models)
+                        ring=judge_ring or ring, models=judge_models,
+                        provider=providers["sense_judge"],
+                        key_var=_provider_key_var(
+                            providers["sense_judge"]),
+                        file_label=_leg_file_label(
+                            providers["sense_judge"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -1248,7 +1273,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         topic_transport, sleep_fn, states["topic_vectors"],
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=leg_ring.get("topic_vectors", ring),
-                        models=vectors_models_override)
+                        models=vectors_models_override,
+                        provider=providers["topic_vectors"],
+                        key_var=_provider_key_var(
+                            providers["topic_vectors"]),
+                        file_label=_leg_file_label(
+                            providers["topic_vectors"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -1360,7 +1390,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         assign_transport, sleep_fn,
                         states["topic_label"], str(label_topup_cache), label_calls,
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=leg_ring.get("topic_label", ring))
+                        ring=leg_ring.get("topic_label", ring),
+                        provider=providers["topic_label"],
+                        key_var=_provider_key_var(
+                            providers["topic_label"]),
+                        file_label=_leg_file_label(
+                            providers["topic_label"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -1745,24 +1780,6 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
     if (pick.get("proper_route") or ""):
         rec["proper_route"] = pick["proper_route"]
     return rec
-
-
-def load_factory_env(required=()):
-    env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip().strip("'\"")
-            if k in KEYS and v and k not in os.environ:
-                os.environ[k] = v
-    missing = [k for k in required if not os.environ.get(k)]
-    if missing:
-        raise KeyError("factory/.env missing keys: " + ", ".join(missing)
-                       + " (copy factory/.env.example to factory/.env and fill values)")
-    return {k: os.environ.get(k, "") for k in KEYS}
 
 
 ## File loaders (frozen from factory/pipeline/card_pilot; pinned data paths below).
