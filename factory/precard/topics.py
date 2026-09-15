@@ -463,7 +463,7 @@ def _label_prompt(entries):
 
 def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                           model_calls, telemetry, tele_stage, tele_batch,
-                          ring, models):
+                          ring, models, provider="zen", key_var=""):
     """One batched LLM top-up call for up to LABEL_BATCH entries.
 
     Returns {item-key: {"label", "vector", "model"}}. Validated items
@@ -497,7 +497,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
             usage = None
             try:
                 raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label)
+                    transport, ring, model, text, sleep_fn, state, label,
+                    provider=provider, key_var=key_var)
             except AuthError:
                 raise
             except RateLimited:
@@ -605,7 +606,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
 def label_batch(batch, picks, vector_lookups, api_key, transport,
                 sleep_fn, state, progress_path, model_calls,
                 telemetry=None, tele_stage="s4", tele_batch=0,
-                ring=None, models=None, lookup=None):
+                ring=None, models=None, lookup=None,
+                provider="zen", key_var=""):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
     batch: sample items; picks: {key: {sense_id, gloss, picks?}};
@@ -696,7 +698,8 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
         if transport is not None:
             resolved = _label_chunk_via_llm(
                 chunk, api_key, transport, sleep_fn, state, model_calls,
-                telemetry, tele_stage, tele_batch, ring, models)
+                telemetry, tele_stage, tele_batch, ring, models,
+                provider=provider, key_var=key_var)
         for entry in chunk:
             ekey, sense_id = entry["key"], entry["sense_id"]
             if resolved is not None and ekey in resolved:
@@ -796,7 +799,7 @@ def _label_cache_hit(cache, text, gloss, sense_id, vector_lookup):
 def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                    sleep_fn, state, progress_path, model_calls,
                    telemetry=None, tele_stage="s4", tele_batch=0,
-                   ring=None):
+                   ring=None, provider="zen", key_var=""):
     """Label topic (s4) for one item via the batched path (B1).
 
     Thin single-item wrapper over label_batch (no second code path):
@@ -813,7 +816,8 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
             {key: vector_lookup} if vector_lookup else None,
             api_key, transport, sleep_fn, state, progress_path,
             model_calls, telemetry=telemetry, tele_stage=tele_stage,
-            tele_batch=tele_batch, ring=ring)
+            tele_batch=tele_batch, ring=ring,
+            provider=provider, key_var=key_var)
     except AuthError:
         raise
     except RateLimited:
@@ -855,7 +859,7 @@ def _needs_fanout_relabel(s4_entry, s2_entry):
 
 def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
-                    ring=None, models=None):
+                    ring=None, models=None, provider="zen", key_var=""):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
@@ -881,7 +885,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
             usage = None
             try:
                 raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label)
+                    transport, ring, model, text, sleep_fn, state, label,
+                    provider=provider, key_var=key_var)
             except AuthError:
                 raise
             except RateLimited:

@@ -426,3 +426,95 @@ def test_supervisor_helpers_are_net_single_owner():
     assert SUP.norm_provider is NET.norm_provider
     assert SUP.target_spec is NET.target_spec
     assert SUP.known_provider is NET.known_provider
+
+
+# --- reviewer P0: single AuthError class + threaded auth context ---
+
+def test_transport_auth_helpers_are_single_llm_json_class():
+    """transport.AuthError/extract_json/raise_for_auth ARE the llm_json
+    objects (no rival defs): a transport-raised auth abort is caught by
+    a phrase_judge-style ``except llm_json.AuthError``."""
+    import ast
+    import pathlib
+    assert T.AuthError is LJ.AuthError
+    assert T.extract_json is LJ.extract_json
+    assert T.raise_for_auth is LJ.raise_for_auth
+    tree = ast.parse(pathlib.Path(T.__file__).read_text(
+        encoding="utf-8"))
+    defs = [n.name for n in tree.body
+            if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+    assert "AuthError" not in defs
+    assert "extract_json" not in defs
+    assert "raise_for_auth" not in defs
+    try:
+        raise T.AuthError("probe")
+    except LJ.AuthError:
+        caught = True
+    else:  # pragma: no cover (identity makes this unreachable)
+        caught = False
+    assert caught
+
+
+def test_abort_auth_names_threaded_file_label_never_values():
+    ring = T.KeyRing(["zz-secret-1"])
+    with pytest.raises(LJ.AuthError) as exc:
+        T._call_with_rotation(lambda *a: (_ for _ in ()).throw(_http(
+            401)), ring, "m", "t", lambda s: None, {}, "lbl",
+            key_var="GOOGLE_AI_API_KEY",
+            file_label="tools/egress/.env")
+    msg = str(exc.value)
+    assert "401" in msg and "GOOGLE_AI_API_KEY" in msg
+    assert "tools/egress/.env" in msg
+    assert "zz-secret-1" not in msg
+    # Default direct callers keep the standard factory env label.
+    with pytest.raises(LJ.AuthError) as exc2:
+        T._abort_auth(_http(403))
+    assert "factory/.env" in str(exc2.value)
+
+
+def test_provider_kwarg_decides_google_cooldown_vs_zen_rotate():
+    """The same Google project-quota body raises ProviderCooldown with
+    provider="google" (no same-project rotation) but rotates to
+    RateLimited on the zen default — i.e. the wired provider, not the
+    default, decides the taxonomy outcome at each production site."""
+    body = b"RESOURCE_EXHAUSTED: quota exceeded"
+
+    def fake(api_key, model, text):
+        raise _http(429, body)
+
+    with pytest.raises(T.ProviderCooldown):
+        T._call_with_rotation(fake, T.KeyRing(["k1", "k2"]), "m", "t",
+                              lambda s: None, {}, "lbl",
+                              provider="google",
+                              key_var="GOOGLE_AI_API_KEY")
+    seen = []
+
+    def fake2(api_key, model, text):
+        seen.append(api_key)
+        raise _http(429, body)
+
+    with pytest.raises(T.RateLimited):
+        T._call_with_rotation(fake2, T.KeyRing(["k1", "k2"]), "m", "t",
+                              lambda s: None, {}, "lbl")
+    assert seen == ["k1", "k2"]  # zen default rotates, never cools down
+
+
+def test_judge_batch_threads_provider_to_classify():
+    """judge_batch(provider="google") surfaces ProviderCooldown for a
+    Google project-quota body instead of burning the ring on rotation."""
+    from factory.precard import judge as J
+
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+    calls = []
+
+    def fake(api_key, model, text):
+        calls.append(api_key)
+        raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
+
+    with pytest.raises(T.ProviderCooldown):
+        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+                      ring=T.KeyRing(["k1", "k2"]), provider="google",
+                      key_var="GOOGLE_AI_API_KEY")
+    assert calls == ["k1"]  # single attempt, no rotation

@@ -2,13 +2,19 @@
 
 Vendored frozen with provenance (precard line R1-R6, 2026-09-14):
 KeyRing/RateLimited/write_progress from factory/lexicon/phrase_judge;
-AuthError/extract_json/raise_for_auth from factory/core/llm_json (the
-classify error-taxonomy stays single-sourced there per its owner guard);
 telemetry recorders from factory/core/telemetry; RunLogger +
 _unwrap_transport_result from factory/pipeline/card_pilot; rotation,
 consts, and AvalAI/Google transports from factory/pipeline/
 precard_pipeline; the three Zen leg transports (+ their SYS texts, one
 shared ZEN_BASE) from the v14/v15/v16b archive scripts.
+AuthError/extract_json/raise_for_auth are IMPORTED from
+factory/core/llm_json (single class shared with phrase_judge and
+card_pilot, so a transport-raised auth abort is caught by every
+``except AuthError`` in the line). RateLimited stays defined here:
+phrase_judge imports KeyRing from this module, so importing its
+RateLimited back would cycle; every precard handler catches this
+module's RateLimited, which is the class ProviderCooldown extends.
+The classify error-taxonomy stays single-sourced in llm_json.
 """
 
 from __future__ import annotations
@@ -21,36 +27,13 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-from factory.core.llm_json import ABORT, COOLDOWN_SWITCH, ROTATE, classify
+from factory.core.llm_json import (
+    ABORT, COOLDOWN_SWITCH, ROTATE, AuthError, classify,
+    extract_json, raise_for_auth)
+# AuthError/extract_json/raise_for_auth are re-exported here so the
+# existing ``from factory.precard.transport import ...`` seams in
+# topics/judge/pipeline/net keep working on the single llm_json class.
 from factory.precard.prompts import JUDGE_SYS
-
-
-class AuthError(RuntimeError):
-    """Raised when the provider rejects our credentials (401/403)."""
-
-
-def extract_json(text):
-    dec = json.JSONDecoder()
-    for i, ch in enumerate(text):
-        if ch != "{":
-            continue
-        try:
-            obj, _ = dec.raw_decode(text, i)
-        except ValueError:
-            continue
-        if isinstance(obj, dict):
-            return obj
-    raise ValueError("no JSON object in model reply")
-
-
-def raise_for_auth(exc):
-    """Re-raise HTTP 401/403 as AuthError (loud abort); pass through else."""
-    code = getattr(exc, "code", None)
-    if isinstance(exc, urllib.error.HTTPError) and code in (401, 403):
-        raise AuthError(
-            "provider auth failed (HTTP %s): check keys in factory/.env — "
-            "aborting with no silent fallback" % code)
-    raise exc
 
 
 GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
@@ -243,7 +226,8 @@ class RunLogger:
 
 
 def _rotating_llm_transport(transport, sleep_fn, state, ring,
-                             provider="zen", key_var=""):
+                             provider="zen", key_var="",
+                             file_label="factory/.env"):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
     Error meaning comes from the shared classify table
@@ -255,7 +239,10 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
     switching is the caller's job, arriving with P2 LEG_FALLBACKS).
     ABORT
     (401/403) raises AuthError naming the key variable and file with
-    no further attempts. Anything else propagates untouched.
+    no further attempts. Transient 5xx/timeout (the taxonomy's single
+    retry row) is intentionally NOT retried in this wrapper: it
+    propagates to the caller, which fails the item closed, and the
+    next run retries it via resume. Anything else propagates untouched.
     When EVERY key fails consecutively, raises RateLimited —
     the S4 caller converts it to SystemExit AFTER flushing progress
     (OC must-fix: raising SystemExit here bypassed the flush and lost
@@ -276,11 +263,10 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
                     raise ProviderCooldown(
                         "provider-level quota on %s (project blocked) — "
                         "same-project key rotation forbidden, switch "
-                        "provider or server and re-run "
-                        "(progress flushed, resume safe)" % provider)
+                        "provider or server and re-run" % provider)
                 if action != ROTATE:
                     if action == ABORT:
-                        _abort_auth(exc, key_var)
+                        _abort_auth(exc, key_var, file_label)
                     raise
                 _note_backoff(state, "%s/s4" % model, [ROTATE_PAUSE],
                               "rotating")
@@ -325,17 +311,19 @@ def _action_for_http_error(exc, provider="zen"):
         return None
 
 
-def _abort_auth(exc, key_var=""):
+def _abort_auth(exc, key_var="", file_label="factory/.env"):
     """Loud auth stop: AuthError naming the key variable and file.
 
     No values, no retries, no fallback — the caller aborts and the
-    operator re-checks the named credential.
+    operator re-checks the named credential. file_label names the env
+    file actually searched (threaded from the wrapper); it defaults to
+    the standard factory env file for direct callers.
     """
     code = getattr(exc, "code", None)
     hint = key_var.strip() if key_var and key_var.strip() else "keys"
     raise AuthError(
-        "provider auth failed (HTTP %s): check %s in factory/.env — "
-        "aborting with no silent fallback" % (code, hint))
+        "provider auth failed (HTTP %s): check %s in %s — "
+        "aborting with no silent fallback" % (code, hint, file_label))
 
 
 def _note_backoff(state, label, waits, outcome):
@@ -351,7 +339,8 @@ def _tele_tokens(usage):
 
 
 def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
-                        label, provider="zen", key_var=""):
+                        label, provider="zen", key_var="",
+                        file_label="factory/.env"):
     """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
     Error meaning comes from the shared classify table
@@ -360,8 +349,11 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
     (project-level quota, e.g. Google RESOURCE_EXHAUSTED) raises
     ProviderCooldown after exactly one attempt with NO rotation.
     ABORT (401/403) raises AuthError naming the
-    key variable and file with no further attempts. Anything else
-    propagates to the caller.
+    key variable and file with no further attempts. Transient 5xx/
+    timeout (the taxonomy's single retry row) is intentionally NOT
+    retried in this wrapper: it propagates to the caller, which fails
+    the item closed, and the next run retries it via resume.
+    Anything else propagates to the caller.
     Success resets the ring streak (same F1 rule as
     phrase_judge.call_with_backoff). When EVERY key fails
     consecutively, records the stop event and raises RateLimited — the
@@ -389,7 +381,7 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
                     "provider or server and re-run" % provider)
             if action != ROTATE:
                 if action == ABORT:
-                    _abort_auth(exc, key_var)
+                    _abort_auth(exc, key_var, file_label)
                 raise
             _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
             sleep_fn(ROTATE_PAUSE)

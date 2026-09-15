@@ -34,6 +34,7 @@ from factory.precard import progress
 from factory.precard import transport
 from factory.precard.accounting import audit_sample_accounting
 from factory.precard.accounting import item_key
+from factory.precard.net import PROVIDER_KEY_VARS
 from factory.precard.anchor import (
     PROPER_NOUN_POS, VULGAR_TAGS, anchor_rank_item, build_pos_sets,
     default_zipf, judge_proper_route, kaikki_pos_set,
@@ -620,6 +621,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             return args.judge_provider
         return args.llm_provider
 
+    def _provider_key_var(provider):
+        """Primary key variable for a provider (auth errors name it).
+
+        Single pairing lives in net.PROVIDER_KEY_VARS; "" falls back
+        to the wrapper's generic "keys" hint.
+        """
+        vars_ = PROVIDER_KEY_VARS.get(provider or "", ("",))
+        return vars_[0] if vars_ else ""
+
     def _leg_model(leg):
         if leg in stage_model:
             return stage_model[leg]
@@ -1149,7 +1159,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         judge_api_key or api_key,
                         judge_transport, sleep_fn, states["sense_judge"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=judge_ring or ring, models=judge_models)
+                        ring=judge_ring or ring, models=judge_models,
+                        provider=providers["sense_judge"],
+                        key_var=_provider_key_var(
+                            providers["sense_judge"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -1245,7 +1258,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         topic_transport, sleep_fn, states["topic_vectors"],
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=leg_ring.get("topic_vectors", ring),
-                        models=vectors_models_override)
+                        models=vectors_models_override,
+                        provider=providers["topic_vectors"],
+                        key_var=_provider_key_var(
+                            providers["topic_vectors"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -1357,7 +1373,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         assign_transport, sleep_fn,
                         states["topic_label"], str(label_topup_cache), label_calls,
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=leg_ring.get("topic_label", ring))
+                        ring=leg_ring.get("topic_label", ring),
+                        provider=providers["topic_label"],
+                        key_var=_provider_key_var(
+                            providers["topic_label"]))
                 except AuthError:
                     raise
                 except RateLimited as exc:
