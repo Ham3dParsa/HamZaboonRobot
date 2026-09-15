@@ -1,6 +1,6 @@
 ---
 name: TICKETS-network-home
-description: تیکت‌های فازی خانه شبکه — هر فاز با لبه مسدودکننده، دامنه، تست، گیت و ردیف سیم‌کشی (پیش‌نویس: منتظر قفل R1..R8)
+description: تیکت‌های فازی خانه شبکه — هر فاز با لبه مسدودکننده، دامنه، تست، گیت و ردیف سیم‌کشی (قفل‌شده 2026-09-15: هر هشت R همان گزینه پیشنهادی)
 created: 2026-09-15
 status: locked
 ---
@@ -10,7 +10,7 @@ STATE: no phase started — status:locked-2026-09-15 — focus: R1..R8 = پیش�
 
 ## P0 — خانه + چیدمان .env (پیش‌نیاز همه)
 
-- **Blocked on:** R1..R3 picks + GATE STATUS = LOCKED.
+- **Blocked on:** مرج 697 (انجام شد 2026-09-15) — R1..R3 پیش‌تر قفل شده‌اند.
 - **Scope:** `factory/precard/net.py` جدید (`NetConfig`، `lease_for`، `call_leg`، `report_lease`، `TARGETS` از سوپروایزر به اینجا)؛ `run_with_lease.py` پوسته نازک روی خانه (فلگ/چاپ عیناً)؛ `KeyRing` تک‌مالک (حذف کپی دوم)؛ `load_factory_env` تک‌مالک (حذف کپی vendored در pipeline.py، همان رفتار)؛ جابه‌جایی یک‌باره ۲ کلید یدکی از `tools/egress/.env`؛ بازنویسی جدول `.env` در `factory/README.md` (مالک + خواننده هر متغیر)؛ probeها: فلگ صریح یا خواندن از `factory/.env` (حذف `ZEN_API_KEY` جدا یا نگاشت صریح).
 - **Tests:** hermetic برای `lease_for` (سرور/ساعت فیک)، `call_leg` (transport فیک: چرخش 429، STOP روی 401/403، اعمال proxy در-process)، ترتیب env→file، توقف بلند کلید غایب؛ `test_no_archive_imports` سبز می‌ماند؛ `tests/test_single_source_of_truth.py`: کلیدواژه‌های `KeyRing`/`TARGETS` → مالک جدید.
 - **Gates:** R1، R2، R3، R6 (رفتار ABORT همین‌جا قفل می‌شود).
