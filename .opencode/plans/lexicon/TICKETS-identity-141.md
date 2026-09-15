@@ -4,7 +4,7 @@ description: تیکت‌های دقیق فاز هویت (خانه مستقل fac
 created: 2026-09-14
 status: in-progress
 ---
-STATE: T0..T4c done+committed; T5 IN PROGRESS — status:paused-for-compaction
+STATE: T5 IN PROGRESS — status:locked-executing — focus: contract 2026-09-15 (R0-R5, path 1 shim-then-delete).
 
 ## T5 resume notes (2026-09-15, exact)
 
@@ -27,6 +27,65 @@ STATE: T0..T4c done+committed; T5 IN PROGRESS — status:paused-for-compaction
 - Known live quirk: throwaway scripts under TEMP/opencode must be
   idempotent-guarded (append sections re-ran and duplicated blocks twice
   this session — always restore-then-run-once or guard appends).
+
+## T5 locked contract (2026-09-15, GATE STATUS = LOCKED)
+
+Premise (owner-decided): path 1 — shim as temporary step in this PR,
+deletion at end of same PR. T5 scope ("delete in same PR") intact.
+Owner confirmation: "locked — برو" (rules) + "باشه... انجامش بده" (path 1).
+- Rule R0 / Option A: full explicit re-export of old public names +
+  DEPRECATED header + T5 pointer. (B minimal rejected: brittle, no benefit.)
+- Rule R1 / repair: drop old import lines in 4 half-repointed files
+  (diff was insertions-only, no mangling). (Revert rejected: same speed,
+  defers work pointlessly.)
+- Rule R2 / Option A: hand repoint test_precard_pipeline.py, no script,
+  chunked pytest; ~140 stage/resume/CLI tests preserved. (B delete-with-
+  coverage-map rejected: loses end-to-end coverage, strains test-sync.)
+- Rule R3 / hand now: test_stage_glossary.py:92 to new normalize.
+- Rule R4 / "Society": R6 fixture live label. ("Arts & Culture" rejected:
+  less close semantically; asserts only check ids/css so both safe.)
+- Rule R5 / defer: card_pilot-side copies untouched (pilot line out of
+  plan §19); T6 pointer + recorded reason; bots accept defer-with-reason.
+  (Repoint-now rejected: widens scope, breaks §6.6 single-PR rule.)
+- Blast-radius: structural trigger fired (module delete + cross-module
+  repoint). Graph stale (built 10b06de != HEAD 769e6bd) so read-first:
+  git-grep ground truth = 6 test files consume old module, 0 production
+  importers (card_pilot refs are comments), blind50 already repointed.
+  graphify update runs at delete step per T5.
+- Parallel-work: claims registry empty ({"claims":[]}); no canonical
+  SEAMS.md seam touched (factory/ + tests/ only) → zero overlap, no claim.
+- Design note (codebase-design): shim is a deliberately shallow temporary
+  adapter at the seam; deletion test passes trivially (no logic inside) —
+  that is the point; it dies at end of PR.
+
+## T5 execution record (2026-09-15)
+
+- R0 AMENDED (owner, evidence: ~60-name inventory incl. renamed privates
+  `_normalize_stage`, dead `STAGES`, stdlib passthroughs → faithful shim =
+  adapter layer with legacy semantics, double work with R2): shim dropped,
+  direct R3 → R2 → delete. T5 "delete in same PR" intact.
+- R4: `Society & Culture` → `Society` (test-only). R1: 4 files repaired
+  (old import lines dropped; diff was insertions-only). R3: glossary parity
+  → live `progress` pin (11 passed).
+- R2: test_precard_pipeline.py cut over by hand (no script), 140/140 green:
+  per-name homes, USE-site transport patching (pipeline binding for judge
+  leg, transport-module attrs for remap legs), display/normalize/stage-map/
+  provider-map rewritten to Q-names, F7 identity test → vendoring-
+  provenance test (plan line 42 supersedes no-second-copy).
+- PRODUCTION GAP (T4c miss, found by R2 tests): pipeline.py:690 referenced
+  `transport.zen_judge_transport` which did not exist (default Zen judge
+  path crashed). Fix: vendored archive `call_responses` verbatim as
+  `zen_judge_transport` + `JUDGE_SYS` in prompts.py (provenance headers).
+  No archive imports; no behavior invented.
+- Parity→baseline: 3 old-vs-new tests converted to new-only baselines with
+  probed evidence values (anchor set-based: ranking rides live wordfreq).
+- Reviewer gate: 2 confirmed findings, both fixed+verified — (1) slug scan
+  repointed to factory/precard/* (+`review-error` registry gap closed in
+  stage_glossary.py), (2) cefr test seam repointed to vendored copy.
+- Delete: factory/pipeline/precard_pipeline.py removed; zero code refs
+  (READMEs → `python -m factory.precard`); graphify updated (12915 nodes).
+- Evidence: pytest tests/ -n 14 → 2797 passed (after v7 dry-run rewrite);
+  compile_all clean post-stage; ruff F821/F811 clean; diff --check clean.
 
 ## موجودی ممیزی (سند هر تیکت — ۲۰۲۶-۰۹-۱۴)
 
