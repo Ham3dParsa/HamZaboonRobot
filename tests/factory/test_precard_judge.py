@@ -74,3 +74,18 @@ def test_ids_stable_and_shaped():
     assert first == ids.compute_pre_card_id("call", "NOUN",
                                             "A Telephone Call")
     assert len(first) == 16
+
+
+def test_stub_predicates_agree_across_homes():
+    from factory.precard import anchor as anchor_home
+
+    glosses = ["plural of cat", "past of go", "superlative of good",
+               "a round fruit", "the comparative study", "",
+               "comparative form of bad", "gerund of run"]
+    for gloss in glosses:
+        assert anchor_home.is_inflection_gloss(gloss) == \
+            judge.is_inflection_gloss(gloss), gloss
+        assert anchor_home.is_superlative_gloss(gloss) == \
+            judge.is_superlative_gloss(gloss), gloss
+        assert anchor_home.parse_superlative_base(gloss) == \
+            judge.parse_superlative_base(gloss), gloss

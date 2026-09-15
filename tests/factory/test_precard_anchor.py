@@ -60,4 +60,4 @@ def test_preprocess_structured_verdicts():
 
 
 def test_stage_ids_are_real_words():
-    assert anchor.STAGES == ("preprocess", "anchor_rank")
+    assert anchor.ANCHOR_STAGES == ("preprocess", "anchor_rank")

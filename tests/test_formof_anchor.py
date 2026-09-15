@@ -14,8 +14,10 @@ Items (factory/ only, zero LLM):
 """
 
 import json
+from factory.precard.anchor import COUNTRY_NAMES, _mother_for_top, anchor_rank_item
+from factory.precard.judge import _is_veto_stub_gloss, judge_prompt
+from factory.precard.pipeline import main as precard_main
 from factory.pipeline import card_pilot
-from factory.pipeline import precard_pipeline
 from factory.pipeline.precard_pipeline import anchor_rank_item
 from factory.pipeline.precard_pipeline import main as precard_main
 
@@ -142,9 +144,9 @@ def test_inflection_regex_covers_participle_gerund_and_degree():
 
 def test_s0b_and_f4_veto_share_new_shapes():
     """S0b verdict path and the F4 veto inherit the shared predicate."""
-    assert precard_pipeline._is_veto_stub_gloss(
+    assert _is_veto_stub_gloss(
         "present participle and gerund of force") is True
-    assert precard_pipeline._is_veto_stub_gloss(
+    assert _is_veto_stub_gloss(
         "comparative degree of good") is True
 
 
@@ -200,7 +202,7 @@ def test_judge_prompt_template_unchanged():
     """v14.1: the judge picks 1-4 ordered senses (fan-out); the
     candidate-id grounding and hierarchy lines are unchanged."""
     import inspect
-    src = inspect.getsource(precard_pipeline._judge_prompt)
+    src = inspect.getsource(judge_prompt)
     assert "PICK the 1-4 most useful senses per item" in src
     assert "candidate ids" in src
 
@@ -262,7 +264,7 @@ def test_mother_for_top_none_on_unresolvable():
     is unresolvable, so the guarded overwrite keeps the ranked
     carrier."""
     item = {"kind": "word", "text": "went", "pos": "verb"}
-    assert precard_pipeline._mother_for_top(
+    assert _mother_for_top(
         item, "went#0", {}, read_entry) is None
 
 
@@ -274,7 +276,7 @@ def test_mother_for_top_resolves_carrier():
         _sense("past of go", tags=["form-of"],
                form_of=[{"word": "go"}]),
     ])}
-    assert precard_pipeline._mother_for_top(
+    assert _mother_for_top(
         item, "went#0", index, read_entry) == ("go", ["go"], False)
 
 

@@ -14,7 +14,7 @@ import re
 
 from factory.precard.accounting import item_key
 
-STAGES = ("preprocess", "anchor_rank")
+ANCHOR_STAGES = ("preprocess", "anchor_rank")
 
 
 ALSO_TOPIC_UNASSIGNED = "unassigned-cheap-only"
@@ -556,6 +556,10 @@ def kaikki_pos_set(entries):
 
 def normalize_pos(pos):
     """Casefold a POS tag through the minimal alias map (R1 gloss match).
+
+    NOTE: cefr.py has a same-named cousin with a stricter contract
+    (raises on empty, no alias map). Keep them separate; parity between
+    them is neither expected nor wanted.
 
     R32 v8: tolerates the dataset tag list in item["pos"] (uses the
     first tag) so re-ranking an already-anchored item never crashes.
@@ -1579,30 +1583,6 @@ def _is_academic(item, awl_set):
     if isinstance(evp, dict) and bool(evp.get("academic")):
         return True
     return (item.get("text") or "").strip().lower() in (awl_set or set())
-
-
-def load_awl_members(path):
-    """Lowercase AWL member set from an awl_families.json file.
-
-    Shape: {"families": {family: [members]}} (fetch_awl.py). Missing /
-    unreadable / wrong-shape file -> empty set (fail open to keep,
-    recorded by the caller — aux data only ever adds keeps).
-    """
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return set()
-    fams = (data.get("families") if isinstance(data, dict) else None) or {}
-    out = set()
-    if isinstance(fams, dict):
-        for head, members in fams.items():
-            if isinstance(head, str) and head.strip():
-                out.add(head.strip().lower())
-            for member in (members or []):
-                if isinstance(member, str) and member.strip():
-                    out.add(member.strip().lower())
-    return out
 
 
 def judge_proper_route(item, pick, anchor_res, index, read_entry, zipf_fn=None):

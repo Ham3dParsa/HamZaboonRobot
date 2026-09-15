@@ -16,9 +16,9 @@ import sys
 
 import pytest
 
+from factory.precard.pipeline import main
 from factory.pipeline import card_pilot
 from factory.lexicon import phrase_judge
-from factory.pipeline import precard_pipeline
 from factory.core import telemetry
 from factory.core.stage_glossary import STAGE_FILES
 from factory.pipeline.card_pilot import (
@@ -167,7 +167,7 @@ def _run_only_s1(tmp_path, extra=()):
 
     argv = ["--sample", sample, "--out", out, "--progress-dir", prog,
             "--only", "s1"] + list(extra)
-    code = precard_pipeline.main(
+    code = main(
         argv, _judge_transport=None, _topic_transport=None,
         _assign_transport=None, _sleep_fn=lambda s: None, _index=index,
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0,
@@ -228,7 +228,7 @@ def test_r26_rekey_forces_redo_and_resume_skips(monkeypatch):
 
 def test_r26_dry_run_prints_per_stage_needs(tmp_path, capsys):
     sample = _sample_file(tmp_path)
-    code = precard_pipeline.main(
+    code = main(
         ["--sample", sample, "--out", str(tmp_path / "p.jsonl"),
          "--progress-dir", str(tmp_path / "prog"), "--dry-run",
          "--only", "S1"],
@@ -246,7 +246,7 @@ def test_r26_dry_run_prints_per_stage_needs(tmp_path, capsys):
 def test_r26_only_and_stages_exclusive(tmp_path):
     sample = _sample_file(tmp_path)
     with pytest.raises(SystemExit):
-        precard_pipeline.main(
+        main(
             ["--sample", sample, "--out", str(tmp_path / "p.jsonl"),
              "--progress-dir", str(tmp_path / "prog"), "--dry-run",
              "--only", "s1", "--stages", "s1"],

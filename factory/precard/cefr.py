@@ -291,6 +291,8 @@ def normalize_lemma(s):
 
 
 def normalize_pos(s):
+    # NOTE: anchor.py has a same-named cousin with a tolerant contract
+    # (alias map, never raises). Keep them separate.
     if s is None or (isinstance(s, str) and not s.strip()):
         raise ValueError("normalize_pos: empty pos")
     return str(s).strip().lower()

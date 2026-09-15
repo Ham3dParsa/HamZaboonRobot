@@ -9,7 +9,8 @@ plus a proper sense (file-idx 1, name row) that the stub judge picks.
 import json
 import os
 import re
-from factory.pipeline import precard_pipeline  # noqa: E402
+from factory.precard.anchor import _PROPER_ROUTE_CLASSES, _PROPER_ROUTE_ORG_RX, judge_proper_route
+from factory.precard.pipeline import main as precard_main
 from factory.pipeline.precard_pipeline import main as precard_main  # noqa: E402
 from factory.pipeline.precard_pipeline import judge_proper_route  # noqa: E402
 from factory.core.stage_glossary import STAGE_FILES  # noqa: E402
@@ -288,7 +289,6 @@ def _tagged_rows(pairs):
 def test_proper_reroute_to_vulgar_target_drops(tmp_path):
     """Review: a proper top rerouted onto a vulgar-tagged sense must
     drop vulgar-anchor (not leak with stale carrier tags)."""
-    from factory.pipeline import precard_pipeline as pp
     index = {"vulgartown": _tagged_rows([
         ("name", "Vulgartown, a legendary city", []),
         ("noun", "a crude insult for villagers", ["vulgar"])])}

@@ -13,6 +13,7 @@ live-wordfreq integration check on common words.
 """
 
 import json
+from factory.precard.enrich import enrich_item
 from factory.pipeline import card_pilot
 from factory.pipeline.card_pilot import (
     cloze_archaic_ok,

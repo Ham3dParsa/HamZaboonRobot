@@ -12,8 +12,13 @@ No network, no W:, no real keys. Covers:
 import json
 import re
 
+from factory.precard.accounting import audit_sample_accounting
+from factory.precard.anchor import preprocess_classify_item
+from factory.precard.enrich import enrich_item
+from factory.precard.ids import compute_pre_card_id
+from factory.precard.judge import fanout_picks, judge_validate_multi
+from factory.precard.pipeline import main, parse_args
 from factory.pipeline import card_pilot
-from factory.pipeline import precard_pipeline
 
 LONG_EXAMPLE = ("She eats a fresh red apple every single morning "
                 "with her family")
@@ -51,7 +56,7 @@ def test_r1_judge_validate_accepts_multi_picks():
         {"sense_id": "call#1", "gloss": "to shout loudly"}]}}
     data = {"results": [{"key": "w:call",
                          "picks": ["call#1", "call#0"]}]}
-    out = precard_pipeline.judge_validate_multi(data, batch, anchor_map)
+    out = judge_validate_multi(data, batch, anchor_map)
     assert set(out) == {"w:call"}
     got = [p["sense_id"] for p in out["w:call"]["picks"]]
     assert got == ["call#1", "call#0"]
@@ -65,7 +70,7 @@ def test_r1_judge_validate_rejects_unknown_and_caps_at_four():
     data = {"results": [{"key": "w:call", "picks": [
         "call#0", "call#9", "call#1", "call#1", "call#2",
         "call#3", "call#4", "call#5"]}]}
-    out = precard_pipeline.judge_validate_multi(data, batch, anchor_map)
+    out = judge_validate_multi(data, batch, anchor_map)
     got = [p["sense_id"] for p in out["w:call"]["picks"]]
     assert got == ["call#0", "call#1", "call#2", "call#3"]
     assert len(got) <= 4
@@ -78,11 +83,11 @@ def test_r1_fanout_picks_returns_ordered_picks():
                              "gloss": "to shout loudly"},
                             {"sense_id": "call#0",
                              "gloss": "a telephone conversation"}]}
-    rows = precard_pipeline.fanout_picks(
+    rows = fanout_picks(
         {"kind": "word", "text": "call", "pool_level": "A1"}, pick_entry)
     assert [r["sense_id"] for r in rows] == ["call#1", "call#0"]
     # Distinct senses hash to distinct stable card ids.
-    ids = {precard_pipeline.compute_pre_card_id(
+    ids = {compute_pre_card_id(
         "call", "noun", r["gloss"]) for r in rows}
     assert len(ids) == 2
     assert all(len(i) == 16 for i in ids)
@@ -111,9 +116,9 @@ def test_r1_gloss_duplicate_senses_collapse_to_one_card():
         {"sense_id": "call#0", "gloss": "To reach out with one's voice."}]}}
     data = {"results": [{"key": "w:call",
                          "picks": ["call#2", "call#0"]}]}
-    out = precard_pipeline.judge_validate_multi(data, batch, anchor_map)
+    out = judge_validate_multi(data, batch, anchor_map)
     assert [p["sense_id"] for p in out["w:call"]["picks"]] == ["call#2"]
-    rows = precard_pipeline.fanout_picks(
+    rows = fanout_picks(
         batch[0], {"sense_id": "call#2", "gloss": "x", "picks": [
             {"sense_id": "call#2", "gloss": "To reach out."},
             {"sense_id": "call#0", "gloss": "To reach out."}]})
@@ -129,7 +134,7 @@ def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
         encoding="utf-8")
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
     index, read_entry = _idx(make_multi_index())
-    rc = precard_pipeline.main(
+    rc = main(
         ["--sample", str(sample), "--out", out, "--progress-dir", prog],
         _judge_transport=_two_pick_judge, _topic_transport=None,
         _assign_transport=None, _sleep_fn=lambda s: None,
@@ -145,8 +150,8 @@ def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
 
 
 def test_pacing_flag_defaults_and_parses_zero():
-    assert precard_pipeline.parse_args([]).sleep_secs == 2.5
-    assert precard_pipeline.parse_args(["--sleep-secs", "0"]).sleep_secs == 0
+    assert parse_args([]).sleep_secs == 2.5
+    assert parse_args(["--sleep-secs", "0"]).sleep_secs == 0
 
 
 # ---------------- R2: no silent dropout ----------------
@@ -154,7 +159,7 @@ def test_pacing_flag_defaults_and_parses_zero():
 def test_r2_proper_names_drop_with_verdict_not_silently():
     for text in ("Rundle", "Telemark"):
         item = {"kind": "word", "text": text, "pool_level": "C2"}
-        verdict = precard_pipeline.preprocess_classify_item(
+        verdict = preprocess_classify_item(
             item, {text.lower(): {"propn"}}, lambda t: 4.0, set(), {},
             False, entry_fn=lambda t: None)
         assert verdict["kept"] is False
@@ -167,7 +172,7 @@ def test_r2_abbrevs_drop_with_structured_g4_verdict():
         view = {"poss": {"noun"},
                 "senses": [{"gloss": "abbreviation of something",
                             "tags": ["abbreviation"]}]}
-        verdict = precard_pipeline.preprocess_classify_item(
+        verdict = preprocess_classify_item(
             item, {text.lower(): {"noun"}}, lambda t: 4.0, set(), {},
             False, entry_fn=lambda t: view)
         assert verdict["kept"] is False
@@ -181,10 +186,10 @@ def test_r2_accounting_audit_flags_unaccounted_keys():
     states = {"s0": {"done": {
         "w:FEB": {"kept": False, "reason": "g4-abbrev"},
         "w:apple": {"kept": True, "reason": None}}, "failed": ["w:FEB"]}}
-    missing = precard_pipeline.audit_sample_accounting(
+    missing = audit_sample_accounting(
         items, precards, states)
     assert missing == []
-    missing = precard_pipeline.audit_sample_accounting(items, {}, states)
+    missing = audit_sample_accounting(items, {}, states)
     assert missing == ["w:apple"]
 
 
@@ -194,7 +199,7 @@ def test_r3_picked_sense_without_examples_falls_back_to_lemma():
     index, read_entry = _idx(make_multi_index())
     item = {"kind": "word", "text": "call", "pool_level": "A1"}
     pick = {"sense_id": "call#0", "gloss": "a telephone conversation"}
-    out = precard_pipeline.enrich_item(
+    out = enrich_item(
         item, pick, index, read_entry, {}, phrase_entry=None)
     assert out["dataset_examples"] != []
     assert any("apple" in e and "morning" in e
@@ -214,7 +219,7 @@ def test_r3_no_examples_anywhere_flags_synthetic_for_a1():
 
     item = {"kind": "word", "text": "zzq", "pool_level": "A1"}
     pick = {"sense_id": "zzq#0", "gloss": "a thing"}
-    out = precard_pipeline.enrich_item(
+    out = enrich_item(
         item, pick, index, read_entry, {}, phrase_entry=None)
     assert out.get("example_synthetic_needed") is True
 
