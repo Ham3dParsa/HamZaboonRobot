@@ -1,8 +1,8 @@
 domain-bot:
-  - any: ['bot.py', 'handlers/**/*', 'config/keyboards.py']
+  - any: ['bot.py', 'config/keyboards.py']
 
 domain-handlers:
-  - any: ['handlers/admin.py', 'handlers/admin_ai.py', 'handlers/admin_backup.py', 'handlers/admin_plans.py', 'handlers/admin_cost.py', 'handlers/study_handler.py', 'handlers/srs_handler.py', 'handlers/help_command.py', 'handlers/user.py', 'handlers/flows.py']
+  - any: ['handlers/**/*']
 
 domain-ai:
   - any: ['services/ai/**/*']
@@ -20,7 +20,7 @@ domain-factory:
   - any: ['factory/**/*', 'services/ai/preset_fields.py']
 
 domain-tools:
-  - any: ['tools/**/*']
+  - any: ['tools/**/*', 'scripts/**/*']
 
 domain-tests:
   - any: ['tests/**/*']
@@ -49,11 +49,41 @@ domain-quota:
 domain-activity:
   - any: ['services/activity_log.py']
 
+domain-theme:
+  - any: ['config/themes.py', 'config/catalog.py']
+
+type-feature:
+  - any: ['handlers/**/*', 'factory/**/*', 'config/keyboards.py']
+
+type-bugfix:
+  - any: ['bot.py', 'services/db/**/*.py', 'tools/**/*.py']
+
+type-refactor:
+  - any: ['services/**/*.py', 'config/**/*.py', 'handlers/admin.py']
+
+type-docs:
+  - any: ['docs/**/*', '**/*.md']
+
+type-chore:
+  - any: ['.github/**/*', 'requirements.txt', 'requirements-dev.txt', 'scripts/**/*']
+
+type-test:
+  - any: ['tests/**/*']
+
+type-perf:
+  - any: ['services/db/**/*.py', 'services/scheduling.py']
+
+type-design:
+  - any: ['services/ai/**/*', 'factory/**/*']
+
 i18n:
-  - any: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py', 'config/themes.py']
+  - any: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py']
 
 UI/UX:
   - any: ['config/keyboards/**/*']
 
 risk:
-  - any: ['services/db/schema.py', 'migrations/**/*', 'services/db/**/*.py']
+  - any: ['services/db/schema.py', 'migrations/**/*']
+
+tech-debt:
+  - any: ['services/utils/helpers.py']

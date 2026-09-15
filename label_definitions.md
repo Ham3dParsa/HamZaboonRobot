@@ -29,7 +29,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 
 | Label | Paths |
 |---|---|
-| `domain-bot` | `bot.py`, `handlers/**/*`, `config/keyboards.py` |
+| `domain-bot` | `bot.py`, `config/keyboards.py` |
 | `domain-handlers` | `handlers/` (non-bot routing) |
 | `domain-ai` | `services/ai/**/*` |
 | `domain-db` | `services/db/**/*` |
@@ -46,6 +46,8 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `domain-tts` | `services/tts.py`, `tts_cache/` |
 | `domain-quota` | `services/quota_service.py`, `services/grade_service.py` |
 | `domain-activity` | `services/activity_log.py` |
+| `domain-theme` | `config/themes.py`, `config/catalog.py` (theme catalog) |
+| `domain-gamification` | Gamification features (streak, points, levels, quizzes, leaderboards) — manual application until dedicated module exists |
 
 ### Dimension 3: Special (OPTIONAL, zero or more)
 
@@ -62,7 +64,6 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `partial` | Partial implementation, requires follow-up |
 | `accepted-risk` | Known risk accepted by owner |
 | `obsolete` | Superseded or deprecated code/feature |
-| `i18n` | Language/localization changes |
 
 ### Dimension 4: Priority (OPTIONAL, zero or one)
 
