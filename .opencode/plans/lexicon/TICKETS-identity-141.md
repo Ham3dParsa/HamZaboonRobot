@@ -82,6 +82,11 @@ Owner confirmation: "locked — برو" (rules) + "باشه... انجامش بد
 - Reviewer gate: 2 confirmed findings, both fixed+verified — (1) slug scan
   repointed to factory/precard/* (+`review-error` registry gap closed in
   stage_glossary.py), (2) cefr test seam repointed to vendored copy.
+- OC follow-up (5680202937): 1 warning answered with deprecation pointers
+  in both copies (card_pilot.py:1359/2659, topics.py:73, accounting.py:12)
+  + qualified "single owner" docstrings per R5-defer-to-T6; 6 infos
+  evaluated — all deferred with the bot's own reasons (cosmetic/offline/
+  contained/controlled/documented/clarity-only).
 - Delete: factory/pipeline/precard_pipeline.py removed; zero code refs
   (READMEs → `python -m factory.precard`); graphify updated (12915 nodes).
 - Evidence: pytest tests/ -n 14 → 2797 passed (after v7 dry-run rewrite);

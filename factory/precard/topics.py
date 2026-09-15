@@ -70,8 +70,11 @@ def single_topic_vector(label):
     return [{"label": label or "Other / Abstract", "weight": 1.0}]
 
 
+# NOTE (identity-141 R5, deferred to T6): card_pilot.py carries its own
+# copy serving the pilot line; this module is canonical for the precard
+# line. Unify at T6 pilot versioning.
 def topic_post_guard(text, gloss, label):
-    """Deterministic topic post-guard (single owner).
+    """Deterministic topic post-guard (single owner for the precard line).
 
     Narrow by design — it only ever remaps two failure modes, never a
     real label:

@@ -12,7 +12,9 @@ from factory.precard.progress import normalize_stage
 def item_key(item):
     """Vendored from factory/pipeline/card_pilot (provenance: precard
     line R1-R6, 2026-09-14) — "w:"+text for words, "p:"+text for
-    phrases. Copied so this package imports nothing project-owned."""
+    phrases. Copied so this package imports nothing project-owned.
+    Pilot-line copy at card_pilot.item_key kept by design until T6
+    (identity-141 R5)."""
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
 

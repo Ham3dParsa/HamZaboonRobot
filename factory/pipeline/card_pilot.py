@@ -1356,8 +1356,11 @@ def _gender_signal_rx():
     return _GENDER_SIGNAL_RX
 
 
+# NOTE (identity-141 R5, deferred to T6): topic guard is dual-owned by
+# design — this copy serves the pilot line; factory/precard/topics.py
+# is canonical for the precard line. Unify at T6 pilot versioning.
 def topic_post_guard(text, gloss, label):
-    """v14.1 deterministic topic post-guard (R5, single owner).
+    """v14.1 deterministic topic post-guard (R5, single owner for the pilot line).
 
     Narrow by design — it only ever remaps two failure modes, never a
     real label:
@@ -2656,6 +2659,9 @@ def sample_phrases(judged, n_phrases=6, seed=SEED):
             for r in sample]
 
 
+# NOTE (identity-141 R5, deferred to T6): dual-owned by design — this
+# copy serves the pilot line; factory/precard/accounting.py vendored its
+# own for the precard line. Unify at T6 pilot versioning.
 def item_key(item):
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
