@@ -39,3 +39,14 @@ others; per-source status prints with host only (never full links).
 never overwrites the whitelist. In factory callers (blind50/precard),
 three consecutive 429s stop the run, never long-backoff (the supervisor
 itself only cools per-server).
+
+## Whitelist home (P1)
+
+Rank/choose/guard/writer live in `factory/precard/net.py` (pure,
+hermetic): `build_probe_rows` (rank + top-N), `order_pool_by_rank` +
+`order_google_first` (choose), `should_save_whitelist`
+(never-overwrite-empty), `write_pool_file` (the ONLY `egress_pool.json`
+writer: refuses empty, strips link credentials). The supervisor only
+calls them (429s still cool per-provider: one provider's 429 never
+blocks another). `/v1/health` also reports `healthy` (pooled servers >
+0) for later auto-spawn — reporting only, no lifecycle change.

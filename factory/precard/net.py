@@ -24,6 +24,14 @@ maps keep every path testable with no network, no keys, and no W: drive.
   RESOURCE_EXHAUSTED) raises ProviderCooldown after exactly one
   attempt with no rotation. Progress flushing and telemetry stay with
   the caller, as they do for every other transport caller today.
+- P1 whitelist home (moved verbatim from tools/egress/supervisor.py;
+  the supervisor CLI calls these with zero logic rewrite):
+  build_probe_rows (rank + top-N mark), order_pool_by_rank (alive
+  ranked ids first), order_google_first (google-ok rows first),
+  should_save_whitelist (never-overwrite-empty guard),
+  write_pool_file (the ONLY egress_pool.json writer: refuses empty,
+  strips link credentials), supervisor_health (R4 healthy/unhealthy
+  hook for later auto-spawn; reporting only, no lifecycle change).
 
 Stdlib + factory.precard.transport only (precard self-containment:
 no factory.archive / factory.pipeline / factory.lexicon imports).
@@ -32,6 +40,8 @@ Leases carry server ids and provider names, never key strings.
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import pathlib
 import secrets
@@ -67,6 +77,13 @@ __all__ = [
     "report_lease",
     "call_leg",
     "target_spec",
+    "PROBE_DEAD_MS",
+    "build_probe_rows",
+    "order_pool_by_rank",
+    "order_google_first",
+    "should_save_whitelist",
+    "write_pool_file",
+    "supervisor_health",
 ]
 
 # Canonical lease-target table (moved from tools/egress/supervisor.py).
@@ -297,6 +314,123 @@ def report_lease(cfg, lease_id, outcome, provider=None):
             cfg._leases.pop(lease_id, None)
             return {"action": "reauth"}
         return {"action": "keep"}
+
+
+# --- P1 whitelist home (moved verbatim from the egress supervisor) ---
+
+# Dead-ping sentinel: probe code reports None for unreachable servers;
+# ranking sorts them last with this stand-in (moved verbatim).
+PROBE_DEAD_MS = 10 ** 9
+
+
+def build_probe_rows(ranked, top_n):
+    """Rank (ms, server) ping pairs into whitelist probe rows.
+
+    Moved verbatim from supervisor.probe_pool (sort key, dead
+    sentinel, and row shape unchanged): ascending latency, dead
+    servers last with latency_ms None, top-N alive marked
+    zen_candidate. ``ranked`` must already hold clean server dicts
+    (the supervisor skips id/host/port-less entries before calling).
+    Pure: no network, no clock, no I/O.
+    """
+    ordered = sorted(ranked, key=lambda pair: pair[0])
+    return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
+             "id": s["id"],
+             "latency_ms": (None if ms >= PROBE_DEAD_MS else ms),
+             "alive": ms < PROBE_DEAD_MS,
+             "zen_candidate": idx < top_n and ms < PROBE_DEAD_MS}
+            for idx, (ms, s) in enumerate(ordered)]
+
+
+def order_pool_by_rank(servers, ranked):
+    """Whitelist choose: alive ranked ids first, every other server kept.
+
+    Moved verbatim from supervisor Pool.load_ranked: ranked rows that
+    are alive and still pooled move to the front in probe order;
+    unknown (ghost) ids are ignored; everything else (dead,
+    unranked) keeps its relative order after. Pure.
+    """
+    by_id = {s["id"]: s for s in servers
+             if isinstance(s, dict) and s.get("id")}
+    ordered = []
+    for row in ranked or []:
+        if not isinstance(row, dict):
+            continue
+        hit = by_id.get(row.get("id"))
+        if row.get("alive") and hit is not None:
+            ordered.append(hit)
+    for s in servers:
+        if s["id"] not in {r["id"] for r in ordered}:
+            ordered.append(s)
+    return ordered
+
+
+def order_google_first(rows, good_ids):
+    """Google-choose: google-ok alive rows first, the rest after in order.
+
+    Moved verbatim from the supervisor --probe-google block (serve
+    mode then leases google-friendly servers first). NOTE (kept
+    behavior, not a fix): a good id that is dead in ``rows`` lands in
+    neither list, i.e. it drops out — in practice good ids always come
+    from live pings of alive candidates, so the set is empty.
+    """
+    good = set(good_ids or ())
+    first = [r for r in rows if r["id"] in good and r["alive"]]
+    first += [r for r in rows if r["id"] not in good]
+    return first
+
+
+def should_save_whitelist(rows):
+    """Never-overwrite-empty guard: True iff at least one row is alive.
+
+    The ONLY whitelist-save decision (every supervisor save site calls
+    this): an empty probe (failed refresh / dead network) must never
+    clobber a good egress_pool.json. Pure.
+    """
+    return any(r.get("alive") for r in (rows or []))
+
+
+def write_pool_file(path, servers):
+    """The ONLY egress_pool.json writer. Refuses empty, strips secrets.
+
+    Returns the saved server count, or 0 when ``servers`` holds no
+    id-bearing entry — in which case the path is NOT touched (never
+    overwrite a good whitelist with an empty probe). Persisted rows
+    keep host/port/scheme/id only: links carry credentials and are
+    never written (relink on refresh). Raises OSError to the caller
+    (the supervisor prints it); no printing here. Synchronous I/O.
+    """
+    live = [s for s in (servers or [])
+            if isinstance(s, dict) and s.get("id")]
+    if not live:
+        return 0
+    payload = {"saved_at": datetime.datetime.now(
+        datetime.timezone.utc).isoformat(),
+        "servers": [{k: s[k] for k in
+                      ("scheme", "host", "port", "id")
+                      if k in s} for s in live]}
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    return len(live)
+
+
+def supervisor_health(servers, leases):
+    """R4 health hook for later auto-spawn: reporting only, no lifecycle.
+
+    ``healthy`` is True iff at least one server is pooled (an empty
+    pool cannot serve tunnel leases). ``ok``/``servers``/``leases``
+    keep the exact /v1/health shape existing clients parse. Pure.
+    """
+    try:
+        n_servers = len(servers)
+    except TypeError:
+        n_servers = 0
+    try:
+        n_leases = len(leases)
+    except TypeError:
+        n_leases = 0
+    return {"ok": True, "servers": n_servers, "leases": n_leases,
+            "healthy": n_servers > 0}
 
 
 def call_leg(cfg, leg, prompt, *, transport, model, keys=None,

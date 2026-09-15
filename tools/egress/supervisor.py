@@ -43,10 +43,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 try:
     from factory.precard.net import (
         TARGETS,
+        build_probe_rows,
         known_provider,
         norm_provider,
         norm_target,
+        order_google_first,
+        order_pool_by_rank,
+        should_save_whitelist,
+        supervisor_health,
         target_spec,
+        write_pool_file,
     )
 except ImportError:  # top-level script run: repo root is not on sys.path
     import sys as _sys
@@ -54,10 +60,16 @@ except ImportError:  # top-level script run: repo root is not on sys.path
                              .parent.parent))
     from factory.precard.net import (
         TARGETS,
+        build_probe_rows,
         known_provider,
         norm_provider,
         norm_target,
+        order_google_first,
+        order_pool_by_rank,
+        should_save_whitelist,
+        supervisor_health,
         target_spec,
+        write_pool_file,
     )
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
@@ -214,35 +226,22 @@ class Pool:
                     known.add(s["id"])
 
     def load_ranked(self, ranked):
-        """Replace pool order with a ranked probe list (whitelist)."""
+        """Replace pool order with a ranked probe list (whitelist).
+
+        Thin caller over the net home (factory.precard.net):
+        ordering lives there, this only assigns under the lock."""
         with self._lock:
-            by_id = {s["id"]: s for s in self.servers
-                     if isinstance(s, dict) and s.get("id")}
-            ordered = []
-            for row in ranked or []:
-                if not isinstance(row, dict):
-                    continue
-                hit = by_id.get(row.get("id"))
-                if row.get("alive") and hit is not None:
-                    ordered.append(hit)
-            for s in self.servers:
-                if s["id"] not in {r["id"] for r in ordered}:
-                    ordered.append(s)
-            self.servers = ordered
+            self.servers = order_pool_by_rank(self.servers, ranked)
 
     def save_pool(self, path=POOL_PATH):
-        import datetime as _dt
+        """Persist the whitelist via the net home's single writer.
+
+        Thin caller: write_pool_file owns the bytes (refuses empty,
+        strips link credentials); OSError still prints here."""
         with self._lock:
-            payload = {"saved_at": _dt.datetime.now(
-                _dt.timezone.utc).isoformat(),
-                # links carry credentials: never persisted, only
-                # host/port/scheme/id (relink on refresh).
-                "servers": [{k: s[k] for k in
-                              ("scheme", "host", "port", "id")
-                              if k in s} for s in self.servers]}
+            servers = list(self.servers)
         try:
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle)
+            write_pool_file(path, servers)
         except OSError as exc:
             print("pool save failed: %s" % exc)
 
@@ -367,9 +366,11 @@ class Pool:
             return {"action": "keep"}
 
     def health(self):
+        """Thin caller over the net home: /v1/health shape + the R4
+        ``healthy`` hook (True iff a server is pooled) for later
+        auto-spawn. Reporting only, no lifecycle change."""
         with self._lock:
-            return {"ok": True, "servers": len(self.servers),
-                    "leases": len(self.leases)}
+            return supervisor_health(self.servers, self.leases)
 
 
 class TunnelOwner:
@@ -741,13 +742,9 @@ def probe_pool(top_n=PROBE_TOP_N, workers=20):
             print("\r" + line.ljust(width), end="", flush=True)
             ranked.append((ms, server))
         print("")
-        ranked.sort(key=lambda pair: pair[0])
-    return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
-             "id": s["id"],
-             "latency_ms": (None if ms >= 10 ** 9 else ms),
-             "alive": ms < 10 ** 9,
-             "zen_candidate": idx < top_n and ms < 10 ** 9}
-            for idx, (ms, s) in enumerate(ranked)]
+    # Ranking/row-building lives in the net home (zero logic rewrite:
+    # same sort key, dead sentinel, row shape, top-N flag).
+    return build_probe_rows(ranked, top_n)
 
 
 def main(argv=None):
@@ -794,7 +791,7 @@ def main(argv=None):
                 "%s:%s" % (row["host"], row["port"]),
                 row["latency_ms"]))
         POOL.load_ranked(rows)
-        if alive:
+        if should_save_whitelist(rows):
             POOL.save_pool()
             print("whitelist saved: %d servers -> %s" % (
                 len(POOL.servers), POOL_PATH))
@@ -840,7 +837,7 @@ def main(argv=None):
                 finally:
                     if tun is not None:
                         tun.stop()
-            if alive:
+            if should_save_whitelist(rows):
                 # Same empty-probe rule as above: never overwrite a good
                 # whitelist after a probe that found 0 alive servers.
                 POOL.save_pool()
@@ -891,9 +888,9 @@ def main(argv=None):
                     if tun is not None:
                         tun.stop()
             if good:
-                ranked = [r for r in rows
-                          if r["id"] in good and r["alive"]]
-                ranked += [r for r in rows if r["id"] not in good]
+                # Google-choose lives in the net home (google-ok rows
+                # first, serve mode leases them first). Zero rewrite.
+                ranked = order_google_first(rows, good)
                 POOL.load_ranked(ranked)
                 POOL.save_pool()
                 print("google-ok first: %d servers -> %s" % (
