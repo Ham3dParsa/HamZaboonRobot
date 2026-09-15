@@ -32,7 +32,7 @@ author_url: https://github.com/Ham3dParsa
 ## Branch & PR Rules
 - **Branch naming**: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`, `docs/git-workflow`).
 - **Branch creation**: after validation passes, not before implementation.
-- **PR creation**: `gh pr create --base main` with `--body-file <path>` — build the body from `.github/PULL_REQUEST_TEMPLATE.md` (never `--fill`: it bypasses the template and produces stub bodies). Write the Markdown to a temp file with the file write tool, verify it, then pass `--body-file`.
+- **PR creation**: `gh pr create --base main --title "<conventional-title>" --body-file <path>` — build the body from `.github/PULL_REQUEST_TEMPLATE.md` (never `--fill`: it bypasses the template and produces stub bodies). Write the Markdown to a temp file with the file write tool, verify it, then pass `--body-file`.
   If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
   If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
 - **PR body quality gate** (mandatory, immediately after `gh pr create`):
@@ -49,7 +49,7 @@ author_url: https://github.com/Ham3dParsa
 
 ## GitHub CLI — Allowed Operations
 The agent may use `gh` only for:
-- **PRs**: `gh pr create --base main` (+ `--body-file <path>`), `gh pr checks`, `gh pr merge --squash` (explicit owner instruction only), `gh pr view`, `gh pr edit --body-file <path>` (body-quality fallback only)
+- **PRs**: `gh pr create --base main --title ... --body-file <path>`, `gh pr checks`, `gh pr merge --squash` (explicit owner instruction only), `gh pr view`, `gh pr edit --body-file <path>` (body-quality fallback only)
 - **Issues (read-only only)**: `gh issue list [--label <label>] [--state <state>]`, `gh issue view <N>`
 - Commands outside this list require explicit prior approval.
 
