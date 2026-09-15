@@ -677,8 +677,11 @@ function initTopicsAndPillCounts() {
       const lemmaCefrs = new Set();
       const lemmaTopics = new Set();
       l.senses.forEach(s => {
-        if (s.sense_cefr) lemmaCefrs.add(s.sense_cefr);
-        if (s.pool_level) lemmaCefrs.add(s.pool_level);
+        // Effective level per sense: sense_cefr wins, pool_level is only
+        // a fallback. Never count both (a B2 lemma with pool B1 must not
+        // land in the B1 pill).
+        const lv = s.sense_cefr || s.pool_level;
+        if (lv) lemmaCefrs.add(lv);
         (s.topic_vector || []).forEach(t => lemmaTopics.add(t.label));
       });
       lemmaCefrs.forEach(c => {
@@ -735,7 +738,7 @@ function applyFilters() {
     }
     if (currentCefrFilter !== "ALL") {
       if (item.dropped) return false;
-      const hasCefr = item.senses.some(s => s.sense_cefr === currentCefrFilter || s.pool_level === currentCefrFilter);
+      const hasCefr = item.senses.some(s => (s.sense_cefr || s.pool_level) === currentCefrFilter);
       if (!hasCefr) return false;
     }
     if (topic !== "ALL") {
@@ -810,13 +813,20 @@ function renderSidebar() {
 }
 
 function copyText(txt, btn) {
-  // txt is always a constrained id (pre_card_id hex / sense_id word#N).
   navigator.clipboard.writeText(txt).then(() => {
     const old = btn.textContent;
     btn.textContent = "Copied!";
     setTimeout(() => { btn.textContent = old; }, 1500);
   });
 }
+
+// Copy buttons carry data-copy attributes (escaped at render); one
+// delegated listener, no inline onclick interpolation.
+document.getElementById("detailContent").addEventListener("click", (e) => {
+  const b = e.target.closest ? e.target.closest("[data-copy]") : null;
+  if (!b) return;
+  copyText(b.getAttribute("data-copy"), b);
+});
 
 function selectLemma(index) {
   if (index < 0 || index >= filteredList.length) return;
@@ -1018,7 +1028,9 @@ def load_dropped(proof_dir, run_log=None):
                                    ":".join(parts[2:]).strip())
     # Judge-dropped proper nouns are only logged in the run log.
     if run_log:
-        log_path = Path(proof_dir) / run_log
+        # run_log is a filename inside proof-dir: strip any directory
+        # part so --run-log ../../x can never read outside it.
+        log_path = Path(proof_dir) / Path(run_log).name
         if log_path.exists():
             for match in _PROPER_RE.finditer(
                     log_path.read_text(encoding="utf-8")):
@@ -1031,6 +1043,10 @@ def build_report(proof_dir, sample_path, limit=50, run_log=None,
                  out_path=None, title=None, name=None):
     """Build the Split-Inspector report; returns {"rows", "lemmas", "out"}."""
     proof = Path(proof_dir)
+    if name:
+        # --name joins into proof-dir: strip directories so
+        # --name ../../evil can never write outside it.
+        name = Path(name).name
     if name and not out_path:
         out_path = str(proof / ("%s.html" % name))
     if name and not title:
