@@ -926,8 +926,8 @@ function selectLemma(index) {
       + chips.join("")
       + '</div>'
       + '<div style="display:flex; gap:6px; align-items:center;">'
-      + '<button class="copy-btn" onclick="copyText(&#39;' + s.pre_card_id + '&#39;, this)">Copy ID</button>'
-      + '<button class="copy-btn" onclick="copyText(&#39;' + s.sense_id + '&#39;, this)">Copy Sense</button>'
+      + '<button class="copy-btn" data-copy="' + esc(s.pre_card_id) + '">Copy ID</button>'
+      + '<button class="copy-btn" data-copy="' + esc(s.sense_id) + '">Copy Sense</button>'
       + '</div>'
       + '</div>'
       + '<footer class="sense-inspector-footer">'
