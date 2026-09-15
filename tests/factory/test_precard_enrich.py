@@ -29,27 +29,42 @@ def _idx():
     return index, read_entry
 
 
-def test_enrich_apple_baseline():
+def test_enrich_apple_baseline(tmp_path, monkeypatch):
     """Cutover baseline (ex-parity): the apple pick enriches
-    deterministically from the committed packs. Field-by-field parity
-    vs the old home was proven by the passing old-vs-new run before
-    the old module was deleted (PR #697)."""
-    index, read_entry = _idx()
-    item = {"kind": "word", "text": "apple", "pool_level": "A1"}
-    pick = {"sense_id": "apple#0", "gloss": "a round fruit"}
-    out = new_enrich.enrich_item(item, pick, index, read_entry, {})
-    assert out["sense_id"] == "apple#0"
-    assert out["en_def"] == "a round fruit"
-    assert (out["ipa"], out["ipa_src"]) == ("/aɪpa/", "dataset")
-    assert out["abbrev_expansion"] == ""
-    assert out["pos"] == ["noun"] and out["pos_src"] == "dataset"
-    assert out["lexical_type"] == "word" and out["register"] == "neutral"
-    assert (out["sense_cefr"], out["sense_cefr_method"]) == ("A1",
-                                                             "wn-single")
-    assert out["enrich_path"] == "partial"
-    assert out["dataset_examples"] == [
-        "She eats a fresh red apple every single morning with her family"]
-    assert len(out["pre_card_id"]) == 16
+    deterministically. The CEFR bridge reads a tmp TSV (hermetic: the
+    default TSV lives on W:, absent on CI — fail-closed would mask the
+    wn-single path as pool-fallback). Field-by-field parity vs the old
+    home was proven by the passing old-vs-new run before the old
+    module was deleted (PR #697)."""
+    from factory.precard import cefr as vendored
+
+    tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
+    tsv.write_text("apple%1:09:00::\tA1\n", encoding="utf-8")
+    monkeypatch.setattr(vendored, "DEFAULT_TSV", str(tsv))
+    monkeypatch.setattr(vendored, "DEFAULT_EVP", str(
+        tmp_path / "no-evp.json"))
+    vendored._CACHE.clear()
+    vendored._CAND_CACHE.clear()
+    try:
+        index, read_entry = _idx()
+        item = {"kind": "word", "text": "apple", "pool_level": "A1"}
+        pick = {"sense_id": "apple#0", "gloss": "a round fruit"}
+        out = new_enrich.enrich_item(item, pick, index, read_entry, {})
+        assert out["sense_id"] == "apple#0"
+        assert out["en_def"] == "a round fruit"
+        assert (out["ipa"], out["ipa_src"]) == ("/aɪpa/", "dataset")
+        assert out["abbrev_expansion"] == ""
+        assert out["pos"] == ["noun"] and out["pos_src"] == "dataset"
+        assert out["lexical_type"] == "word" and out["register"] == "neutral"
+        assert (out["sense_cefr"], out["sense_cefr_method"]) == (
+            "A1", "wn-single")
+        assert out["enrich_path"] == "partial"
+        assert out["dataset_examples"] == [
+            "She eats a fresh red apple every single morning with her family"]
+        assert len(out["pre_card_id"]) == 16
+    finally:
+        vendored._CACHE.clear()
+        vendored._CAND_CACHE.clear()
 
 
 def _fake_judge(api_key, model, user_text):
