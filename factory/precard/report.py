@@ -9,7 +9,8 @@ Stdlib only (keeps the factory/precard self-containment rule).
 
 Usage (from repo root):
     python -m factory.precard.report --proof-dir <dir> --sample <sample.json>
-        [--limit 50] [--run-log run.log] [--out <report.html>]
+        [--limit 50] [--run-log run.log] [--name <name>] [--out <report.html>]
+        [--title <title>]
 """
 
 from __future__ import annotations
@@ -20,6 +21,16 @@ import json
 import re
 from collections import OrderedDict
 from pathlib import Path
+
+__all__ = [
+    "build_report",
+    "load_order",
+    "load_rows",
+    "load_dropped",
+    "render_card",
+    "esc",
+    "main",
+]
 
 CSS = (
     "body{font-family:Tahoma,sans-serif;max-width:1100px;margin:auto;"
@@ -106,9 +117,11 @@ def render_card(rec):
 
 
 def build_report(proof_dir, sample_path, limit=50, run_log=None,
-                 out_path=None, title=None):
+                  out_path=None, title=None, name=None):
     """Build the report; returns {"rows", "lemmas", "out"}."""
     proof = Path(proof_dir)
+    if name and not title:
+        title = "%s — precard v1.4.1 fan-out" % name
     title = title or ("%s — precard v1.4.1 fan-out" % proof.name)
     order = load_order(sample_path, limit)
     rows = load_rows(proof)
@@ -130,7 +143,7 @@ def build_report(proof_dir, sample_path, limit=50, run_log=None,
             out.append("<div class='card dropcard'>dropped: %s</div>"
                        % esc(dropped[key]))
     out.append("</body></html>")
-    dest = Path(out_path) if out_path else proof / "report.html"
+    dest = Path(out_path) if out_path else proof / ("%s.html" % name if name else "report.html")
     dest.write_text("".join(out), encoding="utf-8")
     return {"rows": n_rows, "lemmas": len(keys), "out": str(dest)}
 
@@ -145,11 +158,21 @@ def main(argv=None):
                     help="run log filename inside proof-dir "
                          "(for judge-dropped proper nouns)")
     ap.add_argument("--out", default=None, help="report path "
-                    "(default <proof-dir>/report.html)")
+                    "(default <proof-dir>/<name>.html with --name, "
+                    "else <proof-dir>/report.html)")
     ap.add_argument("--title", default=None)
+    ap.add_argument("--name", default=None, help="report name: sets "
+                    "default out to <proof-dir>/<name>.html and default "
+                    "title to '<name> — precard v1.4.1 fan-out' "
+                    "(explicit --out/--title win)")
     args = ap.parse_args(argv)
+    precard_path = Path(args.proof_dir) / "precard.jsonl"
+    if not precard_path.is_file():
+        ap.error("missing precard.jsonl in proof-dir: %s" % args.proof_dir)
+    if not Path(args.sample).is_file():
+        ap.error("missing sample file: %s" % args.sample)
     stats = build_report(args.proof_dir, args.sample, args.limit,
-                         args.run_log, args.out, args.title)
+                         args.run_log, args.out, args.title, args.name)
     print("wrote %(out)s rows=%(rows)d lemmas=%(lemmas)d" % stats)
     return 0
 
