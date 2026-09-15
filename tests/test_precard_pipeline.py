@@ -377,7 +377,7 @@ def _http_429():
 def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
     """S2 429 on key1 rotates to key2 (5s pause) and retries the SAME call."""
     import pytest
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     prog_state = {"done": {}, "failed": [], "backoffs": []}
@@ -443,7 +443,7 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
 
 def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
     """S3 429 rotates keys with a 5s pause and retries the same call."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
@@ -478,7 +478,7 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
     """S4 wrapper rotates on 429; all-keys-429 raises RateLimited with a
     provider-neutral message (per-stage STOP wrappers add VPN/quota hints)."""
     import pytest
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.transport import _rotating_llm_transport
     # Rotate-then-succeed.
     sleeps, seen = [], []
@@ -1157,7 +1157,7 @@ def test_telemetry_history_vendored_with_provenance(tmp_path, monkeypatch):
 
 def test_s2_tuple_usage_recorded():
     """T1: tuple (text, usage) judge transports surface tokens (None-tolerated)."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.judge import judge_batch
     index = make_index()
@@ -1189,7 +1189,7 @@ def test_s2_tuple_usage_recorded():
 
 def test_s3_tuple_usage_recorded():
     """T1: tuple (text, usage) topic transports surface tokens."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     index = make_index()
@@ -1219,7 +1219,7 @@ def test_s3_tuple_usage_recorded():
 
 def test_s4_fallback_path_counted(tmp_path):
     """T1: S4 deterministic fallback carries topic_path + fallback telemetry."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.topics import label_item
     state = {"done": {}, "failed": [], "backoffs": []}
     item = {"kind": "word", "text": "zzqx", "pool_level": "B1"}
@@ -1300,7 +1300,7 @@ def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
     SystemExit that bypasses the caller flush)."""
     import urllib.error
     from factory.precard.transport import _rotating_llm_transport, RateLimited
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     import pytest
 
     def transport_429(api_key, model, user_text):
@@ -1317,7 +1317,7 @@ def test_label_item_reraises_ratelimited():
     import pytest
     from factory.precard.topics import label_item
     from factory.precard.transport import RateLimited
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
 
     def transport_429(api_key, model, user_text):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
@@ -1400,7 +1400,7 @@ def test_avalai_transport_http_error_propagates(monkeypatch):
 
 def test_s2_models_override_used():
     """AvalAI chain: explicit models list replaces the Zen chain."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.judge import judge_batch
     index = make_index()
@@ -1589,7 +1589,7 @@ def test_avalai_remap_substitutes_model():
 def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
     """Full-line mode: S3 vector batch calls the precard model (override),
     not the Zen V15 chain."""
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     index = make_index()
@@ -3050,7 +3050,7 @@ def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
 def test_label_batch_16_items_single_call():
     """B1: 16 items share exactly 1 LLM call; prompt holds all 16."""
     from factory.precard.topics import label_batch, LABEL_BATCH
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
 
     assert LABEL_BATCH == 16
     items = [{"kind": "word", "text": "w%02d" % i, "pool_level": "B1"}
@@ -3096,7 +3096,7 @@ def test_label_batch_salvages_valid_rows():
     """B1: one malformed row fails closed only its own item."""
     from factory.precard.accounting import item_key
     from factory.precard.topics import label_batch
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
 
     items = [{"kind": "word", "text": "good", "pool_level": "B1"},
              {"kind": "word", "text": "bad", "pool_level": "B1"}]
@@ -3133,7 +3133,7 @@ def test_label_batch_duplicate_lemma_text():
     """B1: word+phrase sharing a lemma text both resolve (no collapse)."""
     from factory.precard.accounting import item_key
     from factory.precard.topics import label_batch
-    from factory.lexicon.phrase_judge import KeyRing
+    from factory.precard.transport import KeyRing
 
     items = [{"kind": "word", "text": "run", "pool_level": "B1"},
              {"kind": "phrase", "text": "run", "pool_level": "B1"}]

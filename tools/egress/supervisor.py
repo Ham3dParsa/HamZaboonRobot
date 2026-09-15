@@ -13,7 +13,9 @@ Endpoints (127.0.0.1 only):
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
                                               egress_ip, provider, target}
   POST /v1/report {lease_id, outcome, provider?} -> {action}
-Targets (TARGETS table): "direct" (no tunnel, provider None),
+Targets (TARGETS table, owned by factory/precard/net.py and imported
+here — this module only attaches its live zen/google probe functions):
+"direct" (no tunnel, provider None),
 "avalai" (domestic: no tunnel, provider avalai), "zen" / "google" /
 "openrouter" (tunnel, one provider each; "zen" is the historic tunnel
 name and keeps working unchanged). Unknown targets park.
@@ -37,6 +39,14 @@ import time
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+try:
+    from factory.precard.net import TARGETS
+except ImportError:  # top-level script run: repo root is not on sys.path
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent
+                             .parent.parent))
+    from factory.precard.net import TARGETS
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
@@ -125,6 +135,29 @@ def sub_sources(env):
     if single and single not in out:
         out.append(single)
     return out
+
+
+FACTORY_DOTENV = (pathlib.Path(__file__).resolve().parent.parent
+                   .parent / "factory" / ".env")
+
+
+def probe_key(var, explicit="", env_map=None, extra_files=()):
+    """Probe key order: --flag value -> env mapping -> factory/.env ->
+    extra files (egress .env last for google). Returns "" when absent
+    everywhere. Never prints or logs values — callers only test for
+    emptiness and name the variable + file on failure."""
+    try:
+        from factory.precard.net import resolve_key as _resolve
+    except ImportError:  # top-level script run (same fallback as above)
+        import sys as _sys2
+        _sys2.path.insert(0, str(pathlib.Path(__file__).resolve().parent
+                                 .parent.parent))
+        from factory.precard.net import resolve_key as _resolve
+    files = [str(FACTORY_DOTENV)] + [str(p) for p in (extra_files or ())
+                                     if p]
+    return _resolve(var, explicit=explicit or "",
+                    env_map=os.environ if env_map is None else env_map,
+                    file_paths=files)
 
 
 def parse_subscription(text):
@@ -680,21 +713,12 @@ def geo_country(proxy_url, ip, timeout=15, opener=None):
         return "?"
 
 
-# Canonical lease-target table (C4b): the single owner of target ->
-# provider/tunnel/probe mapping. ``tunnel`` False = direct mode (no
-# server, domestic); True = tunnel mode (needs a link-bearing server).
-# ``probe`` is the per-target liveness fn, or None when TCP ranking is
-# all there is (no probe exists for that provider yet). "zen" is the
-# historic tunnel name: it keeps leasing tunnels unchanged.
-TARGETS = {
-    "direct": {"provider": None, "tunnel": False, "probe": None},
-    "zen": {"provider": "zen", "tunnel": True, "probe": zen_probe},
-    "google": {"provider": "google", "tunnel": True,
-               "probe": google_probe},
-    "openrouter": {"provider": "openrouter", "tunnel": True,
-                   "probe": None},
-    "avalai": {"provider": "avalai", "tunnel": False, "probe": None},
-}
+# Live probes attach here: net.TARGETS ships probe=None (hermetic core
+# owns the table); the supervisor owns the probe functions and fills
+# them into this same dict, so `from supervisor import TARGETS` keeps
+# working unchanged (including probe identity).
+TARGETS["zen"]["probe"] = zen_probe
+TARGETS["google"]["probe"] = google_probe
 
 
 def probe_pool(top_n=PROBE_TOP_N, workers=20):
@@ -754,15 +778,18 @@ def main(argv=None):
     ap.add_argument("--top-n", type=int, default=PROBE_TOP_N)
     ap.add_argument("--probe-zen", type=int, default=0, metavar="N",
                     help="tunnel the top-N alive servers one by one and "
-                         "take one real Zen ping each (needs --zen-key "
-                         "or ZEN_API_KEY env). Slow by design.")
+                         "take one real Zen ping each (needs --zen-key, "
+                         "OPENCODE_ZEN_API_KEY env, or factory/.env). "
+                         "Slow by design.")
     ap.add_argument("--zen-key", default="",
-                    help="Zen API key for --probe-zen (or ZEN_API_KEY env)")
+                    help="Zen API key for --probe-zen (or "
+                         "OPENCODE_ZEN_API_KEY env / factory/.env)")
     ap.add_argument("--probe-google", type=int, default=0, metavar="N",
                     help="tunnel the top-N alive servers one by one and "
                          "take one free Google models:list ping each "
-                         "(needs --google-key, GOOGLE_AI_API_KEY env, or "
-                         "tools/egress/.env). Google-ok servers move to "
+                         "(needs --google-key, GOOGLE_AI_API_KEY env, "
+                         "factory/.env, or tools/egress/.env). Google-ok "
+                         "servers move to "
                          "the front of the whitelist, so serve mode "
                          "leases them first. Slow by design.")
     ap.add_argument("--google-key", default="",
@@ -797,9 +824,10 @@ def main(argv=None):
             # (failed refresh / dead network). Old file stays intact.
             print("probe found 0 alive servers: whitelist NOT overwritten")
         if args.probe_zen:
-            key = args.zen_key or os.environ.get("ZEN_API_KEY", "")
+            key = probe_key("OPENCODE_ZEN_API_KEY", args.zen_key)
             if not key:
-                print("probe-zen needs --zen-key or ZEN_API_KEY env")
+                print("probe-zen needs --zen-key, OPENCODE_ZEN_API_KEY "
+                      "env, or factory/.env")
                 return 2
             try:
                 from . import tunnel as _tunnel_mod
@@ -840,12 +868,11 @@ def main(argv=None):
             else:
                 print("zen probe skipped: whitelist NOT overwritten")
         if args.probe_google:
-            key = args.google_key or os.environ.get(
-                "GOOGLE_AI_API_KEY", "") or env.get(
-                    "GOOGLE_AI_API_KEY", "")
+            key = probe_key("GOOGLE_AI_API_KEY", args.google_key,
+                            env_map=env, extra_files=(ENV_PATH,))
             if not key:
                 print("probe-google needs --google-key, GOOGLE_AI_API_KEY "
-                      "env, or tools/egress/.env")
+                      "env, factory/.env, or tools/egress/.env")
                 return 2
             try:
                 from . import tunnel as _tunnel_mod

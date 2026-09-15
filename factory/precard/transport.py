@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+from factory.core.llm_json import ABORT, COOLDOWN_SWITCH, ROTATE, classify
 from factory.precard.prompts import JUDGE_SYS
 
 
@@ -241,11 +242,19 @@ class RunLogger:
             pass
 
 
-def _rotating_llm_transport(transport, sleep_fn, state, ring):
+def _rotating_llm_transport(transport, sleep_fn, state, ring,
+                             provider="zen", key_var=""):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
-    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
-    SAME call. When EVERY key 429s consecutively, raises RateLimited —
+    Error meaning comes from the shared classify table
+    (factory.core.llm_json owns it): ROTATE (429/quota, including a
+    Google RESOURCE_EXHAUSTED body) pauses briefly, rotates to the next
+    key, and retries the SAME call; provider-level cooldown signals
+    rotate the same way (provider switching is the caller's job, and
+    every key exhausted still raises RateLimited below). ABORT
+    (401/403) raises AuthError naming the key variable and file with
+    no further attempts. Anything else propagates untouched.
+    When EVERY key fails consecutively, raises RateLimited —
     the S4 caller converts it to SystemExit AFTER flushing progress
     (OC must-fix: raising SystemExit here bypassed the flush and lost
     in-memory s4.done entries). card_pilot.assign_topic re-raises
@@ -258,7 +267,10 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
                 ring.used = 0
                 return out
             except urllib.error.HTTPError as exc:
-                if getattr(exc, "code", None) != 429:
+                action = _action_for_http_error(exc, provider)
+                if action not in (ROTATE, COOLDOWN_SWITCH):
+                    if action == ABORT:
+                        _abort_auth(exc, key_var)
                     raise
                 _note_backoff(state, "%s/s4" % model, [ROTATE_PAUSE],
                               "rotating")
@@ -271,6 +283,49 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
                     "all keys 429 (provider quotas exhausted) — re-run "
                     "later (progress flushed, resume safe)")
     return wrap
+
+
+def _http_error_body(exc):
+    """Best-effort HTTPError body for classify ("" when unreadable).
+
+    Never raises: fake transports and exhausted streams surface as an
+    empty body, and the status-code rules still decide correctly.
+    """
+    try:
+        raw = exc.read()
+    except Exception:
+        return ""
+    if isinstance(raw, bytes):
+        try:
+            return raw.decode("utf-8", "replace")
+        except Exception:
+            return ""
+    return str(raw or "")
+
+
+def _action_for_http_error(exc, provider="zen"):
+    """classify() action for one HTTPError (table lives in llm_json)."""
+    try:
+        code = getattr(exc, "code", None)
+    except Exception:
+        code = None
+    try:
+        return classify(code, _http_error_body(exc), provider)
+    except Exception:
+        return None
+
+
+def _abort_auth(exc, key_var=""):
+    """Loud auth stop: AuthError naming the key variable and file.
+
+    No values, no retries, no fallback — the caller aborts and the
+    operator re-checks the named credential.
+    """
+    code = getattr(exc, "code", None)
+    hint = key_var.strip() if key_var and key_var.strip() else "keys"
+    raise AuthError(
+        "provider auth failed (HTTP %s): check %s in factory/.env — "
+        "aborting with no silent fallback" % (code, hint))
 
 
 def _note_backoff(state, label, waits, outcome):
@@ -286,15 +341,21 @@ def _tele_tokens(usage):
 
 
 def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
-                        label):
+                        label, provider="zen", key_var=""):
     """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
-    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
-    SAME call. Success resets the ring streak (same F1 rule as
-    phrase_judge.call_with_backoff). When EVERY key 429s consecutively,
-    records the stop event and raises RateLimited — the caller flushes
-    progress and STOPS for a VPN-server switch. Auth (401/403) and
-    other errors propagate to the caller.
+    Error meaning comes from the shared classify table
+    (factory.core.llm_json owns it): ROTATE (429/quota, including a
+    Google RESOURCE_EXHAUSTED body) pauses briefly, rotates to the next
+    key, and retries the SAME call; provider-level cooldown signals
+    rotate the same way. ABORT (401/403) raises AuthError naming the
+    key variable and file with no further attempts. Anything else
+    propagates to the caller.
+    Success resets the ring streak (same F1 rule as
+    phrase_judge.call_with_backoff). When EVERY key fails
+    consecutively, records the stop event and raises RateLimited — the
+    caller flushes progress and STOPS for a VPN-server switch. Auth
+    (401/403) and other errors propagate to the caller.
     Returns (raw_text, usage-dict-or-None): tuple (text, usage)
     transports surface token counts (None-tolerated); plain-text
     transports yield None.
@@ -305,10 +366,13 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
             ring.used = 0
             if isinstance(out, tuple) and len(out) == 2:
                 return out[0], (out[1] if isinstance(out[1], dict)
-                                else None)
+                                 else None)
             return out, None
         except urllib.error.HTTPError as exc:
-            if getattr(exc, "code", None) != 429:
+            action = _action_for_http_error(exc, provider)
+            if action not in (ROTATE, COOLDOWN_SWITCH):
+                if action == ABORT:
+                    _abort_auth(exc, key_var)
                 raise
             _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
             sleep_fn(ROTATE_PAUSE)
@@ -439,7 +503,11 @@ class RateLimited(Exception):
 
 
 class KeyRing:
-    """Round-robin Zen keys. rotate() on 429; exhausted after a full circle."""
+    """Round-robin keys. rotate() on 429; exhausted after a full circle.
+
+    Single owner for the precard line (P0 net core):
+    factory.lexicon.phrase_judge imports this class instead of keeping
+    its own copy; factory.precard.net builds its leg rings from it."""
 
     def __init__(self, keys):
         self.keys = [k for k in keys if k]

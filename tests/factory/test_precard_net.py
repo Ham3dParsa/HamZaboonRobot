@@ -1,0 +1,322 @@
+"""P0 net core: hermetic tests for factory/precard/net.py + seam guards.
+
+Keyless, no network, no clock, no W: drive, no real .env reads: servers
+and clocks are fakes, transports are injected, env maps and dotenv
+files are explicit temp files. Key values are sentinels that must never
+surface in messages (asserted).
+"""
+
+import io
+import os
+import sys
+import urllib.error
+
+import pytest
+
+from factory.core import llm_json as LJ
+from factory.precard import net as NET
+from factory.precard import transport as T
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                "tools", "egress"))
+import supervisor as SUP  # noqa: E402  (probe mapping lives there)
+
+
+def _http(code, body=b""):
+    return urllib.error.HTTPError("http://x", code, "reason", {},
+                                  io.BytesIO(body) if body else None)
+
+
+def _servers():
+    return [{"scheme": "vless", "host": "h1", "port": 1, "id": "s1"},
+            {"scheme": "vless", "host": "h2", "port": 2, "id": "s2"}]
+
+
+def _cfg(**kw):
+    now = [1000.0]
+    base = {"servers": _servers(), "clock": lambda: now[0],
+            "sleeper": lambda s: None, "cooldown_s": 300.0}
+    base.update(kw)
+    cfg = NET.NetConfig(**base)
+    cfg._now = now  # test handle to advance the fake clock
+    return cfg
+
+
+# --- TARGETS single ownership ---
+
+def test_targets_shape_and_single_owner():
+    assert set(NET.TARGETS) == {"direct", "zen", "google",
+                                "openrouter", "avalai"}
+    assert NET.TARGETS["direct"] == {"provider": None, "tunnel": False,
+                                     "probe": None}
+    assert NET.TARGETS["openrouter"] == {"provider": "openrouter",
+                                         "tunnel": True, "probe": None}
+    assert NET.TARGETS["avalai"] == {"provider": "avalai",
+                                     "tunnel": False, "probe": None}
+    assert NET.TARGETS["zen"]["provider"] == "zen"
+    assert NET.TARGETS["zen"]["tunnel"] is True
+    assert NET.TARGETS["google"]["provider"] == "google"
+    # Moved from supervisor: the supervisor re-exports this same dict
+    # and only attaches its live probes (probe identity is asserted in
+    # tests/test_egress.py, which owns the supervisor side).
+    assert SUP.TARGETS is NET.TARGETS
+
+
+def test_keyring_single_owner():
+    import factory.lexicon.phrase_judge as PJ
+    assert PJ.KeyRing is T.KeyRing
+    import ast
+    import pathlib
+    tree = ast.parse(pathlib.Path(PJ.__file__).read_text(
+        encoding="utf-8"))
+    defs = [n.name for n in tree.body
+            if isinstance(n, ast.ClassDef)]
+    assert "KeyRing" not in defs
+
+
+# --- resolve_key / require_key order ---
+
+def test_resolve_key_flag_beats_env_beats_file(tmp_path):
+    dotenv = tmp_path / "factory.env"
+    dotenv.write_text("PROBE_KEY=file-v\n", encoding="utf-8")
+    assert NET.resolve_key("PROBE_KEY", explicit="flag-v",
+                           env_map={"PROBE_KEY": "env-v"},
+                           file_paths=(str(dotenv),)) == "flag-v"
+    assert NET.resolve_key("PROBE_KEY", env_map={"PROBE_KEY": "env-v"},
+                           file_paths=(str(dotenv),)) == "env-v"
+    assert NET.resolve_key("PROBE_KEY", env_map={},
+                           file_paths=(str(dotenv),)) == "file-v"
+    assert NET.resolve_key("PROBE_KEY", env_map={},
+                           file_paths=()) == ""
+
+
+def test_require_key_loud_stop_names_var_and_file_never_values(tmp_path):
+    dotenv = tmp_path / "factory.env"
+    dotenv.write_text("PROBE_KEY=file-v\n", encoding="utf-8")
+    assert NET.require_key("PROBE_KEY", env_map={},
+                           file_paths=(str(dotenv),),
+                           flag="--probe-key",
+                           file_label="factory/.env") == "file-v"
+    with pytest.raises(NET.MissingKeyError) as exc:
+        NET.require_key("PROBE_KEY", env_map={},
+                        file_paths=(str(tmp_path / "empty.env"),),
+                        flag="--probe-key", file_label="factory/.env")
+    msg = str(exc.value)
+    assert "PROBE_KEY" in msg and "--probe-key" in msg
+    assert "factory/.env" in msg and "file-v" not in msg
+
+
+# --- lease_for / report_lease with fake servers + clock ---
+
+def test_lease_direct_and_unknown_target():
+    cfg = _cfg()
+    lease = NET.lease_for(cfg, "direct")
+    assert lease["mode"] == "direct" and lease["provider"] is None
+    bad = NET.lease_for(cfg, "bogus")
+    assert bad["error"] == "park" and "bogus" in bad["message"]
+
+
+def test_lease_tunnel_picks_first_and_cools_on_429():
+    cfg = _cfg()
+    first = NET.lease_for(cfg, "zen")
+    assert (first["mode"], first["server_id"],
+            first["provider"]) == ("tunnel", "s1", "zen")
+    assert NET.report_lease(cfg, first["lease_id"],
+                            "http429") == {"action": "switch"}
+    second = NET.lease_for(cfg, "zen")
+    assert second["server_id"] == "s2"  # s1 cooling for zen
+    # A google lease still takes s1: cooldowns are per (server, provider).
+    google = NET.lease_for(cfg, "google")
+    assert google["server_id"] == "s1"
+    # Cooling expires with the fake clock.
+    cfg._now[0] += 301.0
+    assert NET.lease_for(cfg, "zen")["server_id"] == "s1"
+
+
+def test_lease_parks_when_everything_cools():
+    cfg = _cfg()
+    for target in ("zen", "zen"):
+        lease = NET.lease_for(cfg, target)
+        NET.report_lease(cfg, lease["lease_id"], "http429")
+    parked = NET.lease_for(cfg, "zen")
+    assert parked["error"] == "park"
+
+
+def test_report_unknown_lease_auth_and_junk_provider():
+    cfg = _cfg()
+    assert NET.report_lease(cfg, "nope", "ok") == {
+        "action": "unknown-lease"}
+    lease = NET.lease_for(cfg, "zen")
+    # Junk provider strings never mint cooldown keys.
+    assert NET.report_lease(cfg, lease["lease_id"], "http429",
+                            provider="junk-string") == {"action": "keep"}
+    assert not NET.is_cool(cfg, lease["server_id"], "junk-string")
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "ok") == {"action": "keep"}
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "auth_err") == {"action": "reauth"}
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "ok") == {"action": "unknown-lease"}
+
+
+# --- call_leg rotation / stops ---
+
+def test_call_leg_rotates_on_429_to_next_key():
+    cfg = _cfg(keys={"zen": ["k1-sentinel", "k2-sentinel"]})
+    seen = []
+    sleeps = []
+
+    def fake(api_key, model, text):
+        seen.append(api_key)
+        if api_key == "k1-sentinel":
+            raise _http(429)
+        return "done"
+
+    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
+                       model="m", sleep_fn=sleeps.append, state={})
+    assert out == ("done", None)
+    assert seen == ["k1-sentinel", "k2-sentinel"]
+    assert sleeps == [T.ROTATE_PAUSE]
+
+
+def test_call_leg_all_keys_429_raises_after_every_key():
+    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append(api_key)
+        raise _http(429)
+
+    with pytest.raises(T.RateLimited):
+        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m",
+                     sleep_fn=lambda s: None, state={})
+    assert seen == ["k1", "k2"]
+
+
+def test_call_leg_401_stops_after_one_attempt_naming_var_and_file():
+    cfg = _cfg(keys={"zen": ["zz-secret-1", "zz-secret-2"]})
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append(api_key)
+        raise _http(401)
+
+    with pytest.raises(T.AuthError) as exc:
+        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m",
+                     sleep_fn=lambda s: None, state={})
+    assert seen == ["zz-secret-1"]  # no further attempts
+    msg = str(exc.value)
+    assert "401" in msg and "OPENCODE_ZEN_API_KEY" in msg
+    assert "factory/.env" in msg
+    assert "zz-secret-1" not in msg and "zz-secret-2" not in msg
+
+
+def test_call_leg_missing_keys_stops_loud_without_calling():
+    cfg = _cfg()
+    seen = []
+
+    def fake(api_key, model, text):  # pragma: no cover (never called)
+        seen.append(api_key)
+        return "x"
+
+    with pytest.raises(NET.MissingKeyError) as exc:
+        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m")
+    assert seen == [] and "OPENCODE_ZEN_API_KEY" in str(exc.value)
+
+
+def test_call_leg_unknown_leg_is_programmer_error():
+    cfg = _cfg()
+    with pytest.raises(ValueError):
+        NET.call_leg(cfg, "bogus", "prompt", transport=lambda *a: "x",
+                     model="m")
+
+
+# --- transport classify routing (zero behavior change pins) ---
+
+def test_wrapper_rotates_on_bare_429_and_google_quota_body():
+    state = {}
+    ring = T.KeyRing(["k1", "k2"])
+    calls = []
+
+    def fake(api_key, model, text):
+        calls.append(api_key)
+        raise _http(429)
+
+    with pytest.raises(T.RateLimited):
+        T._call_with_rotation(fake, ring, "m", "t", lambda s: None,
+                              state, "lbl")
+    assert calls == ["k1", "k2"]
+    # Google project-quota body classifies COOLDOWN_SWITCH, and the
+    # precard transport still rotates on it (provider switching is the
+    # caller's job) — never an abort.
+    assert LJ.classify(429, "RESOURCE_EXHAUSTED: quota",
+                       "google") == LJ.COOLDOWN_SWITCH
+    ring2 = T.KeyRing(["k1", "k2"])
+    calls2 = []
+
+    def fake_q(api_key, model, text):
+        calls2.append(api_key)
+        raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
+
+    with pytest.raises(T.RateLimited):
+        T._call_with_rotation(fake_q, ring2, "m", "t",
+                              lambda s: None, {}, "lbl",
+                              provider="google")
+    assert calls2 == ["k1", "k2"]
+
+
+def test_wrapper_abort_is_loud_auth_error_and_500_propagates():
+    ring = T.KeyRing(["k1", "k2"])
+    with pytest.raises(T.AuthError):
+        T._call_with_rotation(lambda *a: (_ for _ in ()).throw(_http(
+            401)), ring, "m", "t", lambda s: None, {}, "lbl")
+    with pytest.raises(urllib.error.HTTPError):
+        T._call_with_rotation(lambda *a: (_ for _ in ()).throw(_http(
+            500)), T.KeyRing(["k1"]), "m", "t", lambda s: None, {},
+            "lbl")
+
+
+def test_rotating_transport_routes_through_classify():
+    ring = T.KeyRing(["k1"])
+    wrap = T._rotating_llm_transport(
+        lambda *a: (_ for _ in ()).throw(_http(403)), lambda s: None,
+        {}, ring)
+    with pytest.raises(T.AuthError):
+        wrap("ignored", "m", "t")
+
+
+# --- supervisor probe key mapping ---
+
+def test_probe_key_order_and_no_zen_alias(tmp_path):
+    factory_env = tmp_path / "factory.env"
+    factory_env.write_text("OPENCODE_ZEN_API_KEY=file-v\n", encoding="utf-8")
+    real = SUP.FACTORY_DOTENV
+    SUP.FACTORY_DOTENV = factory_env
+    try:
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY",
+                             "flag-v") == "flag-v"
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
+                             {"OPENCODE_ZEN_API_KEY": "env-v"}) == "env-v"
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
+                             {}) == "file-v"
+        # The removed ZEN_API_KEY alias is never consulted.
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
+                             {"ZEN_API_KEY": "alias-v"}) == "file-v"
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "", {}) != "alias-v"
+    finally:
+        SUP.FACTORY_DOTENV = real
+
+
+def test_probe_key_never_returns_none_and_google_egress_last(tmp_path):
+    egress_env = tmp_path / "egress.env"
+    egress_env.write_text("GOOGLE_AI_API_KEY=egress-v\n",
+                          encoding="utf-8")
+    real = SUP.FACTORY_DOTENV
+    SUP.FACTORY_DOTENV = tmp_path / "missing.env"
+    try:
+        got = SUP.probe_key("GOOGLE_AI_API_KEY", "", {},
+                            extra_files=(str(egress_env),))
+        assert got == "egress-v"
+        assert SUP.probe_key("GOOGLE_AI_API_KEY", "", {}) == ""
+    finally:
+        SUP.FACTORY_DOTENV = real

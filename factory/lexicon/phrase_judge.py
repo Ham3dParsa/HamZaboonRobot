@@ -47,6 +47,7 @@ from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noq
 from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
 from factory.core.telemetry import record_call as _tele_record  # noqa: E402
 from factory.core.telemetry import write_summary as _tele_write  # noqa: E402
+from factory.precard.transport import KeyRing  # noqa: E402  (P0 net core: single owner)
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -67,34 +68,6 @@ SLEEP = 3.0
 
 class RateLimited(Exception):
     """All keys 429 — caller flushes progress and exits for a server switch."""
-
-
-class KeyRing:
-    """Round-robin Zen keys. rotate() on 429; exhausted after a full circle."""
-
-    def __init__(self, keys):
-        self.keys = [k for k in keys if k]
-        if not self.keys:
-            raise ValueError(
-                "KeyRing needs at least one non-empty key "
-                "(set OPENCODE_ZEN_API_KEY in factory/.env)")
-        self.idx = 0
-        self.used = 0
-
-    @property
-    def current(self):
-        return self.keys[self.idx]
-
-    def rotate(self):
-        """Move to next key. Returns False when every key just 429'd."""
-        if not self.keys:
-            return False
-        self.used += 1
-        self.idx = (self.idx + 1) % len(self.keys)
-        if self.used >= len(self.keys):
-            self.used = 0
-            return False
-        return True
 
 
 def call_with_backoff(transport, api_key, model, prompt, sys_text=None,
