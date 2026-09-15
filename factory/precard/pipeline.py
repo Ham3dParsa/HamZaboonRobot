@@ -1,0 +1,1871 @@
+"""Precard pipeline: sample.json -> precard.jsonl (v1.4.1).
+
+Self-contained runner: stage order preprocess/inflection_review/
+anchor_rank/sense_judge/topic_vectors/topic_label/enrich, fan-out
+assembly, atomic emission. Moved verbatim from
+factory/pipeline/precard_pipeline (provenance: precard line R1-R6,
+2026-09-14); stage vocabulary is real words throughout (progress.py),
+state keys are new ids, stage_calls payload keys stay s-shaped for
+downstream readers.
+
+Usage:
+    python -m factory.precard --sample <sample.json> --out <precard.jsonl>
+    python -m factory.precard --dry-run --limit 8
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+
+FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(FACTORY_DIR)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+from factory.precard import progress
+from factory.precard import transport
+from factory.precard.accounting import audit_sample_accounting
+from factory.precard.accounting import item_key
+from factory.precard.anchor import (
+    PROPER_NOUN_POS, VULGAR_TAGS, anchor_rank_item, build_pos_sets,
+    default_zipf, judge_proper_route, kaikki_pos_set,
+    preprocess_classify_item, _backfill_candidate_tags, _is_name_gloss,
+    _mother_for_top, _needs_tag_backfill, _reroute_name_gloss_anchor,
+    _reroute_proper_anchor, _target_sense_tags, _preprocess_entry_view)
+from factory.precard.enrich import (
+    LEXICAL_TYPE_DEFAULT, REGISTER_DEFAULT, enrich_item)
+from factory.precard.judge import (
+    JUDGE_BATCH, fanout_picks, inflection_needs_review,
+    inflection_review, judge_batch, judge_fallback,
+    parse_superlative_base)
+from factory.precard.anchor import IPA_SRC_MODEL
+from factory.precard.topics import (
+    LABEL_BATCH, TOPIC_METHOD, _needs_fanout_relabel, label_batch,
+    vectors_batch)
+from factory.precard.transport import (
+    AuthError, KeyRing, RateLimited, append_telemetry_history,
+    extract_json, raise_for_auth, record_call as _tele_record,
+    extract_usage as _tele_usage, write_summary as _tele_write,
+    _note_backoff, _tele_tokens, RunLogger, write_progress,
+    AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL,
+    _avalai_chat_transport, _google_chat_transport,
+    _avalai_remap_transport, _google_remap_transport,
+    _read_egress_env_key)
+
+
+LLM_LEGS = ("inflection_review", "sense_judge", "topic_vectors",
+            "topic_label")
+
+_USE_DEFAULT = object()
+
+
+BATCH = 8
+
+
+SLEEP = 2.5
+
+
+DEFAULT_SAMPLE = "W:/hamzaban_data_factory/pilot/sample.json"
+
+
+DEFAULT_OUT = "W:/hamzaban_data_factory/pilot/precard.jsonl"
+
+
+DEFAULT_PROGRESS_DIR = "W:/hamzaban_data_factory/pilot/progress_precard"
+
+
+DEFAULT_AWL_FAMILIES = "W:/hamzaban_data_factory/raw/awl_families.json"
+
+
+DEFAULT_KAIKKI_INDEX = "W:/hamzaban_data_factory/raw/kaikki-en-index.jsonl"
+
+
+DEFAULT_KAIKKI_RAW = "W:/hamzaban_data_factory/raw/kaikki-en-words.jsonl"
+
+
+DEFAULT_TATOEBA_POOL = ("W:/hamzaban_data_factory/fixtures/"
+                        "tatoeba_pool_v13a.json")
+
+
+DEFAULT_PHRASE_TYPE_LOG = ("W:/hamzaban_data_factory/fixtures/"
+                           "phrase_type_log.jsonl")
+
+
+KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
+        "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY", "AVALAI_API_KEY")
+
+
+def load_sample(path):
+    """Load sample.json (list of {kind, text, pos?, pool_level})."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as exc:
+        raise SystemExit("cannot read sample %s: %s" % (path, exc))
+    except ValueError as exc:
+        raise SystemExit("corrupt sample %s: %s" % (path, exc))
+    if not isinstance(data, list):
+        raise SystemExit("corrupt sample %s: top-level list expected" % path)
+    return data
+
+
+def _selected_stages(args):
+    """R26: selected stage set from --only / --stages (default: all).
+
+    --only Sx runs one stage; --stages a,b runs a subset (both
+    case-insensitive). The two flags are mutually exclusive. Per-stage
+    resume still applies inside the selection (skip done unless rekeyed).
+    """
+    only = (args.only or "").strip().lower()
+    stages = (args.stages or "").strip().lower()
+    if only and stages:
+        raise SystemExit("--only and --stages are mutually exclusive")
+    if only:
+        only = progress.normalize_stage(only)
+        if only not in progress.STAGES:
+            raise SystemExit("--only must be one of %s (got %r)"
+                             % (", ".join(progress.STAGES), args.only))
+        return {only}
+    if stages:
+        picks = [progress.normalize_stage(s)
+                 for s in stages.split(",") if s.strip()]
+        bad = [s for s in picks if s not in progress.STAGES]
+        if not picks or bad:
+            raise SystemExit("--stages must be a comma list from %s (got %r)"
+                             % (", ".join(progress.STAGES), args.stages))
+        return set(picks)
+    return set(progress.STAGES)
+
+
+def _load_rekey_keys(path):
+    """R26: item keys forced to redo (one per line, # comments allowed).
+
+    Also tolerates a JSON list file. Empty path -> []. Missing file ->
+    SystemExit (explicit user input must never silently no-op).
+    """
+    if not (path or "").strip():
+        return []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            blob = handle.read()
+    except OSError as exc:
+        raise SystemExit("cannot read rekey file %s: %s" % (path, exc))
+    stripped = blob.strip()
+    if stripped.startswith("["):
+        try:
+            data = json.loads(stripped)
+        except ValueError as exc:
+            raise SystemExit("corrupt rekey file %s: %s" % (path, exc))
+        if not isinstance(data, list):
+            raise SystemExit("corrupt rekey file %s: JSON list expected"
+                             % path)
+        return [str(k).strip() for k in data
+                if isinstance(k, str) and k.strip()]
+    return [line.strip() for line in blob.splitlines()
+            if line.strip() and not line.strip().startswith("#")]
+
+
+def _stage_range(selected, stage, items, width=BATCH):
+    """R26: batch base offsets ([] when the stage is not selected)."""
+    if stage not in selected:
+        return []
+    return list(range(0, len(items), width))
+
+
+def _dry_run_needs(progress_dir, items, selected, rekeyed, resume):
+    """R26 dry-run: per-stage todo counts from existing progress.
+
+    Counts are upper bounds (s0/s1 drops are only known after the real
+    run). Nothing is read except progress JSON; nothing is written.
+    """
+    keys = [item_key(i) for i in items]
+    rekeyed_set = set(rekeyed or [])
+    needs = {}
+    for stage in progress.STAGES:
+        done = set()
+        if resume:
+            path = progress.find_stage_file(progress_dir, stage)
+            if path.exists():
+                try:
+                    saved = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    saved = {}
+                if isinstance(saved, dict):
+                    done = set((saved.get("done") or {}))
+        todo = [k for k in keys if k not in done or k in rekeyed_set]
+        needs[stage] = {"todo": len(todo), "done": len(done & set(keys))}
+    return needs
+
+
+def load_awl_members(path):
+    """Lowercase AWL member set from an awl_families.json file.
+
+    Shape: {"families": {family: [members]}} (fetch_awl.py). Missing /
+    unreadable / wrong-shape file -> empty set (fail open to keep,
+    recorded by the caller — aux data only ever adds keeps).
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    fams = (data.get("families") if isinstance(data, dict) else None) or {}
+    out = set()
+    if isinstance(fams, dict):
+        for head, members in fams.items():
+            if isinstance(head, str) and head.strip():
+                out.add(head.strip().lower())
+            for member in (members or []):
+                if isinstance(member, str) and member.strip():
+                    out.add(member.strip().lower())
+    return out
+
+
+def _color(text, name):
+    """ANSI color for consoles; plain text when piped/NO_COLOR/Windows-legacy.
+
+    Console-only helper (stored reasons/logs stay uncolored for files).
+    """
+    import os as _os
+    codes = {"green": "32", "red": "31", "yellow": "33", "cyan": "36",
+             "bold": "1"}
+    try:
+        use = sys.stdout.isatty() and not _os.environ.get("NO_COLOR") \
+            and name in codes
+    except Exception:
+        use = False
+    if not use:
+        return text
+    return "\x1b[%sm%s\x1b[0m" % (codes[name], text)
+
+
+def _batch_progress(stage, batch_no, n_batches, ok, fail):
+    """Live one-line progress (carriage return, English-only console).
+
+    Replaces per-batch line spam: the line rewrites in place. run.log
+    keeps full history (unchanged); a stage summary box follows at each
+    stage end. Persian drop details go to dropped.log, never the console
+    (Windows terminal mojibake).
+    """
+    width = 20
+    total = n_batches or 1
+    done = min(batch_no, total)
+    filled = int(width * done / total)
+    print("\r%s" % _color(
+        "[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
+            progress.display(stage), "=" * filled, " " * (width - filled),
+            done, total, ok, fail), "cyan"), end="", flush=True)
+
+
+def _reason_slug(reason):
+    """English slug of a drop reason (text before the first colon)."""
+    return str(reason or "").split(":")[0].strip() or "unknown"
+
+
+def _stage_summary(stage, states, out_path):
+    """English stage box on stdout + full multilingual details to file."""
+    from collections import Counter
+    done = states.get(stage, {}).get("done", {}) or {}
+    failed = states.get(stage, {}).get("failed", []) or []
+    # Kept rule for the summary box: an entry counts as kept unless
+    # explicitly not-kept or dropped (a verdict carrying both kept=True
+    # and dropped=<reason> is dropped — fail-closed). run_logger callers
+    # may use simpler counters (len(done)); the box is the strict one.
+    kept = sum(1 for v in done.values()
+               if isinstance(v, dict) and v.get("kept", True) is not False
+               and not v.get("dropped"))
+    # Human voice: input = distinct keys attempted (done + failed-not-in-
+    # done). Fallback verdicts (s2 judge) are kept AND listed in failed,
+    # so kept + dropped may exceed input there — the s1-fallback slug
+    # names the overlap.
+    input_n = len(done) + len([k for k in failed if k not in done])
+    slugs = Counter()
+    details = []
+    quarantined = []
+    for key, verdict in done.items():
+        if not isinstance(verdict, dict):
+            continue
+        reason = verdict.get("reason") or verdict.get("dropped") or ""
+        if verdict.get("quarantine"):
+            quarantined.append("%s: quarantine-%s" % (
+                key, verdict.get("quarantine")))
+        if verdict.get("kept", True) and not verdict.get("dropped"):
+            # judge fallbacks stay live but are notable: the judge
+            # failed and the anchor survived instead.
+            if str(verdict.get("model", "")).startswith("s1-"):
+                slugs["s1-fallback"] += 1
+                details.append("%s: s1-fallback" % key)
+            continue
+        slugs[_reason_slug(reason)] += 1
+        details.append("%s: %s" % (key, reason))
+    for key in failed:
+        if key not in done:
+            slugs["failed-no-entry"] += 1
+            details.append("%s: failed-no-entry" % key)
+    print("")
+    # Human pipeline log: domain voice + Finglish, no s0-style ids.
+    print(_color("%s: input %d \u2192 kept %d, dropped %d" % (
+        progress.display(stage), input_n, kept, len(failed)),
+        "green" if not failed else "yellow"))
+    print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
+        progress.display(stage), kept, len(failed),
+        " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
+        if slugs else "",
+        " | quarantined=%d" % len(quarantined) if quarantined else ""),
+        "green" if not failed else "yellow"))
+    if details or quarantined:
+        drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
+        try:
+            with open(drop_log, "a", encoding="utf-8") as handle:
+                handle.write("=== %s drops ===\n" % progress.display(stage))
+                for line in details:
+                    handle.write(line + "\n")
+                if quarantined:
+                    handle.write("=== %s quarantine (kept, review) ===\n"
+                                 % progress.display(stage))
+                    for line in quarantined:
+                        handle.write(line + "\n")
+        except OSError as exc:
+            print("warning: dropped.log append failed (%s)" % exc)
+
+
+def _flush(progress_dir, states):
+    for stage in progress.STAGES:
+        write_progress(str(progress.stage_file(progress_dir, stage)),
+                       states[stage])
+
+
+def _flush_telemetry(tele_dir, tele_store, flushed):
+    """Append unflushed telemetry records + rewrite the summary.
+
+    Kill-safe incremental persistence: a killed run keeps every record up
+    to the last completed stage (and every STOP path flushes before
+    exiting). Returns the new flushed count. Summary covers the current
+    run; the end-of-run history append stays cumulative.
+    """
+    pending = tele_store[flushed:]
+    if pending:
+        tele_dir = pathlib.Path(tele_dir)
+        tele_dir.mkdir(parents=True, exist_ok=True)
+        hist = tele_dir / "telemetry_records.jsonl"
+        with open(hist, "a", encoding="utf-8") as handle:
+            for rec in pending:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _tele_write(str(tele_dir / "telemetry_summary.json"),
+                    list(tele_store))
+    return len(tele_store)
+
+
+def _parse_stage_map(values, allowed_values=None):
+    """Parse ["sense_judge=avalai"] into {sense_judge: avalai}. Bad entries raise SystemExit
+    (fail-fast: a typo must not silently burn paid calls on the wrong leg).
+    Legs accept new ids (legacy s-ids still work).
+    """
+    out = {}
+    for raw in values or []:
+        if "=" not in raw:
+            raise SystemExit("bad --stage-* value %r (want STAGE=value)"
+                             % raw)
+        stage, _, value = raw.partition("=")
+        raw_stage = stage.strip().lower()
+        stage, value = progress.normalize_stage(raw_stage), value.strip()
+        if stage not in LLM_LEGS:
+            raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
+                raw_stage, ", ".join(
+                    "%s/%s" % (s, progress.display(s)) for s in LLM_LEGS)))
+        if allowed_values is not None and value not in allowed_values:
+            raise SystemExit("bad --stage-* value %r (want one of: %s)" % (
+                value, ", ".join(allowed_values)))
+        if not value:
+            raise SystemExit("bad --stage-* value %r (empty)" % raw)
+        out[stage] = value
+    return out
+
+
+def main(argv=None, _judge_transport=_USE_DEFAULT,
+         _topic_transport=_USE_DEFAULT, _assign_transport=_USE_DEFAULT,
+         _inflect_transport=_USE_DEFAULT,
+         _sleep_fn=None, _index=None, _read_entry=None, _tatoeba=None,
+         _zipf_fn=None, _awl_set=None, _type_map=None,
+         _type_log_available=None):
+    """Run the pre-card pipeline. Returns 0 on success (exit code)."""
+    args = parse_args(argv)
+    sleep_fn = _sleep_fn or time.sleep
+    # Owner-ordered pacing (2026-09-14): --sleep-secs scales ONLY the
+    # inter-batch pacing pauses; the 429-rotation backoff (ROTATE_PAUSE)
+    # always stays on, so rate errors still back off instead of
+    # spinning. Default keeps the historic 2.5s pacing.
+    pace_secs = max(0.0, args.sleep_secs)
+    pace_fn = (lambda s: None) if pace_secs == 0 else (
+        lambda s: sleep_fn(pace_secs))
+    items = load_sample(args.sample)
+    if args.limit:
+        items = items[:args.limit]
+
+    if args.dry_run:
+        selected = _selected_stages(args)
+        rekeyed = _load_rekey_keys(args.rekey)
+        needs = _dry_run_needs(args.progress_dir, items, selected,
+                               rekeyed, resume=not args.no_resume)
+        print("dry-run plan (nothing written, no network):")
+        print("  sample:   %s (%d items)" % (args.sample, len(items)))
+        print("  out:      %s (not written)" % args.out)
+        print("  progress: %s (not written)" % args.progress_dir)
+        print("  batches:  %d x %d (preprocess..enrich incl. inflection, "
+              "resume %s)" % (
+            (len(items) + BATCH - 1) // BATCH if items else 0, BATCH,
+            "off" if args.no_resume else "on"))
+        print("  stages:   preprocess[name/zipf/phrase gates] / "
+              "inflection_review / anchor_rank / sense_judge / "
+              "topic_vectors / topic_label / enrich")
+        print("  selected: %s" % ", ".join(
+            progress.display(s) for s in progress.STAGES if s in selected))
+        if rekeyed:
+            print("  rekey:    %d key(s) forced to redo" % len(rekeyed))
+        for stage in progress.STAGES:
+            if stage in selected:
+                print("  need %s: %d todo (%d done kept, upper bound "
+                      "pre-drop)" % (progress.display(stage),
+                                     needs[stage]["todo"],
+                                     needs[stage]["done"]))
+            else:
+                print("  stage %s: skipped (not selected)"
+                      % progress.display(stage))
+        return 0
+
+    progress_dir = pathlib.Path(args.progress_dir)
+    progress_dir.mkdir(parents=True, exist_ok=True)
+    resume = not args.no_resume
+    states = {}
+    for stage in progress.STAGES:
+        path = progress.find_stage_file(progress_dir, stage)
+        loaded = {}
+        if resume and path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise SystemExit("corrupt progress %s: %s" % (path, exc))
+        states[stage] = {"done": loaded.get("done", {}),
+                         "failed": loaded.get("failed", []),
+                         "backoffs": loaded.get("backoffs", [])}
+    total = len(items)
+    banner = []
+    for stage in progress.STAGES:
+        done_n = len(states[stage]["done"])
+        banner.append("%s done=%d remaining=%d" % (
+            progress.display(stage), done_n, max(0, total - done_n)))
+    print("resume: %s" % " | ".join(banner))
+    # R26: stage selection + rekey eviction (resume still skips the rest).
+    # Stage dependency: anchor -> judge -> vectors -> label -> enrich,
+    # so rekeying an upstream stage auto-invalidates the same keys downstream — otherwise assembly mixes
+    # new anchors with stale enrichment (kiss#5-style staleness).
+    _DOWNSTREAM = {"anchor_rank": ("sense_judge", "topic_vectors", "topic_label", "enrich"), "sense_judge": ("topic_vectors", "topic_label", "enrich"),
+                   "topic_vectors": ("topic_label", "enrich"), "topic_label": ("enrich",)}
+    selected = _selected_stages(args)
+    rekeyed = _load_rekey_keys(args.rekey)
+    if rekeyed:
+        rekeyed_set = set(rekeyed)
+        for stage in selected:
+            for key in rekeyed:
+                states[stage]["done"].pop(key, None)
+            states[stage]["failed"] = [
+                k for k in states[stage]["failed"]
+                if k not in rekeyed_set]
+        for stage in selected:
+            for down in _DOWNSTREAM.get(stage, ()):
+                for key in rekeyed:
+                    states[down]["done"].pop(key, None)
+                states[down]["failed"] = [
+                    k for k in states[down]["failed"]
+                    if k not in rekeyed_set]
+        print("rekey: %d key(s) forced to redo in %s" % (
+            len(rekeyed),
+            ", ".join(progress.display(s) for s in progress.STAGES if s in selected)))
+
+    # V7: compact run.log in the out dir (stage start/end + counts +
+    # timings). Console shows a live one-line progress per batch
+    # (_batch_progress) plus an English [STAGE] box; multilingual drop
+    # details go to dropped.log. ok/fail per stage: s0 kept vs
+    # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
+    # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
+    # no fail-closed signal, so fail is always 0 there.
+    run_logger = RunLogger(
+        str(pathlib.Path(args.out).parent / "run.log"),
+        namer=progress.display)
+    for stage in progress.STAGES:
+        if stage not in selected:
+            run_logger.log("stage %s skipped (not selected)"
+                           % progress.display(stage))
+    tele_store = []  # R27: per-batch records (key_idx only, never values)
+    tele_dir = pathlib.Path(args.out).parent
+    tele_flushed = 0
+
+    if _index is not None:
+        index = _index
+    else:
+        try:
+            index = load_kaikki_index(args.kaikki_index)
+        except OSError as exc:
+            raise SystemExit("cannot load kaikki index %s: %s" % (
+                args.kaikki_index, exc))
+    if _read_entry is not None:
+        read_entry = _read_entry
+    else:
+        def read_entry(row, _raw=args.kaikki_raw):
+            return read_kaikki_entry(_raw, row["offset"],
+                                                row["length"])
+    tatoeba_pool = _tatoeba if _tatoeba is not None else \
+        load_tatoeba_pool(args.tatoeba_pool)
+
+    # preprocess (strict preprocess, deterministic, batch-flushed). Aux files fail
+    # open to keep: a missing AWL/type-log only ever adds keeps.
+    zipf_fn = _zipf_fn or default_zipf
+    awl_set = (_awl_set if _awl_set is not None
+               else load_awl_members(args.awl_families))
+    if _type_map is not None:
+        type_map = _type_map
+    else:
+        try:
+            type_map = load_phrase_types(args.phrase_type_log)
+        except Exception:
+            type_map = {}
+    type_log_available = (bool(type_map) if _type_log_available is None
+                          else bool(_type_log_available))
+    # RAM: lazy per-lemma pos_sets (500-sample touches ~500 lemmas, not
+    # the full index — avoids building a 10k+ entry dict + per-sense sets;
+    # measured ~5% process-memory drop via psutil before/after on 500).
+    class _LazyPosSets(dict):
+        def __missing__(self, key):
+            rows = index.get(key, []) if isinstance(index, dict) else []
+            val = kaikki_pos_set(rows)
+            self[key] = val
+            return val
+
+        def get(self, key, default=None):
+            try:
+                return self[key]
+            except KeyError:
+                return default
+    pos_sets = _LazyPosSets()
+    preprocess_info: dict = {}
+    # Memoized entry views: one Kaikki read pass per lemma per run (preprocess
+    # was previously in-memory; without this each item pays open+seek).
+    # Lazy per-lemma — avoids per-sense duplication.
+    preprocess_view_cache: dict = {}
+
+    def _cached_view(text):
+        key = (text or "").strip().casefold()
+        if key not in preprocess_view_cache:
+            preprocess_view_cache[key] = _preprocess_entry_view(
+                {"kind": "word", "text": text}, index, read_entry)
+        return preprocess_view_cache[key]
+    run_logger.stage_start("preprocess")
+    for batch_no, base in enumerate(
+            _stage_range(selected, "preprocess", items), start=1):
+        batch = items[base:base + BATCH]
+        for item in batch:
+            key = item_key(item)
+            if key not in states["preprocess"]["done"]:
+                verdict = preprocess_classify_item(
+                    item, pos_sets, zipf_fn, awl_set, type_map,
+                    type_log_available, entry_fn=_cached_view)
+                states["preprocess"]["done"][key] = verdict
+                if not verdict["kept"] \
+                        and key not in states["preprocess"]["failed"]:
+                    states["preprocess"]["failed"].append(key)
+        _flush(progress_dir, states)
+        # Deterministic stage: <1s per batch, no progress bar by design
+        # (LLM stages use _batch_progress for live per-batch feedback).
+    run_logger.stage_end(
+        "preprocess",
+        ok=sum(1 for v in states["preprocess"]["done"].values() if v.get("kept")),
+        fail=len(states["preprocess"].get("failed", [])))
+    tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+    _stage_summary("preprocess", states, args.out)
+    for key, verdict in states["preprocess"]["done"].items():
+        preprocess_info[key] = verdict
+    dropped = {k for k, v in preprocess_info.items() if not v.get("kept")}
+    items = [i for i in items if item_key(i) not in dropped]
+    if dropped:
+        # Details live in dropped.log (written by _stage_summary);
+        # console stays a single short line (no 80-item spam).
+        print(_color("%s: kept=%d dropped=%d "
+                     "(see dropped.log)" % (progress.display("preprocess"),
+                                            len(items), len(dropped)),
+                     "cyan"))
+
+    need_llm = (_judge_transport is _USE_DEFAULT
+                or _topic_transport is _USE_DEFAULT
+                or _assign_transport is _USE_DEFAULT
+                or _inflect_transport is _USE_DEFAULT)
+    # Provider intent before any key loading (review: full-AvalAI runs
+    # must not demand an unused Zen key). None = caller-owned/skipped leg
+    # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
+    # Per-leg overrides (--stage-provider/--stage-model) participate in
+    # every decision below, so a mixed line (e.g. judge zen + rest
+    # avalai) wires correctly. Precedence per leg: --stage-* win, then
+    # --judge-*, then master --llm-provider/--precard-model, then Zen.
+    stage_prov = _parse_stage_map(args.stage_provider,
+                                    ("zen", "avalai", "google"))
+    stage_model = _parse_stage_map(args.stage_model)
+
+    def _leg_provider(leg):
+        if leg in stage_prov:
+            return stage_prov[leg]
+        if leg == "sense_judge" and args.judge_provider in ("avalai", "google"):
+            return args.judge_provider
+        return args.llm_provider
+
+    def _leg_model(leg):
+        if leg in stage_model:
+            return stage_model[leg]
+        if leg == "sense_judge" and args.judge_model:
+            return args.judge_model
+        if args.precard_model:
+            return args.precard_model
+        if providers.get(leg) == "google":
+            return GOOGLE_PRECARD_MODEL
+        return AVALAI_PRECARD_MODEL
+
+    _injected = {"inflection_review": _inflect_transport, "sense_judge": _judge_transport,
+                 "topic_vectors": _topic_transport, "topic_label": _assign_transport}
+    providers = {leg: _leg_provider(leg) for leg in LLM_LEGS}
+    models = {leg: _leg_model(leg) for leg in LLM_LEGS}
+
+    def _leg_avalai(leg):
+        # None = caller-skipped leg (fallback path, transport never
+        # called): needs no key — same rule as the zen leg below. Only
+        # _USE_DEFAULT legs run on the provider and need its key.
+        return providers[leg] == "avalai" \
+            and _injected[leg] is _USE_DEFAULT
+
+    def _leg_google(leg):
+        # Same skipped-leg rule as above (a None leg never calls its
+        # transport, so it must not demand the provider key).
+        return providers[leg] == "google" \
+            and _injected[leg] is _USE_DEFAULT
+
+    full_avalai = all(_leg_avalai(leg) for leg in LLM_LEGS) and any(
+        _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
+    judge_avalai = _judge_transport is _USE_DEFAULT \
+        and providers["sense_judge"] == "avalai"
+    judge_google = _judge_transport is _USE_DEFAULT \
+        and providers["sense_judge"] == "google"
+    # Exact provider manifest: stage -> provider + actual model (telemetry
+    # loops record requested Zen names on remap legs, so this file is the
+    # disambiguator for cost attribution).
+    provider_map = {
+        leg: {"provider": providers[leg],
+              "model": (models[leg]
+                        if providers[leg] in ("avalai", "google")
+                        else "zen-chain")}
+        for leg in LLM_LEGS}
+    api_key = "injected"
+    api_key_2 = ""
+    zen_needed = any(providers[leg] == "zen"
+                     and _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
+    avalai_needed = any(_leg_avalai(leg) for leg in LLM_LEGS)
+    google_needed = any(_leg_google(leg) for leg in LLM_LEGS)
+    if need_llm and zen_needed and not full_avalai:
+        env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+        api_key = env["OPENCODE_ZEN_API_KEY"]
+        api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
+        if not api_key:
+            raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
+    if full_avalai or not zen_needed:
+        # No Zen anywhere (or Zen unused): skip the Zen ring.
+        ring = None
+    else:
+        try:
+            ring = KeyRing([api_key, api_key_2])
+        except ValueError as exc:
+            raise SystemExit("no Zen keys: %s" % exc)
+    judge_transport = (transport.zen_judge_transport
+                       if _judge_transport is _USE_DEFAULT
+                       else _judge_transport)
+    judge_models = None
+    # AvalAI wiring per leg. judge gets its own key/ring pair (F1 scoping);
+    # inflection/vectors/label share the leg-keyed pairs below.
+    leg_api_key, leg_ring = {}, {}
+    judge_api_key, judge_ring = None, None
+    # full_avalai/judge_avalai/judge_google computed above.
+    precard_model = args.precard_model or AVALAI_PRECARD_MODEL
+    if avalai_needed:
+        try:
+            env_av = load_factory_env(required=("AVALAI_API_KEY",))
+            avalai_key = env_av["AVALAI_API_KEY"]
+        except KeyError:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(avalai provider needs it)")
+        if not avalai_key:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(avalai provider needs it)")
+        try:
+            avalai_ring = KeyRing([avalai_key])
+        except ValueError as exc:
+            raise SystemExit("no AvalAI keys: %s" % exc)
+        for leg in LLM_LEGS:
+            if not _leg_avalai(leg):
+                continue
+            leg_api_key[leg] = avalai_key
+            leg_ring[leg] = avalai_ring
+        if judge_avalai:
+            judge_api_key = avalai_key
+            judge_ring = avalai_ring
+            judge_transport = _avalai_chat_transport
+            judge_models = [models["sense_judge"]]
+    if google_needed:
+        try:
+            env_go = load_factory_env(required=("GOOGLE_AI_API_KEY",))
+            google_key = env_go["GOOGLE_AI_API_KEY"]
+        except KeyError:
+            google_key = ""
+        if not google_key:
+            # Owner layout fallback: spare LLM keys live beside the
+            # egress SUBs (same disk, never committed, never logged).
+            import pathlib as _pl
+            here = _pl.Path(__file__).resolve().parent.parent.parent
+            google_key = _read_egress_env_key(
+                str(here / "tools" / "egress" / ".env"),
+                "GOOGLE_AI_API_KEY")
+        if not google_key:
+            raise SystemExit("no GOOGLE_AI_API_KEY in factory/.env "
+                             "(google provider needs it)")
+        try:
+            google_ring = KeyRing([google_key])
+        except ValueError as exc:
+            raise SystemExit("no Google keys: %s" % exc)
+        for leg in LLM_LEGS:
+            if not _leg_google(leg):
+                continue
+            leg_api_key[leg] = google_key
+            leg_ring[leg] = google_ring
+        if judge_google:
+            judge_api_key = google_key
+            judge_ring = google_ring
+            judge_transport = _google_chat_transport
+            judge_models = [models["sense_judge"]]
+    if full_avalai:
+        api_key, ring = avalai_key, KeyRing([avalai_key])
+    topic_transport = assign_transport = inflect_transport = None
+    vectors_models_override = [models["topic_vectors"]] if _leg_avalai("topic_vectors") or \
+        _leg_google("topic_vectors") else None
+    # Per-leg remaps (uniform for full and mixed modes, per-leg models).
+    # A leg keeps its remap when avalai/google, else Zen below.
+    for leg in ("inflection_review", "topic_vectors", "topic_label"):
+        if _leg_avalai(leg):
+            _remap_leg = _avalai_remap_transport(models[leg])
+        elif _leg_google(leg):
+            _remap_leg = _google_remap_transport(models[leg])
+        else:
+            continue
+        if leg == "inflection_review" and _inflect_transport is _USE_DEFAULT:
+            inflect_transport = _remap_leg
+        elif leg == "topic_vectors" and _topic_transport is _USE_DEFAULT:
+            topic_transport = _remap_leg
+        elif leg == "topic_label" and _assign_transport is _USE_DEFAULT:
+            assign_transport = _remap_leg
+    _any_avalai_leg = any(_leg_avalai(leg) for leg in LLM_LEGS)
+    _any_google_leg = any(_leg_google(leg) for leg in LLM_LEGS)
+    if (args.judge_model or args.precard_model or args.stage_model) \
+            and _judge_transport is _USE_DEFAULT \
+            and not _any_avalai_leg and not _any_google_leg:
+        print("warning: model flags apply only with "
+              "an avalai/google provider; ignored on the zen path",
+              file=sys.stderr)
+    # Defaults for legs the remap loop above did not claim: a leg keeps
+    # its remap when avalai, else falls back to the Zen default.
+    if _topic_transport is _USE_DEFAULT and topic_transport is None:
+        topic_transport = transport.zen_vectors_transport
+    elif _topic_transport is not _USE_DEFAULT:
+        topic_transport = _topic_transport
+    if _assign_transport is _USE_DEFAULT and assign_transport is None:
+        assign_transport = transport.zen_label_transport
+    elif _assign_transport is not _USE_DEFAULT:
+        assign_transport = _assign_transport
+    if _inflect_transport is _USE_DEFAULT and inflect_transport is None:
+        inflect_transport = transport.zen_direct_transport
+    elif _inflect_transport is not _USE_DEFAULT:
+        inflect_transport = _inflect_transport
+
+    label_topup_cache = _resolve_label_topup_cache(progress_dir)
+    label_calls: dict = {}
+    precards: dict = {}
+    inflection_dropped: set = set()
+    # Provider manifest: exact stage -> provider + actual model for cost
+    # attribution (console + run.log + provider_map.json beside --out).
+    _prov_line = ", ".join(
+        "%s=%s/%s" % (progress.display(leg), provider_map[leg]["provider"],
+                      provider_map[leg]["model"]) for leg in LLM_LEGS)
+    print(_color("providers: %s" % _prov_line, "cyan"))
+    run_logger.log("providers: %s" % _prov_line)
+    try:
+        with open(pathlib.Path(args.out).parent / "provider_map.json",
+                  "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(provider_map, ensure_ascii=False))
+    except OSError as exc:
+        print("warning: provider_map.json write failed (%s)" % exc)
+    try:
+        # S0b R36: inflection micro-stage (own progress key inflection.json).
+        # Items whose raw anchor top is an inflection stub go to the
+        # batched inflection_review (card_pilot, Muse chain, imported);
+        # explicit keep-false drops with reason inflection-drop:<reason>;
+        # review errors keep the item flagged review-uncertain (fail
+        # closed, never drop on uncertainty). transport=None skips the
+        # LLM leg (all kept, stated). Drops never reach precard.jsonl.
+        # R44 v12: superlative/comparative-pattern glosses redirect to
+        # the BASE lemma (kept, reason superlative-redirect, redirect_to
+        # the base) on an explicit keep-false verdict; an explicit keep
+        # (established nominal/idiomatic sense) stays inflection-keep.
+        # Verdict variant inside inflection — no new stage.
+        run_logger.stage_start("inflection_review")
+        n_inflection_batches = (len(items) + BATCH - 1) // BATCH or 1
+        for batch_no, base in enumerate(
+                _stage_range(selected, "inflection_review", items), start=1):
+            batch = items[base:base + BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["inflection_review"]["done"]]
+            review = []
+            for item in todo:
+                key = item_key(item)
+                try:
+                    needs, gloss = inflection_needs_review(
+                        item, index, read_entry)
+                except Exception:
+                    needs, gloss = False, ""
+                if not needs:
+                    states["inflection_review"]["done"][key] = {
+                        "kept": True, "reason": "not-inflection",
+                        "uncertain": False}
+                else:
+                    review.append({"key": key,
+                                   "text": item.get("text", ""),
+                                   "gloss": gloss})
+            if review and inflect_transport is not None:
+                try:
+                    verdicts = inflection_review(
+                        review, inflect_transport,
+                        leg_api_key.get("inflection_review", api_key),
+                        telemetry=tele_store, tele_stage="inflection_review")
+                except AuthError:
+                    raise
+                except Exception:
+                    verdicts = {}
+                for entry in review:
+                    key = entry["key"]
+                    verdict = verdicts.get(key)
+                    base = parse_superlative_base(
+                        entry.get("gloss") or "")
+                    if verdict is None:
+                        states["inflection_review"]["done"][key] = {
+                            "kept": True, "reason": "review-uncertain",
+                            "uncertain": True}
+                    elif not verdict.get("keep") and base and not verdict.get(
+                            "uncertain"):
+                        states["inflection_review"]["done"][key] = {
+                            "kept": True,
+                            "reason": "superlative-redirect",
+                            "redirect_to": base,
+                            "uncertain": False}
+                    elif not verdict.get("keep"):
+                        states["inflection_review"]["done"][key] = {
+                            "kept": False,
+                            "reason": "inflection-drop:%s" % (
+                                verdict.get("reason") or "base-lemma"),
+                            "uncertain": False}
+                        if key not in states["inflection_review"]["failed"]:
+                            states["inflection_review"]["failed"].append(key)
+                    else:
+                        states["inflection_review"]["done"][key] = {
+                            "kept": True,
+                            "reason": ("review-uncertain"
+                                       if verdict.get("uncertain")
+                                       else "inflection-keep"),
+                            "uncertain": bool(
+                                verdict.get("uncertain"))}
+                pace_fn(SLEEP)
+            elif review:
+                for entry in review:
+                    states["inflection_review"]["done"][entry["key"]] = {
+                        "kept": True, "reason": "s0b-no-transport",
+                        "uncertain": False}
+            _flush(progress_dir, states)
+            failed_here = sum(
+                1 for i in batch
+                if not (states["inflection_review"]["done"].get(item_key(i)) or {}).get(
+                    "kept", True))
+            _batch_progress("inflection_review", batch_no, n_inflection_batches,
+                              len(batch) - failed_here, failed_here)
+        run_logger.stage_end(
+            "inflection_review",
+            ok=sum(1 for v in states["inflection_review"]["done"].values()
+                   if v.get("kept")),
+            fail=len(states["inflection_review"].get("failed", [])))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("inflection_review", states, args.out)
+        inflection_dropped = {k for k, v in states["inflection_review"]["done"].items()
+                       if isinstance(v, dict) and not v.get("kept")}
+        items = [i for i in items if item_key(i) not in inflection_dropped]
+        # R44 v12: propagate superlative redirects onto the in-memory
+        # items AND merge into the base lemma (Gemini: avoid FSRS
+        # fragmentation across best/good). The item becomes the base form
+        # (redirected_from recorded); downstream stages key off the new
+        # text, so fresh keys are resume-safe by construction.
+        for item in items:
+            s0b = states["inflection_review"]["done"].get(item_key(item)) or {}
+            if s0b.get("redirect_to"):
+                item["redirect_to"] = s0b["redirect_to"]
+                item["s0b_reason"] = s0b.get("reason", "")
+                base = str(s0b["redirect_to"]).strip().lower()
+                if base and base != (item.get("text") or "").strip().lower():
+                    item["redirected_from"] = item.get("text", "")
+                    item["text"] = base
+        if inflection_dropped:
+            # Details live in dropped.log; console stays one short line.
+            print(_color("%s: kept=%d dropped=%d "
+                         "(see dropped.log)" % (progress.display("inflection_review"),
+                                                len(items),
+                                                len(inflection_dropped)),
+                         "cyan"))
+        # anchor (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
+        # here: when the anchored sense's entry POS is in {name, propn}
+        # (PROPER_NOUN_POS, reused by import — deterministic,
+        # no name lists) the item drops with reason anchor-proper-noun.
+        # R34 v9: unresolvable bare-xref anchors drop here too (reason
+        # no-real-def: no target entry, or the target is also a bare
+        # xref — 1 hop max, no chains).
+        # F2: name-gloss anchor tops (given/surname/place-name) with a
+        # non-proper entry POS reroute to the first non-name sense here
+        # (act-fix pattern, flagged rerouted_from_name) or drop as
+        # anchor-name-gloss when every candidate is a name.
+        # The reason rides on the s1 done entry + failed list (drops never
+        # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
+        # drop is resume-safe with no re-run needed.
+        run_logger.stage_start("anchor_rank")
+        for batch_no, base in enumerate(
+                _stage_range(selected, "anchor_rank", items), start=1):
+            batch = items[base:base + BATCH]
+            for item in batch:
+                key = item_key(item)
+                # V7 resume-compat: v6-era s1 entries lack anchor_pos, so
+                # they are re-ranked deterministically (same scores plus
+                # anchor_pos/drop verdict) instead of skipped. R34 v9
+                # extends the compat to the xref fields. F2 extends it to
+                # kept name-topped entries (pre-F2 progress never ran the
+                # name-gloss verdict); dropped entries are never re-run.
+                done_entry = states["anchor_rank"]["done"].get(key)
+                done_top = ((done_entry.get("top") or {}).get("gloss", "")
+                            if isinstance(done_entry, dict) else "")
+                needs_name_eval = (
+                    isinstance(done_entry, dict)
+                    and "dropped" not in done_entry
+                    and not done_entry.get("rerouted_from_name")
+                    and _is_name_gloss(done_top))
+                # Tags backfill: pre-tags s1 entries carry candidates
+                # without the "tags" key — re-rank so the sense-judge
+                # prompt renders [tags] identically on fresh and resumed
+                # runs (same deterministic scores, tags added).
+                needs_tag_backfill = _needs_tag_backfill(done_entry)
+                if not isinstance(done_entry, dict) \
+                        or "anchor_pos" not in done_entry \
+                        or "anchor_tags" not in done_entry \
+                        or "xref_unresolvable" not in done_entry \
+                        or needs_name_eval \
+                        or needs_tag_backfill:
+                    try:
+                        ranked = anchor_rank_item(item, index, read_entry)
+                        if (ranked.get("anchor_pos") or "") in \
+                                PROPER_NOUN_POS:
+                            rerouted = _reroute_proper_anchor(
+                                item, ranked, index, read_entry)
+                            if rerouted is not None:
+                                ranked["top"], ranked["en_def"], \
+                                    ranked["anchor_pos"] = rerouted
+                                ranked["rerouted_from_proper"] = True
+                                # Mirror the name branch: refresh the tag
+                                # carrier from the TARGET sense and re-run
+                                # the vulgar verdict (review: stale
+                                # anchor_tags would leak a vulgar target
+                                # past the gate); empty lookups keep the
+                                # anchor's tags (uncertainty keeps).
+                                fresh = _target_sense_tags(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh:
+                                    ranked["anchor_tags"] = sorted(fresh)
+                                fresh_mother = _mother_for_top(
+                                    item,
+                                    rerouted[0].get("sense_id", ""),
+                                    index, read_entry)
+                                if fresh_mother is not None:
+                                    ranked["mother_lemma"], \
+                                        ranked["mother_lemmas"], \
+                                        ranked["mother_multi"] = fresh_mother
+                                if set(ranked.get("anchor_tags")
+                                       or {}) & VULGAR_TAGS:
+                                    ranked.pop("rerouted_from_proper",
+                                               None)
+                                    ranked["dropped"] = "vulgar-anchor"
+                                    if key not in states["anchor_rank"][
+                                            "failed"]:
+                                        states["anchor_rank"]["failed"].append(key)
+                                print(_color(
+                                    "warning: %s re-anchored off proper "
+                                    "top -> %s" % (
+                                        key,
+                                        rerouted[0].get("sense_id", "")),
+                                    "yellow"))
+                            else:
+                                ranked["dropped"] = "anchor-proper-noun"
+                                if key not in states["anchor_rank"]["failed"]:
+                                    states["anchor_rank"]["failed"].append(key)
+                        elif _is_name_gloss(
+                                (ranked.get("top") or {}).get("gloss", "")):
+                            # F2: name-gloss top (given/surname/place-name)
+                            # with a non-proper entry POS — the gloss-based
+                            # sibling of the proper branch above. Reroutes
+                            # to the first non-name sense (act-fix
+                            # pattern, flagged rerouted_from_name by the
+                            # helper), keeps the anchor top on helper
+                            # errors (marked name_eval_error — uncertainty
+                            # keeps, re-armed on resume), else drops as
+                            # anchor-name-gloss. A true reroute refreshes
+                            # the tag carrier from the TARGET sense and
+                            # re-runs the vulgar verdict (review: stale
+                            # anchor_tags would leak a vulgar target past
+                            # the gate below); empty lookups keep the
+                            # anchor's tags (uncertainty keeps).
+                            rerouted = _reroute_name_gloss_anchor(
+                                item, ranked, index, read_entry)
+                            if rerouted is not None:
+                                ranked["top"], ranked["en_def"], \
+                                    ranked["anchor_pos"] = rerouted
+                                if ranked.get("rerouted_from_name"):
+                                    fresh = _target_sense_tags(
+                                        item,
+                                        rerouted[0].get("sense_id", ""),
+                                        index, read_entry)
+                                    if fresh:
+                                        ranked["anchor_tags"] = sorted(
+                                            fresh)
+                                    fresh_mother = _mother_for_top(
+                                        item,
+                                        rerouted[0].get("sense_id", ""),
+                                        index, read_entry)
+                                    if fresh_mother is not None:
+                                        ranked["mother_lemma"], \
+                                            ranked["mother_lemmas"], \
+                                            ranked["mother_multi"] = \
+                                            fresh_mother
+                                    if set(ranked.get("anchor_tags")
+                                           or {}) & VULGAR_TAGS:
+                                        ranked.pop("rerouted_from_name",
+                                                   None)
+                                        ranked["dropped"] = "vulgar-anchor"
+                                        if key not in states["anchor_rank"][
+                                                "failed"]:
+                                            states["anchor_rank"]["failed"].append(
+                                                key)
+                                    else:
+                                        print(_color(
+                                            "warning: %s re-anchored off "
+                                            "name top -> %s" % (
+                                                key,
+                                                rerouted[0].get(
+                                                    "sense_id", "")),
+                                            "yellow"))
+                                elif ranked.get("name_eval_error"):
+                                    print(_color(
+                                        "warning: %s name-eval error, "
+                                        "keeping anchor top" % key,
+                                        "yellow"))
+                            else:
+                                ranked["dropped"] = "anchor-name-gloss"
+                                if key not in states["anchor_rank"]["failed"]:
+                                    states["anchor_rank"]["failed"].append(key)
+                        elif set(ranked.get("anchor_tags") or {}) & \
+                                VULGAR_TAGS:
+                            ranked["dropped"] = "vulgar-anchor"
+                            if key not in states["anchor_rank"]["failed"]:
+                                states["anchor_rank"]["failed"].append(key)
+                        elif ranked.get("xref_unresolvable"):
+                            ranked["dropped"] = "no-real-def"
+                            if key not in states["anchor_rank"]["failed"]:
+                                states["anchor_rank"]["failed"].append(key)
+                        states["anchor_rank"]["done"][key] = ranked
+                    except Exception as exc:
+                        states["anchor_rank"]["done"][key] = {
+                            "candidates": [], "top": None, "en_def": "",
+                            "anchor_pos": "", "xref_method": "",
+                            "resolved_from": "",
+                            "xref_unresolvable": False}
+                        if key not in states["anchor_rank"]["failed"]:
+                            states["anchor_rank"]["failed"].append(key)
+                        _note_backoff(states["anchor_rank"], key, [],
+                                      "s1-error: %s" % type(exc).__name__)
+            _flush(progress_dir, states)
+            # Deterministic stage: <1s per batch, no progress bar by design
+            # (LLM stages use _batch_progress for live per-batch feedback).
+        anchor_dropped = {k for k, v in states["anchor_rank"]["done"].items()
+                      if isinstance(v, dict) and v.get("dropped")}
+        run_logger.stage_end("anchor_rank", ok=len(states["anchor_rank"]["done"]) - len(
+            anchor_dropped), fail=len(anchor_dropped))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("anchor_rank", states, args.out)
+        if anchor_dropped:
+            # Details live in dropped.log; console stays one short line.
+            print(_color("%s: kept=%d dropped=%d "
+                         "(see dropped.log)" % (progress.display("anchor_rank"),
+                             len(items) - len(anchor_dropped & {item_key(i)
+                                                            for i in items}),
+                             len(anchor_dropped & {item_key(i)
+                                               for i in items})),
+                         "cyan"))
+        items = [i for i in items if item_key(i) not in anchor_dropped]
+        # judge (judge batches). ok = judge-model picks in the batch,
+        # fail = s1-fallback (fail-closed) picks in the batch.
+        run_logger.stage_start("sense_judge")
+        n_judge_batches = (len(items) + JUDGE_BATCH - 1) // JUDGE_BATCH or 1
+        for batch_no, base in enumerate(
+                _stage_range(selected, "sense_judge", items, JUDGE_BATCH), start=1):
+            batch = items[base:base + JUDGE_BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["sense_judge"]["done"]]
+            if todo:
+                # Selective-stage resume (--only/--stages without s1)
+                # skips the anchor guard: attach missing tags in memory so
+                # the judge prompt is identical to a full run. Persists via
+                # the regular per-batch flush below.
+                _backfill_candidate_tags(
+                    todo, states["anchor_rank"]["done"], index, read_entry)
+                try:
+                    verdicts = judge_batch(
+                        todo, states["anchor_rank"]["done"],
+                        judge_api_key or api_key,
+                        judge_transport, sleep_fn, states["sense_judge"],
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=judge_ring or ring, models=judge_models)
+                except AuthError:
+                    raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
+                    hint = ("wait for quota reset then re-run"
+                            if (full_avalai or judge_avalai
+                                or providers["sense_judge"] == "google"
+                                or judge_google)
+                            else "switch VPN server then re-run")
+                    raise SystemExit(
+                        "STOP s2 at batch %d: %s — progress flushed, "
+                        "%s" % (batch_no, exc, hint))
+                for item in todo:
+                    key = item_key(item)
+                    verdict = verdicts.get(key)
+                    if verdict is None:
+                        verdict = judge_fallback(
+                            item, states["anchor_rank"]["done"].get(key))
+                    states["sense_judge"]["done"][key] = verdict
+                    if (verdict.get("model") or "").startswith("s1-") \
+                            and key not in states["sense_judge"]["failed"]:
+                        states["sense_judge"]["failed"].append(key)
+                pace_fn(SLEEP)
+            _flush(progress_dir, states)
+            fail = sum(
+                1 for i in batch
+                if ((states["sense_judge"]["done"].get(item_key(i)) or {}).get(
+                    "model", "") or "").startswith("s1-"))
+            _batch_progress("sense_judge", batch_no, n_judge_batches,
+                              len(batch) - fail, fail)
+        run_logger.stage_end(
+            "sense_judge",
+            ok=sum(1 for v in states["sense_judge"]["done"].values()
+                   if not (v.get("model", "") or "").startswith("s1-")),
+            fail=sum(1 for v in states["sense_judge"]["done"].values()
+                     if (v.get("model", "") or "").startswith("s1-")))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("sense_judge", states, args.out)
+        # Post-judge proper-noun routing (idempotent pass over the s2 done
+        # state — evaluated here, right after judge, so vectors+ only ever see
+        # routed/kept items; resume-safe via the proper_route/proper_drop
+        # markers, flushed when the pass evaluates anything).
+        evaluated = 0
+        for item in items:
+            key = item_key(item)
+            entry = states["sense_judge"]["done"].get(key)
+            if not isinstance(entry, dict):
+                continue
+            if "proper_route" in entry and "proper_drop" in entry:
+                continue
+            verdict = judge_proper_route(
+                item, entry, states["anchor_rank"]["done"].get(key),
+                index, read_entry, zipf_fn)
+            entry["proper_route"] = verdict["proper_route"]
+            entry["proper_drop"] = verdict["reason"] or ""
+            if verdict["reason"] and key not in states["sense_judge"]["failed"]:
+                states["sense_judge"]["failed"].append(key)
+            evaluated += 1
+        if evaluated:
+            _flush(progress_dir, states)
+        judge_proper_dropped = {
+            k for k, v in states["sense_judge"]["done"].items()
+            if isinstance(v, dict) and v.get("proper_drop")}
+        judge_proper_here = judge_proper_dropped & {item_key(i) for i in items}
+        if evaluated or judge_proper_here:
+            print("%s proper-route: routed=%d dropped=%d%s" % (
+                progress.display("sense_judge"),
+                sum(1 for i in items
+                    if (states["sense_judge"]["done"].get(item_key(i)) or {}).get(
+                        "proper_route")),
+                len(judge_proper_here),
+                " (%s)" % ", ".join(sorted(
+                    "%s:%s" % (k, states["sense_judge"]["done"][k].get("proper_drop"))
+                    for k in judge_proper_here)) if judge_proper_here else ""))
+        items = [i for i in items if item_key(i) not in judge_proper_dropped]
+        # vectors (vector batches). ok = model vectors, fail = deterministic
+        # (fail-closed) fallbacks.
+        run_logger.stage_start("topic_vectors")
+        n_vectors_batches = (len(items) + BATCH - 1) // BATCH or 1
+        for batch_no, base in enumerate(
+                _stage_range(selected, "topic_vectors", items), start=1):
+            batch = items[base:base + BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["topic_vectors"]["done"]]
+            if todo:
+                try:
+                    vecs = vectors_batch(
+                        todo, states["sense_judge"]["done"],
+                        states["anchor_rank"]["done"],
+                        leg_api_key.get("topic_vectors", api_key),
+                        topic_transport, sleep_fn, states["topic_vectors"],
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=leg_ring.get("topic_vectors", ring),
+                        models=vectors_models_override)
+                except AuthError:
+                    raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
+                    raise SystemExit(
+                        "STOP s3 at batch %d: %s — progress flushed, "
+                        "%s" % (batch_no, exc,
+                                "wait for quota reset then re-run"
+                                if (full_avalai or _leg_google("topic_vectors")) else
+                                "switch VPN server then re-run"))
+                for item in todo:
+                    key = item_key(item)
+                    picks = fanout_picks(
+                        item, states["sense_judge"]["done"].get(key) or {})
+                    sid = picks[0].get("sense_id", "") if picks else ""
+                    hit = vecs.get(sid) if sid else None
+                    if hit is None:
+                        hit = {"vector": [{"label": "Other / Abstract",
+                                           "weight": 1.0}],
+                               "model": "deterministic"}
+                        if key not in states["topic_vectors"]["failed"]:
+                            states["topic_vectors"]["failed"].append(key)
+                    # v14.1: secondary vectors ride on the primary s3
+                    # entry (additive "extra_vec") so the S4 label leg
+                    # and assembly resolve per-sense vectors without a
+                    # second LLM pass; resume-safe (plain JSON).
+                    if len(picks) > 1:
+                        extra_vec = {}
+                        for sub in picks[1:]:
+                            sub_sid = sub.get("sense_id", "")
+                            if sub_sid and sub_sid in vecs:
+                                extra_vec[sub_sid] = vecs[sub_sid]
+                        if extra_vec:
+                            hit = {**hit, "extra_vec": extra_vec}
+                    states["topic_vectors"]["done"][key] = hit
+                pace_fn(SLEEP)
+            _flush(progress_dir, states)
+            fail = sum(
+                1 for i in batch
+                if (states["topic_vectors"]["done"].get(item_key(i)) or {}).get(
+                    "model") == "deterministic")
+            _batch_progress("topic_vectors", batch_no, n_vectors_batches,
+                              len(batch) - fail, fail)
+        run_logger.stage_end(
+            "topic_vectors",
+            ok=sum(1 for v in states["topic_vectors"]["done"].values()
+                   if v.get("model") != "deterministic"),
+            fail=sum(1 for v in states["topic_vectors"]["done"].values()
+                     if v.get("model") == "deterministic"))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("topic_vectors", states, args.out)
+        # label (label batched, B1: up to LABEL_BATCH items share one LLM
+        # call). No fail-closed signal on this stage (exceptions
+        # propagate, except auth which aborts), so fail is always 0.
+        # Stride is LABEL_BATCH (pacing sleep per worked chunk, same
+        # SLEEP as before — pacing, not backoff).
+        run_logger.stage_start("topic_label")
+        vec_lookup = {}
+        for key, hit in states["topic_vectors"]["done"].items():
+            for entry in (hit.get("vector") or []):
+                if isinstance(entry, dict) and entry.get("label"):
+                    vec_lookup.setdefault(
+                        (states["sense_judge"]["done"].get(key) or {}).get(
+                            "sense_id", ""),
+                        []).append(entry)
+            # v14.1: secondary vectors stashed on the s3 entry join the
+            # lookup so label extras resolve per-sense vectors.
+            for sub_sid, sub_hit in (
+                    hit.get("extra_vec") or {}).items():
+                for entry in ((sub_hit or {}).get("vector") or []):
+                    if isinstance(entry, dict) and entry.get("label"):
+                        vec_lookup.setdefault(sub_sid, []).append(entry)
+        n_label_batches = (len(items) + LABEL_BATCH - 1) // LABEL_BATCH or 1
+        _s4_offsets = (list(range(0, len(items), LABEL_BATCH))
+                       if "topic_label" in selected else [])
+        for batch_no, base in enumerate(_s4_offsets, start=1):
+            batch = items[base:base + LABEL_BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["topic_label"]["done"]
+                    or _needs_fanout_relabel(
+                        states["topic_label"]["done"].get(item_key(i)),
+                        states["sense_judge"]["done"].get(item_key(i)))]
+            if todo:
+                picks = {}
+                for i in todo:
+                    key = item_key(i)
+                    s2entry = states["sense_judge"]["done"].get(key) or {}
+                    picks[key] = {
+                        "sense_id": s2entry.get("sense_id", ""),
+                        "gloss": s2entry.get("gloss", ""),
+                        "picks": fanout_picks(i, s2entry)}
+                lookups = {}
+                for i in todo:
+                    key = item_key(i)
+                    per_sid = {}
+                    for sub in fanout_picks(
+                            i, states["sense_judge"]["done"].get(key) or {}):
+                        sid = sub.get("sense_id", "")
+                        if sid and sid in vec_lookup:
+                            per_sid[sid] = vec_lookup[sid]
+                    if per_sid:
+                        lookups[key] = per_sid
+                try:
+                    assigned_map = label_batch(
+                        todo, picks, lookups or None,
+                        leg_api_key.get("topic_label", api_key),
+                        assign_transport, sleep_fn,
+                        states["topic_label"], str(label_topup_cache), label_calls,
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=leg_ring.get("topic_label", ring))
+                except AuthError:
+                    raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(
+                        tele_dir, tele_store, tele_flushed)
+                    raise SystemExit(
+                        "STOP s4 at batch %d: %s — progress flushed, "
+                        "%s"
+                        % (batch_no, exc,
+                           "wait for quota reset then re-run"
+                            if (full_avalai or _leg_google("topic_label")) else
+                            "switch VPN server then re-run"))
+                for item in todo:
+                    states["topic_label"]["done"][item_key(item)] = assigned_map[
+                        item_key(item)]
+                pace_fn(SLEEP)
+            _flush(progress_dir, states)
+            _batch_progress("topic_label", batch_no, n_label_batches,
+                              len(batch), 0)
+        run_logger.stage_end("topic_label", ok=len(states["topic_label"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("topic_label", states, args.out)
+        # enrich (deterministic enrichment, batch-flushed). Same as label: no
+        # fail-closed signal, fail is always 0.
+        run_logger.stage_start("enrich")
+        for batch_no, base in enumerate(
+                _stage_range(selected, "enrich", items), start=1):
+            batch = items[base:base + BATCH]
+            for item in batch:
+                key = item_key(item)
+                done = states["enrich"]["done"].get(key)
+                # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
+                # re-enrich deterministically (no LLM) instead of skipping.
+                # Same for pre-bridge entries (no sense_cefr_method) and
+                # pre-fan-out entries (judged secondaries, no "extra").
+                if not isinstance(done, dict) \
+                        or "pre_card_id" not in done \
+                        or "sense_cefr_method" not in done \
+                        or "example_fallback" not in done \
+                        or _needs_fanout_reenrich(
+                            done, states["sense_judge"]["done"].get(key)):
+                    phrase_entry = None
+                    if (item.get("kind") or "word") == "phrase" \
+                            and type_log_available:
+                        phrase_entry = (type_map or {}).get(
+                            (item.get("text") or "").strip())
+                    primary = enrich_item(
+                        item, states["sense_judge"]["done"].get(key) or {},
+                        index, read_entry, tatoeba_pool,
+                        phrase_entry=phrase_entry)
+                    # v14.1: every fanned-out pick enriches independently
+                    # (own IPA/examples/CEFR/pre_card_id, dataset-only).
+                    extras = []
+                    for sub in fanout_picks(
+                            item, states["sense_judge"]["done"].get(key) or {})[1:]:
+                        if not sub.get("sense_id"):
+                            continue
+                        extras.append(enrich_item(
+                            item, sub, index, read_entry, tatoeba_pool,
+                            phrase_entry=phrase_entry))
+                    if extras:
+                        primary["extra"] = extras
+                    states["enrich"]["done"][key] = primary
+            _flush(progress_dir, states)
+            # Deterministic stage: <1s per batch, no progress bar by design
+            # (LLM stages use _batch_progress for live per-batch feedback).
+        run_logger.stage_end("enrich", ok=len(states["enrich"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("enrich", states, args.out)
+        # Assemble output (survivors only; drops live in s0/s1 progress).
+        # v14.1 (R1): one row per judged pick — the lemma fans out into
+        # N independent precard records (own pre_card_id, topic vector,
+        # CEFR, IPA, examples each).
+        for item in items:
+            key = item_key(item)
+            enrich = states["enrich"]["done"].get(key) or {}
+            label = states["topic_label"]["done"].get(key) or {}
+            vec3 = states["topic_vectors"]["done"].get(key) or {}
+            pick = states["sense_judge"]["done"].get(key) or {}
+            preprocess_view = preprocess_info.get(key) or {}
+            s0b = states["inflection_review"]["done"].get(key) or {}
+            s1r = states["anchor_rank"]["done"].get(key) or {}
+            label_extras = label.get("extra") or []
+            enrich_extras = enrich.get("extra") or []
+            extra_vec = (vec3.get("extra_vec") or {}) \
+                if isinstance(vec3.get("extra_vec"), dict) else {}
+            label_by_sid = {}
+            for extra_row in label_extras:
+                if isinstance(extra_row, dict) and extra_row.get("sense_id"):
+                    label_by_sid[extra_row["sense_id"]] = extra_row
+            enrich_by_sid = {}
+            for extra_row in enrich_extras:
+                if isinstance(extra_row, dict) and extra_row.get("sense_id"):
+                    enrich_by_sid[extra_row["sense_id"]] = extra_row
+            subs = fanout_picks(item, pick) or [
+                {"sense_id": "", "gloss": ""}]
+            rows = []
+            for pos, sub in enumerate(subs):
+                sub_enrich = enrich if pos == 0 else enrich_by_sid.get(
+                    sub.get("sense_id", ""), {})
+                sub_label = label if pos == 0 else label_by_sid.get(
+                    sub.get("sense_id", ""), {})
+                sub_vec = (sub_label.get("vector")
+                           if isinstance(sub_label, dict) else None) \
+                    or (extra_vec.get(sub.get("sense_id", ""), {}) or {}
+                        ).get("vector") \
+                    or (vec3.get("vector") if pos == 0 else None) \
+                    or [{"label": "Other / Abstract", "weight": 1.0}]
+                rec = _build_precard_row(
+                    item, key, sub, sub_enrich, sub_label, sub_vec,
+                    vec3, pick, preprocess_view, s0b, s1r,
+                    pos, len(subs), label_calls)
+                rows.append(rec)
+            if key not in precards:
+                precards[key] = rows
+            # else F2: duplicate-redirect loser — first item wins the
+            # merged key (last-writer content is silently wrong); the
+            # loser is recorded as a duplicate-redirect drop at
+            # emission (seen_keys below), never overwriting.
+    except KeyboardInterrupt:
+        print("interrupted — flushing stage progress")
+        raise SystemExit(130)
+    finally:
+        if not args.dry_run:
+            _flush(progress_dir, states)
+        try:
+            run_logger.close()
+        except Exception:
+            pass
+    out_path = pathlib.Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Redirect merges can map two lemmas onto one base key (best+better
+    # -> good): emit the first, record later ones as duplicate-redirect
+    # drops so FSRS never fragments and no silent overwrites happen.
+    # Atomic write (tmp+os.replace, OC must-fix): a crash mid-write must
+    # never truncate precard.jsonl and force a full re-run.
+    seen_keys: set = set()
+    dup_redirect: list = []
+    # v14.1 (R2) fail-closed accounting: no sample key may vanish
+    # without a precard row or a structured drop verdict — unaccounted
+    # keys are logged loudly (console + dropped.log), never silent.
+    unaccounted = audit_sample_accounting(items, precards, states)
+    if unaccounted:
+        print(_color("accounting-no-verdict: %d key(s) with no precard "
+                     "row and no drop verdict: %s (see dropped.log)"
+                     % (len(unaccounted), ", ".join(unaccounted)),
+                     "red"))
+        try:
+            drop_log = out_path.parent / "dropped.log"
+            with open(drop_log, "a", encoding="utf-8") as handle:
+                handle.write("=== accounting-no-verdict ===\n")
+                for key in unaccounted:
+                    handle.write("%s: accounting-no-verdict\n" % key)
+        except OSError as exc:
+            print("warning: dropped.log append failed (%s)" % exc)
+    _tmp = str(out_path) + ".tmp"
+    with open(_tmp, "w", encoding="utf-8") as handle:
+        for item in items:
+            key = item_key(item)
+            if key in seen_keys:
+                dup_redirect.append("%s(redirected_from=%s)" % (
+                    key, item.get("redirected_from", "?")))
+                continue
+            seen_keys.add(key)
+            for rec in precards.get(key) or []:
+                handle.write(json.dumps(
+                    rec, ensure_ascii=False) + "\n")
+    os.replace(_tmp, out_path)
+    if dup_redirect:
+        print("duplicate-redirect drops (merged into base, FSRS-safe): %s"
+              % ", ".join(sorted(set(dup_redirect))))
+    # F7 telemetry history: same cumulative seam as card_pilot (imported,
+    # never a second copy) so resume runs never erase history — the
+    # summary covers ALL runs, not just this one.
+    _all_tele, _tele_corrupt = append_telemetry_history(
+        out_path.parent, tele_store[tele_flushed:])
+    _tele_summary = _tele_write(
+        str(out_path.parent / "telemetry_summary.json"), _all_tele)
+    if _tele_corrupt:
+        _tele_summary["history_corrupt_lines"] = _tele_corrupt
+    n_failed = sum(len(states[s].get("failed", [])) for s in progress.STAGES)
+    print("precard done: %d items -> %s (%s dropped=%d, %s dropped=%d, "
+          "%s dropped=%d, failed flags=%d)"
+          % (len(items), out_path, progress.display("preprocess"),
+             len(states["preprocess"].get("failed", [])), progress.display("inflection_review"),
+             len(inflection_dropped), progress.display("anchor_rank"),
+             len(anchor_dropped), n_failed))
+    run_logger.log("precard done: %d items %s_dropped=%d %s_dropped=%d "
+                   "%s_dropped=%d failed=%d" % (
+                       len(items), progress.display("preprocess"),
+                       len(states["preprocess"].get("failed", [])), progress.display("inflection_review"),
+                       len(inflection_dropped), progress.display("anchor_rank"),
+                       len(anchor_dropped), n_failed))
+    run_logger.close()
+    return 0
+
+
+def parse_args(argv=None):
+    """CLI: sample/out/progress-dir/dry-run/limit (+ kaikki/tatoeba paths)."""
+    ap = argparse.ArgumentParser(description="Pre-card pipeline (R22-R25).")
+    ap.add_argument("--sample", default=DEFAULT_SAMPLE)
+    ap.add_argument("--out", default=DEFAULT_OUT)
+    ap.add_argument("--progress-dir", default=DEFAULT_PROGRESS_DIR)
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--no-resume", action="store_true",
+                    help="ignore existing stage progress (default: resume on)")
+    ap.add_argument("--only", default="",
+                    help="run a single stage only (id or name, e.g. "
+                     "--only sense_judge; case-insensitive; "
+                    "other stages are skipped, resume still honored)")
+    ap.add_argument("--stages", default="",
+                    help="comma-separated stage subset (ids or names, e.g. "
+                     "--stages anchor_rank,sense_judge; "
+                    "mutually exclusive with --only)")
+    ap.add_argument("--rekey", default="",
+                    help="keyfile (one item key per line, # comments "
+                    "allowed): force redo of the listed keys in the "
+                    "SELECTED stages (resume still skips everything else)")
+    ap.add_argument("--kaikki-index", default=DEFAULT_KAIKKI_INDEX)
+    ap.add_argument("--kaikki-raw", default=DEFAULT_KAIKKI_RAW)
+    ap.add_argument("--tatoeba-pool", default=DEFAULT_TATOEBA_POOL)
+    ap.add_argument("--phrase-type-log", default=DEFAULT_PHRASE_TYPE_LOG,
+                    help="phrase-type audit log (missing file = all phrases "
+                    "kept with the type-pending flag, never fails)")
+    ap.add_argument("--awl-families", default=DEFAULT_AWL_FAMILIES,
+                    help="AWL families JSON (missing file = no academic tags "
+                    "from AWL, never fails)")
+    ap.add_argument("--judge-provider", default="zen",
+                    choices=("zen", "avalai", "google"),
+                    help="judge transport: zen (default, free chain), "
+                    "avalai (paid chain — locked 2026-09-06; "
+                    "requires AVALAI_API_KEY) or google (Gemini direct, "
+                    "free tier; requires GOOGLE_AI_API_KEY). DEPRECATED "
+                    "alias: use --llm-provider (covers all precard legs).")
+    ap.add_argument("--llm-provider", default="zen",
+                    choices=("zen", "avalai", "google"),
+                    help="ALL precard LLM legs (inflection/judge/vectors/label): zen (default), "
+                    "avalai (paid chain, no Persian needed — locked "
+                    "2026-09-06; requires AVALAI_API_KEY) or google "
+                    "(Gemini direct free tier; requires GOOGLE_AI_API_KEY)")
+    ap.add_argument("--precard-model", default="",
+                    help="Model for all precard legs (default "
+                    "glm-5.3-flash on avalai, gemini-3.5-flash-lite on "
+                    "google; e.g. deepseek-v4-flash for the "
+                    "comparison run). Ignored on the zen path.")
+    ap.add_argument("--judge-model", default="",
+                    help="judge model id (default: provider default — "
+                    "Zen chain models for zen, glm-5.3-flash for avalai, "
+                    "gemini-3.5-flash-lite for google)")
+    ap.add_argument("--stage-provider", action="append", default=[],
+                    metavar="STAGE=PROVIDER",
+                    help="per-leg provider override, repeatable "
+                     "(e.g. --stage-provider sense_judge=avalai --stage-provider "
+                     "topic_label=zen). Legs: inflection_review, sense_judge, topic_vectors, topic_label "
+                     "(s-ids and legacy names also work). Wins over "
+                    "--llm-provider for that leg.")
+    ap.add_argument("--stage-model", action="append", default=[],
+                    metavar="STAGE=MODEL",
+                    help="per-leg model override, repeatable "
+                     "(e.g. --stage-model sense_judge=deepseek-v4-flash). "
+                    "Wins over --precard-model/--judge-model for that leg.")
+    ap.add_argument("--sleep-secs", type=float, default=SLEEP,
+                    help="pause between LLM batches (default %.1f; 0 = no "
+                    "pacing sleep — faster but easier to hit 429s; the "
+                    "429-rotation backoff always stays on)" % SLEEP)
+    args = ap.parse_args(argv)
+    if args.limit is not None and args.limit < 0:
+        ap.error("--limit must be >= 0")
+    if args.sleep_secs < 0:
+        ap.error("--sleep-secs must be >= 0")
+    return args
+
+
+def _resolve_label_topup_cache(progress_dir):
+    """Top-up cache path: the new name wins; old-only dirs seed it once.
+
+    card_pilot.assign_topic reads/writes whatever path it is given, so the
+    fallback lives here: when only the old cache exists, copy it to the new
+    name (best-effort), then hand out the new path. The old file is never
+    written. The seed is atomic (tmp + rename) and JSON-validated, with a
+    warning on failure — a failed seed only costs bounded LLM rework, since
+    assign_topic treats a missing cache as empty.
+    """
+    new_path = pathlib.Path(progress_dir) / progress.TOPUP_NEW_NAME
+    old_path = pathlib.Path(progress_dir) / progress.TOPUP_OLD_NAME
+    if not new_path.exists() and old_path.exists():
+        try:
+            blob = old_path.read_text(encoding="utf-8")
+            json.loads(blob)
+            tmp_path = new_path.with_name(new_path.name + ".tmp")
+            tmp_path.write_text(blob, encoding="utf-8")
+            os.replace(tmp_path, new_path)
+        except (OSError, ValueError) as exc:
+            print("warning: topup cache seed skipped (%s)" % exc)
+    return new_path
+
+
+def _needs_fanout_reenrich(s5_entry, s2_entry):
+    """True when an s5 row predates the v14.1 fan-out (R1 resume-compat).
+
+    Same shape as _needs_fanout_relabel: no "extra" list while the s2
+    entry holds judged secondaries. Re-enrichment is deterministic
+    (dataset-only, zero LLM).
+    """
+    try:
+        if not isinstance(s5_entry, dict) or not isinstance(s2_entry, dict):
+            return False
+        if "extra" in s5_entry:
+            return False
+        return len(fanout_picks({}, s2_entry)) > 1
+    except Exception:
+        return False
+
+
+def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
+                       vec3, pick, preprocess_view, s0b, s1r,
+                       pos, n, label_calls=None):
+    """One precard row for one fanned-out pick (R1 assembly helper).
+
+    sub_enrich/sub_label carry the per-sense S5/S4 payloads (primary
+    payloads for pos 0); sub_vec is the resolved per-sense topic
+    vector. Row shape matches the pre-fan-out single row plus
+    pick_index/fanout_n and the R3 example flags.
+    """
+    sub_enrich = sub_enrich if isinstance(sub_enrich, dict) else {}
+    sub_label = sub_label if isinstance(sub_label, dict) else {}
+    rec = {
+        "key": key, "kind": item.get("kind") or "word",
+        "text": item.get("text", ""),
+        "pool_level": item.get("pool_level", ""),
+        "redirect_to": item.get("redirect_to", "") or "",
+        "redirected_from": item.get("redirected_from", "") or "",
+        "sense_id": sub_enrich.get("sense_id", ""),
+        "en_def": sub_enrich.get("en_def", ""),
+        "ipa": sub_enrich.get("ipa", ""),
+        "ipa_src": sub_enrich.get("ipa_src",
+                                  IPA_SRC_MODEL),
+        "dataset_examples": sub_enrich.get("dataset_examples", []),
+        "example_fallback": sub_enrich.get("example_fallback",
+                                           "synthetic-needed"),
+        "example_synthetic_needed": bool(
+            sub_enrich.get("example_synthetic_needed",
+                           not sub_enrich.get("dataset_examples"))),
+        "abbrev_expansion": sub_enrich.get("abbrev_expansion", ""),
+        "pos": sub_enrich.get("pos", []),
+        "pos_src": sub_enrich.get("pos_src", "none"),
+        "lexical_type": sub_enrich.get("lexical_type",
+                                       LEXICAL_TYPE_DEFAULT),
+        "register": sub_enrich.get("register", REGISTER_DEFAULT),
+        "sense_cefr": sub_enrich.get("sense_cefr"),
+        "sense_cefr_method": sub_enrich.get("sense_cefr_method",
+                                            "unmapped"),
+        "pre_card_id": sub_enrich.get("pre_card_id", ""),
+        "pick_index": pos, "fanout_n": n,
+        "mother_lemma": (s1r.get("mother_lemma", "") or ""),
+        "mother_lemmas": list(s1r.get("mother_lemmas") or []),
+        "mother_multi": bool(s1r.get("mother_multi", False)),
+        "topic_vector": sub_vec,
+        "topic_method": sub_label.get("method")
+        or TOPIC_METHOD,
+        "drop_reason": None,
+        "stage_calls": {
+            "s0": ("kept:type-pending" if preprocess_view.get("type_pending")
+                    else "kept:quarantine-%s" % preprocess_view.get("quarantine")
+                    if preprocess_view.get("quarantine") else "kept"),
+            "s0b": (s0b.get("reason", "") or "kept"),
+            "s2": pick.get("model", ""),
+            "s3": vec3.get("model", ""),
+            "s4": sub_label.get("method", ""),
+            "s4_path": sub_label.get("topic_path", ""),
+            "s4_models": dict(label_calls or {}),
+            "s5": sub_enrich.get("enrich_path", "")},
+    }
+    if preprocess_view.get("type_pending"):
+        rec["type_pending"] = True
+    if preprocess_view.get("quarantine"):
+        # Advisory review flag flows downstream (card stays live;
+        # owner filters quarantine=* for the review list).
+        rec["quarantine"] = preprocess_view["quarantine"]
+    if (pick.get("proper_route") or ""):
+        rec["proper_route"] = pick["proper_route"]
+    return rec
+
+
+def load_factory_env(required=()):
+    env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip("'\"")
+            if k in KEYS and v and k not in os.environ:
+                os.environ[k] = v
+    missing = [k for k in required if not os.environ.get(k)]
+    if missing:
+        raise KeyError("factory/.env missing keys: " + ", ".join(missing)
+                       + " (copy factory/.env.example to factory/.env and fill values)")
+    return {k: os.environ.get(k, "") for k in KEYS}
+
+
+## File loaders (frozen from factory/pipeline/card_pilot; pinned data paths below).
+def load_kaikki_index(path):
+    """Load the offset index: word.lower() -> [{pos, offset, length}] (file order)."""
+    index = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            word = str(row.get("word") or "").lower()
+            if not word:
+                continue
+            try:
+                offset = int(row.get("offset", 0))
+                length = int(row.get("length", 0))
+            except (TypeError, ValueError):
+                continue
+            index.setdefault(word, []).append(
+                {"pos": str(row.get("pos") or ""),
+                 "offset": offset, "length": length})
+    return index
+
+
+def read_kaikki_entry(raw_path, offset, length):
+    """Seek-read one raw kaikki entry (frozen from card_pilot; the raw
+    file is GBs — never loaded fully)."""
+    with open(raw_path, "rb") as handle:
+        handle.seek(offset)
+        blob = handle.read(length)
+    return json.loads(blob.decode("utf-8"))
+
+
+## File loaders (frozen from factory/pipeline/card_pilot; pinned data paths below).
+def _fold_separators(value):
+    """Fold both slash styles to "/" so normpath compares equal on POSIX
+    and Windows alike (frozen from card_pilot)."""
+    return str(value or "").replace("\\", "/")
+
+
+def _is_pinned_default(path, default):
+    """True when path names the pinned default (frozen from card_pilot;
+    guards the loud-missing teeth against caller spelling)."""
+    try:
+        return os.path.normcase(
+            os.path.normpath(_fold_separators(path))) == os.path.normcase(
+            os.path.normpath(_fold_separators(default)))
+    except (TypeError, ValueError):
+        return False
+
+
+def load_tatoeba_pool(path):
+    """lemma.lower() -> [example, ...]; missing/unreadable file -> {}.
+
+    A missing DEFAULT pool warns LOUD (stderr): silent {} would
+    disable examples invisibly if someone deletes the "old-looking"
+    v13a file (namespace rule — pinned live set, see factory/README).
+    Explicit custom paths stay silent (tests, experiments).
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        if _is_pinned_default(path, DEFAULT_TATOEBA_POOL):
+            print("WARNING: default Tatoeba pool missing: %s "
+                  "(examples disabled; pinned live file, do not "
+                  "delete/rename — see factory/README namespace rule)"
+                  % DEFAULT_TATOEBA_POOL, file=sys.stderr)
+        return {}
+    return {str(k).lower(): [s for s in v if isinstance(s, str) and s.strip()]
+            for k, v in data.items() if isinstance(v, list)}
+
+
+## File loaders (frozen from factory/pipeline/card_pilot; pinned data paths below).
+def load_phrase_types(path):
+    """phrase -> {phrase_type, applied_keep}; any error -> {} (never fail)."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle) if str(path).endswith(".json") \
+                else [json.loads(line) for line in handle if line.strip()]
+    except (OSError, ValueError):
+        return {}
+    if isinstance(data, dict):
+        data = data.get("phrases", [])
+    out = {}
+    try:
+        for row in data or []:
+            if not isinstance(row, dict):
+                continue
+            phrase = (row.get("phrase") or "").strip()
+            phrase_type = (row.get("phrase_type") or "").strip()
+            if phrase and phrase_type:
+                out[phrase] = {"phrase_type": phrase_type,
+                               "applied_keep": bool(
+                                   row.get("applied_keep"))}
+    except Exception:
+        return {}
+    return out
+

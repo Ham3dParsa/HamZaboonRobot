@@ -7,6 +7,7 @@ run_v14_phase3_judge window+boost (R40).
 """
 
 import json
+from factory.precard.anchor import anchor_rank_item
 from factory.pipeline import card_pilot
 from factory.pipeline.card_pilot import (
     candidate_bucket_cap,
@@ -185,7 +186,6 @@ def test_r39_fallback_to_higher_when_no_pos_match():
 
 
 def test_r39_s1_window_is_judge_width():
-    from factory.pipeline.precard_pipeline import anchor_rank_item
     index = {"bank": _twelve_nouns()}
     item = {"kind": "word", "text": "bank", "pos": "noun",
             "pool_level": "B1"}

@@ -1,0 +1,595 @@
+"""Sense judge (sense_judge stage): multi-pick validation + veto.
+
+Moved verbatim from factory/pipeline/precard_pipeline (provenance:
+precard line R1-R6/F4, 2026-09-14); only the imports changed (intra-
+package) and two names went public (judge_prompt, apply_inflection_veto).
+Vendored with it: LEVEL_N + validate_picks + JUDGE_MODELS (frozen copy
+from factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
+superlative stub predicates (frozen copy from factory/pipeline/card_pilot).
+"""
+
+from __future__ import annotations
+
+import re
+
+from factory.precard.accounting import item_key
+from factory.precard import anchor as _anchor_home
+from factory.precard.ids import normalize_id_part
+
+MAX_FANOUT = 4
+
+LEVEL_N = (("beginner", 2), ("intermediate", 3), ("advanced", 4))
+
+JUDGE_MODELS = ["muse-spark-1.3-contributor-free",
+                "muse-spark-1.2-contributor-free",
+                "ling-3.0-flash-fin-free", "mimo-v2.5-free",
+                "nemotron-3.5-lightning-free"]
+
+
+def validate_picks(picks, input_ids):
+    """Frozen copy of factory/archive/v14_v16/run_v14_phase3_judge."""
+    if not isinstance(picks, dict):
+        return False
+    for lvl, n in LEVEL_N:
+        want = min(n, len(input_ids))
+        lst = picks.get(lvl)
+        if not isinstance(lst, list) or len(lst) != want:
+            return False
+        if any(i not in input_ids for i in lst) or len(set(lst)) != len(lst):
+            return False
+    return True
+
+
+_INFLECTION_RX = re.compile(
+    r"(?i)\b(?:plural|past(?:\s+participle)?|present\s+participle"
+    r"(?:\s+and\s+gerund)?|gerund|comparative(?:\s+degree)?|"
+    r"superlative(?:\s+degree)?|third(?:-|\s+)person\s+singular)"
+    r"\s+of\b")
+
+
+def is_inflection_gloss(gloss):
+    """Frozen copy from factory/pipeline/card_pilot (R36)."""
+    return bool(_INFLECTION_RX.search(gloss or ""))
+
+
+_SUPERLATIVE_RX = re.compile(
+    r"(?i)^\s*(?:superlative|comparative)(?:\s+form)?\s+of\s+(.+?)\s*\.?\s*$")
+
+
+def is_superlative_gloss(gloss):
+    """Frozen copy from factory/pipeline/card_pilot (R44)."""
+    return bool(_SUPERLATIVE_RX.search(gloss or ""))
+
+
+def judge_fallback(item, anchor_res):
+    """Fail-closed pick: anchor-top first candidate.
+
+    The old home routed scoreless pseudo-entries through the archive
+    deterministic_picks, which provably returns input order there
+    (no scores, no EVP entries), so [0] is the anchor top either way
+    (pinned by test_fallback_matches_archive_first_candidate).
+    """
+    cands = (anchor_res or {}).get("candidates", [])
+    if not cands:
+        return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty",
+                "picks": []}
+    first = cands[0]["sense_id"]
+    gloss = cands[0].get("gloss", "")
+    return {"sense_id": first, "gloss": gloss, "model": "s1-fallback",
+            "picks": [{"sense_id": first, "gloss": gloss}]}
+
+
+def judge_prompt(batch, anchor_map):
+    lines = ["PICK the 1-4 most useful senses per item for Persian "
+             "learners of English, ordered most-useful-first (one card "
+             "= one atomic sense downstream, so rank every sense worth "
+             "its own card).",
+             "Prioritization hierarchy:",
+             "1. High-frequency tangible and conversational meaning over "
+             "technical, academic, or domain-specific jargon (e.g., "
+             "cooking/water boil > thermodynamic boil), UNLESS the item's "
+             "pool_level is C1/C2 or all candidates are strictly "
+             "abstract/technical.",
+             "2. Modern living usage over archaic, obsolete, or highly "
+             "regional dialectal senses.",
+             "3. If candidates contain both an independent lexical meaning "
+             "and a purely grammatical/inflectional reference, ALWAYS pick "
+             "the independent lexical meaning.",
+             "4. For modal/auxiliary verbs (would, could, should), the "
+             "grammatical main sense takes absolute precedence over any "
+             "nominal or philosophical sense.",
+              "",
+              'Output: {"results": [{"key": "<item key>", '
+              '"picks": ["<sense_id>", ... up to 4]}]}.',
+              "A single \"pick\": \"<sense_id>\" row is also accepted "
+              "(one sense).",
+              "Every pick MUST be one of that item's candidate ids "
+              "(empty picks only when the item has no candidates).",
+              "Input follows:"]
+    for item in batch:
+        key = item_key(item)
+        cands = (anchor_map.get(key) or {}).get("candidates", [])
+        lines.append("KEY %s (%s, pool %s):" % (
+            key, item.get("kind", "?"), item.get("pool_level", "?")))
+        for cand in cands:
+            tags = sorted((cand.get("tags") or []))
+            tag_bit = " [%s]" % ", ".join(tags) if tags else ""
+            lines.append("- %s%s %s" % (cand.get("sense_id", "?"), tag_bit,
+                                        (cand.get("gloss") or "")[:200]))
+        if not cands:
+            lines.append("- (no candidates)")
+    return "\n".join(lines)
+
+
+def judge_validate_multi(data, batch, anchor_map):
+    """Validate ordered multi-pick {"key","picks":[...]} rows (R1).
+
+    Each pick must be one of the item's candidate ids; unknown ids are
+    dropped, duplicates collapse (first wins), the list caps at
+    MAX_FANOUT. A legacy single {"key","pick"} row is accepted as a
+    one-pick list (same shape _judge_validate accepts, including its
+    lemma-style "picks"-dict collapse to the first pick and the empty
+    pick for candidatelss items). Returns {key: {"sense_id", "gloss",
+    "picks": [{sense_id, gloss}, ...]}} with sense_id/gloss = the
+    primary (first) pick — downstream stages keep reading those keys
+    unchanged. Invalid rows are left out (caller fails closed); None
+    unless every batch item validates.
+    """
+    if not isinstance(data, dict) or not isinstance(
+            data.get("results"), list):
+        return None
+    by_key = {}
+    for row in data["results"]:
+        if isinstance(row, dict) and "key" in row:
+            by_key[row["key"]] = row
+    out = {}
+    for item in batch:
+        key = item_key(item)
+        row = by_key.get(key)
+        cands = (anchor_map.get(key) or {}).get("candidates", [])
+        ids = [c["sense_id"] for c in cands]
+        gloss_of = {c["sense_id"]: c.get("gloss", "") for c in cands}
+        if not isinstance(row, dict):
+            continue
+        raw_picks = row.get("picks")
+        if raw_picks is None and row.get("pick") is not None:
+            raw_picks = [row.get("pick")]
+        if isinstance(raw_picks, dict):
+            if validate_picks(raw_picks, ids):
+                flat = (row["picks"].get("beginner")
+                        or row["picks"].get("intermediate")
+                        or row["picks"].get("advanced") or [])
+                raw_picks = flat[:1] if flat else None
+            else:
+                continue
+        if not isinstance(raw_picks, list):
+            continue
+        seen, seen_gloss, picks = set(), set(), []
+        for sid in raw_picks:
+            if not isinstance(sid, str) or sid in seen:
+                continue
+            if sid == "" and not ids:
+                continue
+            if sid in ids and len(picks) < MAX_FANOUT:
+                norm_gloss = normalize_id_part(gloss_of.get(sid, ""))
+                if norm_gloss in seen_gloss:
+                    continue
+                seen.add(sid)
+                seen_gloss.add(norm_gloss)
+                picks.append({"sense_id": sid,
+                              "gloss": gloss_of.get(sid, "")})
+        if not picks:
+            if not ids and not any(
+                    isinstance(s, str) and s != "" for s in raw_picks):
+                out[key] = {"sense_id": "", "gloss": "", "picks": []}
+            continue
+        out[key] = {"sense_id": picks[0]["sense_id"],
+                    "gloss": picks[0]["gloss"], "picks": picks}
+    want = {item_key(i) for i in batch}
+    if set(out) != want:
+        return None
+    return out
+
+
+def _judge_validate(data, batch, anchor_map):
+    """Accept single {"key","pick"} rows (plus lemma-style "picks" rows).
+
+    Thin single-pick view over judge_validate_multi: multi-pick rows
+    collapse to their primary pick. Returns {key: {"sense_id","gloss"}}
+    for valid rows only; invalid rows are left out (caller fails closed).
+    """
+    multi = judge_validate_multi(data, batch, anchor_map)
+    if multi is None:
+        return None
+    return {k: {"sense_id": v["sense_id"], "gloss": v["gloss"]}
+            for k, v in multi.items()}
+
+
+def fanout_picks(item, pick_entry):
+    """Ordered [{sense_id, gloss}] for one item's precard rows (R1).
+
+    Primary first, then judged secondaries (capped at MAX_FANOUT);
+    entries without a stored picks list fan out to their single pick.
+    Dedupes by sense_id AND normalized gloss: kaksi duplicate glosses
+    across senses (call#2/call#0 "To reach out with one's voice") are
+    the same atomic sense — emitting both would fork two identical
+    cards under one pre_card_id. Covers legacy stored picks too (all
+    stages read through this choke point).
+    """
+    try:
+        picks = (pick_entry or {}).get("picks")
+        if isinstance(picks, list) and picks:
+            out, seen_sid, seen_gloss = [], set(), set()
+            for pick in picks[:MAX_FANOUT]:
+                if not isinstance(pick, dict) or not pick.get("sense_id"):
+                    continue
+                norm_gloss = normalize_id_part(pick.get("gloss", ""))
+                if pick["sense_id"] in seen_sid or norm_gloss in seen_gloss:
+                    continue
+                seen_sid.add(pick["sense_id"])
+                seen_gloss.add(norm_gloss)
+                out.append({"sense_id": pick["sense_id"],
+                            "gloss": pick.get("gloss", "")})
+            if out:
+                return out
+        sid = (pick_entry or {}).get("sense_id", "")
+        return [{"sense_id": sid,
+                 "gloss": (pick_entry or {}).get("gloss", "")}]
+    except Exception:
+        return [{"sense_id": "", "gloss": ""}]
+
+
+def _veto_inflection_pick(pick, anchor_res):
+    """F4 post-judge veto: (sense_id, gloss) with stub picks corrected.
+
+    When the picked gloss is a mechanical-inflection reference (S0b
+    verdict-path predicates: is_inflection_gloss / is_superlative_gloss
+    — both "of"-requiring, so a real gloss like "a comparative study"
+    never vetoes), the judge crowned a stub
+    (removed/forcing/wondering/better): fall back to the anchor-top
+    non-stub — the first window candidate in anchor order whose gloss
+    is NOT such a reference. Anything else (real pick, empty pick,
+    all-stub window) returns the pick unchanged — a veto reroutes, it
+    never drops, so uncertainty keeps the item. The judge model tag is
+    untouched (the sense_id change is visible in s2 progress); the
+    predicates live in card_pilot (single source, reused by import —
+    the veto inherits their exact boundary, including whole-gloss
+    superlative anchoring).
+    """
+    sid = (pick or {}).get("sense_id", "")
+    gloss = (pick or {}).get("gloss", "")
+    if not sid or not gloss or not _is_veto_stub_gloss(gloss):
+        return sid, gloss
+    for cand in (anchor_res or {}).get("candidates", []) or []:
+        if cand.get("sense_id") \
+                and not _is_veto_stub_gloss(cand.get("gloss", "")):
+            return cand.get("sense_id", ""), cand.get("gloss", "")
+    return sid, gloss
+
+
+def _is_veto_stub_gloss(gloss):
+    """F4 stub predicate: vendored S0b verdict-path predicates below."""
+    return bool(is_inflection_gloss(gloss)
+                or is_superlative_gloss(gloss))
+
+
+def apply_inflection_veto(out, batch, anchor_map):
+    """F4: veto every stub pick in a judge_batch result dict, in place."""
+    for item in batch:
+        key = item_key(item)
+        if key in out:
+            sid, gloss = _veto_inflection_pick(
+                out[key], (anchor_map or {}).get(key))
+            out[key]["sense_id"], out[key]["gloss"] = sid, gloss
+            # v14.1: the veto reroutes every fanned-out pick, not just
+            # the primary — a stub crowned second still falls back to
+            # the anchor-top non-stub (veto reroutes, never drops).
+            # Stub picks vetoed onto the same anchor sense collapse
+            # (first wins) — one card per atomic sense, never twins.
+            vetoed, veto_seen = [], set()
+            for pick in (out[key].get("picks") or []):
+                vsid, vgloss = _veto_inflection_pick(
+                    pick, (anchor_map or {}).get(key))
+                if vsid in veto_seen:
+                    continue
+                veto_seen.add(vsid)
+                vetoed.append({"sense_id": vsid, "gloss": vgloss})
+            if vetoed:
+                out[key]["picks"] = vetoed
+                out[key]["sense_id"] = vetoed[0]["sense_id"]
+                out[key]["gloss"] = vetoed[0]["gloss"]
+    return out
+
+
+# ---- T4b: network loops (moved verbatim, imports rewired) ----
+
+import urllib.error
+
+from factory.precard.transport import (
+    AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
+    record_call, extract_usage,
+    _call_with_rotation, _tele_tokens, _unwrap_transport_result,
+    MAX_ATTEMPTS, RETRY_PREFIX)
+
+_tele_record = record_call
+_tele_usage = extract_usage
+from factory.precard.prompts import INFLECTION_REVIEW_SYS
+
+
+INFLECTION_REVIEW_BATCH = 16
+INFLECTION_REVIEW_MODELS = JUDGE_MODELS[:2]
+JUDGE_BATCH = 12
+
+
+
+def _inflection_review_prompt(batch):
+    """Batch prompt: one KEY/word/gloss block per item."""
+    lines = ["Judge EACH inflected form against its dictionary gloss.",
+             'Output: {"results": [{"key": "<item key>", '
+             '"keep": true/false, "reason": "<why>"}]}.',
+             "Input follows:"]
+    for entry in batch:
+        lines.append("KEY %s" % entry["key"])
+        lines.append("word: %s" % (entry.get("text") or ""))
+        lines.append("gloss: %s" % ((entry.get("gloss") or "")[:200]))
+    return "\n".join(lines)
+
+
+def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                      http_status=401):
+    """Auth record before a loud 401/403 abort (never silent)."""
+    if telemetry is None:
+        return
+    record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        latency_s=0.0, outcome="auth", http_status=http_status)
+
+
+def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                 usage, outcome):
+    """One terminal review-batch record (tokens None-tolerated)."""
+    if telemetry is None:
+        return
+    prompt_tokens, completion_tokens = _tele_tokens(usage)
+    record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        latency_s=0.0, outcome=outcome)
+
+
+def _validate_review_results(data, want_keys, key_field="key"):
+    """Shared envelope check for the R30/R31 review passes.
+
+    Returns the {key: row} mapping when every wanted key is present,
+    else None (caller fails closed / retries).
+    """
+    if not isinstance(data, dict) or not isinstance(
+            data.get("results"), list):
+        return None
+    by_key = {}
+    for row in data["results"]:
+        if isinstance(row, dict) and isinstance(row.get(key_field), str):
+            by_key[row[key_field]] = row
+    if set(by_key) != set(want_keys):
+        return None
+    return by_key
+
+
+def inflection_review(items, transport, api_key="", model_calls=None,
+                      telemetry=None, tele_stage="s0b",
+                      tele_key_idx=0):
+    """R36: batched inflection-form review.
+
+    items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
+    model:str, uncertain:bool}}. keep=False only on an explicit LLM
+    drop verdict; every failure (transport error, bad JSON, envelope
+    mismatch) fails closed to {keep: True, uncertain: True} flagged
+    review-uncertain (never drop on uncertainty). Auth aborts loudly.
+    Hermetic with an injected transport. Tuple (text, usage) transports
+    surface token counts into one terminal telemetry record per batch
+    (None-tolerated).
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for batch_no, base in enumerate(
+            range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
+        batch = items[base:base + INFLECTION_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        prompt = _inflection_review_prompt(batch)
+        settled = False
+        win_model, win_usage = "review-fallback", None
+        for model in INFLECTION_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    res = transport(api_key, model,
+                                    INFLECTION_REVIEW_SYS, text)
+                    raw, usage = _unwrap_transport_result(res)
+                    data = extract_json(raw)
+                except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                rows_ok = True
+                for key in want:
+                    row = by_key[key]
+                    keep = row.get("keep")
+                    reason = row.get("reason", "")
+                    if not isinstance(keep, bool):
+                        rows_ok = False
+                        break
+                    out[key] = {
+                        "keep": keep,
+                        "reason": reason if isinstance(reason, str)
+                        else "",
+                        "model": model, "uncertain": False}
+                if not rows_ok:
+                    out = {k: v for k, v in out.items() if k not in want}
+                    continue
+                settled = True
+                win_model, win_usage = model, usage
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                if key not in out:
+                    out[key] = {"keep": True, "reason": "review-error",
+                                "model": "review-fallback",
+                                "uncertain": True}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
+    return out
+
+
+def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
+                   telemetry=None, tele_stage="s2", tele_batch=0,
+                   ring=None, models=None):
+    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
+
+    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
+    list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
+    it. 2 attempts per model, 401/403
+    loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
+    all-keys-429 raises RateLimited so the runner flushes and STOPS),
+    anything else fail-closed to the S1 top pick per item. v14.1: the
+    judge returns 1-4 ordered picks per item (judge_validate_multi —
+    legacy single "pick" rows still validate as one pick); the ordered
+    list rides on "picks" with sense_id/gloss = the primary. F4: every
+    pick (judge-model AND s1-fallback, primary AND secondaries) passes
+    the inflection-stub veto — a stub gloss falls back to the
+    anchor-top non-stub candidate.
+    R27: one
+    telemetry record per batch (ok on a judge-model pick, fallback on
+    s1-fallback, error on all-keys-429); tuple (text, usage) transports
+    surface token counts (None-tolerated).
+    """
+    models = list(models) if models else list(JUDGE_MODELS[:2])
+    prompt = judge_prompt(batch, anchor_map)
+    transport = transport  # default wired by caller to judge call_responses
+    if ring is None:
+        ring = KeyRing([api_key])
+    for model in models:
+        for attempt in range(MAX_ATTEMPTS):
+            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+            label = "%s/%s#%d" % (model, "+".join(
+                item_key(i) for i in batch), attempt)
+            usage = None
+            try:
+                raw, usage = _call_with_rotation(
+                    transport, ring, model, text, sleep_fn, state, label)
+            except AuthError:
+                raise
+            except RateLimited:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0,
+                                 outcome="error", http_status=429)
+                raise
+            except urllib.error.HTTPError as exc:
+                if getattr(exc, "code", None) in (401, 403):
+                    raise_for_auth(exc)
+                raw, usage = None, None
+            except Exception:
+                raw, usage = None, None
+            if raw is None:
+                continue
+            try:
+                data = extract_json(raw)
+            except AuthError:
+                raise
+            except Exception:
+                continue
+            try:
+                valid = judge_validate_multi(data, batch, anchor_map)
+            except Exception:
+                valid = None
+            if valid is not None:
+                out = {k: {**v, "model": model} for k, v in valid.items()}
+                apply_inflection_veto(out, batch, anchor_map)  # F4
+                if telemetry is not None:
+                    prompt_tokens, completion_tokens = _tele_tokens(usage)
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0, outcome="ok",
+                                 prompt_tokens=prompt_tokens,
+                                 completion_tokens=completion_tokens)
+                return out
+    out = {item_key(i): {**judge_fallback(i, anchor_map.get(item_key(i))),
+                         } for i in batch}
+    apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:
+    # the anchor top itself can be a stub when inflection kept it)
+    if telemetry is not None:
+        _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                     key_idx=0, model="s1-fallback", latency_s=0.0,
+                     outcome="fallback")
+    return out
+
+
+def parse_superlative_base(gloss):
+    """R44: base lemma of a superlative/comparative gloss ("" if none).
+
+    Frozen from factory/pipeline/card_pilot (provenance: precard line,
+    2026-09-14). Whole-gloss anchored (^...$): prose merely mentioning
+    "superlative of" mid-sentence never parses. The base must be a
+    single alpha token (multi-word/qualified targets are not clean
+    redirects). Target is stripped of quotes/dots. Index membership
+    is checked by the CALLER (inflection gate), keeping this pure.
+    """
+    hit = _SUPERLATIVE_RX.search(gloss or "")
+    if not hit:
+        return ""
+    target = (hit.group(1) or "").strip().strip(
+        "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
+    # Cut trailing qualifiers: "good: most good" -> "good".
+    target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
+    if not re.fullmatch(r"[A-Za-z]+", target):  # F4: single alpha token
+        return ""
+    return target
+
+
+def inflection_needs_review(item, index, read_entry):
+    """R36: (needs, gloss) — True when the raw lemma head is inflection.
+
+    Moved verbatim from factory/pipeline/precard_pipeline (provenance:
+    precard line, 2026-09-14); pilot-owned helpers now resolve inside
+    this package (anchor reads, judge stub predicates).
+    """
+    text = (item.get("text") or "").strip()
+    if not text:
+        return False, ""
+    entries, pos = _anchor_home._entries_for(item, index)
+    try:
+        gloss = _anchor_home.raw_first_gloss(entries, read_entry)
+    except Exception:
+        return False, ""
+    if gloss and is_superlative_gloss(gloss):
+        base = parse_superlative_base(gloss)
+        if not base or base.lower() not in (index or {}):
+            return False, ""
+        return True, gloss
+    if gloss and is_inflection_gloss(gloss):
+        return True, gloss
+    return False, ""
+

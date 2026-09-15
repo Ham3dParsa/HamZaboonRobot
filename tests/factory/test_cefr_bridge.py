@@ -1,3 +1,4 @@
+import json
 """Red-first tests for factory/lexicon/cefr_bridge.py (kaikki->WordNet sense-CEFR bridge).
 
 Covers (plain asserts, hermetic — inline TSV fixture in tmp dirs, no W:, no network):
@@ -25,6 +26,7 @@ schema change; no new reason literals (N5).
 
 import pytest
 
+from factory.precard.enrich import enrich_item
 from factory.lexicon import cefr_bridge as B
 
 TSV_ROWS = [
@@ -202,29 +204,34 @@ def test_underscore_sensekey_maps_to_spaced_lemma(bridge):
 
 
 def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
-    from factory.pipeline import precard_pipeline as P
+    # Cutover seam: enrich reads the vendored factory.precard.cefr copy,
+    # not the owner module — patch the copy's paths/caches.
+    from factory.precard import cefr as vendored
+
     tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
     tsv.write_text("".join(TSV_ROWS), encoding="utf-8")
-    monkeypatch.setattr(B, "DEFAULT_TSV", str(tsv))
-    monkeypatch.setattr(B, "DEFAULT_EVP", str(
+    monkeypatch.setattr(vendored, "DEFAULT_TSV", str(tsv))
+    monkeypatch.setattr(vendored, "DEFAULT_EVP", str(
         tmp_path / "no-evp.json"))
-    B.clear_cache()
+    vendored._CACHE.clear()
+    vendored._CAND_CACHE.clear()
     try:
         item = {"kind": "word", "text": "run", "pos": "verb",
                 "pool_level": "A1"}
-        out = P.enrich_item(
+        out = enrich_item(
             item, {"sense_id": "", "gloss": ""}, {}, lambda row: {},
             {}, phrase_entry=None)
         assert out["sense_cefr"] == "B1"
         assert out["sense_cefr_method"] == "wn-single"
         junk = dict(item, text="dvd")
-        out2 = P.enrich_item(
+        out2 = enrich_item(
             junk, {"sense_id": "", "gloss": ""}, {}, lambda row: {},
             {}, phrase_entry=None)
         assert out2["sense_cefr"] == "A1"
         assert out2["sense_cefr_method"] == "pool-fallback"
     finally:
-        B.clear_cache()
+        vendored._CACHE.clear()
+        vendored._CAND_CACHE.clear()
 
 
 def test_pool_fallback_normalized_validated_never_raises(
@@ -232,7 +239,6 @@ def test_pool_fallback_normalized_validated_never_raises(
     # pool-fallback copies only normalized, known CEFR levels; unknown or
     # non-string pool_level keeps the bridge (None, "unmapped") verdict
     # and never raises (fail-closed on hostile items).
-    from factory.pipeline import precard_pipeline as P
     tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
     tsv.write_text("".join(TSV_ROWS), encoding="utf-8")
     monkeypatch.setattr(B, "DEFAULT_TSV", str(tsv))
@@ -245,7 +251,7 @@ def test_pool_fallback_normalized_validated_never_raises(
         def enrich(pool_level):
             item = {"kind": "word", "text": "dvd", "pos": "noun",
                     "pool_level": pool_level}
-            return P.enrich_item(
+            return enrich_item(
                 item, pick, {}, lambda row: {}, {})
 
         out = enrich(" a1 ")

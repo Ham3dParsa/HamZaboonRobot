@@ -259,7 +259,7 @@ def test_on_mode_reports_ok_429_and_location_blocked(tmp_path, capsys):
             raise _http_error(429, b"slow down")
         if len(calls) == 2:
             raise _http_error(400, LOCATION_BODY)
-        key = blind50.precard_pipeline.item_key
+        key = blind50.precard_accounting.item_key
         return {key(it): {"sense_id": "s", "gloss": "x"} for it in chunk}
 
     out = blind50.run_model(

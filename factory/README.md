@@ -1,8 +1,8 @@
 # Factory (lexicon) — map + backup policy + PishCard v13 line
 
 ## Where things live (three homes, one truth per kind)
-- **Code + small data (PR-bound):** this `factory/` dir — `pipeline/` (precard line:
-  `precard_pipeline.py`, `card_pilot.py`, `blind50.py`), `lexicon/` (sample/index/pool/judge/AWL),
+- **Code + small data (PR-bound):** this `factory/` dir — `precard/` (v1.4.1
+  precard line, self-contained), `pipeline/` (`card_pilot.py`, `blind50.py`), `lexicon/` (sample/index/pool/judge/AWL),
   `core/` (`registry.py`, `env_loader.py`, `llm_json.py`, `telemetry.py`, `probe_keys.py`,
   `stage_glossary.py`), `archive/v14_v16/` (frozen `run_v14_*`, `run_v15*`, `run_v16*` runners +
   designs + evidence md), `packs/en/` (minus the Tatoeba pool). Tests live in `tests/factory/`.
@@ -41,33 +41,33 @@ LOUD instead of silently disabling), `fixtures/topic_vectors-v16b.json`,
 `WARNING: default Tatoeba pool missing` — if you see it, restore from
 `W:\hamzaban_data_factory\backups\`, do not silence it.
 
-## PishCard Pipeline v13 — precard line
+## Precard line v1.4.1 (`factory/precard/`)
 
 Builds learner-ready EN precards (sense-picked + topic-tagged rows) from a
 word sample. Deterministic stages first, one cheap AI judge (GLM), no
 per-card reasoning burn.
 
-## The 7 stages (ids are stable — files/progress keys never change)
+## The 7 stages (real-word ids per Q-names; progress filenames unchanged)
 
-| id | console label | does what | in | out |
-|---|---|---|---|---|
-| `s0` | preprocess (PishPardazesh) | drops names/junk, level-aware frequency floor | sample json | `progress/preprocess.json` |
-| `s0b` | inflection-review (Barresie-Sarf) | flags inflection stubs for LLM review | s0 kept | `progress/inflection-review.json` |
-| `s1` | anchor (Langar) | deterministic sense ranking per lemma | s0b kept | `progress/anchor.json` |
-| `s2` | sense-judge (Davarie-Mana) | GLM picks one sense per item (same prompt for all) | s1 window | `progress/sense-judge.json` |
-| `s3` | vectors (Bordar) | topic vectors per picked sense | s2 picks | `progress/vectors.json` |
-| `s4` | topic-label (Barchasbe-Mozu') | CEFR/topic labels | s3 | `progress/topic-label.json` |
-| `s5` | enrich (GhaniSazi) | examples, IPA, Persian gloss | s4 | `progress/enrich.json` → `precard.jsonl` |
+| id | does what | in | out |
+|---|---|---|---|
+| `preprocess` | drops names/junk, level-aware frequency floor | sample json | `progress/preprocess.json` |
+| `inflection_review` | flags inflection stubs for LLM review | preprocess kept | `progress/inflection-review.json` |
+| `anchor_rank` | deterministic sense ranking per lemma | inflection_review kept | `progress/anchor.json` |
+| `sense_judge` | GLM picks sense(s) per item (same prompt for all) | anchor_rank window | `progress/sense-judge.json` |
+| `topic_vectors` | topic vectors per picked sense | sense_judge picks | `progress/vectors.json` |
+| `topic_label` | CEFR/topic labels | topic_vectors | `progress/topic-label.json` |
+| `enrich` | examples, IPA, Persian gloss | topic_label | `progress/enrich.json` → `precard.jsonl` |
 
-Reading a run: the console speaks labels (`[STAGE sense-judge (Davarie-Mana)]`);
-`run.log` speaks domain names (`stage sense-judge start`) — human-readable; stable ids live in progress keys and filenames.
+Reading a run: the console speaks real-word ids (`[STAGE sense_judge]`);
+`run.log` speaks the same ids (`stage sense_judge start`) — human-readable; progress keys and filenames match.
 Persian drop details go to `dropped.log`, never the console.
 
 ## Run
 
 ```powershell
 # dry run, no keys, no network (first 20 items of your sample file)
-python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pilot\sample200b.json `
+python -m factory.precard --sample W:\hamzaban_data_factory\pilot\sample200b.json `
   --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run
 
 # blind judge comparison on the frozen 50 (needs keys)
@@ -84,8 +84,8 @@ continues from `progress/*.json` (per-stage files named by stable id).
 
 | I want to... | Script | Keys needed | Command |
 |---|---|---|---|
-| Dry-run the line (no cost) | pipeline/precard_pipeline.py | none | `python -m factory.pipeline.precard_pipeline --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
-| Full precard run (GLM judge via AvalAI) | pipeline/precard_pipeline.py | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default, bare defaults run Zen) |
+| Dry-run the line (no cost) | precard/ (`factory.precard`) | none | `python -m factory.precard --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
+| Full precard run (GLM judge via AvalAI) | precard/ (`factory.precard`) | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default, bare defaults run Zen) |
 | Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --anchor W:\hamzaban_data_factory\pilot200glm\progress\anchor.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\sense-judge.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
 | Check key + egress health (no secrets printed) | core/probe_keys.py | factory/.env; ZEN keys + egress IP only (no SUB ranking, no GOOGLE/OPENROUTER/AVALAI check) | `python -m factory.core.probe_keys` |
 | Rank SUB servers by latency | supervisor --probe | SUBs in tools/egress/.env | `python tools\egress\supervisor.py --probe --top-n 30` |
@@ -104,7 +104,7 @@ Rule of thumb: running the bot → root; running the line → factory; touching 
 
 ## Files
 
-- `pipeline/precard_pipeline.py` — the line (stages, gates G1–G6, resume).
+- `precard/` — the v1.4.1 line (real-word stage ids, gates G1–G6, resume; self-contained, no archive imports).
 - `pipeline/card_pilot.py` — anchor scorer, kaikki readers, run logger.
 - `core/probe_keys.py` — egress + key health check (no secrets in output).
 - `pipeline/blind50.py` — 4-way judge comparison (on main; needs keys, see runbook).

@@ -1299,6 +1299,119 @@ def single_topic_vector(label):
     return [{"label": label or "Other / Abstract", "weight": 1.0}]
 
 
+# v14.1 topic tie-breaker addendum (R5, single source — appended to the
+# S4 LLM prompt by precard_pipeline._label_prompt and assign_topic; the
+# deterministic mirror lives in topic_post_guard below so resumed/cached
+# rows converge even when the LLM leg is skipped).
+TOPIC_TIEBREAK_V141 = (
+    "V14.1 TIE-BREAK ADDENDUM (apply strictly): "
+    "biological sex and sociological gender (gender, male/female roles) "
+    "are NEVER Animals & Living Beings — map biological/anatomical senses "
+    "to Health & Body and social-role senses to Society. "
+    "Functional and social concepts (phone calls, employment, public "
+    "performances, money accumulation, lifting) are NEVER Other / "
+    "Abstract — assign the concrete domain (technology, work, society, "
+    "business, daily life). Other / Abstract stays a last resort for "
+    "genuinely abstract, grammatical, or unclassifiable senses.")
+
+_OTHER_ABSTRACT = "Other / Abstract"
+_ANIMALS_LABEL = "Animals & Living Beings"
+
+# v14.1 abstract re-anchor table (R5): (lemma -> [(gloss keyword,
+# concrete label)]). Fires ONLY when the incoming label is Other /
+# Abstract, so a real leg-1/LLM label is never overridden.
+_ABSTRACT_REANCHOR = {
+    "call": [(("telephone", "phone"), "Science & Technology"),
+             ((), "Society")],
+    "working": [(("employ", "job", "work"), "Work & Careers")],
+    "spectacle": [(("perform", "show", "event", "display"),
+                   "Society")],
+    "accrue": [(("accumulat", "money", "interest", "financ"),
+                "Business & Economy")],
+    "elevate": [(("lift", "raise"), "Daily Life & Home")],
+}
+
+_GENDER_BIO_RX = None  # compiled lazily (module import stays cheap)
+_GENDER_RX_SRC = (r"\b(biological sex|reproduct|anatom|hormon|"
+                  r"menstruat|pregnan)\b")
+_GENDER_SIGNAL_RX = None
+_GENDER_SIGNAL_SRC = (r"\b(gender|sex|male|female|masculine|feminine|"
+                      r"man|men|woman|women)\b")
+
+
+def _gender_rx():
+    """Compiled biological-sex gloss signal (lazy, import-safe)."""
+    global _GENDER_BIO_RX
+    if _GENDER_BIO_RX is None:
+        _GENDER_BIO_RX = re.compile(_GENDER_RX_SRC, re.IGNORECASE)
+    return _GENDER_BIO_RX
+
+
+def _gender_signal_rx():
+    """Compiled sex/gender mention signal (word-boundaried — "manage"
+    and "performance" must not match "man")."""
+    global _GENDER_SIGNAL_RX
+    if _GENDER_SIGNAL_RX is None:
+        _GENDER_SIGNAL_RX = re.compile(_GENDER_SIGNAL_SRC, re.IGNORECASE)
+    return _GENDER_SIGNAL_RX
+
+
+# NOTE (identity-141 R5, deferred to T6): topic guard is dual-owned by
+# design — this copy serves the pilot line; factory/precard/topics.py
+# is canonical for the precard line. Unify at T6 pilot versioning.
+def topic_post_guard(text, gloss, label):
+    """v14.1 deterministic topic post-guard (R5, single owner for the pilot line).
+
+    Narrow by design — it only ever remaps two failure modes, never a
+    real label:
+    - gender leak: an Animals & Living Beings label on a sex/gender
+      gloss moves to Health & Body (biological cue) or Society
+      (social-role default).
+    - abstract dumping: an Other / Abstract label on a re-anchored
+      (lemma, gloss-keyword) concept moves to its concrete domain.
+    Everything else passes through unchanged (fail-closed to the
+    incoming label on any hostile input).
+    """
+    try:
+        lab = (label or "").strip()
+        lemma = (text or "").strip().lower()
+        gloss_l = (gloss or "").lower()
+    except Exception:
+        return label
+    if lab == _ANIMALS_LABEL:
+        blob = lemma + " " + gloss_l
+        if _gender_signal_rx().search(blob):
+            if _gender_rx().search(gloss or ""):
+                return "Health & Body"
+            return "Society"
+        return lab
+    if lab == _OTHER_ABSTRACT:
+        for keywords, concrete in _ABSTRACT_REANCHOR.get(lemma, []):
+            if not keywords or any(k in gloss_l for k in keywords):
+                return concrete
+    return lab
+
+
+def apply_topic_guard(row, text, gloss):
+    """Remap an assign_topic/label_batch row through topic_post_guard.
+
+    When the guard changes the label, the vector is replaced with the
+    single-label fallback (the old vector described the old label).
+    Returns the same dict object (mutated); hostile rows pass through.
+    """
+    try:
+        if not isinstance(row, dict):
+            return row
+        new_label = topic_post_guard(text, gloss, row.get("label"))
+        if new_label and new_label != row.get("label"):
+            row["label"] = new_label
+            row["vector"] = single_topic_vector(new_label)
+            row["topic_guarded"] = True
+    except Exception:
+        pass
+    return row
+
+
 def long_example_flags(card):
     """R13: final examples over 20 words — informational only, no regen."""
     return [e for e in (card or {}).get("examples") or []
@@ -2349,9 +2462,10 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
     if label:
         vec = (vector_lookup or {}).get(sid)
         _rec("ok", model="deterministic")
-        return {"label": label, "method": TOPIC_METHOD_TAG,
-                "vector": list(vec) if vec else single_topic_vector(label),
-                "topic_path": "leg1"}
+        return apply_topic_guard(
+            {"label": label, "method": TOPIC_METHOD_TAG,
+             "vector": list(vec) if vec else single_topic_vector(label),
+             "topic_path": "leg1"}, text, gloss or "")
     # Leg 2 — v16b top-up for Others, by import (no substitute heuristics).
     try:
         from factory.archive.v14_v16.run_v16b_topup import (MODELS as _TOPUP_MODELS,
@@ -2361,10 +2475,11 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
     except Exception:
         vec = (vector_lookup or {}).get(sid)
         _rec("fallback", model="deterministic")
-        return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
-                "vector": list(vec) if vec
-                else single_topic_vector("Other / Abstract"),
-                "topic_path": "fallback"}
+        return apply_topic_guard(
+            {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
+             "vector": list(vec) if vec
+             else single_topic_vector("Other / Abstract"),
+             "topic_path": "fallback"}, text, gloss or "")
     prog_path = pathlib.Path(progress_path) if progress_path else None
     cache = {}
     if prog_path is not None and prog_path.exists():
@@ -2378,25 +2493,29 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
         _rec("ok", model="deterministic")
         if isinstance(cached, dict) and cached.get("label"):
             vec = cached.get("vector") or (vector_lookup or {}).get(sid)
-            return {"label": cached["label"], "method": TOPIC_METHOD_TAG,
-                    "vector": list(vec) if vec
-                    else single_topic_vector(cached["label"]),
-                    "topic_path": "cache"}
-        return {"label": cached if isinstance(cached, str) else "Other / Abstract",
-                "method": TOPIC_METHOD_TAG,
-                "vector": list((vector_lookup or {}).get(sid) or [])
-                or single_topic_vector(
-                    cached if isinstance(cached, str) else "Other / Abstract"),
-                "topic_path": "cache"}
+            return apply_topic_guard(
+                {"label": cached["label"], "method": TOPIC_METHOD_TAG,
+                 "vector": list(vec) if vec
+                 else single_topic_vector(cached["label"]),
+                 "topic_path": "cache"}, text, gloss or "")
+        return apply_topic_guard(
+            {"label": cached if isinstance(cached, str) else "Other / Abstract",
+             "method": TOPIC_METHOD_TAG,
+             "vector": list((vector_lookup or {}).get(sid) or [])
+             or single_topic_vector(
+                 cached if isinstance(cached, str) else "Other / Abstract"),
+             "topic_path": "cache"}, text, gloss or "")
     if llm_transport is None:
         vec = (vector_lookup or {}).get(sid)
         _rec("fallback", model="deterministic")
-        return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
-                "vector": list(vec) if vec
-                else single_topic_vector("Other / Abstract"),
-                "topic_path": "fallback"}
+        return apply_topic_guard(
+            {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
+             "vector": list(vec) if vec
+             else single_topic_vector("Other / Abstract"),
+             "topic_path": "fallback"}, text, gloss or "")
     user_text = _TOPUP_TMPL + _topup_block(
-        text, [{"sense_id": sid, "gloss": gloss or ""}])
+        text, [{"sense_id": sid, "gloss": gloss or ""}]) \
+        + "\n\n" + TOPIC_TIEBREAK_V141
     from factory.core.llm_json import extract_json as _extract
     try:
         from factory.lexicon.phrase_judge import RateLimited as _RateLimited
@@ -2434,6 +2553,10 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                    for e in (normed[0].get("vector") or [])
                    if isinstance(e, dict) and e.get("topic_label")] or \
                 single_topic_vector(found)
+            guarded = apply_topic_guard(
+                {"label": found, "method": TOPIC_METHOD_TAG,
+                 "vector": vec, "topic_path": "llm"}, text, gloss or "")
+            found, vec = guarded["label"], guarded["vector"]
             if isinstance(cache, dict) and prog_path is not None:
                 try:
                     cache[cache_key] = {"label": found, "vector": vec}
@@ -2441,14 +2564,16 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                                          encoding="utf-8")
                 except Exception:
                     pass
-            return {"label": found, "method": TOPIC_METHOD_TAG,
-                    "vector": vec, "topic_path": "llm"}
+            return apply_topic_guard(
+                {"label": found, "method": TOPIC_METHOD_TAG,
+                 "vector": vec, "topic_path": "llm"}, text, gloss or "")
     vec = (vector_lookup or {}).get(sid)
     _rec("fallback", model="deterministic")
-    return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
-            "vector": list(vec) if vec
-            else single_topic_vector("Other / Abstract"),
-            "topic_path": "fallback"}
+    return apply_topic_guard(
+        {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
+         "vector": list(vec) if vec
+         else single_topic_vector("Other / Abstract"),
+         "topic_path": "fallback"}, text, gloss or "")
 
 
 def compute_quotas(n, levels=LEVEL_ORDER, extras=QUOTA_EXTRAS_ORDER):
@@ -2534,6 +2659,9 @@ def sample_phrases(judged, n_phrases=6, seed=SEED):
             for r in sample]
 
 
+# NOTE (identity-141 R5, deferred to T6): dual-owned by design — this
+# copy serves the pilot line; factory/precard/accounting.py vendored its
+# own for the precard line. Unify at T6 pilot versioning.
 def item_key(item):
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
@@ -3695,8 +3823,8 @@ INFLECTION_REVIEW_SYS = (
     "= act of wondering) -> Drop in favor of the base lemma. "
     "4. Plain grammatical comparatives/superlatives (-er, -est, more, "
     "most) -> Drop in favor of the base lemma. "
-    "Return ONLY raw JSON, no markdown fences, no commentary. Persian "
-    "may be used in reason.")
+    "Return ONLY raw JSON, no markdown fences, no commentary. "
+    "Reason MUST be strictly in concise English (max 12 words).")
 INFLECTION_UNCERTAIN_TAG = "review-uncertain"
 
 
@@ -4898,6 +5026,51 @@ def render_nav(cards):
                chip))
     return ("<nav class=\"top\" aria-label=\"فهرست کارت‌ها\">\n%s\n</nav>"
             % "\n".join(links))
+
+
+def render_lemma_fanout(recs):
+    """v14.1 (R6): render all precard rows of one lemma side-by-side.
+
+    recs: precard rows sharing one item key (one per fanned-out sense).
+    Returns an HTML fragment: one card block per sense inside a
+    fanout-side-by-side wrapper (single-rec input renders one block —
+    the layout never hides a card). Hostile rows render as "—", never
+    raise.
+    """
+    blocks = []
+    for idx, rec in enumerate(recs or []):
+        try:
+            rec = rec if isinstance(rec, dict) else {}
+            sense_id = (rec.get("sense_id") or "").strip() or "—"
+            en_def = (rec.get("en_def") or "").strip() or "—"
+            ipa = (rec.get("ipa") or "").strip()
+            ipa_bit = ("<div class=\"blk en\" dir=\"ltr\" lang=\"en\">"
+                       "%s</div>" % esc(ipa)) if ipa else ""
+            try:
+                chips = _topic_chips_html(rec)
+            except Exception:
+                chips = ""
+            examples = "".join(
+                "<div class=\"blk en\" dir=\"ltr\" lang=\"en\">%s</div>"
+                % esc(e) for e in (rec.get("dataset_examples") or [])
+                if isinstance(e, str) and e.strip())
+            blocks.append(
+                "<div class=\"fanout-card\">\n"
+                "<div class=\"blk en\" dir=\"ltr\" lang=\"en\">"
+                "sense %d: %s</div>\n"
+                "<div class=\"blk en\" dir=\"ltr\" lang=\"en\">%s</div>\n"
+                "%s\n%s\n%s\n"
+                "<div class=\"blk en\" dir=\"ltr\" lang=\"en\">%s</div>\n"
+                "</div>"
+                % (idx + 1, esc(sense_id), esc(en_def), ipa_bit,
+                   chips, examples,
+                   esc(rec.get("pre_card_id") or "")))
+        except Exception:
+            blocks.append("<div class=\"fanout-card\">—</div>")
+    if not blocks:
+        blocks = ["<div class=\"fanout-card\">—</div>"]
+    return ("<div class=\"fanout-side-by-side\">\n%s\n</div>"
+            % "\n".join(blocks))
 
 
 def render_gallery(cards, meta, phrase_types=None):
