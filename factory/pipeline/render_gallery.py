@@ -20,6 +20,7 @@ Usage (from repo root):
 """
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -64,22 +65,33 @@ def normalize_rows(rows):
             raise ValueError(f"row {i} is not an object")
         if not row.get("word"):
             raise ValueError(f"row {i} is missing required key 'word'")
-        merged = dict(ROW_DEFAULTS)
+        merged = copy.deepcopy(ROW_DEFAULTS)
         merged.update(row)
         merged["id"] = i
         normalized.append(merged)
     return normalized
 
 
-def render(template_path, rows):
-    template = Path(template_path).read_text(encoding="utf-8")
+def render_text(template, rows):
+    """Substitute the GALLERY_DATA block inside template *text*."""
     pattern = re.compile(
         re.escape(START_MARKER) + r".*?" + re.escape(END_MARKER), re.DOTALL
     )
     if len(pattern.findall(template)) != 1:
         raise ValueError("template must contain exactly one GALLERY_DATA block")
-    payload = START_MARKER + json.dumps(rows, ensure_ascii=False) + END_MARKER
+    raw = json.dumps(rows, ensure_ascii=False)
+    # Neutralize `</script>` breakout: unicode escapes evaluate back to the
+    # same characters inside JS string literals but never close the block.
+    safe = (
+        raw.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    )
+    payload = START_MARKER + safe + END_MARKER
     return pattern.sub(lambda _: payload, template)
+
+
+def render_file(template_path, rows):
+    """Substitute the GALLERY_DATA block inside the template *file*."""
+    return render_text(Path(template_path).read_text(encoding="utf-8"), rows)
 
 
 def main(argv=None):
@@ -94,7 +106,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     rows = normalize_rows(json.loads(Path(args.data).read_text(encoding="utf-8-sig")))
-    html = render(args.template, rows)
+    html = render_file(args.template, rows)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
