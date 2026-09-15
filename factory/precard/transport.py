@@ -25,7 +25,6 @@ import pathlib
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 
 from factory.core.llm_json import (
     ABORT, COOLDOWN_SWITCH, ROTATE, AuthError, classify,
@@ -59,7 +58,13 @@ ROTATE_PAUSE = 5.0
 MAX_ATTEMPTS = 2
 
 
-OUTCOMES = ("ok", "invalid", "fallback", "error", "auth")
+# Telemetry recorders are SINGLE-OWNED by factory.core.telemetry (R10):
+# this module only re-exports the exact names it used to define, so the
+# existing ``from factory.precard.transport import record_call`` seams
+# keep working. New code imports from factory.core.telemetry directly.
+from factory.core.telemetry import (  # noqa: E402,F401 (re-export shim)
+    OUTCOMES, extract_usage, now_ts, record_call, summarize,
+    write_summary)
 
 
 def _read_egress_env_key(path, key):
@@ -178,13 +183,24 @@ def _unwrap_transport_result(res):
 
 
 class RunLogger:
-    """V7 compact run.log writer (stage start/end + counts + timings)."""
+    """V7 compact run.log writer (stage start/end + counts + timings).
 
-    def __init__(self, path, namer=None):
+    Machine file (R11): the first line is always the header
+    ``run <run_id> started=<utc-ts>`` so backoff/telemetry rows join
+    the log by run_id. Uncolored, one compact line per event.
+    """
+
+    def __init__(self, path, namer=None, run_id=""):
         import atexit as _atexit
+        from datetime import datetime, timezone
         self.path = pathlib.Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "w", encoding="utf-8")
+        self.run_id = str(run_id or "")
+        self._handle.write("run %s started=%s\n" % (
+            self.run_id,
+            datetime.now(timezone.utc).isoformat()))
+        self._handle.flush()
         self._starts = {}
         # Human voice: namer(stage)->display name. run.log is read by
         # humans, so callers pass stage labels; ids stay in data files.
@@ -362,27 +378,66 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
     Returns (raw_text, usage-dict-or-None): tuple (text, usage)
     transports surface token counts (None-tolerated); plain-text
     transports yield None.
+
+    Timing side-channel (R10, transient — never persisted to
+    progress): each call resets ``ring.last_call`` (None until a try
+    settles) and ``ring.attempt_log`` (one
+    ``{model, attempt, latency_s, key_idx, outcome}`` dict per try,
+    including rotations). The caller reads them right after return to
+    stamp terminal records with the REAL perf_counter latency and the
+    REAL ring.idx — no more hardcoded 0s. Ring attributes stay
+    in-memory only (progress files never see them).
     """
+    ring.last_call = None
+    ring.attempt_log = []
+    attempt_no = 0
     while True:
+        attempt_no += 1
+        start = time.perf_counter()
         try:
             out = transport(ring.current, model, text)
             ring.used = 0
+            latency = time.perf_counter() - start
+            ring.last_call = {"latency_s": latency,
+                              "key_idx": ring.idx}
+            ring.attempt_log.append(
+                {"model": model, "attempt": attempt_no,
+                 "latency_s": latency, "key_idx": ring.idx,
+                 "outcome": "settled"})
             if isinstance(out, tuple) and len(out) == 2:
                 return out[0], (out[1] if isinstance(out[1], dict)
                                  else None)
             return out, None
         except urllib.error.HTTPError as exc:
+            latency = time.perf_counter() - start
+            try:
+                code = getattr(exc, "code", None)
+            except Exception:
+                code = None
             action = _action_for_http_error(exc, provider)
             if action == COOLDOWN_SWITCH:
+                ring.attempt_log.append(
+                    {"model": model, "attempt": attempt_no,
+                     "latency_s": latency, "key_idx": ring.idx,
+                     "outcome": "cooldown", "http_status": code})
                 _note_backoff(state, label, [], COOLDOWN_SWITCH)
                 raise ProviderCooldown(
                     "provider-level quota on %s (project blocked) — "
                     "same-project key rotation forbidden, switch "
                     "provider or server and re-run" % provider)
             if action != ROTATE:
+                ring.attempt_log.append(
+                    {"model": model, "attempt": attempt_no,
+                     "latency_s": latency, "key_idx": ring.idx,
+                     "outcome": ("auth" if action == ABORT else "error"),
+                     "http_status": code})
                 if action == ABORT:
                     _abort_auth(exc, key_var, file_label)
                 raise
+            ring.attempt_log.append(
+                {"model": model, "attempt": attempt_no,
+                 "latency_s": latency, "key_idx": ring.idx,
+                 "outcome": "rotated", "http_status": code})
             _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
             sleep_fn(ROTATE_PAUSE)
             if ring.rotate():
@@ -390,114 +445,6 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
             _note_backoff(state, label, [], "all-keys-429-stop")
             raise RateLimited(
                 "all keys 429 (provider quotas exhausted) — re-run later")
-
-
-def write_summary(path, calls):
-    """Write telemetry_summary.json (summary + record count)."""
-    summary = summarize(calls)
-    dest = pathlib.Path(str(path))
-    if str(dest.parent) not in ("", "."):
-        dest.parent.mkdir(parents=True, exist_ok=True)
-    with open(dest, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(summary, ensure_ascii=False))
-    return summary
-
-
-def summarize(calls):
-    """Aggregate {by_stage, by_model, by_key_idx} (None tokens count 0)."""
-    summary = {"by_stage": {}, "by_model": {}, "by_key_idx": {}}
-    for call in calls or []:
-        for dim, raw in (("by_stage", call.get("stage")),
-                         ("by_model", call.get("model")),
-                         ("by_key_idx", call.get("key_idx"))):
-            key = str(raw)
-            bucket = summary[dim].setdefault(key, _bucket())
-            bucket["calls"] += 1
-            for token_key in ("prompt_tokens", "completion_tokens"):
-                try:
-                    number = call.get(token_key)
-                    bucket[token_key] += int(number) if number is not None \
-                        else 0
-                except (TypeError, ValueError):
-                    pass
-    summary["records"] = len(list(calls or []))
-    return summary
-
-
-def _bucket():
-    return {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
-
-
-def record_call(store, *, stage, batch_id, key_idx, model,
-                prompt_tokens=None, completion_tokens=None,
-                latency_s=0.0, outcome="ok", http_status=None):
-    """Append one call record. ``key_idx`` MUST be an int (never a key).
-
-    Raises ``TypeError`` when ``key_idx`` is not an int — a literal key
-    string must never reach the persisted file.
-    """
-    if not isinstance(key_idx, int) or isinstance(key_idx, bool):
-        raise TypeError("key_idx must be an int (key values never persist)")
-    try:
-        batch_id = int(batch_id)
-    except (TypeError, ValueError):
-        batch_id = 0
-    try:
-        latency = float(latency_s or 0.0)
-    except (TypeError, ValueError):
-        latency = 0.0
-    entry = {
-        "ts": now_ts(),
-        "stage": str(stage or ""),
-        "batch_id": batch_id,
-        "key_idx": key_idx,
-        "model": str(model or ""),
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "latency_s": round(latency, 3),
-        "outcome": outcome if outcome in OUTCOMES else "error",
-        "http_status": http_status,
-    }
-    store.append(entry)
-    return entry
-
-
-def now_ts() -> str:
-    """UTC ISO timestamp for one record."""
-    return datetime.now(timezone.utc).isoformat()
-
-
-def extract_usage(data) -> tuple:
-    """Probe a Zen responses payload for token usage.
-
-    Accepts the full response JSON (``{"usage": {...}}``) or a bare
-    usage dict. Probes ``input_tokens``/``output_tokens`` first, then
-    ``prompt_tokens``/``completion_tokens``. Anything missing or
-    non-numeric -> ``None`` (tolerated, never raises).
-    """
-    usage = data.get("usage") if isinstance(data, dict) else None
-    if not isinstance(usage, dict) and isinstance(data, dict):
-        usage = data
-    if not isinstance(usage, dict):
-        return None, None
-
-    def _num(*names):
-        for name in names:
-            try:
-                value = usage.get(name)
-            except AttributeError:
-                continue
-            if isinstance(value, bool):
-                continue
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                continue
-            return int(number)
-        return None
-
-    return (_num("input_tokens", "prompt_tokens"),
-            _num("output_tokens", "completion_tokens"))
 
 
 def write_progress(path: str, payload: dict) -> None:
@@ -623,12 +570,14 @@ def append_telemetry_history(out_dir, tele_store):
     unrecoverable, the current run is never discarded). The reread is
     capped at TELEMETRY_HISTORY_TAIL lines so the file stays bounded.
     """
+    import sys as _sys
     out_dir = pathlib.Path(out_dir)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
+        # R11: warnings/errors go to stderr (stdout is human progress).
         print("warning: telemetry history append failed (%s); "
-              "summary covers this run only" % exc)
+              "summary covers this run only" % exc, file=_sys.stderr)
         return list(tele_store), 0
     hist = out_dir / "telemetry_records.jsonl"
     try:
@@ -642,7 +591,7 @@ def append_telemetry_history(out_dir, tele_store):
                 pass
     except OSError as exc:
         print("warning: telemetry history append failed (%s); "
-              "summary covers this run only" % exc)
+              "summary covers this run only" % exc, file=_sys.stderr)
         return list(tele_store), 0
     all_tele, corrupt = [], 0
     try:
@@ -658,10 +607,10 @@ def append_telemetry_history(out_dir, tele_store):
                 corrupt += 1
     except OSError as exc:
         print("warning: telemetry history reread failed (%s); "
-              "summary covers this run only" % exc)
+              "summary covers this run only" % exc, file=_sys.stderr)
         return list(tele_store), corrupt
     if corrupt:
         print("warning: telemetry history skipped %d corrupt line(s)"
-              % corrupt)
+              % corrupt, file=_sys.stderr)
     return all_tele, corrupt
 
