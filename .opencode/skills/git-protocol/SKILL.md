@@ -32,9 +32,13 @@ author_url: https://github.com/Ham3dParsa
 ## Branch & PR Rules
 - **Branch naming**: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`, `docs/git-workflow`).
 - **Branch creation**: after validation passes, not before implementation.
-- **PR creation**: `gh pr create --fill --base main` — owner reviews on GitHub UI.
+- **PR creation**: `gh pr create --base main --title "<conventional-title>" --body-file <path>` — build the body from `.github/PULL_REQUEST_TEMPLATE.md` (never `--fill`: it bypasses the template and produces stub bodies). Write the Markdown to a temp file with the file write tool, verify it, then pass `--body-file`.
   If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
   If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
+- **PR body quality gate** (mandatory, immediately after `gh pr create`):
+  1. Verify: `gh pr view --json body` then check BOTH: (a) ≥ 150 non-whitespace chars of real prose — strip `<!--...-->` comments, `## ` headers, `- [ ]` checkbox lines, `|...|` table rows, and `<details>`/`<summary>` tags before measuring (bare template skeleton is ~650 chars and must not count), AND (b) a `Resolves #N`/`Fixes #N` link with digits OR an explicit `No linked issue: <reason>` line (no-issue PRs must not fabricate links). Body that already passes ⇒ stop (no-op).
+  2. If check fails: draft the full body from the template, run an `unslop` pass over the prose (load the global `unslop` skill via the skill tool — it lives outside this repo; if unavailable, apply the parenthetical rule inline and continue; plain words, no filler/puffery; keep code refs, numbers, and section headers intact), write to temp file with the file write tool (never inline `--body`, never `Set-Content`/`Out-File` — see PowerShell Backtick Safety above), re-read to confirm no BOM/control chars, then `gh pr edit --body-file <path>`.
+  3. Re-run step 1 once to confirm. Body MUST NOT contain tokens/secrets (see Security Rules).
 - **CI monitoring**: after PR push, load the `kilo-ci-loop` skill for `gh pr checks` + Kilo + OpenCode delta polling (do not re-implement the loop here).
 - **Agent-initiated merge**: only on explicit owner instruction ("merge it" or equivalent).
   MUST run `gh pr checks` and confirm all required checks pass before `gh pr merge --squash` (see `kilo-ci-loop` for conflict rebase handling when `mergeable` is `CONFLICTING`).
@@ -45,7 +49,7 @@ author_url: https://github.com/Ham3dParsa
 
 ## GitHub CLI — Allowed Operations
 The agent may use `gh` only for:
-- **PRs**: `gh pr create --fill --base main`, `gh pr checks`, `gh pr merge --squash` (explicit owner instruction only), `gh pr view`
+- **PRs**: `gh pr create --base main --title ... --body-file <path>`, `gh pr checks`, `gh pr merge --squash` (explicit owner instruction only), `gh pr view`, `gh pr edit --body-file <path>` (body-quality fallback only)
 - **Issues (read-only only)**: `gh issue list [--label <label>] [--state <state>]`, `gh issue view <N>`
 - Commands outside this list require explicit prior approval.
 
