@@ -54,7 +54,8 @@ _LEGACY = {
     "enrich": "enrich",
 }
 
-# Old on-disk filenames (read-shim only, never written).
+# Old on-disk filenames (read-shim only, never written) — including the
+# intermediate v13 names.
 _OLD_FILES = (
     "s0.json",
     "s0b.json",
@@ -82,6 +83,14 @@ def normalize_stage(pick):
     if key in STAGES:
         return key
     return _LEGACY.get(key, key)
+
+
+def display(stage):
+    """Console/log display name: the id itself (real words, no tags)."""
+    try:
+        return normalize_stage(stage) or stage
+    except Exception:
+        return stage
 
 
 def stage_file(progress_dir, stage):

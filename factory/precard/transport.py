@@ -462,3 +462,88 @@ class KeyRing:
             self.used = 0
             return False
         return True
+
+
+CALL_TIMEOUT = 180
+
+# Shared Zen base (identical in all three archive leg scripts; verified).
+ZEN_BASE = "https://opencode.ai/zen/v1"
+
+
+## Generic Zen direct transport (frozen from factory/pipeline/card_pilot.call_responses; S0b default leg).
+def zen_direct_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
+    body = json.dumps({"model": model, "input": [
+        {"role": "system", "content": system}, {"role": "user", "content": user}],
+        "reasoning": {"effort": "minimal"},
+        "max_output_tokens": 2000}).encode()
+    req = urllib.request.Request(
+        ZEN_BASE + "/responses", data=body,
+        headers={"Authorization": "Bearer %s" % api_key,
+                 "Content-Type": "application/json",
+                 "User-Agent": "HamZaban-factory/1.0 (card pilot)",
+                 "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.load(resp)
+    parts = []
+    for out_item in data.get("output", []):
+        for chunk in out_item.get("content", []):
+            if chunk.get("type") == "output_text":
+                parts.append(chunk.get("text", ""))
+    return "".join(parts)
+
+
+TELEMETRY_HISTORY_TAIL = 20000
+
+
+def append_telemetry_history(out_dir, tele_store):
+    """Append this run's telemetry records to the cumulative jsonl.
+
+    Frozen from factory/pipeline/card_pilot (provenance: precard line,
+    2026-09-14). Returns (all_records, corrupt_lines). Corrupt prior-run
+    lines are counted (never silently skipped); an unreadable history
+    file falls back to this run's records with a warning (history is
+    unrecoverable, the current run is never discarded). The reread is
+    capped at TELEMETRY_HISTORY_TAIL lines so the file stays bounded.
+    """
+    out_dir = pathlib.Path(out_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print("warning: telemetry history append failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), 0
+    hist = out_dir / "telemetry_records.jsonl"
+    try:
+        with open(hist, "a", encoding="utf-8") as handle:
+            for rec in tele_store:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except (OSError, ValueError):
+                pass
+    except OSError as exc:
+        print("warning: telemetry history append failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), 0
+    all_tele, corrupt = [], 0
+    try:
+        with open(hist, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        for line in lines[-TELEMETRY_HISTORY_TAIL:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_tele.append(json.loads(line))
+            except ValueError:
+                corrupt += 1
+    except OSError as exc:
+        print("warning: telemetry history reread failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), corrupt
+    if corrupt:
+        print("warning: telemetry history skipped %d corrupt line(s)"
+              % corrupt)
+    return all_tele, corrupt
+

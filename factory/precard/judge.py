@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from factory.precard.accounting import item_key
+from factory.precard import anchor as _anchor_home
 from factory.precard.ids import normalize_id_part
 
 MAX_FANOUT = 4
@@ -544,3 +545,51 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                      key_idx=0, model="s1-fallback", latency_s=0.0,
                      outcome="fallback")
     return out
+
+
+def parse_superlative_base(gloss):
+    """R44: base lemma of a superlative/comparative gloss ("" if none).
+
+    Frozen from factory/pipeline/card_pilot (provenance: precard line,
+    2026-09-14). Whole-gloss anchored (^...$): prose merely mentioning
+    "superlative of" mid-sentence never parses. The base must be a
+    single alpha token (multi-word/qualified targets are not clean
+    redirects). Target is stripped of quotes/dots. Index membership
+    is checked by the CALLER (inflection gate), keeping this pure.
+    """
+    hit = _SUPERLATIVE_RX.search(gloss or "")
+    if not hit:
+        return ""
+    target = (hit.group(1) or "").strip().strip(
+        "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
+    # Cut trailing qualifiers: "good: most good" -> "good".
+    target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
+    if not re.fullmatch(r"[A-Za-z]+", target):  # F4: single alpha token
+        return ""
+    return target
+
+
+def inflection_needs_review(item, index, read_entry):
+    """R36: (needs, gloss) — True when the raw lemma head is inflection.
+
+    Moved verbatim from factory/pipeline/precard_pipeline (provenance:
+    precard line, 2026-09-14); pilot-owned helpers now resolve inside
+    this package (anchor reads, judge stub predicates).
+    """
+    text = (item.get("text") or "").strip()
+    if not text:
+        return False, ""
+    entries, pos = _anchor_home._entries_for(item, index)
+    try:
+        gloss = _anchor_home.raw_first_gloss(entries, read_entry)
+    except Exception:
+        return False, ""
+    if gloss and is_superlative_gloss(gloss):
+        base = parse_superlative_base(gloss)
+        if not base or base.lower() not in (index or {}):
+            return False, ""
+        return True, gloss
+    if gloss and is_inflection_gloss(gloss):
+        return True, gloss
+    return False, ""
+

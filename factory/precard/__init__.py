@@ -7,3 +7,9 @@ tests/factory/test_precard_identity.py::test_no_archive_imports).
 """
 
 __version__ = "1.4.1"
+
+
+def run(argv=None, **kwargs):
+    """Run the precard pipeline (lazy import keeps package import light)."""
+    from factory.precard.pipeline import main
+    return main(argv, **kwargs)

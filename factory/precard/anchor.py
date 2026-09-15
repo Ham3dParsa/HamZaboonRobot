@@ -40,6 +40,11 @@ JUDGE_WINDOW_CAP = 10
 
 PROPER_NOUN_POS = {"name", "propn"}
 
+# Frozen from factory/pipeline/card_pilot (provenance: precard line,
+# 2026-09-14).
+VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
+               "ethnic-slur", "slur"}
+
 
 REGISTER_META_RX = re.compile(r"^senses relating to\b")
 
