@@ -640,12 +640,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     models = {leg: _leg_model(leg) for leg in LLM_LEGS}
 
     def _leg_avalai(leg):
+        # None = caller-skipped leg (fallback path, transport never
+        # called): needs no key — same rule as the zen leg below. Only
+        # _USE_DEFAULT legs run on the provider and need its key.
         return providers[leg] == "avalai" \
-            and _injected[leg] in (_USE_DEFAULT, None)
+            and _injected[leg] is _USE_DEFAULT
 
     def _leg_google(leg):
+        # Same skipped-leg rule as above (a None leg never calls its
+        # transport, so it must not demand the provider key).
         return providers[leg] == "google" \
-            and _injected[leg] in (_USE_DEFAULT, None)
+            and _injected[leg] is _USE_DEFAULT
 
     full_avalai = all(_leg_avalai(leg) for leg in LLM_LEGS) and any(
         _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)

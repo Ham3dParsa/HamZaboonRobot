@@ -80,6 +80,18 @@ def _fake_topics(api_key, model, user_text):
         for lemma, sids in lemmas.items()]})
 
 
+def _fake_inflect(api_key, model, sys_text, user_text):
+    """S0b-shape reply: keep every KEY section (no inflection drops)."""
+    keys, cur = [], None
+    for line in user_text.splitlines():
+        hit = re.match(r"^KEY (\S+)", line)
+        if hit:
+            cur = hit.group(1)
+            keys.append(cur)
+    return json.dumps({"results": [
+        {"key": k, "keep": True, "reason": "test keep"} for k in keys]})
+
+
 def test_pipeline_reproduces_old_rows(tmp_path):
     from factory.pipeline import precard_pipeline as old
     from factory.precard import pipeline as new
@@ -91,7 +103,8 @@ def test_pipeline_reproduces_old_rows(tmp_path):
     index, read_entry = _idx()
     kwargs = dict(
         _judge_transport=_fake_judge, _topic_transport=_fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=_fake_inflect,
+        _sleep_fn=lambda s: None,
         _index=index, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
         _type_log_available=False)
