@@ -199,6 +199,27 @@ COUNTRY_NAMES = frozenset({
     "aland islands", "são tomé and príncipe",
 })
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
+# v14 line marker: the progress dir is stamped on start; resuming a
+# foreign-line dir fails closed (single-pick v13 states must never mix
+# with multi-pick v14 states).
+LINE = "v14"
+LINE_FILE = "line.json"
+
+
+def _check_line_marker(progress_dir):
+    """Stamp the v14 line or abort on a foreign line (fail-closed)."""
+    marker = pathlib.Path(progress_dir) / LINE_FILE
+    if marker.exists():
+        try:
+            seen = json.loads(marker.read_text(encoding="utf-8")).get("line")
+        except (OSError, ValueError):
+            seen = None
+        if seen != LINE:
+            raise SystemExit(
+                "refusing to resume %s: line %r is not this line (%r) — "
+                "use a fresh --progress-dir" % (marker, seen, LINE))
+        return
+    marker.write_text(json.dumps({"line": LINE}), encoding="utf-8")
 # Human-readable stage names live in stage_glossary (single source);
 # STAGE_NAMES / STAGE_FINGLESH here are shared references, never copies.
 
@@ -700,6 +721,44 @@ def _preprocess_entry_view(item, index, read_entry):
     return {"senses": senses, "poss": poss}
 
 
+_ABBR_SENSE_TAGS = {"abbreviation", "initialism"}
+
+
+def _has_internet_sense(senses):
+    """True when any sense carries the digital-native Internet tag."""
+    return any("internet" in (s.get("tags") or []) for s in senses
+               if isinstance(s, dict))
+
+
+def _has_general_expansion(senses):
+    """True when an abbrev sense expands to general language (T4, list-free).
+
+    Generality proxy on the expansion text (parsed by the shared R29
+    helper, single source): a multiword phrase ("as soon as possible",
+    "I don't know") or a common lowercase word ("between") is living
+    usage; a proper-shaped expansion ("February", "Franklin Delano
+    Roosevelt") is a name/term. Mixed-case technical phrases are a known
+    residual (rarity still owned by R20 downstream).
+    """
+    for sense in senses:
+        if not isinstance(sense, dict):
+            continue
+        if not (_ABBR_SENSE_TAGS & set(sense.get("tags") or [])):
+            continue
+        expansion = card_pilot.parse_abbrev_expansion(
+            sense.get("gloss") or "")
+        if not expansion:
+            continue
+        tokens = expansion.split()
+        if tokens and all(tok[:1].isupper() for tok in tokens):
+            continue
+        if len(tokens) >= 3:
+            return True
+        if tokens and all(tok[:1].islower() for tok in tokens):
+            return True
+    return False
+
+
 def _preprocess_input_gates(text, view):
     """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
 
@@ -731,11 +790,19 @@ def _preprocess_input_gates(text, view):
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
     # lowercased inputs. A lone lowercase single-abbrev sense is
     # quarantined, not dropped (led).
+    # T4 v14 smart gate (no word lists): a fired caps/abbrev entry still
+    # survives as living usage iff an abbreviation sense is digital-native
+    # (Internet tag) or expands to general language (helper below).
+    # Proper-name/technical expansions (February, Franklin Delano
+    # Roosevelt) keep the drop; rarity is owned downstream by R20.
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
     # Caps alone never drops (BOOK/PLAY stay); caps + at least one abbrev
-    # tag, or every-sense-abbrev (multi-sense), drops.
-    if (re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or \
-            (senses and n_abbr == len(senses) and len(senses) > 1):
+    # tag, or every-sense-abbrev (multi-sense), drops — unless the smart
+    # gate vouches for living usage (abbrev_expansion recorded downstream).
+    if ((re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or
+            (senses and n_abbr == len(senses) and len(senses) > 1)) \
+            and not (_has_internet_sense(senses)
+                     or _has_general_expansion(senses)):
         return "g4-abbrev", None
     if senses and len(senses) == 1 and n_abbr == 1:
         return None, "g4-abbrev"
@@ -1167,9 +1234,10 @@ def _judge_prompt(batch, anchor_map):
              "nominal or philosophical sense.",
              "",
              'Output: {"results": [{"key": "<item key>", '
-             '"pick": "<sense_id>"}]}.',
-             "Every pick MUST be one of that item's candidate ids "
-             "(empty pick only when the item has no candidates).",
+             '"picks": ["<sense_id>", ...]}]}.',
+             "List 1 to 4 sense ids per item in usefulness order (best "
+             "first): every id MUST be one of that item's candidate ids "
+             "(empty picks only when the item has no candidates).",
              "Input follows:"]
     for item in batch:
         key = item_key(item)
@@ -1186,12 +1254,16 @@ def _judge_prompt(batch, anchor_map):
     return "\n".join(lines)
 
 
+# T6 v14: the sense-judge returns 1..MAX_PICKS ranked picks per item.
+MAX_PICKS = 4
+
+
 def _judge_fallback(item, anchor_res):
-    """Fail-closed pick: anchor top (via the imported deterministic_picks)."""
+    """Fail-closed picks: anchor-top order (via the imported deterministic_picks)."""
     from factory.archive.v14_v16.run_v14_phase3_judge import deterministic_picks
     cands = (anchor_res or {}).get("candidates", [])
     if not cands:
-        return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty"}
+        return {"picks": [], "model": "s1-fallback-empty"}
     pseudo = {"ranked_senses": [
         {"sense_id": c["sense_id"]} for c in cands]}
     try:
@@ -1199,17 +1271,23 @@ def _judge_fallback(item, anchor_res):
         first = (picks.get("beginner") or [cands[0]["sense_id"]])[0]
     except Exception:
         first = cands[0]["sense_id"]
-    gloss = next((c.get("gloss", "") for c in cands
-                  if c["sense_id"] == first), "")
-    return {"sense_id": first, "gloss": gloss, "model": "s1-fallback"}
+    ordered = [first] + [c["sense_id"] for c in cands
+                         if c["sense_id"] != first]
+    picks = []
+    for sid in ordered[:MAX_PICKS]:
+        gloss = next((c.get("gloss", "") for c in cands
+                      if c["sense_id"] == sid), "")
+        picks.append({"sense_id": sid, "gloss": gloss})
+    return {"picks": picks, "model": "s1-fallback"}
 
 
 def _judge_validate(data, batch, anchor_map):
-    """Accept single {"key","pick"} rows (plus lemma-style "picks" rows).
+    """Accept {"key","picks"} rows with 1..MAX_PICKS ranked window ids.
 
-    Lemma-style rows are validated with the imported validate_picks and
-    collapse to their first pick. Returns {key: {"sense_id","gloss"}}
-    for valid rows only; invalid rows are left out (caller fails closed).
+    Legacy single {"key","pick"} rows (and lemma-style dict "picks" rows,
+    collapsed to their first pick) wrap to a 1-pick list. Returns
+    {key: {"picks": [{"sense_id","gloss"}...]}} for valid rows only;
+    invalid rows are left out (caller fails closed).
     """
     from factory.archive.v14_v16.run_v14_phase3_judge import validate_picks
     if not isinstance(data, dict) or not isinstance(
@@ -1227,21 +1305,30 @@ def _judge_validate(data, batch, anchor_map):
         ids = [c["sense_id"] for c in cands]
         if not isinstance(row, dict):
             continue
-        pick = row.get("pick")
-        if pick is None and isinstance(row.get("picks"), dict):
-            if validate_picks(row["picks"], ids):
-                flat = (row["picks"].get("beginner")
-                        or row["picks"].get("intermediate")
-                        or row["picks"].get("advanced") or [])
-                pick = flat[0] if flat else None
+        picks = row.get("picks")
+        if isinstance(picks, dict):
+            if validate_picks(picks, ids):
+                flat = (picks.get("beginner")
+                        or picks.get("intermediate")
+                        or picks.get("advanced") or [])
+                picks = flat[:1] if flat else None
             else:
                 continue
-        if pick == "" and not ids:
-            out[key] = {"sense_id": "", "gloss": ""}
-        elif isinstance(pick, str) and pick in ids:
-            gloss = next(c.get("gloss", "") for c in cands
-                         if c["sense_id"] == pick)
-            out[key] = {"sense_id": pick, "gloss": gloss}
+        elif isinstance(picks, str):
+            picks = [picks]
+        elif row.get("pick") is not None and picks is None:
+            picks = [row.get("pick")]
+        if picks == [] and not ids:
+            out[key] = {"picks": []}
+        elif isinstance(picks, list) and 1 <= len(picks) <= MAX_PICKS \
+                and all(isinstance(p, str) for p in picks) \
+                and all(p in ids for p in picks) \
+                and len(set(picks)) == len(picks):
+            out[key] = {"picks": [
+                {"sense_id": p,
+                 "gloss": next(c.get("gloss", "") for c in cands
+                               if c["sense_id"] == p)}
+                for p in picks]}
     want = {item_key(i) for i in batch}
     if set(out) != want:
         return None
@@ -1283,22 +1370,58 @@ def _is_veto_stub_gloss(gloss):
 
 
 def _apply_inflection_veto(out, batch, anchor_map):
-    """F4: veto every stub pick in a judge_batch result dict, in place."""
+    """F4: veto every stub pick in a judge_batch result dict, in place.
+
+    Applies per pick; picks collapsing onto the same anchor-top sense
+    dedupe (order kept) so the ranked list never repeats a sense.
+    """
     for item in batch:
         key = item_key(item)
         if key in out:
-            sid, gloss = _veto_inflection_pick(
-                out[key], (anchor_map or {}).get(key))
-            out[key]["sense_id"], out[key]["gloss"] = sid, gloss
+            seen, vetoed = set(), []
+            for pick in (out[key].get("picks") or []):
+                sid, gloss = _veto_inflection_pick(
+                    pick, (anchor_map or {}).get(key))
+                if sid not in seen:
+                    seen.add(sid)
+                    vetoed.append({"sense_id": sid, "gloss": gloss})
+            out[key]["picks"] = vetoed
     return out
+
+
+def _primary_pick(verdict):
+    """Top-ranked pick of an s2 verdict (pre-fan-out downstream adapter)."""
+    picks = (verdict or {}).get("picks") or []
+    if picks:
+        return picks[0]
+    return {"sense_id": "", "gloss": ""}
+
+
+def _verdict_picks(verdict):
+    """Normalized picks list from an s2 verdict, new or legacy shape.
+
+    New shape carries picks=[{sense_id, gloss}...]; legacy single-pick
+    verdicts ({sense_id, gloss}) wrap to a 1-pick list so old progress
+    and hermetic maps keep flowing. Empty verdicts yield [].
+    """
+    if not isinstance(verdict, dict):
+        return []
+    picks = verdict.get("picks")
+    if isinstance(picks, list):
+        return [p for p in picks
+                if isinstance(p, dict) and p.get("sense_id")]
+    if verdict.get("sense_id"):
+        return [{"sense_id": verdict["sense_id"],
+                 "gloss": verdict.get("gloss", "")}]
+    return []
 
 
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None):
-    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
+    """    Judge-pick one batch. Returns {key: {picks, model}}.
 
-    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
+    Picks are 1..MAX_PICKS ranked senses (best first). Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
     list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
     it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
@@ -1496,23 +1619,23 @@ def judge_proper_route(item, pick, anchor_res, index, read_entry, zipf_fn=None):
 # ---------------------------------------------------------------- vectors ---
 
 def _vectors_pseudo_records(batch, judge_map, anchor_map):
-    """Group batch picks into run_v15 pseudo lemma records."""
+    """Group batch picks into run_v15 pseudo lemma records (all picks)."""
     groups = {}
     for item in batch:
         key = item_key(item)
-        pick = (judge_map.get(key) or {})
-        sid = pick.get("sense_id", "")
-        if not sid:
-            continue
-        lemma = (item.get("text") or "").strip()
-        rec = groups.setdefault(
-            lemma, {"lemma": lemma, "ranked_senses": []})
-        if all(s["sense_id"] != sid for s in rec["ranked_senses"]):
-            gloss = pick.get("gloss", "") or (
-                anchor_map.get(key) or {}).get("en_def", "")
-            rec["ranked_senses"].append(
-                {"sense_id": sid, "gloss": gloss,
-                 "topic_label": "Other / Abstract"})
+        for pick in _verdict_picks((judge_map.get(key) or {})):
+            sid = pick.get("sense_id", "")
+            if not sid:
+                continue
+            lemma = (item.get("text") or "").strip()
+            rec = groups.setdefault(
+                lemma, {"lemma": lemma, "ranked_senses": []})
+            if all(s["sense_id"] != sid for s in rec["ranked_senses"]):
+                gloss = pick.get("gloss", "") or (
+                    anchor_map.get(key) or {}).get("en_def", "")
+                rec["ranked_senses"].append(
+                    {"sense_id": sid, "gloss": gloss,
+                     "topic_label": "Other / Abstract"})
     return list(groups.values())
 
 
@@ -1775,7 +1898,9 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                     if isinstance(data, dict) else []
                 # Match rows by sense_id (not by lemma dict — two items
                 # may share a lemma text, e.g. word+phrase; a lemma-keyed
-                # map would collapse them and fail the chunk).
+                # map would collapse them and fail the chunk). Merged is
+                # keyed by (item key, sense_id): one item's picks share
+                # the item key but never a sense.
                 used = set()
                 merged = {}
                 for entry in entries:
@@ -1794,9 +1919,12 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                     if senses is None:
                         senses = (by_lemma.get(entry["text"]) or {}).get(
                             "senses")
+                    matched = [s for s in (senses or [])
+                               if isinstance(s, dict)
+                               and s.get("sense_id") == entry["sense_id"]]
                     try:
                         good, normed = _topup_validate(
-                            senses, [entry["sense_id"]])
+                            matched or senses, [entry["sense_id"]])
                     except Exception:
                         good, normed = False, None
                     if not good or not normed:
@@ -1809,9 +1937,9 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                            if isinstance(e, dict)
                            and e.get("topic_label")] or \
                         card_pilot.single_topic_vector(found)
-                    # Keyed by item key (not sense_id — duplicate texts
-                    # share sense_id shapes but never item keys).
-                    merged[entry["key"]] = (found, vec)
+                    # Keyed by (item key, sense_id): one item's picks
+                    # share the item key but never a sense.
+                    merged[(entry["key"], entry["sense_id"])] = (found, vec)
                 if len(merged) > len(best):
                     best = dict(merged)
                     best_model = model
@@ -1852,15 +1980,16 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 ring=None, models=None, lookup=None):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
-    batch: sample items; picks: {key: {sense_id, gloss}};
+    batch: sample items; picks: {key: [{sense_id, gloss}...]} (T6 fan-out;
+    legacy single-pick {key: {sense_id, gloss}} maps wrap to 1 pick);
     vector_lookups: {key: {sense_id: vector}} (S3 vectors, optional).
     Leg 1 (deterministic v16, injectable `lookup` for hermetic tests)
-    and the file cache resolve per item with zero LLM; the remaining
-    items share one LLM call per LABEL_BATCH chunk. Returns
-    {key: assign_topic-shaped row}. transport=None skips the LLM leg
-    (all remaining fall back, stated). RateLimited/AuthError propagate
-    (caller flushes + stops/aborts); anything else fails closed per
-    item to Other / Abstract.
+    and the file cache resolve per pick with zero LLM; the remaining
+    picks share one LLM call per LABEL_BATCH chunk. Returns
+    {key: {"labels": {sense_id: assign_topic-shaped row}}}.
+    transport=None skips the LLM leg (all remaining fall back, stated).
+    RateLimited/AuthError propagate (caller flushes + stops/aborts);
+    anything else fails closed per pick to Other / Abstract.
     """
     if ring is None:
         ring = KeyRing([api_key])
@@ -1870,48 +1999,59 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
     prog_path = pathlib.Path(progress_path) if progress_path else None
     out = {}
     pending = []
+
+    def _emit(key, sense_id, row):
+        out.setdefault(key, {}).setdefault("labels", {})[sense_id] = row
+
     for item in batch:
         key = item_key(item)
-        pick = (picks or {}).get(key) or {}
-        text = item.get("text", "")
-        gloss = pick.get("gloss", "")
-        # Same default as card_pilot.assign_topic (text#0): an empty pick
-        # still labels under a well-formed sense id in the LLM block.
-        sense_id = pick.get("sense_id", "") or (
-            "%s#0" % (text or "").strip().lower())
+        raw = (picks or {}).get(key)
+        if isinstance(raw, dict):
+            raw = [raw]
+        pair_picks = [p for p in (raw or []) if isinstance(p, dict)]
+        if not pair_picks:
+            pair_picks = [{}]
         vector_lookup = (vector_lookups or {}).get(key)
-        label = None
-        if lookup is not None:
-            try:
-                label = lookup(text, gloss or "")
-            except Exception:
-                label = None
-        if label:
-            vec = (vector_lookup or {}).get(sense_id)
-            if telemetry is not None:
-                _tele_record(telemetry, stage=tele_stage,
-                             batch_id=tele_batch, key_idx=0,
-                             model="deterministic", latency_s=0.0,
-                             outcome="ok")
-            out[key] = {"label": label,
-                        "method": card_pilot.TOPIC_METHOD_TAG,
-                        "vector": list(vec) if vec
-                        else card_pilot.single_topic_vector(label),
-                        "topic_path": "leg1"}
-            continue
-        hit = _label_cache_hit(cache, text, gloss, sense_id,
-                               vector_lookup)
-        if hit is not None:
-            if telemetry is not None:
-                _tele_record(telemetry, stage=tele_stage,
-                             batch_id=tele_batch, key_idx=0,
-                             model="deterministic", latency_s=0.0,
-                             outcome="ok")
-            out[key] = hit
-            continue
-        pending.append({"key": key, "text": text, "gloss": gloss,
-                        "sense_id": sense_id,
-                        "vector_lookup": vector_lookup})
+        for pick in pair_picks:
+            text = item.get("text", "")
+            gloss = pick.get("gloss", "")
+            # Same default as card_pilot.assign_topic (text#0): an empty
+            # pick still labels under a well-formed sense id in the block.
+            sense_id = pick.get("sense_id", "") or (
+                "%s#0" % (text or "").strip().lower())
+            label = None
+            if lookup is not None:
+                try:
+                    label = lookup(text, gloss or "")
+                except Exception:
+                    label = None
+            if label:
+                vec = (vector_lookup or {}).get(sense_id)
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model="deterministic", latency_s=0.0,
+                                 outcome="ok")
+                _emit(key, sense_id, {
+                    "label": label,
+                    "method": card_pilot.TOPIC_METHOD_TAG,
+                    "vector": list(vec) if vec
+                    else card_pilot.single_topic_vector(label),
+                    "topic_path": "leg1"})
+                continue
+            hit = _label_cache_hit(cache, text, gloss, sense_id,
+                                   vector_lookup)
+            if hit is not None:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model="deterministic", latency_s=0.0,
+                                 outcome="ok")
+                _emit(key, sense_id, hit)
+                continue
+            pending.append({"key": key, "text": text, "gloss": gloss,
+                            "sense_id": sense_id,
+                            "vector_lookup": vector_lookup})
     for chunk_no in range(0, len(pending), LABEL_BATCH):
         chunk = pending[chunk_no:chunk_no + LABEL_BATCH]
         resolved = None
@@ -1921,19 +2061,21 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 telemetry, tele_stage, tele_batch, ring, models)
         for entry in chunk:
             key, sense_id = entry["key"], entry["sense_id"]
-            if resolved is not None and key in resolved:
-                got = resolved[key]
-                out[key] = {"label": got["label"],
-                            "method": card_pilot.TOPIC_METHOD_TAG,
-                            "vector": got["vector"], "topic_path": "llm"}
+            pair = (key, sense_id)
+            if resolved is not None and pair in resolved:
+                got = resolved[pair]
+                _emit(key, sense_id, {
+                    "label": got["label"],
+                    "method": card_pilot.TOPIC_METHOD_TAG,
+                    "vector": got["vector"], "topic_path": "llm"})
                 if isinstance(cache, dict):
                     cache["%s\t%s\t%s" % (
                         entry["text"], entry["gloss"] or "",
                         sense_id)] = {"label": got["label"],
                                       "vector": got["vector"]}
             else:
-                out[key] = _label_fallback_result(entry["vector_lookup"],
-                                                  sense_id)
+                _emit(key, sense_id, _label_fallback_result(
+                    entry["vector_lookup"], sense_id))
         # One atomic cache write per chunk (tmp + rename — a crash
         # mid-write never truncates the resume cache).
         if isinstance(cache, dict) and prog_path is not None and \
@@ -2042,19 +2184,21 @@ def _entries_for(item, index):
 # Additive precard row fields from dataset sources only (zero LLM calls):
 # lexical_type (word default; slang/colloquial/idiomatic from the picked
 # kaikki sense tags; phrases from the phrase-type log verbatim), register
-# (neutral default; informal tag; slang_vulgar from vulgar/offensive tags),
+# (neutral default; informal tag; taboo from general vulgarity tags),
 # pre_card_id (sha1-hex16 of lemma.lower|pos|en_def normalized — EN only,
 # never Persian). Destination-side pack filters read these; gates/scoring
 # never do (no behavior change there).
 LEXICAL_TYPE_DEFAULT = "word"
 REGISTER_DEFAULT = "neutral"
 REGISTER_INFORMAL = "informal"
-REGISTER_SLANG_VULGAR = "slang_vulgar"
+REGISTER_TABOO = "taboo"
 _LEXICAL_SLANG_TAGS = {"slang"}
 _LEXICAL_COLLOQUIAL_TAGS = {"colloquial"}
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 _REGISTER_INFORMAL_TAGS = {"informal"}
-_REGISTER_SLANG_VULGAR_TAGS = {"vulgar", "offensive"}
+# T3 v14 taboo policy: general vulgarity tags (single source: card_pilot
+# VULGAR_TABOO) map to register=taboo + content_warning. Slur tags never
+# reach here (S1 hard-drop owns that kill).
 # F3 register floor: slang/colloquial sense tags imply at least informal
 # (kush/recon land informal, not neutral). Reuses the lexical-type tag
 # sets above (single source — no second copy of the vocabulary).
@@ -2112,14 +2256,14 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 def register_for(sense_tags):
     """Register for one precard row (pure, dataset-only).
 
-    slang_vulgar (vulgar/offensive tags) wins over informal; slang or
+    taboo (general vulgarity tags) wins over informal; slang or
     colloquial tags imply at least informal (F3 floor); default is
-    neutral. The vulgar/offensive set is the locked ticket scope — the
-    broader S1 VULGAR_TAGS drop is a separate gate, untouched here.
+    neutral. The taboo set is single-sourced from card_pilot
+    VULGAR_TABOO; the S1 hard-drop set (slurs) never reaches here.
     """
     tags = _normalize_tags(sense_tags)
-    if tags & _REGISTER_SLANG_VULGAR_TAGS:
-        return REGISTER_SLANG_VULGAR
+    if tags & card_pilot.VULGAR_TABOO:
+        return REGISTER_TABOO
     if tags & (_REGISTER_INFORMAL_TAGS | _LEXICAL_SLANG_TAGS
                | _LEXICAL_COLLOQUIAL_TAGS):
         return REGISTER_INFORMAL
@@ -2204,6 +2348,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 "lexical_type": lexical_type_for(kind, set(),
                                                  phrase_entry),
                 "register": REGISTER_DEFAULT,
+                "content_warning": False,
                 "pre_card_id": compute_pre_card_id(
                     lemma, item.get("pos", ""), gloss or "")}
     try:
@@ -2257,6 +2402,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
     sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
         item, lemma, id_pos, gloss or "")
+    register = register_for(sense_tags)
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
@@ -2271,7 +2417,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "sense_cefr_method": sense_cefr_method,
             "lexical_type": lexical_type_for(kind, sense_tags,
                                              phrase_entry),
-            "register": register_for(sense_tags),
+            "register": register,
+            "content_warning": register == REGISTER_TABOO,
             "pre_card_id": compute_pre_card_id(lemma, id_pos,
                                                gloss or "")}
 
@@ -2606,6 +2753,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     progress_dir = pathlib.Path(args.progress_dir)
     progress_dir.mkdir(parents=True, exist_ok=True)
+    _check_line_marker(progress_dir)
     resume = not args.no_resume
     states = {}
     for stage in STAGES:
@@ -3173,7 +3321,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                         ranked["mother_lemmas"], \
                                         ranked["mother_multi"] = fresh_mother
                                 if set(ranked.get("anchor_tags")
-                                       or {}) & card_pilot.VULGAR_TAGS:
+                                       or {}) & card_pilot.VULGAR_HARD_DROP:
                                     ranked.pop("rerouted_from_proper",
                                                None)
                                     ranked["dropped"] = "vulgar-anchor"
@@ -3229,7 +3377,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                             ranked["mother_multi"] = \
                                             fresh_mother
                                     if set(ranked.get("anchor_tags")
-                                           or {}) & card_pilot.VULGAR_TAGS:
+                                           or {}) & card_pilot.VULGAR_HARD_DROP:
                                         ranked.pop("rerouted_from_name",
                                                    None)
                                         ranked["dropped"] = "vulgar-anchor"
@@ -3255,7 +3403,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 if key not in states["s1"]["failed"]:
                                     states["s1"]["failed"].append(key)
                         elif set(ranked.get("anchor_tags") or {}) & \
-                                card_pilot.VULGAR_TAGS:
+                                card_pilot.VULGAR_HARD_DROP:
                             ranked["dropped"] = "vulgar-anchor"
                             if key not in states["s1"]["failed"]:
                                 states["s1"]["failed"].append(key)
@@ -3369,7 +3517,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if "proper_route" in entry and "proper_drop" in entry:
                 continue
             verdict = judge_proper_route(
-                item, entry, states["s1"]["done"].get(key),
+                item, _primary_pick(entry),
+                states["s1"]["done"].get(key),
                 index, read_entry, zipf_fn)
             entry["proper_route"] = verdict["proper_route"]
             entry["proper_drop"] = verdict["reason"] or ""
@@ -3426,16 +3575,27 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 "switch VPN server then re-run"))
                 for item in todo:
                     key = item_key(item)
-                    sid = (states["s2"]["done"].get(key) or {}).get(
-                        "sense_id", "")
-                    hit = vecs.get(sid) if sid else None
-                    if hit is None:
-                        hit = {"vector": [{"label": "Other / Abstract",
-                                           "weight": 1.0}],
-                               "model": "deterministic"}
+                    verdict = states["s2"]["done"].get(key) or {}
+                    hits = {}
+                    for pick in _verdict_picks(verdict):
+                        sid = pick.get("sense_id", "")
+                        hit = vecs.get(sid) if sid else None
+                        if hit is None:
+                            hit = {"vector": [{"label": "Other / Abstract",
+                                               "weight": 1.0}],
+                                    "model": "deterministic"}
+                            if key not in states["s3"]["failed"]:
+                                states["s3"]["failed"].append(key)
+                        hits[sid] = hit
+                    if not hits:
                         if key not in states["s3"]["failed"]:
                             states["s3"]["failed"].append(key)
-                    states["s3"]["done"][key] = hit
+                    primary_sid = _primary_pick(verdict).get("sense_id", "")
+                    states["s3"]["done"][key] = {
+                        "hits": hits,
+                        "model": (hits.get(primary_sid) or {}).get(
+                            "model", "deterministic"),
+                    }
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
             fail = sum(
@@ -3460,12 +3620,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         run_logger.stage_start("s4")
         vec_lookup = {}
         for key, hit in states["s3"]["done"].items():
-            for entry in (hit.get("vector") or []):
-                if isinstance(entry, dict) and entry.get("label"):
-                    vec_lookup.setdefault(
-                        (states["s2"]["done"].get(key) or {}).get(
-                            "sense_id", ""),
-                        []).append(entry)
+            pairs = []
+            if isinstance(hit, dict):
+                if isinstance(hit.get("hits"), dict):
+                    pairs = list(hit["hits"].items())
+                elif isinstance(hit.get("vector"), list):
+                    # Legacy single-hit shape: fan out under each pick.
+                    for pick in _verdict_picks(
+                            (states["s2"]["done"].get(key) or {})):
+                        pairs.append((pick.get("sense_id", ""), hit))
+            for sid, hv in pairs:
+                for entry in ((hv or {}).get("vector") or []):
+                    if isinstance(entry, dict) and entry.get("label"):
+                        vec_lookup.setdefault(sid, []).append(entry)
         n_label_batches = (len(items) + LABEL_BATCH - 1) // LABEL_BATCH or 1
         _s4_offsets = (list(range(0, len(items), LABEL_BATCH))
                        if "s4" in selected else [])
@@ -3474,17 +3641,22 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             todo = [i for i in batch
                     if item_key(i) not in states["s4"]["done"]]
             if todo:
-                picks = {item_key(i): {
-                    "sense_id": (states["s2"]["done"].get(item_key(i))
-                                 or {}).get("sense_id", ""),
-                    "gloss": (states["s2"]["done"].get(item_key(i))
-                              or {}).get("gloss", "")} for i in todo}
+                picks = {item_key(i): [
+                    {"sense_id": p.get("sense_id", ""),
+                     "gloss": p.get("gloss", "")}
+                    for p in _verdict_picks(
+                        (states["s2"]["done"].get(item_key(i)) or {}))]
+                    for i in todo}
                 lookups = {}
                 for i in todo:
                     key = item_key(i)
-                    sid = picks[key]["sense_id"]
-                    if sid in vec_lookup:
-                        lookups[key] = {sid: vec_lookup[sid]}
+                    per = {}
+                    for p in picks[key]:
+                        sid = p["sense_id"]
+                        if sid in vec_lookup:
+                            per[sid] = vec_lookup[sid]
+                    if per:
+                        lookups[key] = per
                 try:
                     assigned_map = label_batch(
                         todo, picks, lookups or None,
@@ -3527,19 +3699,32 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 done = states["s5"]["done"].get(key)
                 # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
                 # re-enrich deterministically (no LLM) instead of skipping.
-                # Same for pre-bridge entries (no sense_cefr_method).
-                if not isinstance(done, dict) \
-                        or "pre_card_id" not in done \
-                        or "sense_cefr_method" not in done:
-                    phrase_entry = None
-                    if (item.get("kind") or "word") == "phrase" \
-                            and type_log_available:
-                        phrase_entry = (type_map or {}).get(
-                            (item.get("text") or "").strip())
-                    states["s5"]["done"][key] = enrich_item(
-                        item, states["s2"]["done"].get(key) or {},
+                # Same for pre-bridge entries (no sense_cefr_method) and
+                # pre-T6 single-shape entries (no primary): rebuild all
+                # picks fresh, primary first.
+                primary = done.get("primary") \
+                    if isinstance(done, dict) else None
+                if isinstance(primary, dict) \
+                        and "pre_card_id" in primary \
+                        and "sense_cefr_method" in primary:
+                    continue
+                phrase_entry = None
+                if (item.get("kind") or "word") == "phrase" \
+                        and type_log_available:
+                    phrase_entry = (type_map or {}).get(
+                        (item.get("text") or "").strip())
+                verdict_picks = _verdict_picks(
+                    states["s2"]["done"].get(key) or {})
+                enriched = [enrich_item(
+                    item, pick, index, read_entry, tatoeba_pool,
+                    phrase_entry=phrase_entry) for pick in verdict_picks]
+                if not enriched:
+                    enriched = [enrich_item(
+                        item, {"sense_id": "", "gloss": ""},
                         index, read_entry, tatoeba_pool,
-                        phrase_entry=phrase_entry)
+                        phrase_entry=phrase_entry)]
+                states["s5"]["done"][key] = {
+                    "primary": enriched[0], "also": enriched[1:]}
             _flush(progress_dir, states)
             # Deterministic stage: <1s per batch, no progress bar by design
             # (LLM stages use _batch_progress for live per-batch feedback).
@@ -3547,12 +3732,36 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s5", states, args.out)
         # Assemble output (survivors only; drops live in s0/s1 progress).
+        # T6: the primary (top-ranked) pick assembles exactly the v13 row
+        # shape (DB-facing output unchanged); extra picks ride the additive
+        # also_senses list (bot validators ignore unknown fields).
         for item in items:
             key = item_key(item)
-            enrich = states["s5"]["done"].get(key) or {}
-            label = states["s4"]["done"].get(key) or {}
-            vec3 = states["s3"]["done"].get(key) or {}
-            pick = states["s2"]["done"].get(key) or {}
+            s5 = states["s5"]["done"].get(key) or {}
+            enrich = (s5.get("primary") if isinstance(s5, dict) else None)
+            if not isinstance(enrich, dict):
+                enrich = (s5 if isinstance(s5, dict)
+                          and "pre_card_id" in s5 else {})
+            also_enrich = (s5.get("also") if isinstance(s5, dict) else []) or []
+            s4 = states["s4"]["done"].get(key) or {}
+            labels = (s4.get("labels") if isinstance(s4, dict) else None)
+            if not isinstance(labels, dict):
+                labels = {}
+            s3 = states["s3"]["done"].get(key) or {}
+            hits = (s3.get("hits") if isinstance(s3, dict) else None)
+            if not isinstance(hits, dict):
+                hits = {}
+            verdict = states["s2"]["done"].get(key) or {}
+            verdict_picks = _verdict_picks(verdict)
+            primary_sid = (verdict_picks[0].get("sense_id", "")
+                           if verdict_picks else "")
+            label = labels.get(primary_sid, {})
+            if not label and isinstance(s4, dict) and s4.get("label"):
+                label = s4  # legacy single-row shape
+            vec3 = hits.get(primary_sid, {})
+            if not vec3 and isinstance(s3, dict) and s3.get("vector"):
+                vec3 = s3  # legacy single-hit shape
+            pick = verdict
             preprocess_view = preprocess_info.get(key) or {}
             s0b = states["s0b"]["done"].get(key) or {}
             s1r = states["s1"]["done"].get(key) or {}
@@ -3560,6 +3769,42 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             or vec3.get("vector")
                             or [{"label": "Other / Abstract",
                                  "weight": 1.0}])
+            also_senses = []
+            for extra, extra_enrich in zip(
+                    verdict_picks[1:], also_enrich):
+                if not isinstance(extra_enrich, dict):
+                    continue
+                sid = extra.get("sense_id", "")
+                lrow = labels.get(sid, {})
+                vrow = hits.get(sid, {})
+                also_senses.append({
+                    "sense_id": sid,
+                    "en_def": extra_enrich.get("en_def", ""),
+                    "ipa": extra_enrich.get("ipa", ""),
+                    "ipa_src": extra_enrich.get(
+                        "ipa_src", card_pilot.IPA_SRC_MODEL),
+                    "dataset_examples": extra_enrich.get(
+                        "dataset_examples", []),
+                    "abbrev_expansion": extra_enrich.get(
+                        "abbrev_expansion", ""),
+                    "pos": extra_enrich.get("pos", []),
+                    "pos_src": extra_enrich.get("pos_src", "none"),
+                    "lexical_type": extra_enrich.get(
+                        "lexical_type", LEXICAL_TYPE_DEFAULT),
+                    "register": extra_enrich.get(
+                        "register", REGISTER_DEFAULT),
+                    "content_warning": bool(extra_enrich.get(
+                        "content_warning", False)),
+                    "sense_cefr": extra_enrich.get("sense_cefr"),
+                    "sense_cefr_method": extra_enrich.get(
+                        "sense_cefr_method", "unmapped"),
+                    "pre_card_id": extra_enrich.get("pre_card_id", ""),
+                    "topic_vector": (lrow.get("vector")
+                                     or vrow.get("vector")
+                                     or [{"label": "Other / Abstract",
+                                          "weight": 1.0}]),
+                    "topic_method": lrow.get("method")
+                    or card_pilot.TOPIC_METHOD_TAG})
             rec = {
                 "key": key, "kind": item.get("kind") or "word",
                 "text": item.get("text", ""),
@@ -3578,6 +3823,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "lexical_type": enrich.get("lexical_type",
                                            LEXICAL_TYPE_DEFAULT),
                 "register": enrich.get("register", REGISTER_DEFAULT),
+                "content_warning": bool(enrich.get("content_warning", False)),
                 "sense_cefr": enrich.get("sense_cefr"),
                 "sense_cefr_method": enrich.get("sense_cefr_method",
                                                 "unmapped"),
@@ -3588,6 +3834,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "topic_vector": topic_vector,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
+                "also_senses": also_senses,
                 "drop_reason": None,
                 "stage_calls": {
                     "s0": ("kept:type-pending" if preprocess_view.get("type_pending")

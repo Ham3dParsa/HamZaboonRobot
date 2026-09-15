@@ -19,7 +19,7 @@ ANCHOR_MAP = {
 ITEMS = [{"kind": "word", "text": "apple", "pos": "noun",
           "pool_level": "A1"}]
 GOOD = json.dumps({"results": [{"key": "w:apple",
-                                "pick": "apple#0"}]})
+                                "picks": ["apple#0"]}]})
 
 
 def _google_envelope(text):
@@ -56,7 +56,7 @@ def test_google_judge_parses_envelope():
 
     out = blind50.google_judge("k", "gemini-3.5-flash-lite", ITEMS,
                                "PROMPT", ANCHOR_MAP, http_post=fake_post)
-    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert out["w:apple"]["picks"][0]["sense_id"] == "apple#0"
     assert "gemini-3.5-flash-lite" in calls[0][0]
     body = json.loads(calls[0][1].decode())
     assert body["generationConfig"]["thinkingConfig"][
@@ -125,7 +125,7 @@ def test_openrouter_sends_bearer_token(monkeypatch):
     monkeypatch.setattr(blind50, "_default_post", fake_default)
     out = blind50.openrouter_judge("secret-k", "m", ITEMS, "PROMPT",
                                    ANCHOR_MAP)
-    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert out["w:apple"]["picks"][0]["sense_id"] == "apple#0"
     assert seen.get("Authorization") == "Bearer secret-k"
 
 

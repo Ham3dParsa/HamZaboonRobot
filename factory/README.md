@@ -1,4 +1,4 @@
-# Factory (lexicon) — map + backup policy + PishCard v13 line
+# Factory (lexicon) — map + backup policy + PishCard v14 line
 
 ## Where things live (three homes, one truth per kind)
 - **Code + small data (PR-bound):** this `factory/` dir — `pipeline/` (precard line:
@@ -41,7 +41,7 @@ LOUD instead of silently disabling), `fixtures/topic_vectors-v16b.json`,
 `WARNING: default Tatoeba pool missing` — if you see it, restore from
 `W:\hamzaban_data_factory\backups\`, do not silence it.
 
-## PishCard Pipeline v13 — precard line
+## PishCard Pipeline v14 — precard line (v13 runs stay valid; progress dirs carry a line.json marker and cross-line resume fails closed)
 
 Builds learner-ready EN precards (sense-picked + topic-tagged rows) from a
 word sample. Deterministic stages first, one cheap AI judge (GLM), no

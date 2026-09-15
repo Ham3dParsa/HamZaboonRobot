@@ -286,12 +286,12 @@ def _tagged_rows(pairs):
 
 
 def test_proper_reroute_to_vulgar_target_drops(tmp_path):
-    """Review: a proper top rerouted onto a vulgar-tagged sense must
+    """Review: a proper top rerouted onto a slur-tagged sense must
     drop vulgar-anchor (not leak with stale carrier tags)."""
     from factory.pipeline import precard_pipeline as pp
     index = {"vulgartown": _tagged_rows([
         ("name", "Vulgartown, a legendary city", []),
-        ("noun", "a crude insult for villagers", ["vulgar"])])}
+        ("noun", "a crude insult for villagers", ["slur"])])}
     sample = tmp_path / "sample.json"
     sample.write_text(json.dumps(
         [{"kind": "word", "text": "vulgartown", "pos": "noun",

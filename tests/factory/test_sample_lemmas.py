@@ -229,6 +229,7 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
     # A checkpoint reservoir record with an empty pos is unusable:
     # resume must fail closed with SystemExit naming the file, never a
     # bare ValueError traceback from lemma_key_for.
+    from factory.lexicon.sample_lemmas import SHAPE_VERSION
     seen = {level: 0 for level in LEVELS}
     reservoirs = {level: [] for level in LEVELS}
     reservoirs["A1"] = [["zzq_broken", "", "A1", 0, 10]]
@@ -237,7 +238,7 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "shape_v": 2, "lines_done": 0, "seen": seen, "counters": {},
+            "shape_v": SHAPE_VERSION, "lines_done": 0, "seen": seen, "counters": {},
             "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
@@ -250,6 +251,7 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
 def test_resume_pre_r5_checkpoint_aborts_loud(env):
     # A checkpoint without a counters key (pre-R5 format) must fail closed
     # instead of silently resuming with zeroed diagnostic counters.
+    from factory.lexicon.sample_lemmas import SHAPE_VERSION
     seen = {level: 0 for level in LEVELS}
     reservoirs = {level: [] for level in LEVELS}
     stat = os.stat(env["dump"])
@@ -257,7 +259,7 @@ def test_resume_pre_r5_checkpoint_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "shape_v": 2, "lines_done": 0, "seen": seen,
+            "shape_v": SHAPE_VERSION, "lines_done": 0, "seen": seen,
             "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
@@ -272,7 +274,7 @@ def test_resume_missing_shape_version_aborts_loud(env):
     # instead of silently mixing shape rule regimes.
     from factory.lexicon.sample_lemmas import SHAPE_VERSION
 
-    assert SHAPE_VERSION == 2
+    assert SHAPE_VERSION == 3
     seen = {level: 0 for level in LEVELS}
     reservoirs = {level: [] for level in LEVELS}
     stat = os.stat(env["dump"])
@@ -504,9 +506,10 @@ def test_missing_cutoffs_warns_and_uses_default(env, capsys):
 
 
 def test_shape_verdict_matrix():
-    # Every DROP class + keeps. A-list (April/about) keeps via the vowel
-    # rule — no special-casing. "A. M. A." drops as period (DROP markers
-    # win over phrase-routing); "all in all" routes to phrase.
+    # Every DROP class + keeps. Titlecase (April) drops as proper (T2 v14)
+    # while lowercase (about) keeps via the vowel rule — no special-casing.
+    # "A. M. A." drops as period (DROP markers win over phrase-routing);
+    # "all in all" routes to phrase.
     cases = {
         "-by": "drop:affix",
         "-got-": "drop:affix",
@@ -523,7 +526,7 @@ def test_shape_verdict_matrix():
         "rhythm": "drop:no_vowel",
         "all in all": "phrase",
         "hello": "keep",
-        "April": "keep",
+        "April": "drop:proper",
         "about": "keep",
         "wobbleaa": "keep",
     }
@@ -614,6 +617,19 @@ def test_vowelless_allowlist_matrix(tmp_path, monkeypatch):
     assert shape_verdict("-by") != "drop:no_vowel"
 
 
+def test_shape_verdict_drops_titlecase_proper_names():
+    """T2: Titlecase citation forms are proper names (R4-doomed) and never
+    reach the reservoir; ALL-CAPS passes through (T4 acronym policy owns it)."""
+    assert shape_verdict("Olivia") == "drop:proper"
+    assert shape_verdict("Geoffrey") == "drop:proper"
+    assert shape_verdict("Nancy") == "drop:proper"
+    assert shape_verdict("WHO") == "keep"
+    assert shape_verdict("ASAP") == "keep"
+    assert shape_verdict("DM") == "drop:no_vowel"
+    assert shape_verdict("apple") == "keep"
+    assert shape_verdict("all in all") == "phrase"
+
+
 def test_vowelless_allowlist_end_to_end(tmp_path, monkeypatch, capsys):
     # Frequent vowel-less "by" (no pack hit) reaches the CSV via the
     # allowlist; rare vowel-less "qxwzc" (no hit, zipf 0) stays dropped.
@@ -702,3 +718,10 @@ def test_classify_empty_pack_no_keyerror(monkeypatch):
 
     monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
     assert classify("wobbleaaa", "noun", {}, "en") is None
+
+
+def test_default_mix_is_target_driven_v14():
+    """T1: input mix compensates measured per-level survival (sums 3000)."""
+    from factory.lexicon.sample_lemmas import DEFAULT_MIX
+    assert DEFAULT_MIX == "276,448,753,700,438,385"
+    assert sum(int(x) for x in DEFAULT_MIX.split(",")) == 3000

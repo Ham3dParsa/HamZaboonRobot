@@ -404,7 +404,7 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
     out = judge_batch(batch, anchor_map, "k1", flaky, sleeps.append,
                          prog_state, telemetry=tele, tele_batch=1,
                          ring=ring)
-    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert out["w:apple"]["picks"][0]["sense_id"] == "apple#0"
     assert out["w:apple"]["model"] not in ("s1-fallback",
                                            "s1-fallback-empty")
     assert seen_keys == ["k1", "k2"]  # same call retried on next key
@@ -657,6 +657,103 @@ def test_google_payload_locks_temperature_zero():
     payload = precard_pipeline._google_payload("hi")
     assert payload["generationConfig"]["temperature"] == 0.0
     assert payload["contents"][0]["parts"][0]["text"] == "hi"
+
+
+def test_line_marker_written_v14(tmp_path, monkeypatch):
+    """T1: a fresh run stamps the progress dir with the v14 line."""
+    import json as _json
+    rc, _out, prog, _ = run_pipeline(tmp_path, monkeypatch)
+    assert rc == 0
+    marker = _json.loads(
+        (pathlib.Path(prog) / "line.json").read_text(encoding="utf-8"))
+    assert marker.get("line") == "v14"
+
+
+def test_line_marker_mismatch_aborts(tmp_path, monkeypatch):
+    """T1: resuming a foreign-line progress dir fails closed."""
+    import json as _json
+    import pytest as _pytest
+    rc, _out, prog, _ = run_pipeline(tmp_path, monkeypatch)
+    assert rc == 0
+    (pathlib.Path(prog) / "line.json").write_text(
+        _json.dumps({"line": "v13"}), encoding="utf-8")
+    with _pytest.raises(SystemExit):
+        run_pipeline(tmp_path, monkeypatch)
+
+
+def _abbr_view(pairs):
+    """Gate view from [(gloss, tags)] with normalized tags."""
+    return {"poss": {"noun"},
+            "senses": [{"gloss": g,
+                        "tags": [t.strip().casefold() for t in tags]}
+                       for g, tags in pairs]}
+
+
+def test_t4_acronym_smart_gate():
+    """T4: Internet-tagged or general-phrase expansions survive G4;
+    proper-name/technical expansions still drop (no word lists)."""
+    from factory.pipeline.precard_pipeline import _preprocess_input_gates as gates
+    internet = _abbr_view(
+        [("Initialism of by the way.",
+          ["internet", "abbreviation", "initialism"]),
+         ("Abbreviation of between.", ["abbreviation"])])
+    assert gates("BTW", internet) == (None, None)
+    lone_internet = _abbr_view(
+        [("Initialism of by the way.",
+          ["internet", "abbreviation", "initialism"])])
+    assert gates("BTW", lone_internet) == (None, "g4-abbrev")  # kept + flag
+    phrase = _abbr_view(
+        [("Initialism of as soon as possible.",
+          ["abbreviation", "initialism"]),
+         ("Alternative letter-case form of ASAP.", ["alt-of"])])
+    assert gates("ASAP", phrase) == (None, None)
+    common = _abbr_view(
+        [("Abbreviation of between.", ["abbreviation"])])
+    # Lone single-abbrev senses stay quarantined (kept + review flag),
+    # even with a general expansion — the flag is the review trail.
+    assert gates("BTW", common) == (None, "g4-abbrev")
+    proper = _abbr_view(
+        [("Abbreviation of February.", ["abbreviation"])])
+    assert gates("FEB", proper) == ("g4-abbrev", None)
+    technical = _abbr_view(
+        [("Initialism of Franklin Delano Roosevelt.",
+          ["abbreviation", "initialism"])])
+    assert gates("FDR", technical) == ("g4-abbrev", None)
+
+
+def _judge_anchor_map():
+    return {"w:run": {"candidates": [
+        {"sense_id": "run#4", "gloss": "to move fast", "tags": []},
+        {"sense_id": "run#1", "gloss": "to manage", "tags": []},
+        {"sense_id": "run#9", "gloss": "a stain", "tags": []},
+    ]}}
+
+
+def test_t6_judge_prompt_asks_ranked_picks():
+    """T6: the judge returns 1..4 ranked picks, not a single pick."""
+    batch = [{"kind": "word", "text": "run", "pool_level": "B2"}]
+    prompt = precard_pipeline._judge_prompt(batch, _judge_anchor_map())
+    assert '"picks"' in prompt
+    assert "1 to 4" in prompt
+
+
+def test_t6_judge_validate_multi_pick():
+    """T6: 1..4 unique window ids validate; dupes/outsiders fail."""
+    batch = [{"kind": "word", "text": "run", "pool_level": "B2"}]
+    amap = _judge_anchor_map()
+    good = {"results": [{"key": "w:run",
+                         "picks": ["run#4", "run#1"]}]}
+    out = precard_pipeline._judge_validate(good, batch, amap)
+    assert [p["sense_id"] for p in out["w:run"]["picks"]] == ["run#4", "run#1"]
+    bad_dup = {"results": [{"key": "w:run",
+                            "picks": ["run#4", "run#4"]}]}
+    assert precard_pipeline._judge_validate(bad_dup, batch, amap) is None
+    bad_out = {"results": [{"key": "w:run", "picks": ["run#99"]}]}
+    assert precard_pipeline._judge_validate(bad_out, batch, amap) is None
+    bad_five = {"results": [{"key": "w:run",
+                             "picks": ["run#4", "run#1", "run#9",
+                                       "run#4", "run#1"]}]}
+    assert precard_pipeline._judge_validate(bad_five, batch, amap) is None
 
 
 def test_backfill_attaches_tags_selective_resume():
@@ -1078,7 +1175,7 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
     assert rows["w:good"]["redirected_from"] == "best"
     s5 = json.loads(
         (pathlib.Path(prog) / STAGE_FILES["s5"]).read_text(encoding="utf-8"))
-    assert rows["w:good"]["sense_id"] == s5["done"]["w:good"]["sense_id"]
+    assert rows["w:good"]["sense_id"] == s5["done"]["w:good"]["primary"]["sense_id"]
     assert rows["w:good"]["sense_id"] == "good#0"  # base-lemma S5 pick
     assert len(rows) == 1
 
@@ -1165,7 +1262,7 @@ def test_s2_tuple_usage_recorded():
     out = judge_batch([item], anchor_map, "k", tuple_judge, lambda s: None,
                          {"done": {}, "failed": [], "backoffs": []},
                          telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
-    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert out["w:apple"]["picks"][0]["sense_id"] == "apple#0"
     ok = [r for r in tele if r.get("outcome") == "ok"]
     assert ok and ok[0]["prompt_tokens"] == 11
     assert ok[0]["completion_tokens"] == 5
@@ -2502,15 +2599,17 @@ def test_c3a_word_lexical_type_from_kaikki_tags():
 
 
 def test_c3b_register_from_kaikki_tags():
-    """C3b: neutral default; informal tag; vulgar/offensive -> slang_vulgar
-    (slang_vulgar wins over informal)."""
+    """C3b/T3: neutral default; informal tag; vulgar/offensive -> taboo
+    (taboo wins over informal); slur tags map neutral here (the S1
+    hard-drop owns that kill upstream — register never sees them)."""
     from factory.pipeline.precard_pipeline import enrich_item
     cases = (
         ("plainwd", [], "neutral"),
         ("mate", ["informal"], "informal"),
-        ("mfwd", ["vulgar"], "slang_vulgar"),
-        ("slurwd", ["offensive"], "slang_vulgar"),
-        ("bothwd", ["informal", "vulgar"], "slang_vulgar"),
+        ("mfwd", ["vulgar"], "taboo"),
+        ("slurwd", ["offensive"], "taboo"),
+        ("bothwd", ["informal", "vulgar"], "taboo"),
+        ("hatewd", ["slur"], "neutral"),
     )
     for text, tags, want in cases:
         index = {text: _tagged_rows(("a gloss here", tags))}
@@ -2520,6 +2619,7 @@ def test_c3b_register_from_kaikki_tags():
                                  "gloss": "a gloss here"},
                           index, read_entry, {})
         assert out["register"] == want, text
+        assert out["content_warning"] == (want == "taboo"), text
 
 
 def test_c3a_phrase_lexical_type_from_type_log():
@@ -2581,7 +2681,7 @@ def test_c3_rows_carry_new_fields(tmp_path, monkeypatch):
     assert by_key["p:nickel and dime"]["lexical_type"] == "idiom"
     assert by_key["w:apple"]["lexical_type"] == "word"
     for rec in rows:
-        assert rec["register"] in ("neutral", "informal", "slang_vulgar")
+        assert rec["register"] in ("neutral", "informal", "taboo")
         assert len(rec["pre_card_id"]) == 16
     assert by_key["w:apple"]["register"] == "neutral"
     apple = by_key["w:apple"]
@@ -2597,7 +2697,7 @@ def test_c3_helpers_normalize_messy_tags():
     assert lexical_type_for("word", [" colloquial "]) == "colloquial"
     assert lexical_type_for("word", "IDIOMATIC") == "idiomatic"
     assert register_for(["INFORMAL"]) == "informal"
-    assert register_for([" Vulgar "]) == "slang_vulgar"
+    assert register_for([" Vulgar "]) == "taboo"
     assert lexical_type_for(
         "phrase", [],
         {"phrase_type": "Idiom", "applied_keep": True}) == "idiom"
@@ -2881,13 +2981,13 @@ def test_f2_s1_error_path_keeps_item(tmp_path, monkeypatch):
 
 
 def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
-    """Review OC-W1: a name-top rerouting onto a vulgar-tagged sense must
+    """Review OC-W1/T3: a name-top rerouting onto a slur-tagged sense must
     not leak a vulgar card on stale anchor_tags — S1 drops it as
     vulgar-anchor with the target's tags on the entry."""
     items = [{"kind": "word", "text": "gillianv", "pos": "noun",
               "pool_level": "B1"}]
     index = {"gillianv": _name_rows_tagged(
-        [("A female given name.", []), ("a crude insult", ["vulgar"])])}
+        [("A female given name.", []), ("a crude insult", ["slur"])])}
     rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
                              _zipf_fn=lambda t: 5.0)
     assert rows == []  # dropped items never reach precard.jsonl
@@ -2896,8 +2996,21 @@ def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
             encoding="utf-8"))
     done = s1["done"]["w:gillianv"]
     assert done["dropped"] == "vulgar-anchor"
-    assert "vulgar" in (done.get("anchor_tags") or [])
+    assert "slur" in (done.get("anchor_tags") or [])
     assert "w:gillianv" in s1["failed"]
+
+
+def test_t3_vulgar_tagged_sense_kept_with_taboo(tmp_path, monkeypatch):
+    """T3: a vulgar-tagged (non-slur) sense survives S1 and enriches with
+    register=taboo + content_warning=true."""
+    items = [{"kind": "word", "text": "damn", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"damn": _tagged_rows(("a mild curse", ["vulgar"]))}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert [r["key"] for r in rows] == ["w:damn"]
+    assert rows[0]["register"] == "taboo"
+    assert rows[0]["content_warning"] is True
 
 
 def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
@@ -2931,15 +3044,15 @@ def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
 # ---------------- F3: slang/colloquial register floor ----------------
 
 def test_f3_slang_colloquial_floor_informal():
-    """F3: slang/colloquial sense tags imply at least informal (vulgar
+    """F3/T3: slang/colloquial sense tags imply at least informal (taboo
     still wins; plain words stay neutral)."""
     from factory.pipeline.precard_pipeline import register_for
     assert register_for(["slang"]) == "informal"
     assert register_for(["colloquial"]) == "informal"
     assert register_for(["Slang"]) == "informal"  # normalized here
-    assert register_for(["vulgar"]) == "slang_vulgar"
-    assert register_for(["slang", "vulgar"]) == "slang_vulgar"
-    assert register_for(["colloquial", "offensive"]) == "slang_vulgar"
+    assert register_for(["vulgar"]) == "taboo"
+    assert register_for(["slang", "vulgar"]) == "taboo"
+    assert register_for(["colloquial", "offensive"]) == "taboo"
     assert register_for(["informal"]) == "informal"
     assert register_for([]) == "neutral"
 
@@ -3064,7 +3177,7 @@ def test_label_batch_16_items_single_call():
         assert ("%s#0" % it["text"]) in calls[0]
     assert len(out) == 16
     for it in items:
-        row = out[item_key(it)]
+        row = out[item_key(it)]["labels"]["%s#0" % it["text"]]
         assert row["label"] == "Work & Careers"
         assert row["topic_path"] == "llm"
 
@@ -3099,10 +3212,10 @@ def test_label_batch_salvages_valid_rows():
         items, picks, None, "k", fake_transport, lambda s: None, state,
         None, {}, ring=KeyRing(["k"]),
         lookup=lambda t, g: None)
-    assert out[item_key(items[0])]["topic_path"] == "llm"
-    assert out[item_key(items[0])]["label"] == "Work & Careers"
-    assert out[item_key(items[1])]["topic_path"] == "fallback"
-    assert out[item_key(items[1])]["label"] == "Other / Abstract"
+    assert out[item_key(items[0])]["labels"]["good#0"]["topic_path"] == "llm"
+    assert out[item_key(items[0])]["labels"]["good#0"]["label"] == "Work & Careers"
+    assert out[item_key(items[1])]["labels"]["bad#0"]["topic_path"] == "fallback"
+    assert out[item_key(items[1])]["labels"]["bad#0"]["label"] == "Other / Abstract"
 
 
 def test_label_batch_duplicate_lemma_text():
@@ -3141,9 +3254,89 @@ def test_label_batch_duplicate_lemma_text():
         lookup=lambda t, g: None)
     assert len(calls) == 1
     for it in items:
-        row = out[item_key(it)]
+        row = out[item_key(it)]["labels"]["run#0"]
         assert row["label"] == "Sports & Leisure"
         assert row["topic_path"] == "llm"
+
+
+def test_label_batch_multi_pick_shares_one_call():
+    """T6: one item's two picks share a single LLM chunk call."""
+    from factory.pipeline.precard_pipeline import item_key, label_batch
+    from factory.lexicon.phrase_judge import KeyRing
+
+    items = [{"kind": "word", "text": "run", "pool_level": "B2"}]
+    picks = {"w:run": [{"sense_id": "run#4", "gloss": "to move fast"},
+                       {"sense_id": "run#1", "gloss": "to manage"}]}
+    calls = []
+
+    def fake_transport(api_key, model, user_text):
+        calls.append(user_text)
+        return json.dumps({"results": [
+            {"lemma": "run", "senses": [
+                {"sense_id": "run#4", "topic_id": 14,
+                 "topic_label": "Sports & Leisure", "confidence": 0.9,
+                 "vector": [{"topic_id": 14,
+                             "topic_label": "Sports & Leisure",
+                             "weight": 1.0}]},
+                {"sense_id": "run#1", "topic_id": 4,
+                 "topic_label": "Work & Careers", "confidence": 0.8,
+                 "vector": [{"topic_id": 4,
+                             "topic_label": "Work & Careers",
+                             "weight": 1.0}]}]}]})
+
+    state = {"done": {}, "failed": [], "backoffs": []}
+    out = label_batch(
+        items, picks, None, "k", fake_transport, lambda s: None, state,
+        None, {}, ring=KeyRing(["k"]),
+        lookup=lambda t, g: None)
+    assert len(calls) == 1
+    labels = out["w:run"]["labels"]
+    assert labels["run#4"]["label"] == "Sports & Leisure"
+    assert labels["run#1"]["label"] == "Work & Careers"
+
+
+def test_t6_multi_pick_end_to_end_also_senses(tmp_path, monkeypatch):
+    """T6 e2e: two judge picks fan out; the primary row keeps the DB
+    shape and extra picks ride also_senses."""
+    def multi_judge(api_key, model, user_text):
+        keys, cands, cur = [], {}, None
+        for line in user_text.splitlines():
+            hit = re.match(r"^KEY (\S+)", line)
+            if hit:
+                cur = hit.group(1)
+                keys.append(cur)
+                cands[cur] = []
+            pick = re.match(r"^- (\S+#\d+)", line)
+            if pick and cur:
+                cands[cur].append(pick.group(1))
+        return json.dumps({"results": [
+            {"key": k, "picks": cands[k][:2]} for k in keys]})
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=multi_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index=make_index(), _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    rows = load_out(out)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["sense_id"] == "apple#0"
+    assert len(row["also_senses"]) == 1
+    extra = row["also_senses"][0]
+    assert extra["sense_id"] == "apple#1"
+    assert len(extra["pre_card_id"]) == 16
+    assert extra["pre_card_id"] != row["pre_card_id"]
+    assert extra["topic_vector"]
+    for required in ("key", "kind", "text", "pool_level", "sense_id",
+                     "en_def", "ipa", "topic_vector", "pre_card_id",
+                     "drop_reason", "stage_calls"):
+        assert required in row, required
 
 
 class _GoogleResp:

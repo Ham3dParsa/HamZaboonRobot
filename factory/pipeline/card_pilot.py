@@ -107,10 +107,11 @@ REPAIR_PREFIX = ("Your last reply was not valid JSON. "
 # R4 — proper-noun POS set (general rule, no hardcoded name list).
 PROPER_NOUN_POS = {"name", "propn"}
 
-# Dataset vulgarity signal: anchored senses carrying any of these kaikki
-# tags never become learner cards (vulgar-anchor drop, no word lists).
-VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
-               "ethnic-slur", "slur"}
+# Dataset vulgarity signal (T3 v14 taboo policy): anchored senses carrying
+# a hard-drop tag never become learner cards (vulgar-anchor drop, no word
+# lists). General taboo tags pass through with register=taboo downstream.
+VULGAR_HARD_DROP = {"ethnic-slur", "slur"}
+VULGAR_TABOO = {"vulgar", "offensive", "derogatory", "obscene", "profane"}
 
 # R6 — topic method tag: exact v16b path (deterministic v16 leg + v16b LLM
 # top-up for Others, same free model chain). Pilot resume is separate from
