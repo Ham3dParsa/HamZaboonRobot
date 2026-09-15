@@ -332,8 +332,8 @@ def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
     if not ring_keys:
         raise MissingKeyError(
             "no %s (set %s in the environment, or add it to "
-            "factory/.env) — aborting with no silent fallback"
-            % (var or "keys", var or "keys"))
+            "%s) — aborting with no silent fallback"
+            % (var or "keys", var or "keys", file_label))
     ring = KeyRing(ring_keys)
     if state is None:
         state = {}

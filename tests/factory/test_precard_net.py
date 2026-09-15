@@ -550,3 +550,8 @@ def test_file_label_threads_to_auth_errors():
                      file_label="custom.env")
     assert "custom.env" in str(exc2.value)
     assert "zz-secret-1" not in str(exc2.value)
+    with pytest.raises(NET.MissingKeyError) as exc3:
+        NET.call_leg(_cfg(), "zen", "prompt",
+                     transport=lambda *a: "x", model="m",
+                     file_label="custom.env")
+    assert "custom.env" in str(exc3.value)
