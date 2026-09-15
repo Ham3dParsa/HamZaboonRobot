@@ -1,7 +1,7 @@
 <!--
   PR body template — HamZaboon.
-  Keep it short: check what applies, delete the rest. Write plain words
-  (see `unslop` skill: no filler, no puffery). خلاصه فارسی هم قابل‌قبول است.
+  Fill what applies, delete the rest. Write plain words, no filler, no
+  puffery (خلاصه فارسی هم قابل‌قبول است).
   The Dependency & Wiring Map is REQUIRED for any PR that removes/changes a
   feature, migrates, refactors, changes schema/callbacks, or changes module
   boundaries (AGENTS.md §2.4.2).

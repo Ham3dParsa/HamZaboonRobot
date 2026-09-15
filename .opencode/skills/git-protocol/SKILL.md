@@ -36,8 +36,8 @@ author_url: https://github.com/Ham3dParsa
   If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
   If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
 - **PR body quality gate** (mandatory, immediately after `gh pr create`):
-  1. Verify: `gh pr view --json body` then check: (a) length ≥ 200 non-whitespace chars, AND (b) contains a `Resolves #N`/`Fixes #N` link OR one `##` section header. Body that already passes ⇒ stop (no-op).
-  2. If check fails: draft the full body from the template, run an `unslop` pass over the prose (plain words, no filler/puffery; keep code refs, numbers, and section headers intact), write to temp file with the file write tool (never inline `--body`, never `Set-Content`/`Out-File` — see PowerShell Backtick Safety above), re-read to confirm no BOM/control chars, then `gh pr edit --body-file <path>`.
+  1. Verify: `gh pr view --json body` then check BOTH: (a) length ≥ 200 non-whitespace chars measured AFTER removing `<!--...-->` comments (unfilled template boilerplate must not count), AND (b) contains a `Resolves #N`/`Fixes #N` link with digits (the template placeholder has none, so pasted-unfilled templates fail). Body that already passes ⇒ stop (no-op).
+  2. If check fails: draft the full body from the template, run an `unslop` pass over the prose (load the global `unslop` skill via the skill tool — it lives outside this repo; plain words, no filler/puffery; keep code refs, numbers, and section headers intact), write to temp file with the file write tool (never inline `--body`, never `Set-Content`/`Out-File` — see PowerShell Backtick Safety above), re-read to confirm no BOM/control chars, then `gh pr edit --body-file <path>`.
   3. Re-run step 1 once to confirm. Body MUST NOT contain tokens/secrets (see Security Rules).
 - **CI monitoring**: after PR push, load the `kilo-ci-loop` skill for `gh pr checks` + Kilo + OpenCode delta polling (do not re-implement the loop here).
 - **Agent-initiated merge**: only on explicit owner instruction ("merge it" or equivalent).
