@@ -3,18 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - '**.py'
-      - requirements.txt
-      - .github/workflows/*
-      - scripts/*.py
   pull_request:
     branches: [main]
-    paths:
-      - '**.py'
-      - requirements.txt
-      - .github/workflows/*
-      - scripts/*.py
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,7 +20,8 @@ jobs:
     steps:
       - uses: actions/labeler@v5
         with:
-          dot: true
+          configuration-path: '.github/labeler.yml'
+          fail-on-error: false
 
   test:
     runs-on: ubuntu-latest
