@@ -74,7 +74,7 @@ type-perf:
   - any: ['services/scheduling.py']
 
 type-design:
-  - any: ['services/ai/**/*']
+  - any: ['services/ai/**/*', 'factory/**/*']
 
 i18n:
   - any: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py']
