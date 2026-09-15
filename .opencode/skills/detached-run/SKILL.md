@@ -28,7 +28,7 @@ Out of scope: local fast tests and short commands. Run those inline.
 
 ### 1. Sweep stale runs
 
-Every time this skill fires, sweep before launching. Under the run root (`$env:TEMP/opencode/detached-run/` on Windows PowerShell, `$TMPDIR/opencode/detached-run/` falling back to `/tmp/opencode/detached-run/` on Linux bash), delete any run dir whose pid points to a dead process, and any run dir whose log is untouched for more than 7 days. If the sweep removed anything, say one line about what was removed.
+Every time this skill fires, sweep before launching. Under the run root (`$env:TEMP/opencode/detached-run/` on Windows PowerShell, `$TMPDIR/opencode/detached-run/` falling back to `/tmp/opencode/detached-run/` on Linux bash), delete any run dir whose pid points to a dead process, and any run dir whose log is untouched for more than 7 days — except never sweep a run whose report is still unseen or whose failure is still undiagnosed/unaccepted (see §5 cleanup). If the sweep removed anything, say one line about what was removed.
 
 ### 2. Launch
 
