@@ -233,6 +233,7 @@ branches).
 | `spec-to-tickets` | A complex task needs phase breakdown before execution. |
 | `grill-to-spec` | Plan needs ambiguity resolution before execution. |
 | `tdd-enforcement` | Writing new logic or modifying behavior during implementation. |
+| `detached-run` | Long job expected to exceed ~2 minutes, factory run over network, egress probe/sweep, or explicit background order. |
 
 Subagents in `.opencode/agents/` — `hamzaban-reviewer`: read-only gate for
 §6.3; `hamzaban-db`/`-ai`/`-handler`: domain helpers.
