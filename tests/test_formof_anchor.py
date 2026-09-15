@@ -14,12 +14,11 @@ Items (factory/ only, zero LLM):
 """
 
 import json
-from factory.precard.anchor import COUNTRY_NAMES, _mother_for_top, anchor_rank_item
-from factory.precard.judge import _is_veto_stub_gloss, judge_prompt
+from factory.precard.anchor import (
+    COUNTRY_NAMES, _mother_for_top, anchor_rank_item)
 from factory.precard.pipeline import main as precard_main
+from factory.precard.judge import _is_veto_stub_gloss, judge_prompt
 from factory.pipeline import card_pilot
-from factory.pipeline.precard_pipeline import anchor_rank_item
-from factory.pipeline.precard_pipeline import main as precard_main
 
 ZIPF = lambda w: 5.0  # noqa: E731 (hermetic: never touch wordfreq live)
 
@@ -392,7 +391,6 @@ def test_precard_row_carries_mother_lemma(tmp_path, monkeypatch):
 
 
 def test_country_blocklist_reason_still_wired():
-    from factory.pipeline.precard_pipeline import COUNTRY_NAMES
     assert "france" in COUNTRY_NAMES
     from factory.core.stage_glossary import REASON_SLUGS
     assert "r4-country-blocklist" in REASON_SLUGS

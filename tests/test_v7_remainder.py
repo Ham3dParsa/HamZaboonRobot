@@ -239,8 +239,8 @@ def test_r26_dry_run_prints_per_stage_needs(tmp_path, capsys):
         _type_log_available=False)
     assert code == 0
     out = capsys.readouterr().out
-    assert "need anchor (Langar): 2 todo" in out
-    assert "stage sense-judge (Davarie-Mana): skipped (not selected)" in out
+    assert "need anchor_rank: 2 todo" in out
+    assert "stage sense_judge: skipped (not selected)" in out
 
 
 def test_r26_only_and_stages_exclusive(tmp_path):

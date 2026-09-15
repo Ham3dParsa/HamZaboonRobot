@@ -11,8 +11,6 @@ import os
 import re
 from factory.precard.anchor import _PROPER_ROUTE_CLASSES, _PROPER_ROUTE_ORG_RX, judge_proper_route
 from factory.precard.pipeline import main as precard_main
-from factory.pipeline.precard_pipeline import main as precard_main  # noqa: E402
-from factory.pipeline.precard_pipeline import judge_proper_route  # noqa: E402
 from factory.core.stage_glossary import STAGE_FILES  # noqa: E402
 
 LONG_EX = ("She eats a fresh red apple every single morning "
@@ -254,8 +252,6 @@ def test_proper_gloss_unit_boundaries(tmp_path):
     # a helper — classification lives in judge_proper_route; this pins the
     # regexes directly).
     import re
-    from factory.pipeline.precard_pipeline import (_PROPER_ROUTE_CLASSES,
-                                  _PROPER_ROUTE_ORG_RX)
     hit = lambda rx, s: bool(rx.search(s))
     money = dict(_PROPER_ROUTE_CLASSES)["money"]
     holiday = dict(_PROPER_ROUTE_CLASSES)["holiday"]

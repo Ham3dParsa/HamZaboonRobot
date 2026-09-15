@@ -261,7 +261,6 @@ def test_gallery_cloze_op_chip():
 # ---------------- S5 preference (reuse by import) ----------------
 
 def test_s5_prefers_cloze_passing_examples():
-    from factory.pipeline.precard_pipeline import enrich_item
 
     good2 = "Resilient trees grow strong after every winter storm here."
     sense = {"glosses": ["able to recover quickly"], "tags": [],

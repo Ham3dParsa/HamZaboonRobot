@@ -29,19 +29,27 @@ def _idx():
     return index, read_entry
 
 
-def test_enrich_matches_old_home():
-    from factory.pipeline import precard_pipeline as old
-
+def test_enrich_apple_baseline():
+    """Cutover baseline (ex-parity): the apple pick enriches
+    deterministically from the committed packs. Field-by-field parity
+    vs the old home was proven by the passing old-vs-new run before
+    the old module was deleted (PR #697)."""
     index, read_entry = _idx()
     item = {"kind": "word", "text": "apple", "pool_level": "A1"}
     pick = {"sense_id": "apple#0", "gloss": "a round fruit"}
-    new = new_enrich.enrich_item(item, pick, index, read_entry, {})
-    before = old.enrich_item(item, pick, index, read_entry, {})
-    for key in ("sense_id", "en_def", "ipa", "ipa_src",
-                "dataset_examples", "abbrev_expansion", "pos", "pos_src",
-                "lexical_type", "register", "sense_cefr",
-                "sense_cefr_method", "pre_card_id", "enrich_path"):
-        assert new[key] == before[key], key
+    out = new_enrich.enrich_item(item, pick, index, read_entry, {})
+    assert out["sense_id"] == "apple#0"
+    assert out["en_def"] == "a round fruit"
+    assert (out["ipa"], out["ipa_src"]) == ("/aɪpa/", "dataset")
+    assert out["abbrev_expansion"] == ""
+    assert out["pos"] == ["noun"] and out["pos_src"] == "dataset"
+    assert out["lexical_type"] == "word" and out["register"] == "neutral"
+    assert (out["sense_cefr"], out["sense_cefr_method"]) == ("A1",
+                                                             "wn-single")
+    assert out["enrich_path"] == "partial"
+    assert out["dataset_examples"] == [
+        "She eats a fresh red apple every single morning with her family"]
+    assert len(out["pre_card_id"]) == 16
 
 
 def _fake_judge(api_key, model, user_text):
@@ -92,8 +100,10 @@ def _fake_inflect(api_key, model, sys_text, user_text):
         {"key": k, "keep": True, "reason": "test keep"} for k in keys]})
 
 
-def test_pipeline_reproduces_old_rows(tmp_path):
-    from factory.pipeline import precard_pipeline as old
+def test_pipeline_apple_row_baseline(tmp_path):
+    """Cutover baseline (ex-parity): the hermetic single-apple run pins
+    the row. Old-vs-new row equality was proven by the passing parity
+    run before the old module was deleted (PR #697)."""
     from factory.precard import pipeline as new
 
     items = [{"kind": "word", "text": "apple", "pos": "noun",
@@ -108,10 +118,6 @@ def test_pipeline_reproduces_old_rows(tmp_path):
         _index=index, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
         _type_log_available=False)
-    out_old = str(tmp_path / "old.jsonl")
-    prog_old = str(tmp_path / "prog_old")
-    assert old.main(["--sample", str(sample), "--out", out_old,
-                     "--progress-dir", prog_old], **kwargs) == 0
     out_new = str(tmp_path / "new.jsonl")
     prog_new = str(tmp_path / "prog_new")
     assert new.main(["--sample", str(sample), "--out", out_new,
@@ -121,7 +127,17 @@ def test_pipeline_reproduces_old_rows(tmp_path):
         with open(path, encoding="utf-8") as handle:
             return [json.loads(line) for line in handle if line.strip()]
 
-    old_rows, new_rows = rows(out_old), rows(out_new)
-    assert len(new_rows) == len(old_rows) == 1
-    for key, value in old_rows[0].items():
-        assert new_rows[0][key] == value, key
+    new_rows = rows(out_new)
+    assert len(new_rows) == 1
+    row = new_rows[0]
+    assert row["key"] == "w:apple"
+    assert row["sense_id"] == "apple#0"  # fake judge picks 1st candidate
+    assert row["en_def"] == "a round fruit"
+    assert row["topic_vector"] == [{"label": "Other / Abstract",
+                                    "weight": 1.0}]
+    assert row["topic_method"] == "v16b-exact"
+    assert row["ipa_src"] == "dataset"
+    assert row["drop_reason"] is None
+    assert row["pos"] == ["noun"] and row["pos_src"] == "dataset"
+    assert row["sense_cefr"] == "A1"
+    assert len(row["pre_card_id"]) == 16

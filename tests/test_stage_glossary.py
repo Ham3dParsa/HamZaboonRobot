@@ -56,16 +56,21 @@ def test_reason_slugs_ascii_and_unique():
 
 
 def test_reason_slugs_cover_pipeline_literals():
-    """Every drop/keep slug the pipeline actually emits (reason/dropped
+    """Every drop/keep slug the v1.4.1 pipeline actually emits (reason/dropped
     assignments, measured r20/applied-keep bases, G-gate returns, cloze
-    gates) must exist in REASON_SLUGS — the T5 log rename has no gaps."""
+    gates) must exist in REASON_SLUGS — the cutover source rename
+    (factory/precard/*) has no gaps."""
     import re
 
     here = os.path.dirname(__file__)
-    with open(os.path.join(here, "..", "factory", "pipeline",
-                              "precard_pipeline.py"),
-              encoding="utf-8") as handle:
-        src = handle.read()
+    parts = []
+    for name in ("anchor", "enrich", "judge", "topics", "pipeline",
+                 "ids", "transport", "progress", "accounting"):
+        with open(os.path.join(here, "..", "factory", "precard",
+                               name + ".py"),
+                  encoding="utf-8") as handle:
+            parts.append(handle.read())
+    src = "\n".join(parts)
     emitted = set(re.findall(r'\["(?:reason|dropped)"\]\s*=\s*'
                              r'"([a-z][a-z0-9-]*)"', src))
     emitted.update(re.findall(r'"reason":\s*"([a-z][a-z0-9-]*)"', src))
@@ -90,15 +95,17 @@ def test_reason_slugs_cover_pipeline_literals():
 
 
 def test_stage_names_match_live_pipeline():
-    """Parity pin: glossary duplicates the live pipeline's stage tables
-    until T2-T5 migrate callers over (no migration in T1)."""
-    from factory.pipeline import precard_pipeline as live
-    assert dict(g.STAGE_NAMES) == dict(live.STAGE_NAMES)
-    assert dict(g.STAGE_FINGLESH) == dict(live.STAGE_FINGLESH)
+    """Cutover pin: every legacy stage token the glossary knows resolves
+    in the live v1.4.1 registry — no stage left behind, no orphan id."""
+    from factory.precard import progress as live
+    assert len(live.STAGES) == len(g.STAGE_IDS) == 7
     for sid in g.STAGE_IDS:
-        assert g.stage_label(sid) == live.stage_label(sid)
-    for raw in ("s2", "sense-judge", "judge", " Nope ", "", None):
-        assert g.normalize_stage(raw) == live._normalize_stage(raw)
+        assert live.normalize_stage(sid) in live.STAGES
+    for name in g.NEW_STAGE_TO_OLD:
+        assert live.normalize_stage(name) in live.STAGES
+    for stage in live.STAGES:
+        assert live.normalize_stage(stage) == stage
+        assert live.display(stage).isascii()
 
 
 def test_progress_shim_covers_every_stage_plus_topup():

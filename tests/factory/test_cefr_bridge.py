@@ -204,12 +204,17 @@ def test_underscore_sensekey_maps_to_spaced_lemma(bridge):
 
 
 def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
+    # Cutover seam: enrich reads the vendored factory.precard.cefr copy,
+    # not the owner module — patch the copy's paths/caches.
+    from factory.precard import cefr as vendored
+
     tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
     tsv.write_text("".join(TSV_ROWS), encoding="utf-8")
-    monkeypatch.setattr(B, "DEFAULT_TSV", str(tsv))
-    monkeypatch.setattr(B, "DEFAULT_EVP", str(
+    monkeypatch.setattr(vendored, "DEFAULT_TSV", str(tsv))
+    monkeypatch.setattr(vendored, "DEFAULT_EVP", str(
         tmp_path / "no-evp.json"))
-    B.clear_cache()
+    vendored._CACHE.clear()
+    vendored._CAND_CACHE.clear()
     try:
         item = {"kind": "word", "text": "run", "pos": "verb",
                 "pool_level": "A1"}
@@ -225,7 +230,8 @@ def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
         assert out2["sense_cefr"] == "A1"
         assert out2["sense_cefr_method"] == "pool-fallback"
     finally:
-        B.clear_cache()
+        vendored._CACHE.clear()
+        vendored._CAND_CACHE.clear()
 
 
 def test_pool_fallback_normalized_validated_never_raises(

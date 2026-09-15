@@ -266,7 +266,7 @@ def test_r6_diff_renders_all_fanout_cards_side_by_side():
     recs = [
         {"key": "w:call", "text": "call", "sense_id": "call#1",
          "en_def": "to shout loudly", "pre_card_id": "a" * 16,
-         "topic_vector": [{"label": "Society & Culture",
+          "topic_vector": [{"label": "Society",
                            "weight": 1.0}]},
         {"key": "w:call", "text": "call", "sense_id": "call#0",
          "en_def": "a telephone conversation", "pre_card_id": "b" * 16,

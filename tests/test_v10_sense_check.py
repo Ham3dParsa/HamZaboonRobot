@@ -186,7 +186,6 @@ def test_r39_fallback_to_higher_when_no_pos_match():
 
 
 def test_r39_s1_window_is_judge_width():
-    from factory.pipeline.precard_pipeline import anchor_rank_item
     index = {"bank": _twelve_nouns()}
     item = {"kind": "word", "text": "bank", "pos": "noun",
             "pool_level": "B1"}

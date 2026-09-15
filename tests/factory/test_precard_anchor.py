@@ -27,17 +27,20 @@ def _idx():
     return index, read_entry
 
 
-def test_anchor_parity_with_old_home():
-    from factory.pipeline import precard_pipeline as old
-
+def test_anchor_apple_baseline():
+    """Cutover baseline (ex-parity): the apple fixture anchors
+    deterministically. Full-order parity vs the old home was proven by
+    the passing old-vs-new run before the old module was deleted
+    (PR #697); the pin stays set-based here because ranking rides
+    live wordfreq."""
     index, read_entry = _idx()
     item = {"kind": "word", "text": "apple", "pool_level": "A1"}
-    new = anchor.anchor_rank_item(item, index, read_entry)
-    before = old.anchor_rank_item(item, index, read_entry)
-    assert [c["sense_id"] for c in new["candidates"]] == [
-        c["sense_id"] for c in before["candidates"]]
-    assert new["top"] == before["top"]
-    assert new["anchor_pos"] == before["anchor_pos"]
+    ranked = anchor.anchor_rank_item(item, index, read_entry)
+    assert {c["sense_id"] for c in ranked["candidates"]} == {
+        "apple#0", "apple#1"}
+    assert ranked["top"] == {"sense_id": "apple#0",
+                             "gloss": "a round fruit"}
+    assert ranked["anchor_pos"] == "noun"
 
 
 def test_preprocess_structured_verdicts():
