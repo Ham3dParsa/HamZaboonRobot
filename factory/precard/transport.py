@@ -21,6 +21,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+from factory.precard.prompts import JUDGE_SYS
+
 
 class AuthError(RuntimeError):
     """Raised when the provider rejects our credentials (401/403)."""
@@ -487,6 +489,32 @@ def zen_direct_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
     parts = []
     for out_item in data.get("output", []):
         for chunk in out_item.get("content", []):
+            if chunk.get("type") == "output_text":
+                parts.append(chunk.get("text", ""))
+    return "".join(parts)
+
+
+# Frozen from factory/archive/v14_v16/run_v14_phase3_judge.call_responses
+# (provenance: precard line, 2026-09-15): the default Zen sense-judge
+# transport on the shared 3-arg (api_key, model, user_text) seam.
+# pipeline.main falls back to it when no judge transport is injected.
+def zen_judge_transport(api_key, model, user_text, timeout=180):
+    body = json.dumps({"model": model, "input": [
+        {"role": "system", "content": JUDGE_SYS},
+        {"role": "user", "content": user_text}],
+        "reasoning": {"effort": "minimal"},
+        "max_output_tokens": 4000}).encode()
+    req = urllib.request.Request(
+        ZEN_BASE + "/responses", data=body,
+        headers={"Authorization": "Bearer %s" % api_key,
+                 "Content-Type": "application/json",
+                 "User-Agent": "HamZaban-factory/1.0 (research lexicon judge)",
+                 "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.load(resp)
+    parts = []
+    for item in data.get("output", []):
+        for chunk in item.get("content", []):
             if chunk.get("type") == "output_text":
                 parts.append(chunk.get("text", ""))
     return "".join(parts)

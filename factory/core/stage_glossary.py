@@ -122,6 +122,7 @@ REASON_SLUGS = (
     "inflection-drop",
     "inflection-keep",
     "superlative-redirect",
+    "review-error",
     "review-uncertain",
     "not-inflection",
     "s0b-no-transport",
