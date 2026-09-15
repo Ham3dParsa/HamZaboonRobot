@@ -4,7 +4,7 @@ description: تیکت‌های دقیق فاز هویت (خانه مستقل fac
 created: 2026-09-14
 status: in-progress
 ---
-STATE: T5 IN PROGRESS — status:locked-executing — focus: contract 2026-09-15 (R0-R5, path 1 shim-then-delete).
+STATE: T5 IN PROGRESS — status:locked-executing — focus: contract 2026-09-15 (R0-R5, path 1 shim-then-delete) + follow-up F1..F5 ticketed (bot defer/info, pre-net.py).
 
 ## T5 resume notes (2026-09-15, exact)
 
@@ -175,6 +175,56 @@ Owner confirmation: "locked — برو" (rules) + "باشه... انجامش بد
 
 ### T6 — موکول (ثبت‌شده، اجرا نه)
 - نسخه‌بندی خط پایلوت با همین الگو + رشد بسته EVP. فقط ثبت، بدون اقدام.
+
+## Follow-up tickets (bot defer/info triage 2026-09-15 — pre-net.py)
+
+منبع: هر ۲۷ نظر ربات زیر PR 697 خوانده شد (۸ issue-comment + ۱۹ review-comment).
+بسته‌شده/بی‌اعتبار: هر دو warning قدیمی (R6 fixture، fork خانه قدیم) حل‌شده‌اند؛
+یافته‌های مسیر قدیم (`precard_pipeline.py` پاک شد) stale‌اند — بدون اقدام.
+آیتم‌های card_pilot (`dataset_examples` رشته‌ای 5053/2138/2263/2880،
+`apply_topic_guard` تکراری 2564) دامنه پایلوت‌اند و زیر R5-defer در T6 می‌مانند.
+تیکت‌های زیر فقط خانه جدید + تست‌اند؛ اجرا هر کدام قرارداد جدا می‌خواهد
+(F3 حتماً، بقیه در همان قرارداد بسته‌ای).
+
+### F1 — پرچم topic_guarded روی سطرهای fold-back دوم
+- منبع: Kilo WARNING review 4015833415 (`topics.py:753`).
+- دامنه: همان بلوک `extra.append` — `"topic_guarded": row.get("topic_guarded")`.
+- تست: حس چندتایی که guard برچسب را عوض می‌کند؛ assert پرچم روی همه سطرهای fan-out.
+- قبول: audit دوم‌ها با اولی یکی است؛ proof HTML همان.
+- لبه: T5 (بعد از مرج 697، قبل از net.py).
+
+### F2 — نگهبان item_key برای سطر خراب
+- منبع: Kilo INFO review 4015833468 + OC info (`accounting.py:12`).
+- دامنه: `.get` با fallback به‌جای subscript مستقیم؛ فراخواننده‌ها
+  (`judge.py:110,147,188,496`، `pipeline.py:902`) drop ساخت‌یافته می‌گیرند نه abort.
+- تست: سطر بدون kind/text → drop ساخت‌یافته، ران ادامه می‌دهد.
+- قبول: یک سطر خراب کل ران ۵۰تایی را نمی‌خواباند.
+- لبه: F1.
+
+### F3 — نگهبان fail-open در audit (نیاز به قرارداد جدا)
+- منبع: Kilo INFO review 4015833458 + OC info (`accounting.py:76`).
+- دامنه: `except Exception: return []` با clean قابل تشخیص نیست (ناقض R2 در
+  حالت crash). گزینه‌ها: sentinel مثل None، یا raise و تصمیم با فراخواننده.
+- تست: audit خراب تزریقی → فراخواننده crash را از clean تشخیص می‌دهد.
+- قبول: نوع برگشتی + فراخواننده‌ها + تست‌ها یک‌جا عوض می‌شوند (تغییر قرارداد
+  تابع — بدون قرارداد جدا اجرا نمی‌شود).
+- لبه: F2.
+
+### F4 — خطای fail-closed برای pack گمشده
+- منبع: Kilo INFO review 4015833424/4015833430 + OC info (`topics.py:189,417`).
+- دامنه: هر دو `read_text` در try/except با پیام مسیر موردانتظار (نه fallback
+  بی‌صدا، نه crash خاکستری import).
+- تست: hermetic — pack غایب تزریقی → خطای واضح با مسیر.
+- قبول: import هرگز با OSError/JSONDecodeError خام نمی‌میرد.
+- لبه: F1 (مستقل، قابل موازی با F2).
+
+### F5 — میکرو تمیزکاری ظاهری (بسته‌ای)
+- منبع: Kilo WARNING review 4015833435 (`pipeline.py:893` + سه call-site) +
+  Kilo INFO review 4015833443 (`topics.py:851` آرگومان `{}`).
+- دامنه: پارامتر lambda به `_` + صدازدن بدون آرگامان؛ `{}` به `None`.
+- تست: بدون تست جدید (رفتار صفر تغییر)؛ فول‌سوت سبز + ruff.
+- قبول: رفتار بایت‌به‌بایت همان؛ فقط خوانایی.
+- لبه: F4.
 
 ## تصمیم قفل‌شده (یکی بود — ۲۰۲۶-۰۹-۱۴)
 
