@@ -1,89 +1,119 @@
 domain-bot:
-  - any: ['bot.py', 'config/keyboards/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['bot.py', 'config/keyboards/**/*']
 
 domain-handlers:
-  - any: ['handlers/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['handlers/**/*']
 
 domain-ai:
-  - any: ['services/ai/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/ai/**/*']
 
 domain-db:
-  - any: ['services/db/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/db/**/*']
 
 domain-session:
-  - any: ['services/session/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/session/**/*']
 
 domain-config:
-  - any: ['config/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['config/**/*']
 
 domain-factory:
-  - any: ['factory/**/*', 'services/ai/preset_fields.py']
+  - changed-files:
+      - any-glob-to-any-file: ['factory/**/*', 'services/ai/preset_fields.py']
 
 domain-tools:
-  - any: ['tools/**/*', 'scripts/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['tools/**/*', 'scripts/**/*']
 
 domain-tests:
-  - any: ['tests/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['tests/**/*']
 
 domain-docs:
-  - any: ['docs/**/*', '**/*.md', '.opencode/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**/*', '**/*.md', '.opencode/**/*']
 
 domain-deploy:
-  - any: ['supervisor.conf', 'start.sh', 'chabok-pre-start.sh']
+  - changed-files:
+      - any-glob-to-any-file: ['supervisor.conf', 'start.sh', 'chabok-pre-start.sh']
 
 domain-ci:
-  - any: ['.github/**/*', 'requirements.txt', 'requirements-dev.txt']
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**/*', 'requirements.txt', 'requirements-dev.txt']
 
 domain-utils:
-  - any: ['services/utils/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/utils/**/*']
 
 domain-scheduling:
-  - any: ['services/scheduling.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/scheduling.py']
 
 domain-tts:
-  - any: ['services/tts.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/tts.py']
 
 domain-quota:
-  - any: ['services/quota_service.py', 'services/grade_service.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/quota_service.py', 'services/grade_service.py']
 
 domain-activity:
-  - any: ['services/activity_log.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/activity_log.py']
 
 domain-theme:
-  - any: ['config/themes.py', 'config/catalog.py']
+  - changed-files:
+      - any-glob-to-any-file: ['config/themes.py', 'config/catalog.py']
 
 type-feature:
-  - any: ['handlers/**/*', 'factory/**/*', 'config/keyboards/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['handlers/**/*', 'factory/**/*', 'config/keyboards/**/*']
 
 type-bugfix:
-  - any: ['bot.py', 'tools/**/*.py']
+  - changed-files:
+      - any-glob-to-any-file: ['bot.py', 'tools/**/*.py']
 
 type-refactor:
-  - any: ['services/**/*.py', 'config/**/*.py', 'handlers/admin.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/**/*.py', 'config/**/*.py', 'handlers/admin.py']
 
 type-docs:
-  - any: ['docs/**/*', '**/*.md']
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**/*', '**/*.md']
 
 type-chore:
-  - any: ['.github/**/*', 'requirements.txt', 'requirements-dev.txt', 'scripts/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**/*', 'requirements.txt', 'requirements-dev.txt', 'scripts/**/*']
 
 type-test:
-  - any: ['tests/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['tests/**/*']
 
 type-perf:
-  - any: ['services/scheduling.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/scheduling.py']
 
 type-design:
-  - any: ['services/ai/**/*', 'factory/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/ai/**/*', 'factory/**/*']
 
 i18n:
-  - any: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/utils/formatting.py', 'services/utils/formatting_jalali.py', 'config/catalog.py']
 
 UI/UX:
-  - any: ['config/keyboards/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['config/keyboards/**/*']
 
 risk:
-  - any: ['services/db/schema.py', 'migrations/**/*']
+  - changed-files:
+      - any-glob-to-any-file: ['services/db/schema.py', 'migrations/**/*']
 
 tech-debt:
-  - any: ['services/utils/helpers.py']
+  - changed-files:
+      - any-glob-to-any-file: ['services/utils/helpers.py']

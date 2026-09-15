@@ -3,6 +3,7 @@ name: Labeler
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   label:
@@ -15,3 +16,4 @@ jobs:
       - uses: actions/labeler@v5
         with:
           configuration-path: '.github/labeler.yml'
+          dot: true
