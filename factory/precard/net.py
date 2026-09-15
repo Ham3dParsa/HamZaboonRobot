@@ -20,8 +20,10 @@ maps keep every path testable with no network, no keys, and no W: drive.
   meaning come from factory.core.llm_json.classify via the transport
   wrapper (this module never redefines the error table): 429/quota
   rotates to the next key, 401/403 stops loudly with no further
-  attempts. Progress flushing and telemetry stay with the caller, as
-  they do for every other transport caller today.
+  attempts, and project-level quota (COOLDOWN_SWITCH, e.g. Google
+  RESOURCE_EXHAUSTED) raises ProviderCooldown after exactly one
+  attempt with no rotation. Progress flushing and telemetry stay with
+  the caller, as they do for every other transport caller today.
 
 Stdlib + factory.precard.transport only (precard self-containment:
 no factory.archive / factory.pipeline / factory.lexicon imports).
@@ -39,6 +41,7 @@ import time
 from factory.precard.transport import (
     AuthError,
     KeyRing,
+    ProviderCooldown,
     RateLimited,
     _call_with_rotation,
     _read_egress_env_key,
@@ -47,6 +50,7 @@ from factory.precard.transport import (
 __all__ = [
     "AuthError",
     "KeyRing",
+    "ProviderCooldown",
     "RateLimited",
     "MissingKeyError",
     "NetConfig",
@@ -56,9 +60,13 @@ __all__ = [
     "require_key",
     "cool",
     "is_cool",
+    "known_provider",
     "lease_for",
+    "norm_provider",
+    "norm_target",
     "report_lease",
     "call_leg",
+    "target_spec",
 ]
 
 # Canonical lease-target table (moved from tools/egress/supervisor.py).
@@ -125,6 +133,13 @@ def _known_provider(provider):
     return any(spec["provider"] is not None
                and norm_provider(spec["provider"]) == want
                for spec in TARGETS.values())
+
+
+def known_provider(provider):
+    """Public alias of the TARGETS-membership guard (re-exported by the
+    egress supervisor so ``from supervisor import known_provider`` keeps
+    working; the table itself stays here)."""
+    return _known_provider(provider)
 
 
 def resolve_key(var, *, explicit="", env_map=None, file_paths=None):
@@ -291,7 +306,11 @@ def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
     leg selects the provider through TARGETS (e.g. "zen"); keys default
     to the config's key values for that provider. 429/quota rotates to
     the next key and retries the same call; when every key is exhausted
-    the wrapper raises RateLimited. 401/403 raises AuthError naming the
+    the wrapper raises RateLimited. Project-level quota
+    (COOLDOWN_SWITCH, e.g. Google RESOURCE_EXHAUSTED) raises
+    ProviderCooldown (a RateLimited subclass, so existing flush+stop
+    handlers stay safe) after exactly one attempt with no rotation.
+    401/403 raises AuthError naming the
     key variable and file after exactly one attempt (no silent retry,
     no fallback). Progress flushing and telemetry stay with the caller,
     exactly as for every other transport caller today.

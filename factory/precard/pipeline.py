@@ -29,6 +29,7 @@ FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(FACTORY_DIR)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+from factory.core.env_loader import load_factory_env
 from factory.precard import progress
 from factory.precard import transport
 from factory.precard.accounting import audit_sample_accounting
@@ -96,10 +97,6 @@ DEFAULT_TATOEBA_POOL = ("W:/hamzaban_data_factory/fixtures/"
 
 DEFAULT_PHRASE_TYPE_LOG = ("W:/hamzaban_data_factory/fixtures/"
                            "phrase_type_log.jsonl")
-
-
-KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
-        "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY", "AVALAI_API_KEY")
 
 
 def load_sample(path):
@@ -1745,24 +1742,6 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
     if (pick.get("proper_route") or ""):
         rec["proper_route"] = pick["proper_route"]
     return rec
-
-
-def load_factory_env(required=()):
-    env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip().strip("'\"")
-            if k in KEYS and v and k not in os.environ:
-                os.environ[k] = v
-    missing = [k for k in required if not os.environ.get(k)]
-    if missing:
-        raise KeyError("factory/.env missing keys: " + ", ".join(missing)
-                       + " (copy factory/.env.example to factory/.env and fill values)")
-    return {k: os.environ.get(k, "") for k in KEYS}
 
 
 ## File loaders (frozen from factory/pipeline/card_pilot; pinned data paths below).

@@ -41,12 +41,24 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
-    from factory.precard.net import TARGETS
+    from factory.precard.net import (
+        TARGETS,
+        known_provider,
+        norm_provider,
+        norm_target,
+        target_spec,
+    )
 except ImportError:  # top-level script run: repo root is not on sys.path
     import sys as _sys
     _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent
                              .parent.parent))
-    from factory.precard.net import TARGETS
+    from factory.precard.net import (
+        TARGETS,
+        known_provider,
+        norm_provider,
+        norm_target,
+        target_spec,
+    )
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
@@ -57,35 +69,6 @@ PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 COOLDOWN_S = 300
-
-
-def norm_provider(provider):
-    """Canonical provider key: lowercase, stripped, "" when absent."""
-    return str(provider or "").strip().lower()
-
-
-def norm_target(target):
-    """Canonical target key: lowercase, stripped."""
-    return str(target or "").strip().lower()
-
-
-def target_spec(target):
-    """TARGETS row for a lease target, or None when unknown."""
-    return TARGETS.get(norm_target(target))
-
-
-def known_provider(provider):
-    """True when ``provider`` is a TARGETS provider (or absent/None).
-
-    Guards the cooldown table: an arbitrary caller-supplied string must
-    never mint junk (server, provider) keys.
-    """
-    if provider is None:
-        return True
-    want = norm_provider(provider)
-    return any(spec["provider"] is not None
-               and norm_provider(spec["provider"]) == want
-               for spec in TARGETS.values())
 
 
 def load_env():
@@ -142,10 +125,12 @@ FACTORY_DOTENV = (pathlib.Path(__file__).resolve().parent.parent
 
 
 def probe_key(var, explicit="", env_map=None, extra_files=()):
-    """Probe key order: --flag value -> env mapping -> factory/.env ->
+    """Probe key order: explicit value -> os.environ -> factory/.env ->
     extra files (egress .env last for google). Returns "" when absent
-    everywhere. Never prints or logs values — callers only test for
-    emptiness and name the variable + file on failure."""
+    everywhere. Keys never ride CLI flags (no --*-key options): they come
+    from the environment or dotenv files only. Never prints or logs
+    values — callers only test for emptiness and name the variable +
+    file on failure."""
     try:
         from factory.precard.net import resolve_key as _resolve
     except ImportError:  # top-level script run (same fallback as above)
@@ -778,23 +763,17 @@ def main(argv=None):
     ap.add_argument("--top-n", type=int, default=PROBE_TOP_N)
     ap.add_argument("--probe-zen", type=int, default=0, metavar="N",
                     help="tunnel the top-N alive servers one by one and "
-                         "take one real Zen ping each (needs --zen-key, "
-                         "OPENCODE_ZEN_API_KEY env, or factory/.env). "
+                         "take one real Zen ping each (needs "
+                         "OPENCODE_ZEN_API_KEY env or factory/.env). "
                          "Slow by design.")
-    ap.add_argument("--zen-key", default="",
-                    help="Zen API key for --probe-zen (or "
-                         "OPENCODE_ZEN_API_KEY env / factory/.env)")
     ap.add_argument("--probe-google", type=int, default=0, metavar="N",
                     help="tunnel the top-N alive servers one by one and "
                          "take one free Google models:list ping each "
-                         "(needs --google-key, GOOGLE_AI_API_KEY env, "
+                         "(needs GOOGLE_AI_API_KEY env, "
                          "factory/.env, or tools/egress/.env). Google-ok "
                          "servers move to "
                          "the front of the whitelist, so serve mode "
                          "leases them first. Slow by design.")
-    ap.add_argument("--google-key", default="",
-                    help="Google AI key for --probe-google (or "
-                         "GOOGLE_AI_API_KEY env)")
     args = ap.parse_args(argv)
     if args.gen_token:
         print(secrets.token_hex(24))
@@ -824,10 +803,10 @@ def main(argv=None):
             # (failed refresh / dead network). Old file stays intact.
             print("probe found 0 alive servers: whitelist NOT overwritten")
         if args.probe_zen:
-            key = probe_key("OPENCODE_ZEN_API_KEY", args.zen_key)
+            key = probe_key("OPENCODE_ZEN_API_KEY")
             if not key:
-                print("probe-zen needs --zen-key, OPENCODE_ZEN_API_KEY "
-                      "env, or factory/.env")
+                print("probe-zen needs OPENCODE_ZEN_API_KEY "
+                      "env or factory/.env")
                 return 2
             try:
                 from . import tunnel as _tunnel_mod
@@ -868,10 +847,10 @@ def main(argv=None):
             else:
                 print("zen probe skipped: whitelist NOT overwritten")
         if args.probe_google:
-            key = probe_key("GOOGLE_AI_API_KEY", args.google_key,
-                            env_map=env, extra_files=(ENV_PATH,))
+            key = probe_key("GOOGLE_AI_API_KEY",
+                            extra_files=(ENV_PATH,))
             if not key:
-                print("probe-google needs --google-key, GOOGLE_AI_API_KEY "
+                print("probe-google needs GOOGLE_AI_API_KEY "
                       "env, factory/.env, or tools/egress/.env")
                 return 2
             try:

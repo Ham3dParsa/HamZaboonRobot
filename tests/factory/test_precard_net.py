@@ -247,22 +247,29 @@ def test_wrapper_rotates_on_bare_429_and_google_quota_body():
                               state, "lbl")
     assert calls == ["k1", "k2"]
     # Google project-quota body classifies COOLDOWN_SWITCH, and the
-    # precard transport still rotates on it (provider switching is the
-    # caller's job) — never an abort.
+    # precard transport must NOT rotate same-project keys on it
+    # (llm_json taxonomy: cool down + switch provider). It raises
+    # ProviderCooldown after exactly one attempt; the subclass keeps
+    # every existing ``except RateLimited`` flush+stop handler safe.
     assert LJ.classify(429, "RESOURCE_EXHAUSTED: quota",
                        "google") == LJ.COOLDOWN_SWITCH
     ring2 = T.KeyRing(["k1", "k2"])
     calls2 = []
+    backoffs = {"backoffs": []}
 
     def fake_q(api_key, model, text):
         calls2.append(api_key)
         raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
 
-    with pytest.raises(T.RateLimited):
+    with pytest.raises(T.ProviderCooldown) as excinfo:
         T._call_with_rotation(fake_q, ring2, "m", "t",
-                              lambda s: None, {}, "lbl",
+                              lambda s: None, backoffs, "lbl",
                               provider="google")
-    assert calls2 == ["k1", "k2"]
+    assert calls2 == ["k1"]  # single attempt, no rotation
+    assert isinstance(excinfo.value, T.RateLimited)
+    assert "google" in str(excinfo.value)
+    assert backoffs["backoffs"] and backoffs["backoffs"][-1][
+        "outcome"] == "cooldown_switch"
 
 
 def test_wrapper_abort_is_loud_auth_error_and_500_propagates():
@@ -285,38 +292,137 @@ def test_rotating_transport_routes_through_classify():
         wrap("ignored", "m", "t")
 
 
+def test_rotating_transport_cooldown_switch_no_rotation():
+    """The S4 wrapper maps the same llm_json COOLDOWN_SWITCH row as
+    _call_with_rotation: Google RESOURCE_EXHAUSTED raises
+    ProviderCooldown after exactly one attempt (no same-project key
+    rotation); the RateLimited subclass keeps flush+stop handlers safe."""
+    assert LJ.classify(429, "RESOURCE_EXHAUSTED: quota",
+                       "google") == LJ.COOLDOWN_SWITCH
+    ring = T.KeyRing(["k1", "k2"])
+    calls = []
+    backoffs = {"backoffs": []}
+
+    def fake(api_key, model, text):
+        calls.append(api_key)
+        raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
+
+    wrap = T._rotating_llm_transport(fake, lambda s: None, backoffs,
+                                     ring, provider="google")
+    with pytest.raises(T.ProviderCooldown) as excinfo:
+        wrap("ignored", "m", "t")
+    assert calls == ["k1"]  # single attempt, no rotation
+    assert isinstance(excinfo.value, T.RateLimited)
+    assert "google" in str(excinfo.value)
+    assert backoffs["backoffs"] and backoffs["backoffs"][-1][
+        "outcome"] == "cooldown_switch"
+
+
+def test_pipeline_env_loader_single_owner():
+    """load_factory_env/KEYS live in factory.core.env_loader; the precard
+    pipeline imports them (no twin def or tuple there)."""
+    import ast
+    import pathlib
+    path = pathlib.Path(os.path.dirname(__file__), "..", "..",
+                        "factory", "precard", "pipeline.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        assert not (isinstance(node, (ast.FunctionDef,
+                                      ast.AsyncFunctionDef,
+                                      ast.ClassDef))
+                    and node.name == "load_factory_env"), \
+            "pipeline.py must not redefine load_factory_env"
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = (node.targets if isinstance(node, ast.Assign)
+                       else [node.target])
+            assert not any(isinstance(t, ast.Name) and t.id == "KEYS"
+                           for t in targets), \
+                "pipeline.py must not redefine KEYS"
+    imports = [n for n in tree.body
+               if isinstance(n, ast.ImportFrom)
+               and n.module == "factory.core.env_loader"]
+    names = [a.name for n in imports for a in n.names]
+    assert "load_factory_env" in names
+    from factory.core import env_loader as EL
+    from factory.precard import pipeline as PI
+    assert PI.load_factory_env is EL.load_factory_env
+
+
 # --- supervisor probe key mapping ---
 
-def test_probe_key_order_and_no_zen_alias(tmp_path):
+def test_probe_key_order_and_no_zen_alias(tmp_path, monkeypatch):
+    """probe_key order is os.environ -> factory/.env; the removed
+    ZEN_API_KEY alias is never consulted. Injection is via os.environ
+    only — keys never ride CLI args or caller-built dicts."""
     factory_env = tmp_path / "factory.env"
     factory_env.write_text("OPENCODE_ZEN_API_KEY=file-v\n", encoding="utf-8")
     real = SUP.FACTORY_DOTENV
     SUP.FACTORY_DOTENV = factory_env
+    monkeypatch.delenv("OPENCODE_ZEN_API_KEY", raising=False)
+    monkeypatch.delenv("ZEN_API_KEY", raising=False)
     try:
-        assert SUP.probe_key("OPENCODE_ZEN_API_KEY",
-                             "flag-v") == "flag-v"
-        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
-                             {"OPENCODE_ZEN_API_KEY": "env-v"}) == "env-v"
-        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
-                             {}) == "file-v"
+        monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "env-v")
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY") == "env-v"
+        monkeypatch.delenv("OPENCODE_ZEN_API_KEY")
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY") == "file-v"
         # The removed ZEN_API_KEY alias is never consulted.
-        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "",
-                             {"ZEN_API_KEY": "alias-v"}) == "file-v"
-        assert SUP.probe_key("OPENCODE_ZEN_API_KEY", "", {}) != "alias-v"
+        monkeypatch.setenv("ZEN_API_KEY", "alias-v")
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY") == "file-v"
+        assert SUP.probe_key("OPENCODE_ZEN_API_KEY") != "alias-v"
     finally:
         SUP.FACTORY_DOTENV = real
 
 
-def test_probe_key_never_returns_none_and_google_egress_last(tmp_path):
+def test_probe_key_never_returns_none_and_google_egress_last(
+        tmp_path, monkeypatch):
     egress_env = tmp_path / "egress.env"
     egress_env.write_text("GOOGLE_AI_API_KEY=egress-v\n",
                           encoding="utf-8")
     real = SUP.FACTORY_DOTENV
     SUP.FACTORY_DOTENV = tmp_path / "missing.env"
+    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
     try:
-        got = SUP.probe_key("GOOGLE_AI_API_KEY", "", {},
+        got = SUP.probe_key("GOOGLE_AI_API_KEY",
                             extra_files=(str(egress_env),))
         assert got == "egress-v"
-        assert SUP.probe_key("GOOGLE_AI_API_KEY", "", {}) == ""
+        assert SUP.probe_key("GOOGLE_AI_API_KEY") == ""
     finally:
         SUP.FACTORY_DOTENV = real
+
+
+def test_probe_key_honors_exported_env_when_no_map_given(
+        tmp_path, monkeypatch):
+    """Regression: the google probe call site must not pass the egress
+    file dict as env_map — an exported GOOGLE_AI_API_KEY has to win
+    over dotenv files (old behavior: os.environ.get)."""
+    factory_env = tmp_path / "factory.env"
+    factory_env.write_text("GOOGLE_AI_API_KEY=file-v\n", encoding="utf-8")
+    egress_env = tmp_path / "egress.env"
+    egress_env.write_text("GOOGLE_AI_API_KEY=egress-v\n",
+                          encoding="utf-8")
+    real = SUP.FACTORY_DOTENV
+    SUP.FACTORY_DOTENV = factory_env
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "exported-v")
+    try:
+        assert SUP.probe_key(
+            "GOOGLE_AI_API_KEY", "",
+            extra_files=(str(egress_env),)) == "exported-v"
+    finally:
+        SUP.FACTORY_DOTENV = real
+    monkeypatch.delenv("GOOGLE_AI_API_KEY")
+    SUP.FACTORY_DOTENV = factory_env
+    try:
+        assert SUP.probe_key(
+            "GOOGLE_AI_API_KEY", "",
+            extra_files=(str(egress_env),)) == "file-v"
+    finally:
+        SUP.FACTORY_DOTENV = real
+
+
+def test_supervisor_helpers_are_net_single_owner():
+    """norm/target/known helpers live in factory.precard.net; the
+    supervisor only re-exports them (same objects, no twin defs)."""
+    assert SUP.norm_target is NET.norm_target
+    assert SUP.norm_provider is NET.norm_provider
+    assert SUP.target_spec is NET.target_spec
+    assert SUP.known_provider is NET.known_provider

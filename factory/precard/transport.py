@@ -247,11 +247,13 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
     Error meaning comes from the shared classify table
-    (factory.core.llm_json owns it): ROTATE (429/quota, including a
-    Google RESOURCE_EXHAUSTED body) pauses briefly, rotates to the next
-    key, and retries the SAME call; provider-level cooldown signals
-    rotate the same way (provider switching is the caller's job, and
-    every key exhausted still raises RateLimited below). ABORT
+    (factory.core.llm_json owns it): ROTATE (429/quota) pauses briefly,
+    rotates to the next key, and retries the SAME call. COOLDOWN_SWITCH
+    (project-level quota, e.g. Google RESOURCE_EXHAUSTED) raises
+    ProviderCooldown after exactly one attempt with NO rotation —
+    same-project key rotation is forbidden by the taxonomy (provider
+    switching is the caller's job, arriving with P2 LEG_FALLBACKS).
+    ABORT
     (401/403) raises AuthError naming the key variable and file with
     no further attempts. Anything else propagates untouched.
     When EVERY key fails consecutively, raises RateLimited —
@@ -268,7 +270,15 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
                 return out
             except urllib.error.HTTPError as exc:
                 action = _action_for_http_error(exc, provider)
-                if action not in (ROTATE, COOLDOWN_SWITCH):
+                if action == COOLDOWN_SWITCH:
+                    _note_backoff(state, "%s/s4" % model, [],
+                                  COOLDOWN_SWITCH)
+                    raise ProviderCooldown(
+                        "provider-level quota on %s (project blocked) — "
+                        "same-project key rotation forbidden, switch "
+                        "provider or server and re-run "
+                        "(progress flushed, resume safe)" % provider)
+                if action != ROTATE:
                     if action == ABORT:
                         _abort_auth(exc, key_var)
                     raise
@@ -345,10 +355,11 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
     """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
     Error meaning comes from the shared classify table
-    (factory.core.llm_json owns it): ROTATE (429/quota, including a
-    Google RESOURCE_EXHAUSTED body) pauses briefly, rotates to the next
-    key, and retries the SAME call; provider-level cooldown signals
-    rotate the same way. ABORT (401/403) raises AuthError naming the
+    (factory.core.llm_json owns it): ROTATE (429/quota) pauses briefly,
+    rotates to the next key, and retries the SAME call. COOLDOWN_SWITCH
+    (project-level quota, e.g. Google RESOURCE_EXHAUSTED) raises
+    ProviderCooldown after exactly one attempt with NO rotation.
+    ABORT (401/403) raises AuthError naming the
     key variable and file with no further attempts. Anything else
     propagates to the caller.
     Success resets the ring streak (same F1 rule as
@@ -370,7 +381,13 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
             return out, None
         except urllib.error.HTTPError as exc:
             action = _action_for_http_error(exc, provider)
-            if action not in (ROTATE, COOLDOWN_SWITCH):
+            if action == COOLDOWN_SWITCH:
+                _note_backoff(state, label, [], COOLDOWN_SWITCH)
+                raise ProviderCooldown(
+                    "provider-level quota on %s (project blocked) — "
+                    "same-project key rotation forbidden, switch "
+                    "provider or server and re-run" % provider)
+            if action != ROTATE:
                 if action == ABORT:
                     _abort_auth(exc, key_var)
                 raise
@@ -500,6 +517,19 @@ def write_progress(path: str, payload: dict) -> None:
 
 class RateLimited(Exception):
     """All keys 429 — caller flushes progress and exits for a server switch."""
+
+
+class ProviderCooldown(RateLimited):
+    """Project-level quota (cool-down-and-switch, e.g. Google RESOURCE_EXHAUSTED).
+
+    The llm_json taxonomy forbids same-project key rotation here: rotating
+    would burn every key on the same blocked project. Raised after exactly
+    one attempt with no rotation. A RateLimited subclass, so every existing
+    ``except RateLimited`` caller flushes progress and stops safely;
+    the message + cool-down backoff outcome tell the operator to
+    switch provider (or server) instead of re-running the same leg.
+    True automatic provider-switching arrives with P2 LEG_FALLBACKS.
+    """
 
 
 class KeyRing:
