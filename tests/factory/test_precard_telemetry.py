@@ -502,6 +502,58 @@ def _http_401():
         "http://x", 401, "unauthorized", {}, None)
 
 
+def test_leases_file_startup_tail_cap(tmp_path, monkeypatch):
+    """Reviewer must-fix: startup trims leases.jsonl to the newest
+    lines (bounded disk); under-cap files untouched, no tmp left."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
+                                    "..", "tools", "egress"))
+    import supervisor as sup
+    monkeypatch.setattr(sup, "LEASES_PATH", tmp_path / "leases.jsonl")
+    monkeypatch.setattr(sup, "LEASES_TAIL_LINES", 10)
+    monkeypatch.setattr(sup, "_LEASES_TRIM_BYTES", 0)
+    path = tmp_path / "leases.jsonl"
+    path.write_text("".join('{"n": %d}\n' % i for i in range(30)),
+                    encoding="utf-8")
+    sup._trim_leases_file()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 10 and lines[0] == '{"n": 20}'
+    assert not (tmp_path / "leases.jsonl.tmp").exists()
+    small = tmp_path / "small.jsonl"
+    small.write_text('{"n": 0}\n', encoding="utf-8")
+    monkeypatch.setattr(sup, "LEASES_PATH", small)
+    sup._trim_leases_file()  # under cap: untouched
+    assert small.read_text(encoding="utf-8") == '{"n": 0}\n'
+
+
+def test_auth_abort_flushes_stage_telemetry(tmp_path, monkeypatch):
+    """Reviewer must-fix: an auth abort flushes in-memory stage rows
+    (like quota-STOP) instead of losing them."""
+    import pytest
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    from factory.precard import pipeline as pipe
+    from factory.precard.transport import AuthError
+    items = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(items), encoding="utf-8")
+    out = str(tmp_path / "precard.jsonl")
+
+    def always_401(api_key, model, user_text):
+        raise _http_401()
+
+    with pytest.raises(AuthError):
+        pipe.main(["--sample", str(sample), "--out", out,
+                   "--progress-dir", str(tmp_path / "prog")],
+                  **{**_hermetic_kwargs(),
+                     "_topic_transport": always_401})
+    recs = [json.loads(line) for line in
+            (_out_dir(out) / "telemetry_records.jsonl").read_text(
+                encoding="utf-8").splitlines() if line.strip()]
+    assert recs  # judge rows flushed by _abort, not lost
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""

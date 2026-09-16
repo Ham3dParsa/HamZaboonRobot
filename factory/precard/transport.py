@@ -445,6 +445,17 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
             _note_backoff(state, label, [], "all-keys-429-stop")
             raise RateLimited(
                 "all keys 429 (provider quotas exhausted) — re-run later")
+        except Exception:
+            # Non-HTTP failure (URLError/timeout/dns): no retry here
+            # (same contract as 5xx — the caller fails the item closed),
+            # but the try is still logged so terminal latency_s never
+            # falls back to a stale prior try.
+            latency = time.perf_counter() - start
+            ring.attempt_log.append(
+                {"model": model, "attempt": attempt_no,
+                 "latency_s": latency, "key_idx": ring.idx,
+                 "outcome": "error"})
+            raise
 
 
 def write_progress(path: str, payload: dict) -> None:

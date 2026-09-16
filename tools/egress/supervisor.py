@@ -76,13 +76,14 @@ COOLDOWN_S = 300
 # Secret-free by construction: lease ids truncate to 8 chars (same as
 # the console line), proxy URLs and keys are never recorded. Probe
 # logic is untouched (parallel PR-0 owns it).
-# Retention (reviewer must-fix: documented, not capped): this file has
-# no reader inside the repo — audit only, every line self-contained
-# with its own ts — so it is safe to rotate, truncate, or delete at
-# any time (e.g. logrotate or a periodic tail cap). No cap is enforced
-# here by design: the supervisor must never fail a lease/report over
-# audit upkeep.
+# Retention (enforced): the file has no reader inside the repo — audit
+# only, every line self-contained with its own ts — so on startup it
+# is trimmed to the newest LEASES_TAIL_LINES lines (atomic tmp+replace,
+# best-effort, never fails startup; per-lease appends stay O(1) and it
+# is still safe to rotate/truncate/delete externally at any time).
 LEASES_PATH = pathlib.Path(__file__).resolve().parent / "leases.jsonl"
+LEASES_TAIL_LINES = 20000
+_LEASES_TRIM_BYTES = 2000000
 
 
 def _append_lease_event(event):
@@ -102,6 +103,37 @@ def _append_lease_event(event):
             handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except (OSError, ValueError, TypeError):
         pass
+
+
+def _trim_leases_file():
+    """Trim leases.jsonl to the newest LEASES_TAIL_LINES (best-effort).
+
+    Startup-only upkeep so a long-lived supervisor grows disk bounded:
+    files under _LEASES_TRIM_BYTES are untouched (no read cost);
+    larger ones keep their newest lines via atomic tmp+replace. Never
+    raises — audit upkeep must never fail startup or a lease/report.
+    """
+    try:
+        if LEASES_PATH.stat().st_size <= _LEASES_TRIM_BYTES:
+            return
+    except OSError:
+        return
+    try:
+        lines = LEASES_PATH.read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return
+    if len(lines) <= LEASES_TAIL_LINES:
+        return
+    tmp = str(LEASES_PATH) + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines[-LEASES_TAIL_LINES:]) + "\n")
+        os.replace(tmp, LEASES_PATH)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def load_env():
@@ -846,6 +878,7 @@ def main(argv=None):
         print(secrets.token_hex(24))
         return 0
     env = load_env()
+    _trim_leases_file()  # startup-only audit cap (best-effort)
     if args.probe:
         refresh_subscription(env)
         rows = probe_pool(top_n=args.top_n)

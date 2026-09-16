@@ -567,6 +567,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         print(_color("auth abort (%s): %s"
                      % (progress.display(stage), exc),
                      "red", stream=sys.stderr), file=sys.stderr)
+        # Like the quota-STOP paths: flush stage telemetry first so the
+        # abort doesn't lose in-memory records (no later flush runs —
+        # the bare raise below skips the post-try summary).
+        _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                         run_id=run_id)
         jlog.event("abort", stage=stage, error=str(exc))
         # The bare raise below skips everything after the try/finally
         # (telemetry-history append, summary, run_done): the json-log
@@ -576,7 +581,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     def _preflight_exit(message):
         # Stillborn run (corrupt progress, kaikki index, missing keys):
         # record the abort as the stream's last event, close it, then
-        # exit — never a dangling run_events.jsonl.
+        # exit — never a dangling run_events.jsonl. A None message
+        # (plain `raise SystemExit`) must never become exit 0.
+        if message is None:
+            message = "preflight abort"
         jlog.event("abort", stage="preflight", error=message)
         jlog.close()
         raise SystemExit(message)
@@ -1816,6 +1824,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     except KeyboardInterrupt:
         # R11: aborts go to stderr (stdout is human progress).
         print("interrupted — flushing stage progress", file=sys.stderr)
+        _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                         run_id=run_id)
         jlog.event("abort", stage="run", error="KeyboardInterrupt")
         jlog.close()
         raise SystemExit(130)
