@@ -9,6 +9,7 @@ import json
 import re
 
 from factory.precard import enrich as new_enrich
+from factory.precard.topics import TOPIC_METHOD
 
 
 def _idx():
@@ -150,7 +151,7 @@ def test_pipeline_apple_row_baseline(tmp_path):
     assert row["en_def"] == "a round fruit"
     assert row["topic_vector"] == [{"label": "Other / Abstract",
                                     "weight": 1.0}]
-    assert row["topic_method"] == "v16b-exact"
+    assert row["topic_method"] == TOPIC_METHOD
     assert row["ipa_src"] == "dataset"
     assert row["drop_reason"] is None
     assert row["pos"] == ["noun"] and row["pos_src"] == "dataset"
