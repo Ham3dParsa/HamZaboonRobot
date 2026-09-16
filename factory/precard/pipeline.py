@@ -30,6 +30,7 @@ REPO_ROOT = os.path.dirname(FACTORY_DIR)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 from factory.core.env_loader import load_factory_env
+from factory.core.telemetry import new_run_id
 from factory.precard import progress
 from factory.precard import transport
 from factory.precard.accounting import audit_sample_accounting
@@ -51,10 +52,10 @@ from factory.precard.anchor import IPA_SRC_MODEL
 from factory.precard.topics import (
     LABEL_BATCH, TOPIC_METHOD, _needs_fanout_relabel, label_batch,
     vectors_batch)
+from factory.core.telemetry import write_summary as _tele_write
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, append_telemetry_history,
-    extract_json, raise_for_auth, record_call as _tele_record,
-    extract_usage as _tele_usage, write_summary as _tele_write,
+    extract_json, raise_for_auth,
     _note_backoff, _tele_tokens, RunLogger, write_progress,
     AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL,
     _avalai_chat_transport, _google_chat_transport,
@@ -226,16 +227,19 @@ def load_awl_members(path):
     return out
 
 
-def _color(text, name):
+def _color(text, name, stream=None):
     """ANSI color for consoles; plain text when piped/NO_COLOR/Windows-legacy.
 
     Console-only helper (stored reasons/logs stay uncolored for files).
+    ``stream`` is the target stream for the tty check (stdout progress
+    vs stderr aborts); NO_COLOR is honored on both (R11).
     """
     import os as _os
     codes = {"green": "32", "red": "31", "yellow": "33", "cyan": "36",
              "bold": "1"}
+    target = stream if stream is not None else sys.stdout
     try:
-        use = sys.stdout.isatty() and not _os.environ.get("NO_COLOR") \
+        use = target.isatty() and not _os.environ.get("NO_COLOR") \
             and name in codes
     except Exception:
         use = False
@@ -244,22 +248,99 @@ def _color(text, name):
     return "\x1b[%sm%s\x1b[0m" % (codes[name], text)
 
 
-def _batch_progress(stage, batch_no, n_batches, ok, fail):
-    """Live one-line progress (carriage return, English-only console).
+def _bar_eta(durations, remaining):
+    """Rolling-mean ETA for the bar v2 (R11).
 
-    Replaces per-batch line spam: the line rewrites in place. run.log
-    keeps full history (unchanged); a stage summary box follows at each
-    stage end. Persian drop details go to dropped.log, never the console
-    (Windows terminal mojibake).
+    ``durations`` are completed per-batch seconds; ``remaining`` is the
+    batch count left. ``"?"`` until 3 batches are observed (no mean
+    worth showing before that).
     """
+    if len(durations) < 3:
+        return "?"
+    window = durations[-5:]
+    mean = sum(window) / len(window)
+    secs = max(0.0, mean * max(0, remaining))
+    if secs < 90:
+        return "%ds" % int(round(secs))
+    mins, secs = divmod(int(round(secs)), 60)
+    if mins < 90:
+        return "%dm%02ds" % (mins, secs)
+    hrs, mins = divmod(mins, 60)
+    return "%dh%02dm" % (hrs, mins)
+
+
+_BAR_WIDTH = 100
+
+
+def _batch_progress(stage, batch_no, n_batches, ok, fail, *, eta="?",
+                    hits=0, misses=0, quiet=False):
+    """Live one-line progress v2 (carriage return, English-only console).
+
+    Bar v2 (R11): done/todo, ok/fail, ETA (rolling mean, ``?`` until 3
+    batches), HIT/MISS (HIT = resolved with no LLM call: resume-skip,
+    leg-1, file cache; MISS = LLM consulted). Replaces per-batch line
+    spam: the line rewrites in place, padded so stale characters never
+    linger. run.log keeps full history; a stage summary box follows at
+    each stage end. Persian drop details go to dropped.log, never the
+    console (Windows terminal mojibake). Silent under --quiet.
+    """
+    if quiet:
+        return
     width = 20
     total = n_batches or 1
     done = min(batch_no, total)
     filled = int(width * done / total)
-    print("\r%s" % _color(
-        "[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
-            progress.display(stage), "=" * filled, " " * (width - filled),
-            done, total, ok, fail), "cyan"), end="", flush=True)
+    line = ("[%s] [%s%s] %d/%d | ok=%d fail=%d | ETA %s | HIT=%d MISS=%d"
+            % (progress.display(stage), "=" * filled,
+               " " * (width - filled), done, total, ok, fail, eta,
+               hits, misses))
+    print("\r%s" % _color(line.ljust(_BAR_WIDTH), "cyan"),
+          end="", flush=True)
+
+
+class _JsonLog:
+    """--json-log machine event stream (R11): run_events.jsonl.
+
+    Human progress stays on stdout; this file carries one JSON object
+    per run/stage/batch/warning event, every event run_id-joined.
+    Best-effort: an unwritable path disables silently (files are
+    secondary to the run itself). Always closed by the caller.
+    """
+
+    def __init__(self, out_path, run_id, enabled):
+        from datetime import datetime, timezone
+        self._now = lambda: datetime.now(timezone.utc).isoformat()
+        self._run_id = str(run_id or "")
+        self._handle = None
+        if enabled:
+            try:
+                dest = pathlib.Path(str(out_path)).parent \
+                    / "run_events.jsonl"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                self._handle = open(dest, "w", encoding="utf-8")
+            except OSError:
+                self._handle = None
+
+    def event(self, kind, **fields):
+        if self._handle is None:
+            return
+        try:
+            rec = {"ts": self._now(), "run_id": self._run_id,
+                   "event": kind}
+            rec.update(fields)
+            self._handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            self._handle.flush()
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def close(self):
+        try:
+            if self._handle is not None:
+                self._handle.close()
+        except OSError:
+            pass
+        finally:
+            self._handle = None
 
 
 def _reason_slug(reason):
@@ -267,8 +348,14 @@ def _reason_slug(reason):
     return str(reason or "").split(":")[0].strip() or "unknown"
 
 
-def _stage_summary(stage, states, out_path):
-    """English stage box on stdout + full multilingual details to file."""
+def _stage_summary(stage, states, out_path, quiet=False, counts=None):
+    """English stage box on stdout + full multilingual details to file.
+
+    R11 split: the box is human/stdout (silent under --quiet); the
+    multilingual drop details always land in dropped.log. ``counts``
+    (optional {"hits","misses","cache"}) appends the bar v2 HIT/MISS
+    segment to the box plus a CACHE line for file-cache hits.
+    """
     from collections import Counter
     done = states.get(stage, {}).get("done", {}) or {}
     failed = states.get(stage, {}).get("failed", []) or []
@@ -307,17 +394,31 @@ def _stage_summary(stage, states, out_path):
         if key not in done:
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
-    print("")
-    # Human pipeline log: domain voice + Finglish, no s0-style ids.
-    print(_color("%s: input %d \u2192 kept %d, dropped %d" % (
-        progress.display(stage), input_n, kept, len(failed)),
-        "green" if not failed else "yellow"))
-    print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
-        progress.display(stage), kept, len(failed),
-        " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
-        if slugs else "",
-        " | quarantined=%d" % len(quarantined) if quarantined else ""),
-        "green" if not failed else "yellow"))
+    hits = misses = cache = 0
+    if isinstance(counts, dict):
+        try:
+            hits = int(counts.get("hits", 0) or 0)
+            misses = int(counts.get("misses", 0) or 0)
+            cache = int(counts.get("cache", 0) or 0)
+        except (TypeError, ValueError):
+            hits = misses = cache = 0
+    hit_seg = (" | HIT=%d MISS=%d" % (hits, misses)
+               if counts is not None else "")
+    if not quiet:
+        print("")
+        # Human pipeline log: domain voice + Finglish, no s0-style ids.
+        print(_color("%s: input %d \u2192 kept %d, dropped %d" % (
+            progress.display(stage), input_n, kept, len(failed)),
+            "green" if not failed else "yellow"))
+        print(_color("[STAGE %s] kept=%d dropped=%d%s%s%s" % (
+            progress.display(stage), kept, len(failed),
+            " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
+            if slugs else "",
+            " | quarantined=%d" % len(quarantined) if quarantined else "",
+            hit_seg),
+            "green" if not failed else "yellow"))
+        if cache:
+            print(_color("CACHE file hits=%d" % cache, "cyan"))
     if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
@@ -331,7 +432,9 @@ def _stage_summary(stage, states, out_path):
                     for line in quarantined:
                         handle.write(line + "\n")
         except OSError as exc:
-            print("warning: dropped.log append failed (%s)" % exc)
+            # R11: warnings/errors go to stderr, never stdout.
+            print("warning: dropped.log append failed (%s)" % exc,
+                  file=sys.stderr)
 
 
 def _flush(progress_dir, states):
@@ -340,13 +443,14 @@ def _flush(progress_dir, states):
                        states[stage])
 
 
-def _flush_telemetry(tele_dir, tele_store, flushed):
+def _flush_telemetry(tele_dir, tele_store, flushed, run_id=""):
     """Append unflushed telemetry records + rewrite the summary.
 
     Kill-safe incremental persistence: a killed run keeps every record up
     to the last completed stage (and every STOP path flushes before
     exiting). Returns the new flushed count. Summary covers the current
-    run; the end-of-run history append stays cumulative.
+    run and carries its run_id; the end-of-run history append stays
+    cumulative.
     """
     pending = tele_store[flushed:]
     if pending:
@@ -357,7 +461,7 @@ def _flush_telemetry(tele_dir, tele_store, flushed):
             for rec in pending:
                 handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
         _tele_write(str(tele_dir / "telemetry_summary.json"),
-                    list(tele_store))
+                    list(tele_store), run_id=run_id)
     return len(tele_store)
 
 
@@ -395,6 +499,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
          _type_log_available=None):
     """Run the pre-card pipeline. Returns 0 on success (exit code)."""
     args = parse_args(argv)
+    # R10: one run_id (start-ts + pid) joins provider_map.json, the
+    # run.log header, every telemetry record, and every --json-log
+    # event of this run.
+    run_id = new_run_id()
+    # R11 split: stdout is human progress (silent under --quiet);
+    # warnings/errors go to stderr; files are machine-readable.
+    quiet = bool(args.quiet)
+
+    def _say(*parts, **kwargs):
+        if not quiet:
+            print(*parts, **kwargs)
+
     sleep_fn = _sleep_fn or time.sleep
     # Owner-ordered pacing (2026-09-14): --sleep-secs scales ONLY the
     # inter-batch pacing pauses; the 429-rotation backoff (ROTATE_PAUSE)
@@ -438,6 +554,41 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                       % progress.display(stage))
         return 0
 
+    # Machine event stream starts with the real run (dry-run above
+    # returns before any file is written).
+    jlog = _JsonLog(args.out, run_id, bool(args.json_log))
+
+    def _warn(message):
+        print(message, file=sys.stderr)
+        jlog.event("warning", message=message)
+
+    def _abort(stage, exc):
+        # Red aborts (R11): auth stops print red on stderr, then raise.
+        print(_color("auth abort (%s): %s"
+                     % (progress.display(stage), exc),
+                     "red", stream=sys.stderr), file=sys.stderr)
+        # Like the quota-STOP paths: flush stage telemetry first so the
+        # abort doesn't lose in-memory records (no later flush runs —
+        # the bare raise below skips the post-try summary).
+        _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                         run_id=run_id)
+        jlog.event("abort", stage=stage, error=str(exc))
+        # The bare raise below skips everything after the try/finally
+        # (telemetry-history append, summary, run_done): the json-log
+        # stream ends here, closed, with the abort as its last event.
+        jlog.close()
+
+    def _preflight_exit(message):
+        # Stillborn run (corrupt progress, kaikki index, missing keys):
+        # record the abort as the stream's last event, close it, then
+        # exit — never a dangling run_events.jsonl. A None message
+        # (plain `raise SystemExit`) must never become exit 0.
+        if message is None:
+            message = "preflight abort"
+        jlog.event("abort", stage="preflight", error=message)
+        jlog.close()
+        raise SystemExit(message)
+
     progress_dir = pathlib.Path(args.progress_dir)
     progress_dir.mkdir(parents=True, exist_ok=True)
     resume = not args.no_resume
@@ -449,7 +600,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             try:
                 loaded = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                raise SystemExit("corrupt progress %s: %s" % (path, exc))
+                _preflight_exit("corrupt progress %s: %s" % (path, exc))
         states[stage] = {"done": loaded.get("done", {}),
                          "failed": loaded.get("failed", []),
                          "backoffs": loaded.get("backoffs", [])}
@@ -459,15 +610,21 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         done_n = len(states[stage]["done"])
         banner.append("%s done=%d remaining=%d" % (
             progress.display(stage), done_n, max(0, total - done_n)))
-    print("resume: %s" % " | ".join(banner))
+    _say("resume: %s" % " | ".join(banner))
     # R26: stage selection + rekey eviction (resume still skips the rest).
     # Stage dependency: anchor -> judge -> vectors -> label -> enrich,
     # so rekeying an upstream stage auto-invalidates the same keys downstream — otherwise assembly mixes
     # new anchors with stale enrichment (kiss#5-style staleness).
     _DOWNSTREAM = {"anchor_rank": ("sense_judge", "topic_vectors", "topic_label", "enrich"), "sense_judge": ("topic_vectors", "topic_label", "enrich"),
                    "topic_vectors": ("topic_label", "enrich"), "topic_label": ("enrich",)}
-    selected = _selected_stages(args)
-    rekeyed = _load_rekey_keys(args.rekey)
+    try:
+        selected = _selected_stages(args)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
+    try:
+        rekeyed = _load_rekey_keys(args.rekey)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
     if rekeyed:
         rekeyed_set = set(rekeyed)
         for stage in selected:
@@ -483,7 +640,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 states[down]["failed"] = [
                     k for k in states[down]["failed"]
                     if k not in rekeyed_set]
-        print("rekey: %d key(s) forced to redo in %s" % (
+        _say("rekey: %d key(s) forced to redo in %s" % (
             len(rekeyed),
             ", ".join(progress.display(s) for s in progress.STAGES if s in selected)))
 
@@ -496,7 +653,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # no fail-closed signal, so fail is always 0 there.
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"),
-        namer=progress.display)
+        namer=progress.display, run_id=run_id)
+    jlog.event("run_start", run_id=run_id)
     for stage in progress.STAGES:
         if stage not in selected:
             run_logger.log("stage %s skipped (not selected)"
@@ -511,7 +669,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         try:
             index = load_kaikki_index(args.kaikki_index)
         except OSError as exc:
-            raise SystemExit("cannot load kaikki index %s: %s" % (
+            _preflight_exit("cannot load kaikki index %s: %s" % (
                 args.kaikki_index, exc))
     if _read_entry is not None:
         read_entry = _read_entry
@@ -565,6 +723,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 {"kind": "word", "text": text}, index, read_entry)
         return preprocess_view_cache[key]
     run_logger.stage_start("preprocess")
+    jlog.event("stage_start", stage="preprocess")
     for batch_no, base in enumerate(
             _stage_range(selected, "preprocess", items), start=1):
         batch = items[base:base + BATCH]
@@ -581,12 +740,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _flush(progress_dir, states)
         # Deterministic stage: <1s per batch, no progress bar by design
         # (LLM stages use _batch_progress for live per-batch feedback).
-    run_logger.stage_end(
-        "preprocess",
-        ok=sum(1 for v in states["preprocess"]["done"].values() if v.get("kept")),
-        fail=len(states["preprocess"].get("failed", [])))
-    tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-    _stage_summary("preprocess", states, args.out)
+    _pre_ok = sum(1 for v in states["preprocess"]["done"].values()
+                  if v.get("kept"))
+    _pre_fail = len(states["preprocess"].get("failed", []))
+    run_logger.stage_end("preprocess", ok=_pre_ok, fail=_pre_fail)
+    jlog.event("stage_end", stage="preprocess", ok=_pre_ok, fail=_pre_fail)
+    tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+    _stage_summary("preprocess", states, args.out, quiet=quiet)
     for key, verdict in states["preprocess"]["done"].items():
         preprocess_info[key] = verdict
     dropped = {k for k, v in preprocess_info.items() if not v.get("kept")}
@@ -594,10 +755,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if dropped:
         # Details live in dropped.log (written by _stage_summary);
         # console stays a single short line (no 80-item spam).
-        print(_color("%s: kept=%d dropped=%d "
-                     "(see dropped.log)" % (progress.display("preprocess"),
-                                            len(items), len(dropped)),
-                     "cyan"))
+        _say(_color("%s: kept=%d dropped=%d "
+                    "(see dropped.log)" % (progress.display("preprocess"),
+                                           len(items), len(dropped)),
+                    "cyan"))
 
     need_llm = (_judge_transport is _USE_DEFAULT
                 or _topic_transport is _USE_DEFAULT
@@ -610,9 +771,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # every decision below, so a mixed line (e.g. judge zen + rest
     # avalai) wires correctly. Precedence per leg: --stage-* win, then
     # --judge-*, then master --llm-provider/--precard-model, then Zen.
-    stage_prov = _parse_stage_map(args.stage_provider,
-                                    ("zen", "avalai", "google"))
-    stage_model = _parse_stage_map(args.stage_model)
+    try:
+        stage_prov = _parse_stage_map(args.stage_provider,
+                                      ("zen", "avalai", "google"))
+        stage_model = _parse_stage_map(args.stage_model)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
 
     def _leg_provider(leg):
         if leg in stage_prov:
@@ -676,15 +840,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         and providers["sense_judge"] == "avalai"
     judge_google = _judge_transport is _USE_DEFAULT \
         and providers["sense_judge"] == "google"
-    # Exact provider manifest: stage -> provider + actual model (telemetry
-    # loops record requested Zen names on remap legs, so this file is the
-    # disambiguator for cost attribution).
-    provider_map = {
-        leg: {"provider": providers[leg],
-              "model": (models[leg]
-                        if providers[leg] in ("avalai", "google")
-                        else "zen-chain")}
-        for leg in LLM_LEGS}
+    # Exact provider manifest: stage -> provider + actual model (remap
+    # legs record the requested name on telemetry rows, so this file
+    # stays the disambiguator for cost attribution). The run_id joins
+    # every sink (R10); legs stay top-level (existing readers).
+    provider_map = {"run_id": run_id}
+    for leg in LLM_LEGS:
+        provider_map[leg] = {
+            "provider": providers[leg],
+            "model": (models[leg]
+                      if providers[leg] in ("avalai", "google")
+                      else "zen-chain")}
     api_key = "injected"
     api_key_2 = ""
     zen_needed = any(providers[leg] == "zen"
@@ -696,7 +862,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         api_key = env["OPENCODE_ZEN_API_KEY"]
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
-            raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
+            _preflight_exit("no OPENCODE_ZEN_API_KEY in factory/.env")
     if full_avalai or not zen_needed:
         # No Zen anywhere (or Zen unused): skip the Zen ring.
         ring = None
@@ -704,7 +870,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         try:
             ring = KeyRing([api_key, api_key_2])
         except ValueError as exc:
-            raise SystemExit("no Zen keys: %s" % exc)
+            _preflight_exit("no Zen keys: %s" % exc)
     judge_transport = (transport.zen_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
@@ -721,15 +887,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
             avalai_key = env_av["AVALAI_API_KEY"]
         except KeyError:
-            raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(avalai provider needs it)")
+            _preflight_exit("no AVALAI_API_KEY in factory/.env "
+                            "(avalai provider needs it)")
         if not avalai_key:
-            raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(avalai provider needs it)")
+            _preflight_exit("no AVALAI_API_KEY in factory/.env "
+                            "(avalai provider needs it)")
         try:
             avalai_ring = KeyRing([avalai_key])
         except ValueError as exc:
-            raise SystemExit("no AvalAI keys: %s" % exc)
+            _preflight_exit("no AvalAI keys: %s" % exc)
         for leg in LLM_LEGS:
             if not _leg_avalai(leg):
                 continue
@@ -756,12 +922,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "GOOGLE_AI_API_KEY")
             google_key_from_egress = bool(google_key)
         if not google_key:
-            raise SystemExit("no GOOGLE_AI_API_KEY in factory/.env "
-                             "(google provider needs it)")
+            _preflight_exit("no GOOGLE_AI_API_KEY in factory/.env "
+                            "(google provider needs it)")
         try:
             google_ring = KeyRing([google_key])
         except ValueError as exc:
-            raise SystemExit("no Google keys: %s" % exc)
+            _preflight_exit("no Google keys: %s" % exc)
         for leg in LLM_LEGS:
             if not _leg_google(leg):
                 continue
@@ -797,9 +963,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if (args.judge_model or args.precard_model or args.stage_model) \
             and _judge_transport is _USE_DEFAULT \
             and not _any_avalai_leg and not _any_google_leg:
-        print("warning: model flags apply only with "
-              "an avalai/google provider; ignored on the zen path",
-              file=sys.stderr)
+        _warn("warning: model flags apply only with "
+              "an avalai/google provider; ignored on the zen path")
     # Defaults for legs the remap loop above did not claim: a leg keeps
     # its remap when avalai, else falls back to the Zen default.
     if _topic_transport is _USE_DEFAULT and topic_transport is None:
@@ -821,17 +986,33 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     inflection_dropped: set = set()
     # Provider manifest: exact stage -> provider + actual model for cost
     # attribution (console + run.log + provider_map.json beside --out).
+    def _leg_actual(leg):
+        """Really-hit model for a leg (None on zen: requested == actual)."""
+        if providers[leg] in ("avalai", "google"):
+            return models[leg]
+        return None
+
+    def _leg_ring_idx(leg):
+        """Real keyring index for a leg's key (0 when ringless)."""
+        leg_ring_obj = leg_ring.get(leg, ring)
+        try:
+            return int(leg_ring_obj.idx)
+        except (AttributeError, TypeError, ValueError):
+            return 0
+
     _prov_line = ", ".join(
         "%s=%s/%s" % (progress.display(leg), provider_map[leg]["provider"],
                       provider_map[leg]["model"]) for leg in LLM_LEGS)
-    print(_color("providers: %s" % _prov_line, "cyan"))
+    _say(_color("providers: %s" % _prov_line, "cyan"))
     run_logger.log("providers: %s" % _prov_line)
     try:
         with open(pathlib.Path(args.out).parent / "provider_map.json",
                   "w", encoding="utf-8") as handle:
             handle.write(json.dumps(provider_map, ensure_ascii=False))
     except OSError as exc:
-        print("warning: provider_map.json write failed (%s)" % exc)
+        _warn("warning: provider_map.json write failed (%s)" % exc)
+    jlog.event("providers", providers={
+        leg: provider_map[leg] for leg in LLM_LEGS})
     try:
         # S0b R36: inflection micro-stage (own progress key inflection.json).
         # Items whose raw anchor top is an inflection stub go to the
@@ -846,12 +1027,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # (established nominal/idiomatic sense) stays inflection-keep.
         # Verdict variant inside inflection — no new stage.
         run_logger.stage_start("inflection_review")
+        jlog.event("stage_start", stage="inflection_review")
         n_inflection_batches = (len(items) + BATCH - 1) // BATCH or 1
+        s0b_bar = {"durs": [], "hits": 0, "misses": 0}
         for batch_no, base in enumerate(
                 _stage_range(selected, "inflection_review", items), start=1):
+            _t0 = time.perf_counter()
             batch = items[base:base + BATCH]
             todo = [i for i in batch
                     if item_key(i) not in states["inflection_review"]["done"]]
+            s0b_bar["hits"] += len(batch) - len(todo)
             review = []
             for item in todo:
                 key = item_key(item)
@@ -869,12 +1054,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                    "text": item.get("text", ""),
                                    "gloss": gloss})
             if review and inflect_transport is not None:
+                s0b_bar["misses"] += len(review)
+                s0b_bar["hits"] += len(todo) - len(review)
                 try:
                     verdicts = inflection_review(
                         review, inflect_transport,
                         leg_api_key.get("inflection_review", api_key),
-                        telemetry=tele_store, tele_stage="inflection_review")
-                except AuthError:
+                        telemetry=tele_store, tele_stage="inflection_review",
+                        tele_key_idx=_leg_ring_idx("inflection_review"),
+                        tele_run_id=run_id,
+                        tele_provider=providers["inflection_review"],
+                        tele_model_actual=_leg_actual("inflection_review"),
+                        tele_attempts=args.tele_attempts)
+                except AuthError as exc:
+                    _abort("inflection_review", exc)
                     raise
                 except Exception:
                     verdicts = {}
@@ -912,6 +1105,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 verdict.get("uncertain"))}
                 pace_fn(SLEEP)
             elif review:
+                s0b_bar["hits"] += len(todo)
                 for entry in review:
                     states["inflection_review"]["done"][entry["key"]] = {
                         "kept": True, "reason": "s0b-no-transport",
@@ -921,15 +1115,28 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if not (states["inflection_review"]["done"].get(item_key(i)) or {}).get(
                     "kept", True))
+            s0b_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("inflection_review", batch_no, n_inflection_batches,
-                              len(batch) - failed_here, failed_here)
-        run_logger.stage_end(
-            "inflection_review",
-            ok=sum(1 for v in states["inflection_review"]["done"].values()
-                   if v.get("kept")),
-            fail=len(states["inflection_review"].get("failed", [])))
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("inflection_review", states, args.out)
+                              len(batch) - failed_here, failed_here,
+                              eta=_bar_eta(s0b_bar["durs"],
+                                           n_inflection_batches - batch_no),
+                              hits=s0b_bar["hits"],
+                              misses=s0b_bar["misses"], quiet=quiet)
+            jlog.event("batch", stage="inflection_review", batch=batch_no,
+                       batches=n_inflection_batches,
+                       ok=len(batch) - failed_here, fail=failed_here,
+                       hits=s0b_bar["hits"], misses=s0b_bar["misses"])
+        _s0b_ok = sum(1 for v in states["inflection_review"]["done"].values()
+                      if v.get("kept"))
+        _s0b_fail = len(states["inflection_review"].get("failed", []))
+        run_logger.stage_end("inflection_review", ok=_s0b_ok, fail=_s0b_fail)
+        jlog.event("stage_end", stage="inflection_review",
+                   ok=_s0b_ok, fail=_s0b_fail)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("inflection_review", states, args.out, quiet=quiet,
+                       counts={"hits": s0b_bar["hits"],
+                               "misses": s0b_bar["misses"]})
         inflection_dropped = {k for k, v in states["inflection_review"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in inflection_dropped]
@@ -949,11 +1156,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     item["text"] = base
         if inflection_dropped:
             # Details live in dropped.log; console stays one short line.
-            print(_color("%s: kept=%d dropped=%d "
-                         "(see dropped.log)" % (progress.display("inflection_review"),
-                                                len(items),
-                                                len(inflection_dropped)),
-                         "cyan"))
+            _say(_color("%s: kept=%d dropped=%d "
+                        "(see dropped.log)" % (progress.display("inflection_review"),
+                                               len(items),
+                                               len(inflection_dropped)),
+                        "cyan"))
         # anchor (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
         # (PROPER_NOUN_POS, reused by import — deterministic,
@@ -969,6 +1176,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
         run_logger.stage_start("anchor_rank")
+        jlog.event("stage_start", stage="anchor_rank")
         for batch_no, base in enumerate(
                 _stage_range(selected, "anchor_rank", items), start=1):
             batch = items[base:base + BATCH]
@@ -1037,12 +1245,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                     if key not in states["anchor_rank"][
                                             "failed"]:
                                         states["anchor_rank"]["failed"].append(key)
+                                # R11: warnings go to stderr (stdout is
+                                # human progress).
                                 print(_color(
                                     "warning: %s re-anchored off proper "
                                     "top -> %s" % (
                                         key,
                                         rerouted[0].get("sense_id", "")),
-                                    "yellow"))
+                                    "yellow"), file=sys.stderr)
                             else:
                                 ranked["dropped"] = "anchor-proper-noun"
                                 if key not in states["anchor_rank"]["failed"]:
@@ -1101,12 +1311,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                                 key,
                                                 rerouted[0].get(
                                                     "sense_id", "")),
-                                            "yellow"))
+                                            "yellow"), file=sys.stderr)
                                 elif ranked.get("name_eval_error"):
                                     print(_color(
                                         "warning: %s name-eval error, "
                                         "keeping anchor top" % key,
-                                        "yellow"))
+                                        "yellow"), file=sys.stderr)
                             else:
                                 ranked["dropped"] = "anchor-name-gloss"
                                 if key not in states["anchor_rank"]["failed"]:
@@ -1136,30 +1346,39 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             # (LLM stages use _batch_progress for live per-batch feedback).
         anchor_dropped = {k for k, v in states["anchor_rank"]["done"].items()
                       if isinstance(v, dict) and v.get("dropped")}
-        run_logger.stage_end("anchor_rank", ok=len(states["anchor_rank"]["done"]) - len(
-            anchor_dropped), fail=len(anchor_dropped))
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("anchor_rank", states, args.out)
+        _s1_ok = len(states["anchor_rank"]["done"]) - len(anchor_dropped)
+        _s1_fail = len(anchor_dropped)
+        run_logger.stage_end("anchor_rank", ok=_s1_ok, fail=_s1_fail)
+        jlog.event("stage_end", stage="anchor_rank",
+                   ok=_s1_ok, fail=_s1_fail)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("anchor_rank", states, args.out, quiet=quiet)
         if anchor_dropped:
             # Details live in dropped.log; console stays one short line.
-            print(_color("%s: kept=%d dropped=%d "
-                         "(see dropped.log)" % (progress.display("anchor_rank"),
-                             len(items) - len(anchor_dropped & {item_key(i)
-                                                            for i in items}),
-                             len(anchor_dropped & {item_key(i)
-                                               for i in items})),
-                         "cyan"))
+            _say(_color("%s: kept=%d dropped=%d "
+                        "(see dropped.log)" % (progress.display("anchor_rank"),
+                            len(items) - len(anchor_dropped & {item_key(i)
+                                                           for i in items}),
+                            len(anchor_dropped & {item_key(i)
+                                              for i in items})),
+                        "cyan"))
         items = [i for i in items if item_key(i) not in anchor_dropped]
         # judge (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
         run_logger.stage_start("sense_judge")
+        jlog.event("stage_start", stage="sense_judge")
         n_judge_batches = (len(items) + JUDGE_BATCH - 1) // JUDGE_BATCH or 1
+        s2_bar = {"durs": [], "hits": 0, "misses": 0}
         for batch_no, base in enumerate(
                 _stage_range(selected, "sense_judge", items, JUDGE_BATCH), start=1):
+            _t0 = time.perf_counter()
             batch = items[base:base + JUDGE_BATCH]
             todo = [i for i in batch
                     if item_key(i) not in states["sense_judge"]["done"]]
+            s2_bar["hits"] += len(batch) - len(todo)
             if todo:
+                s2_bar["misses"] += len(todo)
                 # Selective-stage resume (--only/--stages without s1)
                 # skips the anchor guard: attach missing tags in memory so
                 # the judge prompt is identical to a full run. Persists via
@@ -1177,21 +1396,32 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         key_var=_provider_key_var(
                             providers["sense_judge"]),
                         file_label=_leg_file_label(
-                            providers["sense_judge"]))
-                except AuthError:
+                            providers["sense_judge"]),
+                        tele_run_id=run_id,
+                        tele_model_actual=_leg_actual("sense_judge"),
+                        tele_attempts=args.tele_attempts)
+                except AuthError as exc:
+                    _abort("sense_judge", exc)
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
-                                                    tele_flushed)
+                                                    tele_flushed,
+                                                    run_id=run_id)
+                    jlog.event("abort", stage="sense_judge",
+                               batch=batch_no, error=str(exc))
+                    # The SystemExit below skips the post-try summary and
+                    # run_done: end the json-log stream here, closed.
+                    jlog.close()
                     hint = ("wait for quota reset then re-run"
                             if (full_avalai or judge_avalai
                                 or providers["sense_judge"] == "google"
                                 or judge_google)
                             else "switch VPN server then re-run")
-                    raise SystemExit(
+                    raise SystemExit(_color(
                         "STOP s2 at batch %d: %s — progress flushed, "
-                        "%s" % (batch_no, exc, hint))
+                        "%s" % (batch_no, exc, hint),
+                        "red", stream=sys.stderr))
                 for item in todo:
                     key = item_key(item)
                     verdict = verdicts.get(key)
@@ -1208,16 +1438,29 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if ((states["sense_judge"]["done"].get(item_key(i)) or {}).get(
                     "model", "") or "").startswith("s1-"))
+            s2_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("sense_judge", batch_no, n_judge_batches,
-                              len(batch) - fail, fail)
-        run_logger.stage_end(
-            "sense_judge",
-            ok=sum(1 for v in states["sense_judge"]["done"].values()
-                   if not (v.get("model", "") or "").startswith("s1-")),
-            fail=sum(1 for v in states["sense_judge"]["done"].values()
-                     if (v.get("model", "") or "").startswith("s1-")))
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("sense_judge", states, args.out)
+                              len(batch) - fail, fail,
+                              eta=_bar_eta(s2_bar["durs"],
+                                           n_judge_batches - batch_no),
+                              hits=s2_bar["hits"],
+                              misses=s2_bar["misses"], quiet=quiet)
+            jlog.event("batch", stage="sense_judge", batch=batch_no,
+                       batches=n_judge_batches,
+                       ok=len(batch) - fail, fail=fail,
+                       hits=s2_bar["hits"], misses=s2_bar["misses"])
+        _s2_ok = sum(1 for v in states["sense_judge"]["done"].values()
+                     if not (v.get("model", "") or "").startswith("s1-"))
+        _s2_fail = sum(1 for v in states["sense_judge"]["done"].values()
+                       if (v.get("model", "") or "").startswith("s1-"))
+        run_logger.stage_end("sense_judge", ok=_s2_ok, fail=_s2_fail)
+        jlog.event("stage_end", stage="sense_judge",
+                   ok=_s2_ok, fail=_s2_fail)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("sense_judge", states, args.out, quiet=quiet,
+                       counts={"hits": s2_bar["hits"],
+                               "misses": s2_bar["misses"]})
         # Post-judge proper-noun routing (idempotent pass over the s2 done
         # state — evaluated here, right after judge, so vectors+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
@@ -1245,7 +1488,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if isinstance(v, dict) and v.get("proper_drop")}
         judge_proper_here = judge_proper_dropped & {item_key(i) for i in items}
         if evaluated or judge_proper_here:
-            print("%s proper-route: routed=%d dropped=%d%s" % (
+            _say("%s proper-route: routed=%d dropped=%d%s" % (
                 progress.display("sense_judge"),
                 sum(1 for i in items
                     if (states["sense_judge"]["done"].get(item_key(i)) or {}).get(
@@ -1258,13 +1501,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # vectors (vector batches). ok = model vectors, fail = deterministic
         # (fail-closed) fallbacks.
         run_logger.stage_start("topic_vectors")
+        jlog.event("stage_start", stage="topic_vectors")
         n_vectors_batches = (len(items) + BATCH - 1) // BATCH or 1
+        s3_bar = {"durs": [], "hits": 0, "misses": 0}
         for batch_no, base in enumerate(
                 _stage_range(selected, "topic_vectors", items), start=1):
+            _t0 = time.perf_counter()
             batch = items[base:base + BATCH]
             todo = [i for i in batch
                     if item_key(i) not in states["topic_vectors"]["done"]]
+            s3_bar["hits"] += len(batch) - len(todo)
             if todo:
+                s3_bar["misses"] += len(todo)
                 try:
                     vecs = vectors_batch(
                         todo, states["sense_judge"]["done"],
@@ -1278,19 +1526,28 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         key_var=_provider_key_var(
                             providers["topic_vectors"]),
                         file_label=_leg_file_label(
-                            providers["topic_vectors"]))
-                except AuthError:
+                            providers["topic_vectors"]),
+                        tele_run_id=run_id,
+                        tele_model_actual=_leg_actual("topic_vectors"),
+                        tele_attempts=args.tele_attempts)
+                except AuthError as exc:
+                    _abort("topic_vectors", exc)
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
-                                                    tele_flushed)
-                    raise SystemExit(
+                                                    tele_flushed,
+                                                    run_id=run_id)
+                    jlog.event("abort", stage="topic_vectors",
+                               batch=batch_no, error=str(exc))
+                    jlog.close()
+                    raise SystemExit(_color(
                         "STOP s3 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc,
                                 "wait for quota reset then re-run"
                                 if (full_avalai or _leg_google("topic_vectors")) else
-                                "switch VPN server then re-run"))
+                                "switch VPN server then re-run"),
+                        "red", stream=sys.stderr))
                 for item in todo:
                     key = item_key(item)
                     picks = fanout_picks(
@@ -1322,22 +1579,37 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if (states["topic_vectors"]["done"].get(item_key(i)) or {}).get(
                     "model") == "deterministic")
+            s3_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("topic_vectors", batch_no, n_vectors_batches,
-                              len(batch) - fail, fail)
-        run_logger.stage_end(
-            "topic_vectors",
-            ok=sum(1 for v in states["topic_vectors"]["done"].values()
-                   if v.get("model") != "deterministic"),
-            fail=sum(1 for v in states["topic_vectors"]["done"].values()
-                     if v.get("model") == "deterministic"))
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("topic_vectors", states, args.out)
+                              len(batch) - fail, fail,
+                              eta=_bar_eta(s3_bar["durs"],
+                                           n_vectors_batches - batch_no),
+                              hits=s3_bar["hits"],
+                              misses=s3_bar["misses"], quiet=quiet)
+            jlog.event("batch", stage="topic_vectors", batch=batch_no,
+                       batches=n_vectors_batches,
+                       ok=len(batch) - fail, fail=fail,
+                       hits=s3_bar["hits"], misses=s3_bar["misses"])
+        _s3_ok = sum(1 for v in states["topic_vectors"]["done"].values()
+                     if v.get("model") != "deterministic")
+        _s3_fail = sum(1 for v in states["topic_vectors"]["done"].values()
+                       if v.get("model") == "deterministic")
+        run_logger.stage_end("topic_vectors", ok=_s3_ok, fail=_s3_fail)
+        jlog.event("stage_end", stage="topic_vectors",
+                   ok=_s3_ok, fail=_s3_fail)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("topic_vectors", states, args.out, quiet=quiet,
+                       counts={"hits": s3_bar["hits"],
+                               "misses": s3_bar["misses"]})
         # label (label batched, B1: up to LABEL_BATCH items share one LLM
         # call). No fail-closed signal on this stage (exceptions
         # propagate, except auth which aborts), so fail is always 0.
         # Stride is LABEL_BATCH (pacing sleep per worked chunk, same
         # SLEEP as before — pacing, not backoff).
         run_logger.stage_start("topic_label")
+        jlog.event("stage_start", stage="topic_label")
+        s4_bar = {"durs": [], "hits": 0, "misses": 0, "cache": 0}
         vec_lookup = {}
         for key, hit in states["topic_vectors"]["done"].items():
             for entry in (hit.get("vector") or []):
@@ -1357,12 +1629,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _s4_offsets = (list(range(0, len(items), LABEL_BATCH))
                        if "topic_label" in selected else [])
         for batch_no, base in enumerate(_s4_offsets, start=1):
+            _t0 = time.perf_counter()
             batch = items[base:base + LABEL_BATCH]
             todo = [i for i in batch
                     if item_key(i) not in states["topic_label"]["done"]
                     or _needs_fanout_relabel(
                         states["topic_label"]["done"].get(item_key(i)),
                         states["sense_judge"]["done"].get(item_key(i)))]
+            s4_bar["hits"] += len(batch) - len(todo)
             if todo:
                 picks = {}
                 for i in todo:
@@ -1384,6 +1658,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if per_sid:
                         lookups[key] = per_sid
                 try:
+                    s4_counts = {"hit": 0, "miss": 0, "cache": 0}
                     assigned_map = label_batch(
                         todo, picks, lookups or None,
                         leg_api_key.get("topic_label", api_key),
@@ -1395,33 +1670,60 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         key_var=_provider_key_var(
                             providers["topic_label"]),
                         file_label=_leg_file_label(
-                            providers["topic_label"]))
-                except AuthError:
+                            providers["topic_label"]),
+                        tele_run_id=run_id,
+                        tele_model_actual=_leg_actual("topic_label"),
+                        tele_attempts=args.tele_attempts,
+                        counters=s4_counts)
+                    s4_bar["hits"] += s4_counts.get("hit", 0)
+                    s4_bar["misses"] += s4_counts.get("miss", 0)
+                    s4_bar["cache"] += s4_counts.get("cache", 0)
+                except AuthError as exc:
+                    _abort("topic_label", exc)
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(
-                        tele_dir, tele_store, tele_flushed)
-                    raise SystemExit(
+                        tele_dir, tele_store, tele_flushed, run_id=run_id)
+                    jlog.event("abort", stage="topic_label",
+                               batch=batch_no, error=str(exc))
+                    jlog.close()
+                    raise SystemExit(_color(
                         "STOP s4 at batch %d: %s — progress flushed, "
                         "%s"
                         % (batch_no, exc,
                            "wait for quota reset then re-run"
                             if (full_avalai or _leg_google("topic_label")) else
-                            "switch VPN server then re-run"))
+                            "switch VPN server then re-run"),
+                        "red", stream=sys.stderr))
                 for item in todo:
                     states["topic_label"]["done"][item_key(item)] = assigned_map[
                         item_key(item)]
                 pace_fn(SLEEP)
             _flush(progress_dir, states)
+            s4_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("topic_label", batch_no, n_label_batches,
-                              len(batch), 0)
-        run_logger.stage_end("topic_label", ok=len(states["topic_label"]["done"]), fail=0)
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("topic_label", states, args.out)
+                              len(batch), 0,
+                              eta=_bar_eta(s4_bar["durs"],
+                                           n_label_batches - batch_no),
+                              hits=s4_bar["hits"],
+                              misses=s4_bar["misses"], quiet=quiet)
+            jlog.event("batch", stage="topic_label", batch=batch_no,
+                       batches=n_label_batches, ok=len(batch), fail=0,
+                       hits=s4_bar["hits"], misses=s4_bar["misses"])
+        _s4_ok = len(states["topic_label"]["done"])
+        run_logger.stage_end("topic_label", ok=_s4_ok, fail=0)
+        jlog.event("stage_end", stage="topic_label", ok=_s4_ok, fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("topic_label", states, args.out, quiet=quiet,
+                       counts={"hits": s4_bar["hits"],
+                               "misses": s4_bar["misses"],
+                               "cache": s4_bar["cache"]})
         # enrich (deterministic enrichment, batch-flushed). Same as label: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("enrich")
+        jlog.event("stage_start", stage="enrich")
         for batch_no, base in enumerate(
                 _stage_range(selected, "enrich", items), start=1):
             batch = items[base:base + BATCH]
@@ -1463,9 +1765,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _flush(progress_dir, states)
             # Deterministic stage: <1s per batch, no progress bar by design
             # (LLM stages use _batch_progress for live per-batch feedback).
-        run_logger.stage_end("enrich", ok=len(states["enrich"]["done"]), fail=0)
-        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
-        _stage_summary("enrich", states, args.out)
+        _s5_ok = len(states["enrich"]["done"])
+        run_logger.stage_end("enrich", ok=_s5_ok, fail=0)
+        jlog.event("stage_end", stage="enrich", ok=_s5_ok, fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                                     run_id=run_id)
+        _stage_summary("enrich", states, args.out, quiet=quiet)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         # v14.1 (R1): one row per judged pick — the lemma fans out into
         # N independent precard records (own pre_card_id, topic vector,
@@ -1517,7 +1822,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             # loser is recorded as a duplicate-redirect drop at
             # emission (seen_keys below), never overwriting.
     except KeyboardInterrupt:
-        print("interrupted — flushing stage progress")
+        # R11: aborts go to stderr (stdout is human progress).
+        print("interrupted — flushing stage progress", file=sys.stderr)
+        _flush_telemetry(tele_dir, tele_store, tele_flushed,
+                         run_id=run_id)
+        jlog.event("abort", stage="run", error="KeyboardInterrupt")
+        jlog.close()
         raise SystemExit(130)
     finally:
         if not args.dry_run:
@@ -1526,6 +1836,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             run_logger.close()
         except Exception:
             pass
+        if sys.exc_info()[0] is not None:
+            # Safety net for exception paths with no explicit close
+            # (e.g. OSError from _flush above or a stage-teardown bug):
+            # never leak the handle. Guarded, NOT unconditional — this
+            # finally also runs before the post-try summary on the
+            # success path, where jlog must stay open for run_done
+            # (test_json_log_events_run_id_joined pins this: an
+            # unconditional close here drops run_done).
+            try:
+                jlog.close()
+            except Exception:
+                pass
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Redirect merges can map two lemmas onto one base key (best+better
@@ -1540,10 +1862,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # keys are logged loudly (console + dropped.log), never silent.
     unaccounted = audit_sample_accounting(items, precards, states)
     if unaccounted:
+        # Fail-closed accounting is an error: red on stderr, always
+        # shown (even under --quiet), details in dropped.log.
         print(_color("accounting-no-verdict: %d key(s) with no precard "
                      "row and no drop verdict: %s (see dropped.log)"
                      % (len(unaccounted), ", ".join(unaccounted)),
-                     "red"))
+                     "red", stream=sys.stderr), file=sys.stderr)
+        jlog.event("accounting-no-verdict", keys=list(unaccounted))
         try:
             drop_log = out_path.parent / "dropped.log"
             with open(drop_log, "a", encoding="utf-8") as handle:
@@ -1551,7 +1876,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 for key in unaccounted:
                     handle.write("%s: accounting-no-verdict\n" % key)
         except OSError as exc:
-            print("warning: dropped.log append failed (%s)" % exc)
+            print("warning: dropped.log append failed (%s)" % exc,
+                  file=sys.stderr)
     _tmp = str(out_path) + ".tmp"
     with open(_tmp, "w", encoding="utf-8") as handle:
         for item in items:
@@ -1566,30 +1892,34 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     rec, ensure_ascii=False) + "\n")
     os.replace(_tmp, out_path)
     if dup_redirect:
-        print("duplicate-redirect drops (merged into base, FSRS-safe): %s"
-              % ", ".join(sorted(set(dup_redirect))))
+        _say("duplicate-redirect drops (merged into base, FSRS-safe): %s"
+             % ", ".join(sorted(set(dup_redirect))))
     # F7 telemetry history: same cumulative seam as card_pilot (imported,
     # never a second copy) so resume runs never erase history — the
     # summary covers ALL runs, not just this one.
     _all_tele, _tele_corrupt = append_telemetry_history(
         out_path.parent, tele_store[tele_flushed:])
     _tele_summary = _tele_write(
-        str(out_path.parent / "telemetry_summary.json"), _all_tele)
+        str(out_path.parent / "telemetry_summary.json"), _all_tele,
+        run_id=run_id)
     if _tele_corrupt:
         _tele_summary["history_corrupt_lines"] = _tele_corrupt
     n_failed = sum(len(states[s].get("failed", [])) for s in progress.STAGES)
-    print("precard done: %d items -> %s (%s dropped=%d, %s dropped=%d, "
-          "%s dropped=%d, failed flags=%d)"
-          % (len(items), out_path, progress.display("preprocess"),
-             len(states["preprocess"].get("failed", [])), progress.display("inflection_review"),
-             len(inflection_dropped), progress.display("anchor_rank"),
-             len(anchor_dropped), n_failed))
+    _say("precard done: %d items -> %s (%s dropped=%d, %s dropped=%d, "
+         "%s dropped=%d, failed flags=%d)"
+         % (len(items), out_path, progress.display("preprocess"),
+            len(states["preprocess"].get("failed", [])), progress.display("inflection_review"),
+            len(inflection_dropped), progress.display("anchor_rank"),
+            len(anchor_dropped), n_failed))
     run_logger.log("precard done: %d items %s_dropped=%d %s_dropped=%d "
                    "%s_dropped=%d failed=%d" % (
                        len(items), progress.display("preprocess"),
                        len(states["preprocess"].get("failed", [])), progress.display("inflection_review"),
                        len(inflection_dropped), progress.display("anchor_rank"),
                        len(anchor_dropped), n_failed))
+    jlog.event("run_done", items=len(items), failed=n_failed,
+               records=len(tele_store))
+    jlog.close()
     run_logger.close()
     return 0
 
@@ -1663,6 +1993,18 @@ def parse_args(argv=None):
                     help="pause between LLM batches (default %.1f; 0 = no "
                     "pacing sleep — faster but easier to hit 429s; the "
                     "429-rotation backoff always stays on)" % SLEEP)
+    ap.add_argument("--quiet", action="store_true",
+                    help="suppress human stdout progress (bars/boxes); "
+                    "warnings/errors still go to stderr, files still "
+                    "written")
+    ap.add_argument("--json-log", action="store_true",
+                    help="write machine-readable run_events.jsonl beside "
+                    "--out (run/stage/batch/warning events, every event "
+                    "run_id-joined)")
+    ap.add_argument("--tele-attempts", action="store_true",
+                    help="emit per-try telemetry attempt rows (default off: "
+                    "one terminal record per batch, attempt volume "
+                    "unchanged)")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
@@ -1691,7 +2033,8 @@ def _resolve_label_topup_cache(progress_dir):
             tmp_path.write_text(blob, encoding="utf-8")
             os.replace(tmp_path, new_path)
         except (OSError, ValueError) as exc:
-            print("warning: topup cache seed skipped (%s)" % exc)
+            print("warning: topup cache seed skipped (%s)" % exc,
+                  file=sys.stderr)
     return new_path
 
 

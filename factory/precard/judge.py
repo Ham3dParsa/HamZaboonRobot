@@ -305,9 +305,11 @@ def apply_inflection_veto(out, batch, anchor_map):
 
 import urllib.error
 
+from factory.core.telemetry import (
+    emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
+    resolve_cost)
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
-    record_call, extract_usage,
     _call_with_rotation, _tele_tokens, _unwrap_transport_result,
     MAX_ATTEMPTS, RETRY_PREFIX)
 
@@ -336,19 +338,29 @@ def _inflection_review_prompt(batch):
 
 
 def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
-                      http_status=401):
+                      http_status=401, run_id="", provider="",
+                      model_actual=None, latency_s=0.0):
     """Auth record before a loud 401/403 abort (never silent)."""
     if telemetry is None:
         return
     record_call(
         telemetry, stage=tele_stage, batch_id=batch_id,
         key_idx=tele_key_idx, model=model,
-        latency_s=0.0, outcome="auth", http_status=http_status)
+        latency_s=latency_s, outcome="auth", http_status=http_status,
+        run_id=run_id, provider=provider,
+        model_actual=model_actual or model,
+        cost=resolve_cost(made_call=True))
 
 
 def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
-                 usage, outcome):
-    """One terminal review-batch record (tokens None-tolerated)."""
+                 usage, outcome, latency_s=0.0, run_id="", provider="",
+                 model_actual=None, made_call=True):
+    """One terminal review-batch record (tokens None-tolerated).
+
+    ``latency_s`` is the winning attempt's measured perf_counter span;
+    Google direct (usage always None) lands ``cost="unknown"``, never
+    a silent zero.
+    """
     if telemetry is None:
         return
     prompt_tokens, completion_tokens = _tele_tokens(usage)
@@ -357,7 +369,12 @@ def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
         key_idx=tele_key_idx, model=model,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
-        latency_s=0.0, outcome=outcome)
+        latency_s=latency_s, outcome=outcome,
+        run_id=run_id, provider=provider,
+        model_actual=model_actual or model,
+        cost=resolve_cost(prompt_tokens=prompt_tokens,
+                          completion_tokens=completion_tokens,
+                          made_call=made_call))
 
 
 def _validate_review_results(data, want_keys, key_field="key"):
@@ -379,8 +396,9 @@ def _validate_review_results(data, want_keys, key_field="key"):
 
 
 def inflection_review(items, transport, api_key="", model_calls=None,
-                      telemetry=None, tele_stage="s0b",
-                      tele_key_idx=0):
+                       telemetry=None, tele_stage="s0b",
+                       tele_key_idx=0, tele_run_id="", tele_provider="",
+                       tele_model_actual=None, tele_attempts=False):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
@@ -390,8 +408,11 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     review-uncertain (never drop on uncertainty). Auth aborts loudly.
     Hermetic with an injected transport. Tuple (text, usage) transports
     surface token counts into one terminal telemetry record per batch
-    (None-tolerated).
+    (None-tolerated, cost-unknown flagged, real perf_counter latency,
+    real key idx, run_id-joined; per-try attempt rows only when
+    ``tele_attempts`` is on).
     """
+    import time as _time
     if model_calls is None:
         model_calls = {}
     out = {}
@@ -402,9 +423,11 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         prompt = _inflection_review_prompt(batch)
         settled = False
         win_model, win_usage = "review-fallback", None
+        attempt_log = []
         for model in INFLECTION_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                start = _time.perf_counter()
                 try:
                     model_calls[model] = model_calls.get(model, 0) + 1
                     res = transport(api_key, model,
@@ -412,22 +435,49 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                     raw, usage = _unwrap_transport_result(res)
                     data = extract_json(raw)
                 except AuthError:
+                    attempt_log.append(
+                        {"model": model, "attempt": attempt,
+                         "latency_s": _time.perf_counter() - start,
+                         "key_idx": tele_key_idx, "outcome": "auth"})
                     _review_auth_tele(telemetry, tele_stage, batch_no,
-                                      tele_key_idx, model)
+                                      tele_key_idx, model,
+                                      run_id=tele_run_id,
+                                      provider=tele_provider,
+                                      model_actual=tele_model_actual,
+                                      latency_s=last_attempt_latency(
+                                          attempt_log))
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": tele_key_idx, "outcome": "auth",
+                             "http_status": exc.code})
                         _review_auth_tele(telemetry, tele_stage, batch_no,
                                           tele_key_idx, model,
-                                          http_status=exc.code)
+                                          http_status=exc.code,
+                                          run_id=tele_run_id,
+                                          provider=tele_provider,
+                                          model_actual=tele_model_actual,
+                                          latency_s=last_attempt_latency(
+                                              attempt_log))
                         raise_for_auth(exc)
                     data = None
                 except Exception:
                     data = None
                 if data is None:
+                    attempt_log.append(
+                        {"model": model, "attempt": attempt,
+                         "latency_s": _time.perf_counter() - start,
+                         "key_idx": tele_key_idx, "outcome": "retry"})
                     continue
                 by_key = _validate_review_results(data, want)
                 if by_key is None:
+                    attempt_log.append(
+                        {"model": model, "attempt": attempt,
+                         "latency_s": _time.perf_counter() - start,
+                         "key_idx": tele_key_idx, "outcome": "retry"})
                     continue
                 rows_ok = True
                 for key in want:
@@ -444,8 +494,17 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                         "model": model, "uncertain": False}
                 if not rows_ok:
                     out = {k: v for k, v in out.items() if k not in want}
+                    attempt_log.append(
+                        {"model": model, "attempt": attempt,
+                         "latency_s": _time.perf_counter() - start,
+                         "key_idx": tele_key_idx, "outcome": "retry"})
                     continue
                 settled = True
+                win_latency = _time.perf_counter() - start
+                attempt_log.append(
+                    {"model": model, "attempt": attempt,
+                     "latency_s": win_latency,
+                     "key_idx": tele_key_idx, "outcome": "settled"})
                 win_model, win_usage = model, usage
                 break
             if settled:
@@ -456,16 +515,28 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                     out[key] = {"keep": True, "reason": "review-error",
                                 "model": "review-fallback",
                                 "uncertain": True}
+        # Terminal record: the transport was attempted either way, so
+        # a fallback still flags cost-unknown (calls burned, usage
+        # unseen) — never cost-none (that means no call happened).
         _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
                      win_model, win_usage,
-                     "ok" if settled else "fallback")
+                     "ok" if settled else "fallback",
+                     latency_s=last_attempt_latency(attempt_log),
+                     run_id=tele_run_id, provider=tele_provider,
+                     model_actual=tele_model_actual)
+        if tele_attempts:
+            emit_attempt_rows(telemetry, attempt_log, stage=tele_stage,
+                              batch_id=batch_no, run_id=tele_run_id,
+                              provider=tele_provider,
+                              model_actual=tele_model_actual)
     return out
 
 
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None, provider="zen", key_var="",
-                   file_label="factory/.env"):
+                   file_label="factory/.env", tele_run_id="",
+                   tele_model_actual=None, tele_attempts=False):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
     Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
@@ -483,13 +554,27 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     R27: one
     telemetry record per batch (ok on a judge-model pick, fallback on
     s1-fallback, error on all-keys-429); tuple (text, usage) transports
-    surface token counts (None-tolerated).
+    surface token counts (None-tolerated, cost-unknown flagged).
+    Terminal records carry the REAL perf_counter latency and REAL
+    ring.idx of the settling call, ``model`` (requested) vs
+    ``model_actual`` (really hit), provider, and run_id; per-try
+    attempt rows only when ``tele_attempts`` is on (default off, so
+    attempt-row volume is unchanged by default).
     """
     models = list(models) if models else list(JUDGE_MODELS[:2])
     prompt = judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
+    attempt_rows = []
+
+    def _attempts():
+        if tele_attempts and telemetry is not None:
+            emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
+                              batch_id=tele_batch, run_id=tele_run_id,
+                              provider=provider,
+                              model_actual=tele_model_actual)
+
     for model in models:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
@@ -504,11 +589,19 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
             except AuthError:
                 raise
             except RateLimited:
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
                 if telemetry is not None:
                     _tele_record(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0,
-                                 outcome="error", http_status=429)
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
@@ -516,6 +609,8 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 raw, usage = None, None
             except Exception:
                 raw, usage = None, None
+            attempt_rows.extend(list(
+                getattr(ring, "attempt_log", []) or []))
             if raw is None:
                 continue
             try:
@@ -533,11 +628,21 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 apply_inflection_veto(out, batch, anchor_map)  # F4
                 if telemetry is not None:
                     prompt_tokens, completion_tokens = _tele_tokens(usage)
+                    last = getattr(ring, "last_call", None) or {}
                     _tele_record(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0, outcome="ok",
+                                 batch_id=tele_batch,
+                                 key_idx=last.get("key_idx", ring.idx),
+                                 model=model,
+                                 latency_s=last.get("latency_s", 0.0),
+                                 outcome="ok",
                                  prompt_tokens=prompt_tokens,
-                                 completion_tokens=completion_tokens)
+                                 completion_tokens=completion_tokens,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(
+                                     prompt_tokens=prompt_tokens,
+                                     completion_tokens=completion_tokens))
+                _attempts()
                 return out
     out = {item_key(i): {**judge_fallback(i, anchor_map.get(item_key(i))),
                          } for i in batch}
@@ -545,8 +650,13 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     # the anchor top itself can be a stub when inflection kept it)
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=0, model="s1-fallback", latency_s=0.0,
-                     outcome="fallback")
+                     key_idx=ring.idx, model="s1-fallback",
+                     latency_s=last_attempt_latency(attempt_rows),
+                     outcome="fallback", run_id=tele_run_id,
+                     provider=provider,
+                     model_actual=tele_model_actual or "s1-fallback",
+                     cost=resolve_cost(made_call=True))
+    _attempts()
     return out
 
 

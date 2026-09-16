@@ -171,11 +171,13 @@ import os
 import pathlib
 import urllib.error
 
+from factory.core.telemetry import (
+    emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
+    resolve_cost)
 from factory.precard.accounting import item_key
 from factory.precard.prompts import TOPIC_TIEBREAK
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
-    record_call, extract_usage,
     _call_with_rotation, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
 _tele_record = record_call
@@ -462,9 +464,10 @@ def _label_prompt(entries):
 
 
 def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
-                          model_calls, telemetry, tele_stage, tele_batch,
-                          ring, models, provider="zen", key_var="",
-                          file_label="factory/.env"):
+                           model_calls, telemetry, tele_stage, tele_batch,
+                           ring, models, provider="zen", key_var="",
+                           file_label="factory/.env", tele_run_id="",
+                           tele_model_actual=None, tele_attempts=False):
     """One batched LLM top-up call for up to LABEL_BATCH entries.
 
     Returns {item-key: {"label", "vector", "model"}}. Validated items
@@ -482,13 +485,24 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
         if telemetry is not None:
             record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
                          key_idx=0, model="deterministic", latency_s=0.0,
-                         outcome="fallback")
+                         outcome="fallback", run_id=tele_run_id,
+                         provider="", model_actual="deterministic",
+                         cost=resolve_cost(made_call=False))
         return None
     topup_models = list(models) if models else list(TOPUP_MODELS)
     if ring is None:
         ring = KeyRing([api_key])
     best = {}
     best_model = "deterministic"
+    attempt_rows = []
+
+    def _attempts():
+        if tele_attempts and telemetry is not None:
+            emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
+                              batch_id=tele_batch, run_id=tele_run_id,
+                              provider=provider,
+                              model_actual=tele_model_actual)
+
     for model in topup_models:
         if model_calls is not None:
             model_calls[model] = model_calls.get(model, 0) + 1
@@ -504,11 +518,19 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
             except AuthError:
                 raise
             except RateLimited:
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
                 if telemetry is not None:
                     record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0,
-                                 outcome="error", http_status=429)
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
@@ -516,6 +538,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 raw, usage = None, None
             except Exception:
                 raw, usage = None, None
+            attempt_rows.extend(list(
+                getattr(ring, "attempt_log", []) or []))
             if raw is None:
                 continue
             try:
@@ -578,12 +602,23 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                     if telemetry is not None:
                         prompt_tokens, completion_tokens = _tele_tokens(
                             usage)
+                        last = getattr(ring, "last_call", None) or {}
                         record_call(telemetry, stage=tele_stage,
-                                     batch_id=tele_batch, key_idx=0,
-                                     model=model, latency_s=0.0,
+                                     batch_id=tele_batch,
+                                     key_idx=last.get("key_idx", ring.idx),
+                                     model=model,
+                                     latency_s=last.get("latency_s", 0.0),
                                      outcome="ok",
                                      prompt_tokens=prompt_tokens,
-                                     completion_tokens=completion_tokens)
+                                     completion_tokens=completion_tokens,
+                                     run_id=tele_run_id,
+                                     provider=provider,
+                                     model_actual=(
+                                         tele_model_actual or model),
+                                     cost=resolve_cost(
+                                         prompt_tokens=prompt_tokens,
+                                         completion_tokens=completion_tokens))
+                    _attempts()
                     return {k: {"label": lab, "vector": vec,
                                 "model": model}
                             for k, (lab, vec) in merged.items()}
@@ -594,14 +629,24 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
     if best:
         if telemetry is not None:
             record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                         key_idx=0, model=best_model, latency_s=0.0,
-                         outcome="ok")
+                         key_idx=ring.idx, model=best_model,
+                         latency_s=last_attempt_latency(attempt_rows),
+                         outcome="ok", run_id=tele_run_id,
+                         provider=provider,
+                         model_actual=tele_model_actual or best_model,
+                         cost=resolve_cost(made_call=True))
+        _attempts()
         return {k: {"label": lab, "vector": vec, "model": best_model}
                 for k, (lab, vec) in best.items()}
     if telemetry is not None:
         record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=0, model="deterministic", latency_s=0.0,
-                     outcome="fallback")
+                     key_idx=ring.idx, model="deterministic",
+                     latency_s=last_attempt_latency(attempt_rows),
+                     outcome="fallback", run_id=tele_run_id,
+                     provider=provider,
+                     model_actual=tele_model_actual or "deterministic",
+                     cost=resolve_cost(made_call=True))
+    _attempts()
     return None
 
 
@@ -610,7 +655,9 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 telemetry=None, tele_stage="s4", tele_batch=0,
                 ring=None, models=None, lookup=None,
                 provider="zen", key_var="",
-                file_label="factory/.env"):
+                file_label="factory/.env", tele_run_id="",
+                tele_model_actual=None, tele_attempts=False,
+                counters=None):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
     batch: sample items; picks: {key: {sense_id, gloss, picks?}};
@@ -624,10 +671,21 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
     topic vector. Returns {key: assign_topic-shaped row}. transport=None
     skips the LLM leg (all remaining fall back, stated). RateLimited/
     AuthError propagate (caller flushes + stops/aborts); anything else
-    fails closed per item to Other / Abstract.
+    fails closed per item to Other / Abstract. Deterministic/cache
+    resolutions record cost="none" (no call happened); ``counters``
+    (optional {"hit","miss"} dict) is bumped hit = no-LLM resolution,
+    miss = LLM consulted, feeding the bar v2 HIT/MISS counters.
     """
     if ring is None:
         ring = KeyRing([api_key])
+
+    def _bump(hit):
+        try:
+            if isinstance(counters, dict):
+                counters["hit" if hit else "miss"] = \
+                    counters.get("hit" if hit else "miss", 0) + 1
+        except Exception:
+            pass
     if lookup is None:
         lookup = _label_leg1_lookup()
     cache = _label_read_cache(progress_path)
@@ -675,7 +733,10 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 record_call(telemetry, stage=tele_stage,
                              batch_id=tele_batch, key_idx=0,
                              model="deterministic", latency_s=0.0,
-                             outcome="ok")
+                             outcome="ok", run_id=tele_run_id,
+                             provider="", model_actual="deterministic",
+                             cost=resolve_cost(made_call=False))
+            _bump(True)
             entry["resolved"] = apply_topic_guard(
                 {"label": label,
                  "method": TOPIC_METHOD,
@@ -690,7 +751,15 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 record_call(telemetry, stage=tele_stage,
                              batch_id=tele_batch, key_idx=0,
                              model="deterministic", latency_s=0.0,
-                             outcome="ok")
+                             outcome="ok", run_id=tele_run_id,
+                             provider="", model_actual="deterministic",
+                             cost=resolve_cost(made_call=False))
+            _bump(True)
+            try:
+                if isinstance(counters, dict):
+                    counters["cache"] = counters.get("cache", 0) + 1
+            except Exception:
+                pass
             entry["resolved"] = apply_topic_guard(
                 hit, text, gloss)
             continue
@@ -703,8 +772,13 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 chunk, api_key, transport, sleep_fn, state, model_calls,
                 telemetry, tele_stage, tele_batch, ring, models,
                 provider=provider, key_var=key_var,
-                file_label=file_label)
+                file_label=file_label, tele_run_id=tele_run_id,
+                tele_model_actual=tele_model_actual,
+                tele_attempts=tele_attempts)
         for entry in chunk:
+            # The chunk consulted the LLM (or fell back after trying):
+            # a miss per entry; transport=None resolves with no call.
+            _bump(transport is None)
             ekey, sense_id = entry["key"], entry["sense_id"]
             if resolved is not None and ekey in resolved:
                 got = resolved[ekey]
@@ -804,7 +878,9 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                    sleep_fn, state, progress_path, model_calls,
                    telemetry=None, tele_stage="s4", tele_batch=0,
                    ring=None, provider="zen", key_var="",
-                   file_label="factory/.env"):
+                   file_label="factory/.env", tele_run_id="",
+                   tele_model_actual=None, tele_attempts=False,
+                   counters=None):
     """Label topic (s4) for one item via the batched path (B1).
 
     Thin single-item wrapper over label_batch (no second code path):
@@ -823,7 +899,9 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
             model_calls, telemetry=telemetry, tele_stage=tele_stage,
             tele_batch=tele_batch, ring=ring,
             provider=provider, key_var=key_var,
-            file_label=file_label)
+            file_label=file_label, tele_run_id=tele_run_id,
+            tele_model_actual=tele_model_actual,
+            tele_attempts=tele_attempts, counters=counters)
     except AuthError:
         raise
     except RateLimited:
@@ -866,7 +944,8 @@ def _needs_fanout_relabel(s4_entry, s2_entry):
 def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
                     ring=None, models=None, provider="zen", key_var="",
-                    file_label="factory/.env"):
+                    file_label="factory/.env", tele_run_id="",
+                    tele_model_actual=None, tele_attempts=False):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
@@ -875,7 +954,10 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     429 rotates the KeyRing (brief pause, same-call retry; all-keys-429
     raises RateLimited so the runner flushes and STOPS).
     R27: one telemetry record per batch (ok / fallback / error); tuple
-    (text, usage) transports surface token counts (None-tolerated).
+    (text, usage) transports surface token counts (None-tolerated,
+    cost-unknown flagged). Terminal records carry the REAL perf_counter
+    latency and REAL ring.idx, model vs model_actual, provider, run_id;
+    per-try attempt rows only when ``tele_attempts`` is on.
     """
     v15_models = list(models) if models else list(V15_MODELS)
     pseudos = vectors_pseudo_records(batch, judge_map, anchor_map)
@@ -885,6 +967,15 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     prompt = V15_USER_TMPL + "\n\n".join(v15_lemma_block(r) for r in pseudos)
     if ring is None:
         ring = KeyRing([api_key])
+    attempt_rows = []
+
+    def _attempts():
+        if tele_attempts and telemetry is not None:
+            emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
+                              batch_id=tele_batch, run_id=tele_run_id,
+                              provider=provider,
+                              model_actual=tele_model_actual)
+
     for model in v15_models:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
@@ -898,11 +989,19 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
             except AuthError:
                 raise
             except RateLimited:
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
                 if telemetry is not None:
                     record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0,
-                                 outcome="error", http_status=429)
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
@@ -910,6 +1009,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                 raw, usage = None, None
             except Exception:
                 raw, usage = None, None
+            attempt_rows.extend(list(
+                getattr(ring, "attempt_log", []) or []))
             if raw is None:
                 continue
             try:
@@ -941,11 +1042,21 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
             if ok_all:
                 if telemetry is not None:
                     prompt_tokens, completion_tokens = _tele_tokens(usage)
+                    last = getattr(ring, "last_call", None) or {}
                     record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0, outcome="ok",
+                                 batch_id=tele_batch,
+                                 key_idx=last.get("key_idx", ring.idx),
+                                 model=model,
+                                 latency_s=last.get("latency_s", 0.0),
+                                 outcome="ok",
                                  prompt_tokens=prompt_tokens,
-                                 completion_tokens=completion_tokens)
+                                 completion_tokens=completion_tokens,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(
+                                     prompt_tokens=prompt_tokens,
+                                     completion_tokens=completion_tokens))
+                _attempts()
                 return merged
     for pseudo in pseudos:
         try:
@@ -960,6 +1071,11 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                 "model": "deterministic"}
     if telemetry is not None:
         record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=0, model="deterministic", latency_s=0.0,
-                     outcome="fallback")
+                     key_idx=ring.idx, model="deterministic",
+                     latency_s=last_attempt_latency(attempt_rows),
+                     outcome="fallback", run_id=tele_run_id,
+                     provider=provider,
+                     model_actual=tele_model_actual or "deterministic",
+                     cost=resolve_cost(made_call=True))
+    _attempts()
     return out

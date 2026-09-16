@@ -83,6 +83,71 @@ POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 COOLDOWN_S = 300
 
 
+# Append-only lease audit (R10): every lease/report decision appends one
+# JSON line here (never rewritten, never truncated by this module).
+# Secret-free by construction: lease ids truncate to 8 chars (same as
+# the console line), proxy URLs and keys are never recorded. Probe
+# logic is untouched (parallel PR-0 owns it).
+# Retention (enforced): the file has no reader inside the repo — audit
+# only, every line self-contained with its own ts — so on startup it
+# is trimmed to the newest LEASES_TAIL_LINES lines (atomic tmp+replace,
+# best-effort, never fails startup; per-lease appends stay O(1) and it
+# is still safe to rotate/truncate/delete externally at any time).
+LEASES_PATH = pathlib.Path(__file__).resolve().parent / "leases.jsonl"
+LEASES_TAIL_LINES = 20000
+_LEASES_TRIM_BYTES = 2000000
+
+
+def _append_lease_event(event):
+    """Append one lease/report audit line (best-effort, never raises).
+
+    The supervisor must never fail a lease or report because the audit
+    file is unwritable — IO errors are swallowed silently (the lease /
+    report result itself is the contract, the audit line is not).
+    ``LEASES_PATH`` is module-level so hermetic tests can point it at
+    tmp_path.
+    """
+    try:
+        import datetime as _dt
+        rec = {"ts": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+        rec.update(dict(event or {}))
+        with open(LEASES_PATH, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def _trim_leases_file():
+    """Trim leases.jsonl to the newest LEASES_TAIL_LINES (best-effort).
+
+    Startup-only upkeep so a long-lived supervisor grows disk bounded:
+    files under _LEASES_TRIM_BYTES are untouched (no read cost);
+    larger ones keep their newest lines via atomic tmp+replace. Never
+    raises — audit upkeep must never fail startup or a lease/report.
+    """
+    try:
+        if LEASES_PATH.stat().st_size <= _LEASES_TRIM_BYTES:
+            return
+    except OSError:
+        return
+    try:
+        lines = LEASES_PATH.read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return
+    if len(lines) <= LEASES_TAIL_LINES:
+        return
+    tmp = str(LEASES_PATH) + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines[-LEASES_TAIL_LINES:]) + "\n")
+        os.replace(tmp, LEASES_PATH)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def load_env():
     data = {}
     last_key = None
@@ -313,6 +378,9 @@ class Pool:
             now = time.time()
             spec = target_spec(target)
             if spec is None:
+                _append_lease_event(
+                    {"event": "park", "target": str(target),
+                     "reason": "unknown-target"})
                 return {"error": "park",
                         "message": "unknown target %r (want one of: %s)"
                                    % (target, ", ".join(TARGETS))}
@@ -323,6 +391,10 @@ class Pool:
                                     "since": now,
                                     "provider": spec["provider"],
                                     "target": name}
+                _append_lease_event(
+                    {"event": "lease", "lease": lid[:8], "mode": "direct",
+                     "server": "", "provider": spec["provider"],
+                     "target": name})
                 return {"lease_id": lid, "mode": "direct", "proxy_url": "",
                         "egress_ip": "direct",
                         "provider": spec["provider"], "target": name}
@@ -330,6 +402,9 @@ class Pool:
                      if not self.is_cool(s["id"], spec["provider"], now)
                      and s.get("link")]
             if not avail:
+                _append_lease_event(
+                    {"event": "park", "target": name,
+                     "reason": "no-server"})
                 return {"error": "park",
                         "message": "no link-bearing server available "
                                    "(refresh the subscription)"}
@@ -338,6 +413,10 @@ class Pool:
             self.leases[lid] = {"mode": "tunnel", "server": s["id"],
                                 "since": now, "provider": spec["provider"],
                                 "target": name}
+            _append_lease_event(
+                {"event": "lease", "lease": lid[:8], "mode": "tunnel",
+                 "server": s["id"], "provider": spec["provider"],
+                 "target": name})
             return {"lease_id": lid, "mode": "tunnel",
                     "server_id": s["id"], "provider": spec["provider"],
                     "target": name}
@@ -355,17 +434,37 @@ class Pool:
                 else lease.get("provider")
             if outcome == "http429" and lease.get("server"):
                 self.cool(lease["server"], eff)
+                _append_lease_event(
+                    {"event": "report", "lease": str(lease_id)[:8],
+                     "outcome": outcome, "provider": eff,
+                     "server": lease.get("server") or "",
+                     "action": "switch"})
                 return {"action": "switch"}
             if outcome in ("net_err",):
+                _append_lease_event(
+                    {"event": "report", "lease": str(lease_id)[:8],
+                     "outcome": outcome, "provider": eff,
+                     "server": lease.get("server") or "",
+                     "action": "switch"})
                 return {"action": "switch"}
             if outcome == "auth_err":
                 # Rejected credentials never succeed on retry: retire the
                 # lease so the caller re-authenticates instead of looping.
                 self.leases.pop(lease_id, None)
+                _append_lease_event(
+                    {"event": "report", "lease": str(lease_id)[:8],
+                     "outcome": outcome, "provider": eff,
+                     "server": lease.get("server") or "",
+                     "action": "reauth"})
                 return {"action": "reauth"}
             # "unknown" (e.g. child exit code with no network signal):
             # keep the lease, cool nothing. App failure is not proof of
             # a bad egress.
+            _append_lease_event(
+                {"event": "report", "lease": str(lease_id)[:8],
+                 "outcome": outcome, "provider": eff,
+                 "server": lease.get("server") or "",
+                 "action": "keep"})
             return {"action": "keep"}
 
     def health(self):
@@ -779,6 +878,7 @@ def main(argv=None):
         print(secrets.token_hex(24))
         return 0
     env = load_env()
+    _trim_leases_file()  # startup-only audit cap (best-effort)
     if args.probe:
         refresh_subscription(env)
         rows = probe_pool(top_n=args.top_n)

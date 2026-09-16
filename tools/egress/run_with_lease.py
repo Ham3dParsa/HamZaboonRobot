@@ -41,9 +41,12 @@ def main(argv=None):
     if lease.get("error"):
         print("lease failed: %s" % lease.get("message"))
         return 3
-    print("[egress] mode=%s egress=%s lease=%s" % (
+    # R10: the lease line names server + provider (secret-free: never
+    # the proxy URL, keys, or tokens — only ids and names).
+    print("[egress] mode=%s egress=%s lease=%s server=%s provider=%s" % (
         lease.get("mode"), lease.get("egress_ip"),
-        lease.get("lease_id", "")[:8]))
+        lease.get("lease_id", "")[:8],
+        lease.get("server_id", "") or "", lease.get("provider", "") or ""))
     env = dict(os.environ)
     proxy = lease.get("proxy_url") or ""
     if proxy:

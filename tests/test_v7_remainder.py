@@ -272,9 +272,12 @@ def test_telemetry_math_and_missing_usage():
     summary = telemetry.summarize(store)
     assert summary["records"] == 3
     assert summary["by_stage"]["s2"] == {"calls": 2, "prompt_tokens": 15,
-                                         "completion_tokens": 25}
+                                         "completion_tokens": 25,
+                                         "unknown": 0}
     assert summary["by_stage"]["s3"] == {"calls": 1, "prompt_tokens": 0,
-                                         "completion_tokens": 0}
+                                         "completion_tokens": 0,
+                                         "unknown": 0}
+    assert summary["cost_unknown"] == 0
     assert summary["by_model"]["m1"]["calls"] == 2
     assert summary["by_key_idx"]["0"]["calls"] == 2
     assert summary["by_key_idx"]["1"]["calls"] == 1
