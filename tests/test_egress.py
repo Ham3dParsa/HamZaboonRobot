@@ -1037,3 +1037,81 @@ def test_pool_lease_cache_hit_reuses_hint_and_writes_back(
     entries = json.loads(cache.read_text(encoding="utf-8"))["entries"]
     back = [e for e in entries if e["server_id"] == "s-cached"]
     assert len(back) == 1 and back[0]["latency_ms"] == 4
+
+
+def test_http_lease_tunnel_server_matches_on_cache_hit(
+        monkeypatch, tmp_path):
+    """OC W: end-to-end (HTTP) lease server == tunnel server on a
+    cache hit — the hint is threaded into acquire, so a later
+    http429 report cools the server carrying traffic."""
+    import time as _time
+    import supervisor as sup
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    sup.TOKEN = "test-token"
+    sup.POOL.servers.clear()
+    sup.POOL.leases.clear()
+    sup.POOL.cooldown_until.clear()
+    sup.POOL.load([
+        {"scheme": "vless", "host": "first", "port": 1, "id": "s-first",
+         "link": "vless://u@first:1"},
+        {"scheme": "vless", "host": "cached", "port": 2, "id": "s-cached",
+         "link": "vless://u@cached:2"},
+    ])
+    cache = tmp_path / "clean_cache.json"
+    cache.write_text(json.dumps({"saved_at": "t", "entries": [
+        {"server_id": "s-cached", "provider": "zen",
+         "last_ok_ts": _time.time() - 5, "latency_ms": 9}]}),
+        encoding="utf-8")
+    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH", str(cache))
+    monkeypatch.delenv("EGRESS_CLEAN_TTL", raising=False)
+    monkeypatch.setattr(
+        sup, "tcp_ping",
+        lambda *args, **kwargs: 4
+        if args and args[0] == "cached" else None)
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+
+        def post(path, payload):
+            req = _url.Request(
+                "http://127.0.0.1:%d%s" % (port, path),
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer test-token"})
+            with _url.urlopen(req, timeout=10) as resp:
+                return json.load(resp)
+
+        lease = post("/v1/lease", {"target": "zen"})
+        assert lease["server_id"] == "s-cached"
+        assert _FakeTunnel.started == ["s-cached"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TUNNELS.stop()
+        sup.TOKEN = ""
+
+
+def test_pool_retarget_lease_syncs_record_to_tunnel():
+    """Fallback sync: when acquire serves another server than the
+    hint, the lease record follows it — a later http429 cools the
+    server carrying traffic, not the stale hint."""
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"
+    pool.retarget_lease(lease["lease_id"], "s2")
+    pool.retarget_lease("unknown-lease", "s2")  # no-op, no raise
+    assert pool.report(lease["lease_id"], "http429",
+                       "zen") == {"action": "switch"}
+    assert pool.lease("zen")["server_id"] == "s1"  # s2 cooling

@@ -463,6 +463,15 @@ class Pool:
         with self._lock:
             self.leases.pop(lease_id, None)
 
+    def retarget_lease(self, lease_id, server_id):
+        """Point a minted lease at the actual tunnel server (the hint
+        lost a cooling race between lease and acquire): reports must
+        cool the server carrying traffic. No-op on unknown leases."""
+        with self._lock:
+            lease = self.leases.get(lease_id)
+            if lease is not None and server_id:
+                lease["server"] = server_id
+
     def lease(self, target):
         with self._lock:
             now = time.time()
@@ -635,12 +644,17 @@ class TunnelOwner:
         self._tunnel = None
         self._server_id = None
 
-    def acquire(self, provider=None):
+    def acquire(self, provider=None, prefer=None):
         """Start (or reuse) the tunnel for the best server. Returns
         (proxy_url, egress_ip, server_id) or raises RuntimeError.
 
         Availability skips only servers cooling for ``provider``: a
         zen-429 never blocks a google lease on the same server.
+        ``prefer`` (a leased cache hint) wins while it is still live,
+        link-bearing, and not cooling — the lease and the tunnel must
+        name the same server, or a later http429 report cools the
+        wrong one. Otherwise the classic first-avail pick applies
+        (the caller syncs the lease record to it).
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -653,13 +667,18 @@ class TunnelOwner:
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
-            if self._tunnel is not None and self._server_id == avail[0]["id"] \
+            wanted = avail[0]
+            if prefer is not None:
+                hinted = [s for s in avail if s.get("id") == prefer]
+                if hinted:
+                    wanted = hinted[0]
+            if self._tunnel is not None and self._server_id == wanted["id"] \
                     and self._tunnel.proc is not None \
                     and self._tunnel.proc.poll() is None:
                 return (self._tunnel.proxy_url,
                         self._tunnel.egress_ip(), self._server_id)
             self._drop_locked()
-            server = avail[0]
+            server = wanted
             tun = _tunnel_mod.Tunnel(server, server["link"])
             proxy = tun.start()
             try:
@@ -740,14 +759,21 @@ class Handler(BaseHTTPRequestHandler):
             data = POOL.lease(data.get("target", ""))
             if data.get("mode") == "tunnel":
                 try:
-                    proxy, ip, _sid = TUNNELS.acquire(
-                        provider=data.get("provider"))
+                    proxy, ip, sid = TUNNELS.acquire(
+                        provider=data.get("provider"),
+                        prefer=data.get("server_id"))
                 except (RuntimeError, ValueError, OSError) as exc:
                     # Acquire failed: drop the minted lease (no orphan
                     # records) and park with a message.
                     POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
+                if sid != data.get("server_id"):
+                    # Hint lost a cooling race between lease and
+                    # acquire: sync the response + record to the
+                    # actual tunnel server so reports cool it.
+                    data["server_id"] = sid
+                    POOL.retarget_lease(data.get("lease_id", ""), sid)
                 data["proxy_url"] = proxy
                 data["egress_ip"] = ip
             return self._send(200, data)
