@@ -651,6 +651,16 @@ const RAW_LEMMAS = __VIEWER_DATA__;
 const KNOWN_TOPICS = __KNOWN_TOPICS__;
 const STAGE_NAMES = __STAGE_NAMES__;
 
+let filteredList = [];
+let selectedIndex = -1;
+let currentCefrFilter = "ALL";
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
 function initTopicsAndPillCounts() {
   const topicCounts = {};
   const cefrCounts = { "ALL": 0, "A1": 0, "A2": 0, "B1": 0, "B2": 0, "C1": 0, "C2": 0 };
@@ -771,15 +781,15 @@ function renderSidebar() {
     } else {
       const topCefr = item.senses[0]?.sense_cefr || item.pool_level;
       rightBadge = `
-        <span class="cefr-tag cefr-${topCefr}">${topCefr}</span>
+        <span class="cefr-tag cefr-${topCefr}">${escapeHtml(topCefr)}</span>
         <span class="stats-badge">${item.senses.length}</span>
       `;
     }
 
     el.innerHTML = `
       <div class="item-left">
-        <span class="item-word" ${item.dropped ? 'style="text-decoration:line-through; opacity:0.6"' : ''}>${item.text}</span>
-        <span class="item-sub">${item.key}</span>
+        <span class="item-word" ${item.dropped ? 'style="text-decoration:line-through; opacity:0.6"' : ''}>${escapeHtml(item.text)}</span>
+        <span class="item-sub">${escapeHtml(item.key)}</span>
       </div>
       <div class="item-right">${rightBadge}</div>
     `;
@@ -794,6 +804,11 @@ function copyText(txt, btn) {
     setTimeout(() => { btn.textContent = old; }, 1500);
   });
 }
+
+document.getElementById("detailContent").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-copy-text]");
+  if (btn) copyText(btn.getAttribute("data-copy-text"), btn);
+});
 
 function selectLemma(index) {
   if (index < 0 || index >= filteredList.length) return;
@@ -816,9 +831,9 @@ function selectLemma(index) {
   if (item.dropped) {
     container.innerHTML = `
       <div class="dropped-hero">
-        <h2>${item.text}</h2>
-        <div style="color:var(--text-muted); font-family:var(--font-mono); margin-top:4px;">${item.key}</div>
-        <div class="dropped-reason-pill">dropped: ${item.drop_reason}</div>
+        <h2>${escapeHtml(item.text)}</h2>
+        <div style="color:var(--text-muted); font-family:var(--font-mono); margin-top:4px;">${escapeHtml(item.key)}</div>
+        <div class="dropped-reason-pill">dropped: ${escapeHtml(item.drop_reason)}</div>
         <p style="margin-top:16px; font-size:13px; color:var(--text-secondary)">This lemma was dropped during precard filtering stages.</p>
       </div>
     `;
@@ -826,48 +841,48 @@ function selectLemma(index) {
   }
 
   const firstSense = item.senses[0] || {};
-  const heroIpa = firstSense.ipa ? `<span class="hero-ipa">${firstSense.ipa}</span>` : "";
+  const heroIpa = firstSense.ipa ? `<span class="hero-ipa">${escapeHtml(firstSense.ipa)}</span>` : "";
 
   let sensesHtml = item.senses.map(s => {
-    const posList = (s.pos || []).map(p => `<span class="pos-tag">${p}</span>`).join("");
+    const posList = (s.pos || []).map(p => `<span class="pos-tag">${escapeHtml(p)}</span>`).join("");
 
     let regHtml = "";
     if (s.register && s.register !== "neutral") {
-      regHtml += `<span class="register-tag">${s.register}</span>`;
+      regHtml += `<span class="register-tag">${escapeHtml(s.register)}</span>`;
     }
     if (s.lexical_type && s.lexical_type !== "word") {
-      regHtml += `<span class="register-tag">${s.lexical_type}</span>`;
+      regHtml += `<span class="register-tag">${escapeHtml(s.lexical_type)}</span>`;
     }
 
     const topicsHtml = (s.topic_vector || []).map(t => `
-      <span class="topic-pill">${t.label} <b>${t.weight.toFixed(2)}</b></span>
+      <span class="topic-pill">${escapeHtml(t.label)} <b>${t.weight.toFixed(2)}</b></span>
     `).join("");
 
     const exs = s.dataset_examples || [];
     let exsHtml = "";
     if (exs.length > 0) {
-      exsHtml = `<div class="examples-block">` + exs.map(e => `<div class="example-item">“${e}”</div>`).join("") + `</div>`;
+      exsHtml = `<div class="examples-block">` + exs.map(e => `<div class="example-item">“${escapeHtml(e)}”</div>`).join("") + `</div>`;
     } else if (s.example_synthetic_needed) {
-      exsHtml = `<div class="no-examples-notice">⚠️ No dataset examples — Flagged for synthetic generation (${s.example_fallback})</div>`;
+      exsHtml = `<div class="no-examples-notice">⚠️ No dataset examples — Flagged for synthetic generation (${escapeHtml(s.example_fallback)})</div>`;
     } else {
       exsHtml = `<div style="font-size:12px; color:var(--text-muted); font-style:italic">No examples available</div>`;
     }
 
     // Telemetry & Stage Calls Pipeline
     const sc = s.stage_calls || {};
-    const s2Chip = sc.s2 ? `<span class="stage-chip model" title="${STAGE_NAMES.s2 || 's2'} disambiguation model"><span class="stage-name">s2:</span> ${sc.s2}</span>` : "";
-    const s3Chip = sc.s3 ? `<span class="stage-chip model" title="${STAGE_NAMES.s3 || 's3'} model"><span class="stage-name">s3:</span> ${sc.s3}</span>` : "";
-    const s4Chip = sc.s4 ? `<span class="stage-chip" title="${STAGE_NAMES.s4 || 's4'} path: ${sc.s4_path || ''}"><span class="stage-name">s4:</span> ${sc.s4}</span>` : "";
-    const s5Chip = sc.s5 ? `<span class="stage-chip"><span class="stage-name">s5:</span> ${sc.s5}</span>` : "";
+    const s2Chip = sc.s2 ? `<span class="stage-chip model" title="${STAGE_NAMES.s2 || 's2'} disambiguation model"><span class="stage-name">s2:</span> ${escapeHtml(sc.s2)}</span>` : "";
+    const s3Chip = sc.s3 ? `<span class="stage-chip model" title="${STAGE_NAMES.s3 || 's3'} model"><span class="stage-name">s3:</span> ${escapeHtml(sc.s3)}</span>` : "";
+    const s4Chip = sc.s4 ? `<span class="stage-chip" title="${STAGE_NAMES.s4 || 's4'} path: ${escapeHtml(sc.s4_path || '')}"><span class="stage-name">s4:</span> ${escapeHtml(sc.s4)}</span>` : "";
+    const s5Chip = sc.s5 ? `<span class="stage-chip"><span class="stage-name">s5:</span> ${escapeHtml(sc.s5)}</span>` : "";
 
     return `
       <article class="sense-card">
         <!-- ROW 1: SenseID | CEFR | POS | Topic -->
         <div class="sense-topline">
           <div class="topline-left">
-            <span class="sense-id-badge">${s.sense_id}</span>
-            <span class="cefr-tag cefr-${s.sense_cefr}">${s.sense_cefr}</span>
-            ${s.pool_level !== s.sense_cefr ? `<span class="stats-badge" title="Pool level: ${s.pool_level}">pool: ${s.pool_level}</span>` : ""}
+            <span class="sense-id-badge">${escapeHtml(s.sense_id)}</span>
+            <span class="cefr-tag cefr-${s.sense_cefr}">${escapeHtml(s.sense_cefr)}</span>
+            ${s.pool_level !== s.sense_cefr ? `<span class="stats-badge" title="Pool level: ${escapeHtml(s.pool_level)}">pool: ${escapeHtml(s.pool_level)}</span>` : ""}
             ${posList}
             ${regHtml}
           </div>
@@ -877,7 +892,7 @@ function selectLemma(index) {
         </div>
 
         <!-- ROW 2: Definition -->
-        <div class="sense-def">${s.en_def}</div>
+        <div class="sense-def">${escapeHtml(s.en_def)}</div>
 
         <!-- ROW 3: Examples -->
         ${exsHtml}
@@ -892,19 +907,19 @@ function selectLemma(index) {
             ${s5Chip}
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
-            <button class="copy-btn" onclick="copyText('${s.pre_card_id}', this)">Copy ID</button>
-            <button class="copy-btn" onclick="copyText('${s.sense_id}', this)">Copy Sense</button>
+            <button class="copy-btn" data-copy-text="${escapeHtml(s.pre_card_id)}">Copy ID</button>
+            <button class="copy-btn" data-copy-text="${escapeHtml(s.sense_id)}">Copy Sense</button>
           </div>
         </div>
 
         <!-- Technical Details Footer -->
         <footer class="sense-inspector-footer">
           <div class="inspector-tags">
-            <span>fallback: <code>${s.example_fallback}</code></span>
-            <span>cefr-src: <code>${s.sense_cefr_method}</code></span>
-            <span>ipa-src: <code>${s.ipa_src || 'dataset'}</code></span>
+            <span>fallback: <code>${escapeHtml(s.example_fallback)}</code></span>
+            <span>cefr-src: <code>${escapeHtml(s.sense_cefr_method)}</code></span>
+            <span>ipa-src: <code>${escapeHtml(s.ipa_src || 'dataset')}</code></span>
           </div>
-          <span title="Precard Hash ID">hash: <code>${s.pre_card_id}</code></span>
+          <span title="Precard Hash ID">hash: <code>${escapeHtml(s.pre_card_id)}</code></span>
         </footer>
       </article>
     `;
@@ -913,9 +928,9 @@ function selectLemma(index) {
   container.innerHTML = `
     <div class="word-hero">
       <div class="hero-title-group">
-        <span class="hero-word">${item.text}</span>
+        <span class="hero-word">${escapeHtml(item.text)}</span>
         ${heroIpa}
-        <span class="hero-key">${item.key}</span>
+        <span class="hero-key">${escapeHtml(item.key)}</span>
       </div>
       <span class="stats-badge" style="font-size:12px;">${item.senses.length} sense(s) extracted</span>
     </div>
@@ -1101,7 +1116,11 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
         warnings.append("run-log scan skipped (missing %s)" % run_log_path)
 
     keys = [k for k in order if k in rows or k in dropped_map]
-    keys += [k for k in list(rows) + list(dropped_map) if k not in keys]
+    seen = set(keys)
+    for k in list(rows) + list(dropped_map):
+        if k not in seen:
+            seen.add(k)
+            keys.append(k)
     n_rows = sum(len(v) for v in rows.values())
 
     lemmas_data = []

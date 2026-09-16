@@ -237,3 +237,19 @@ def test_cli_help_lists_interface_flags():
     for flag in ("--run-dir", "--precard", "--sample", "--dropped",
                  "--run-log", "--out", "--limit", "--title"):
         assert flag in proc.stdout
+
+
+def test_script_hardening_escapes_data_and_declares_state(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "function escapeHtml(value)" in html
+    assert "let filteredList = [];" in html
+    assert "let selectedIndex = -1;" in html
+    assert 'let currentCefrFilter = "ALL";' in html
+    assert "data-copy-text" in html
+    assert "onclick=\"copyText('" not in html
+    for raw in ("${item.text}", "${item.key}", "${item.drop_reason}",
+                "${s.en_def}", "${s.sense_id}", "${s.pre_card_id}"):
+        assert raw not in html
