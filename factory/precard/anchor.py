@@ -49,9 +49,6 @@ VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
 REGISTER_META_RX = re.compile(r"^senses relating to\b")
 
 
-TOPIC_METHOD_TAG = "v16b-exact"
-
-
 XREF_METHOD_TAG = "xref-resolved"
 
 
@@ -472,9 +469,12 @@ def build_also_sense(candidates, vector_lookup=None):
     second = candidates[1]
     vec = (vector_lookup or {}).get(second["sense_id"])
     if vec:
+        # Local import: topics -> judge -> anchor would cycle at module
+        # top (single source stays factory.precard.topics.TOPIC_METHOD).
+        from factory.precard.topics import TOPIC_METHOD
         return {"sense_id": second["sense_id"], "gloss": second["gloss"],
                 "topic": vec[0]["label"],
-                "topic_method": TOPIC_METHOD_TAG}
+                "topic_method": TOPIC_METHOD}
     return {"sense_id": second["sense_id"], "gloss": second["gloss"],
             "topic": None, "topic_method": ALSO_TOPIC_UNASSIGNED}
 

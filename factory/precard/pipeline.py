@@ -2256,6 +2256,8 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
         "topic_vector": sub_vec,
         "topic_method": sub_label.get("method")
         or TOPIC_METHOD,
+        "topic_path": sub_label.get("topic_path", ""),
+        "topic_guarded": bool(sub_label.get("topic_guarded", False)),
         "drop_reason": None,
         "stage_calls": {
             "s0": ("kept:type-pending" if preprocess_view.get("type_pending")

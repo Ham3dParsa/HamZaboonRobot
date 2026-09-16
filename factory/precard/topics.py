@@ -23,9 +23,11 @@ LABELS = ["Daily Life & Home", "Food & Drink", "Health & Body",
           "Business & Economy", "Law & Politics", "Sports & Leisure",
           "Emotions & Relationships", "Other / Abstract"]
 
-# Method tag frozen from factory/pipeline/card_pilot TOPIC_METHOD_TAG
-# (provenance: precard line, 2026-09-14).
-TOPIC_METHOD = "v16b-exact"
+# Topic-label provenance tag (sole owner: this module). Renamed 2026-09-16
+# from the "v16b-exact" fossil (locked owner directive: the 1.4.1 line is
+# independent of pilot-line history). Stamped on every s4 row regardless
+# of leg — the leg itself rides on topic_path (leg1/cache/llm/fallback).
+TOPIC_METHOD = "live16"
 
 _OTHER_ABSTRACT = "Other / Abstract"
 _ANIMALS_LABEL = "Animals & Living Beings"
@@ -908,11 +910,13 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 if all(e.get("sense_id") != entry["sense_id"]
                        for e in extra):
                     extra.append({"sense_id": entry["sense_id"],
-                                  "gloss": entry["gloss"],
-                                  "label": row.get("label"),
-                                  "vector": row.get("vector"),
-                                  "method": row.get("method"),
-                                  "topic_path": row.get("topic_path")})
+                                   "gloss": entry["gloss"],
+                                   "label": row.get("label"),
+                                   "vector": row.get("vector"),
+                                   "method": row.get("method"),
+                                   "topic_guarded": bool(row.get(
+                                       "topic_guarded", False)),
+                                   "topic_path": row.get("topic_path")})
     return out
 
 
