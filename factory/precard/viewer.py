@@ -1580,7 +1580,7 @@ def _dist_drawer(stats):
         '<p class="dist-kv">evidenced-only: <b>%(ep)d</b> precards '
         "(%(epp)s%% of %(ed)d evidenced precards)</p>"
         '<p class="dist-note">evidenced = sense_cefr_method other than '
-        "pool-fallback (copied levels match by construction).</p>" % {
+        "pool-fallback or (unknown) (copied levels match by construction).</p>" % {
             "p": mismatch["precards"], "pp": mismatch["precards_pct"],
             "m": mismatch["lemmas"], "ep": mismatch["evidenced_precards"],
             "epp": mismatch["evidenced_pct"],
