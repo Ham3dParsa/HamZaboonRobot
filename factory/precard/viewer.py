@@ -781,7 +781,7 @@ function renderSidebar() {
     } else {
       const topCefr = item.senses[0]?.sense_cefr || item.pool_level;
       rightBadge = `
-        <span class="cefr-tag cefr-${topCefr}">${escapeHtml(topCefr)}</span>
+        <span class="cefr-tag cefr-${escapeHtml(topCefr)}">${escapeHtml(topCefr)}</span>
         <span class="stats-badge">${item.senses.length}</span>
       `;
     }
@@ -881,7 +881,7 @@ function selectLemma(index) {
         <div class="sense-topline">
           <div class="topline-left">
             <span class="sense-id-badge">${escapeHtml(s.sense_id)}</span>
-            <span class="cefr-tag cefr-${s.sense_cefr}">${escapeHtml(s.sense_cefr)}</span>
+            <span class="cefr-tag cefr-${escapeHtml(s.sense_cefr)}">${escapeHtml(s.sense_cefr)}</span>
             ${s.pool_level !== s.sense_cefr ? `<span class="stats-badge" title="Pool level: ${escapeHtml(s.pool_level)}">pool: ${escapeHtml(s.pool_level)}</span>` : ""}
             ${posList}
             ${regHtml}

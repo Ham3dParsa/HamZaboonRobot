@@ -251,5 +251,6 @@ def test_script_hardening_escapes_data_and_declares_state(tmp_path):
     assert "data-copy-text" in html
     assert "onclick=\"copyText('" not in html
     for raw in ("${item.text}", "${item.key}", "${item.drop_reason}",
-                "${s.en_def}", "${s.sense_id}", "${s.pre_card_id}"):
+                "${s.en_def}", "${s.sense_id}", "${s.pre_card_id}",
+                "${topCefr}", "${s.sense_cefr}"):
         assert raw not in html
