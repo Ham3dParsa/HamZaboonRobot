@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: TBD (feat/network-telemetry)
 status: locked
 ---
-STATE: phase 1/6 — status: complete — focus: merged 2bcfc4e (PR 711); reviewer 0 findings; 2850 passed
+STATE: phase 2/6 — status: complete — focus: merged 2bcfc4e (PR 711); reviewer 0 findings; 2850 passed
 
 ## Scope
 - `run_id` (start-ts + pid) into provider_map, run.log header, every record. Terminal records carry real `latency_s` (perf_counter), real `key_idx` (ring.idx), provider, `model_actual` vs `model_requested`; Google None-usage flagged `cost unknown`, never zero. Attempt rows behind flag (default off). `transport.py` re-export shim kept, duplicate bodies deleted (route-delete). Streams: stdout human (bars/boxes/CACHE/RESUME, colorized, `\r` padded), stderr warnings/errors, files machine (`run.log` compact lines, `dropped.log` multilingual, `--json-log` JSONL). Bar v2: done/todo, ok/fail, ETA (rolling mean, `?` until 3 batches), HIT/MISS counters. Red aborts. NO_COLOR honored.

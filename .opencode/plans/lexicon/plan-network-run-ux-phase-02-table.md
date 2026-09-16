@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: TBD (feat/network-fallback-table)
 status: locked
 ---
-STATE: phase 0/6 — status: locked — focus: implement after PR-A
+STATE: phase 4/6 — status: locked — focus: implement after PR-A
 
 ## Scope
 - `LEG_FALLBACKS[(provider, leg)]` in `net.py` with per-entry cost labels; move `JUDGE_MODELS` + precard/avalai/google consts in (legs hold zero lists); `call_leg` walks chain on ROTATE only; ABORT stops+flushes; per-step provider_map + telemetry entries. `tests/test_single_source_of_truth.py` gains `LEG_FALLBACKS` keyword.

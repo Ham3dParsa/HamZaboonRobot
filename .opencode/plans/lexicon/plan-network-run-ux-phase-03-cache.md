@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: TBD (feat/network-clean-cache)
 status: locked
 ---
-STATE: phase 0/6 — status: locked — focus: implement after PR-0 and PR-A
+STATE: phase 5/6 — status: locked — focus: implement after PR-0 and PR-A
 
 ## Scope
 - `clean_cache.json` beside pool: `{server_id, provider, last_ok_ts, latency_ms}`; `lease_for` tries fresh (TTL, default 24h, `--clean-ttl`/`EGRESS_CLEAN_TTL`) + cooled-out rows first with one real-ping gate; full probe only on miss; write-back successes; empty probe clobbers neither pool nor cache. `--direct-probe`/`AVALAI_DIRECT_FIRST=1`: leaseless AvalAI path, failure falls back to lease with telemetry. `CACHE HIT/MISS` console lines.

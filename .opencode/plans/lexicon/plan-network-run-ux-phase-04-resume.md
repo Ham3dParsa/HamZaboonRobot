@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: TBD (feat/network-resume-ux)
 status: locked
 ---
-STATE: phase 0/6 — status: locked — focus: implement after PR-B and PR-C
+STATE: phase 6/6 — status: locked — focus: implement after PR-B and PR-C
 
 ## Scope
 - `--resume` prints RESUME PLAN (per-stage done/todo from progress) then runs; 4 refusals: resume+no-resume, rekey keys missing from sample, corrupt progress (name file, suggest --no-resume, never auto-discard), `--only` with empty upstream. Every leg caller flushes then stops on RateLimited/ProviderCooldown/AuthError (extend S4 pattern). Chain may change between runs; provider_map keeps per-item actual model.
