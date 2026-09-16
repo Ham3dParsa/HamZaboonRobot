@@ -319,6 +319,68 @@ def test_quota_stop_emits_abort_event_and_closes_json_log(
     assert len({e["run_id"] for e in events}) == 1  # joined, complete
 
 
+def test_bool_attempt_key_idx_coerced_never_crashes(tmp_path):
+    """Reviewer must-fix: a bool key_idx in an attempt row coerces to 0
+    instead of tripping record_call's TypeError (diagnostic telemetry
+    must never abort the run it measures)."""
+    store = core_tele.new_store()
+    core_tele.emit_attempt_rows(
+        store, stage="sense_judge", batch_id=1, run_id="r1",
+        attempts=[{"model": "m", "attempt": 1, "outcome": "settled",
+                   "key_idx": True, "latency_s": 0.1}])
+    assert store and store[0]["kind"] == "attempt"
+    assert store[0]["key_idx"] == 0
+
+
+def test_preflight_abort_closes_json_log(tmp_path):
+    """Reviewer must-fix: pre-flight exits (e.g. corrupt progress) record
+    an abort event and close the stream — never dangling."""
+    import pytest
+    from factory.core.stage_glossary import STAGE_FILES
+    from factory.precard import pipeline as pipe
+    items = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(items), encoding="utf-8")
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / STAGE_FILES["s2"]).write_text("not-json{{{",
+                                          encoding="utf-8")
+    with pytest.raises(SystemExit):
+        pipe.main(["--sample", str(sample),
+                   "--out", str(tmp_path / "precard.jsonl"),
+                   "--progress-dir", str(prog), "--json-log"],
+                  **_hermetic_kwargs())
+    events = [json.loads(line) for line in
+              (tmp_path / "run_events.jsonl").read_text(
+                  encoding="utf-8").splitlines() if line.strip()]
+    aborts = [e for e in events if e["event"] == "abort"]
+    assert aborts and aborts[-1]["stage"] == "preflight"
+    assert len({e["run_id"] for e in events}) == 1
+
+
+def test_label_counters_one_bump_per_entry(tmp_path):
+    """Reviewer-noise evidence: every label_batch entry is bumped exactly
+    once (leg-1/cache entries continue past the chunk loop, so no entry
+    is ever double-counted; transport=None fallback counts as hit)."""
+    from factory.precard.topics import label_batch
+    from factory.precard.transport import KeyRing
+    batch = [{"kind": "word", "text": "t1", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "t2", "pos": "noun",
+              "pool_level": "A1"}]
+    picks = {"w:t1": {"sense_id": "t1#0", "gloss": "g1"},
+             "w:t2": {"sense_id": "t2#0", "gloss": "g2"}}
+    counters = {"hit": 0, "miss": 0, "cache": 0}
+    out = label_batch(batch, picks, {}, "", None, lambda s: None,
+                      {"done": {}, "failed": [], "backoffs": []},
+                      str(tmp_path / "cache.json"), {},
+                      lookup=lambda text, gloss: None,
+                      ring=KeyRing(["k"]), counters=counters)
+    assert len(out) == 2
+    assert counters == {"hit": 2, "miss": 0, "cache": 0}
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""

@@ -174,10 +174,16 @@ def emit_attempt_rows(store, attempts, *, stage, batch_id, run_id="",
             attempt_no = int(att.get("attempt", 0) or 0)
         except (TypeError, ValueError):
             attempt_no = 0
+        # A bool key_idx is never a real ring index (bool is an int
+        # subclass, so isinstance alone lets it through to record_call,
+        # whose TypeError would abort the run from this diagnostic
+        # path): coerce to 0, same as a missing value. record_call's
+        # loud TypeError stays for genuinely non-int input.
+        raw_idx = att.get("key_idx", 0)
         entry = record_call(
             store, stage=stage, batch_id=batch_id,
-            key_idx=att.get("key_idx", 0)
-            if isinstance(att.get("key_idx"), int) else 0,
+            key_idx=raw_idx if isinstance(raw_idx, int)
+            and not isinstance(raw_idx, bool) else 0,
             model=model, latency_s=att.get("latency_s", 0.0),
             outcome=outcome,
             http_status=att.get("http_status"),

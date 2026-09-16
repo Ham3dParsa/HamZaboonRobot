@@ -573,6 +573,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # stream ends here, closed, with the abort as its last event.
         jlog.close()
 
+    def _preflight_exit(message):
+        # Stillborn run (corrupt progress, kaikki index, missing keys):
+        # record the abort as the stream's last event, close it, then
+        # exit — never a dangling run_events.jsonl.
+        jlog.event("abort", stage="preflight", error=message)
+        jlog.close()
+        raise SystemExit(message)
+
     progress_dir = pathlib.Path(args.progress_dir)
     progress_dir.mkdir(parents=True, exist_ok=True)
     resume = not args.no_resume
@@ -584,7 +592,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             try:
                 loaded = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                raise SystemExit("corrupt progress %s: %s" % (path, exc))
+                _preflight_exit("corrupt progress %s: %s" % (path, exc))
         states[stage] = {"done": loaded.get("done", {}),
                          "failed": loaded.get("failed", []),
                          "backoffs": loaded.get("backoffs", [])}
@@ -647,7 +655,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         try:
             index = load_kaikki_index(args.kaikki_index)
         except OSError as exc:
-            raise SystemExit("cannot load kaikki index %s: %s" % (
+            _preflight_exit("cannot load kaikki index %s: %s" % (
                 args.kaikki_index, exc))
     if _read_entry is not None:
         read_entry = _read_entry
@@ -837,7 +845,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         api_key = env["OPENCODE_ZEN_API_KEY"]
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
-            raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
+            _preflight_exit("no OPENCODE_ZEN_API_KEY in factory/.env")
     if full_avalai or not zen_needed:
         # No Zen anywhere (or Zen unused): skip the Zen ring.
         ring = None
@@ -845,7 +853,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         try:
             ring = KeyRing([api_key, api_key_2])
         except ValueError as exc:
-            raise SystemExit("no Zen keys: %s" % exc)
+            _preflight_exit("no Zen keys: %s" % exc)
     judge_transport = (transport.zen_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
@@ -862,15 +870,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
             avalai_key = env_av["AVALAI_API_KEY"]
         except KeyError:
-            raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(avalai provider needs it)")
+            _preflight_exit("no AVALAI_API_KEY in factory/.env "
+                            "(avalai provider needs it)")
         if not avalai_key:
-            raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(avalai provider needs it)")
+            _preflight_exit("no AVALAI_API_KEY in factory/.env "
+                            "(avalai provider needs it)")
         try:
             avalai_ring = KeyRing([avalai_key])
         except ValueError as exc:
-            raise SystemExit("no AvalAI keys: %s" % exc)
+            _preflight_exit("no AvalAI keys: %s" % exc)
         for leg in LLM_LEGS:
             if not _leg_avalai(leg):
                 continue
@@ -897,12 +905,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "GOOGLE_AI_API_KEY")
             google_key_from_egress = bool(google_key)
         if not google_key:
-            raise SystemExit("no GOOGLE_AI_API_KEY in factory/.env "
-                             "(google provider needs it)")
+            _preflight_exit("no GOOGLE_AI_API_KEY in factory/.env "
+                            "(google provider needs it)")
         try:
             google_ring = KeyRing([google_key])
         except ValueError as exc:
-            raise SystemExit("no Google keys: %s" % exc)
+            _preflight_exit("no Google keys: %s" % exc)
         for leg in LLM_LEGS:
             if not _leg_google(leg):
                 continue
@@ -1809,6 +1817,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             run_logger.close()
         except Exception:
             pass
+        if sys.exc_info()[0] is not None:
+            # Safety net for exception paths with no explicit close
+            # (e.g. OSError from _flush above or a stage-teardown bug):
+            # never leak the handle. Guarded, NOT unconditional — this
+            # finally also runs before the post-try summary on the
+            # success path, where jlog must stay open for run_done
+            # (test_json_log_events_run_id_joined pins this: an
+            # unconditional close here drops run_done).
+            try:
+                jlog.close()
+            except Exception:
+                pass
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Redirect merges can map two lemmas onto one base key (best+better
