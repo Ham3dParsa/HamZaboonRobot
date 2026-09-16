@@ -1,0 +1,19 @@
+name: PR Meta Labels
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply breaking-change, size, and needs-tests labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/pr_meta_labels.py ${{ github.event.pull_request.number }}
