@@ -916,7 +916,7 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                                    "method": row.get("method"),
                                    "topic_guarded": bool(row.get(
                                        "topic_guarded", False)),
-                                   "topic_path": row.get("topic_path")})
+                                   "topic_path": row.get("topic_path") or ""})
     return out
 
 

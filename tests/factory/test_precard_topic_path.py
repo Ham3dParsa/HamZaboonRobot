@@ -46,6 +46,14 @@ def test_topic_path_fail_closed_and_no_fossil():
     assert row["topic_path"] in ("",) + _VALID_PATHS
 
 
+def test_none_topic_path_fail_closed():
+    """Reviewer finding (Kilo WARNING + OC warnings): an explicit None
+    path normalizes to "" in both the top-level field and s4_path."""
+    row = _row({"method": TOPIC_METHOD, "topic_path": None})
+    assert row["topic_path"] == ""
+    assert row["stage_calls"]["s4_path"] == ""
+
+
 def test_guarded_secondary_flag_survives_extra_fold():
     """End-to-end s4 secondary path (reviewer finding): label_batch ->
     extra -> pipeline promotion keeps topic_guarded on the guarded

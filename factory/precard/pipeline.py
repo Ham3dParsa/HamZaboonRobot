@@ -2256,7 +2256,7 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
         "topic_vector": sub_vec,
         "topic_method": sub_label.get("method")
         or TOPIC_METHOD,
-        "topic_path": sub_label.get("topic_path", ""),
+        "topic_path": sub_label.get("topic_path") or "",
         "topic_guarded": bool(sub_label.get("topic_guarded", False)),
         "drop_reason": None,
         "stage_calls": {
@@ -2267,7 +2267,7 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
             "s2": pick.get("model", ""),
             "s3": vec3.get("model", ""),
             "s4": sub_label.get("method", ""),
-            "s4_path": sub_label.get("topic_path", ""),
+            "s4_path": sub_label.get("topic_path") or "",
             "s4_models": dict(label_calls or {}),
             "s5": sub_enrich.get("enrich_path", "")},
     }
