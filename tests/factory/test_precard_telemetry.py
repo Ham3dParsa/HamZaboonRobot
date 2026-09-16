@@ -381,6 +381,70 @@ def test_label_counters_one_bump_per_entry(tmp_path):
     assert counters == {"hit": 2, "miss": 0, "cache": 0}
 
 
+def test_summarize_splits_attempts_from_calls():
+    """Reviewer must-fix: attempt rows never inflate call accounting —
+    buckets/records count terminal rows only, attempts separately."""
+    store = core_tele.new_store()
+    core_tele.record_call(store, stage="s2", batch_id=1, key_idx=0,
+                          model="m", latency_s=0.4, outcome="ok",
+                          run_id="r1")
+    core_tele.emit_attempt_rows(
+        store, stage="s2", batch_id=1, run_id="r1",
+        attempts=[{"model": "m", "attempt": 1, "outcome": "rotated",
+                   "key_idx": 0, "latency_s": 0.1},
+                  {"model": "m", "attempt": 2, "outcome": "settled",
+                   "key_idx": 1, "latency_s": 0.2}])
+    summary = core_tele.summarize(store)
+    assert summary["records"] == 1
+    assert summary["attempts"] == 2
+    assert summary["by_stage"]["s2"]["calls"] == 1
+
+
+def test_error_row_stamps_last_attempt_latency():
+    """Reviewer must-fix: a RateLimited terminal row carries the last
+    measured try latency, not a hardcoded 0.0."""
+    import time
+    import pytest
+    from factory.precard.judge import judge_batch
+    from factory.precard.transport import KeyRing
+
+    def always_429(api_key, model, text):
+        time.sleep(0.002)
+        raise _http_429()
+
+    batch, anchor = _judge_anchor()
+    store = []
+    with pytest.raises(Exception):
+        judge_batch(batch, anchor, "k1", always_429, lambda s: None, {},
+                    telemetry=store, tele_stage="sense_judge",
+                    tele_batch=1, ring=KeyRing(["k1", "k2"]),
+                    models=["m"], provider="zen", tele_run_id="r1")
+    errors = [r for r in store if r.get("outcome") == "error"]
+    assert errors and errors[0]["latency_s"] > 0
+
+
+def test_stage_selection_abort_closes_json_log(tmp_path):
+    """Reviewer must-fix: stage-selection exits route through
+    _preflight_exit (abort event + closed stream)."""
+    import pytest
+    from factory.precard import pipeline as pipe
+    items = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        pipe.main(["--sample", str(sample),
+                   "--out", str(tmp_path / "precard.jsonl"),
+                   "--progress-dir", str(tmp_path / "prog"),
+                   "--json-log", "--stages", "bogus-stage"],
+                  **_hermetic_kwargs())
+    events = [json.loads(line) for line in
+              (tmp_path / "run_events.jsonl").read_text(
+                  encoding="utf-8").splitlines() if line.strip()]
+    aborts = [e for e in events if e["event"] == "abort"]
+    assert aborts and aborts[-1]["stage"] == "preflight"
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""

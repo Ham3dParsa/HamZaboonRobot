@@ -194,6 +194,19 @@ def emit_attempt_rows(store, attempts, *, stage, batch_id, run_id="",
     return store
 
 
+def last_attempt_latency(attempt_rows):
+    """Measured latency of the last logged try (0.0 when none).
+
+    Error-path terminal rows stamp this instead of a hardcoded 0.0,
+    keeping the real-latency claim; 0.0 survives only where no call
+    happened (empty attempt log or unparseable value)."""
+    try:
+        return float((attempt_rows or [])[-1].get("latency_s", 0.0)
+                     or 0.0)
+    except (TypeError, ValueError, AttributeError, IndexError):
+        return 0.0
+
+
 def _bucket():
     return {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
             "unknown": 0}
@@ -202,15 +215,23 @@ def _bucket():
 def summarize(calls):
     """Aggregate {by_stage, by_model, by_key_idx} (None tokens count 0).
 
+    Only ``kind == "terminal"`` rows feed the calls/tokens
+    aggregation: per-try ``kind == "attempt"`` rows are diagnostic
+    (flag-gated, default off) and would otherwise inflate call counts
+    vs default runs. Attempt rows are counted separately under
+    top-level ``attempts``; ``records`` counts terminal rows.
     ``unknown`` per bucket (and top-level ``cost_unknown``) counts
     terminal records flagged ``cost="unknown"`` — a None-usage zero is
     always flagged, never silent.
     """
     summary = {"by_stage": {}, "by_model": {}, "by_key_idx": {},
-               "cost_unknown": 0}
+               "cost_unknown": 0, "attempts": 0, "records": 0}
     for call in calls or []:
-        unknown = (call.get("kind", "terminal") == "terminal"
-                   and call.get("cost") == "unknown")
+        if call.get("kind", "terminal") != "terminal":
+            summary["attempts"] += 1
+            continue
+        summary["records"] += 1
+        unknown = (call.get("cost") == "unknown")
         for dim, raw in (("by_stage", call.get("stage")),
                          ("by_model", call.get("model")),
                          ("by_key_idx", call.get("key_idx"))):
@@ -228,7 +249,6 @@ def summarize(calls):
                     pass
         if unknown:
             summary["cost_unknown"] += 1
-    summary["records"] = len(list(calls or []))
     return summary
 
 

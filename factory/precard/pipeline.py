@@ -609,8 +609,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # new anchors with stale enrichment (kiss#5-style staleness).
     _DOWNSTREAM = {"anchor_rank": ("sense_judge", "topic_vectors", "topic_label", "enrich"), "sense_judge": ("topic_vectors", "topic_label", "enrich"),
                    "topic_vectors": ("topic_label", "enrich"), "topic_label": ("enrich",)}
-    selected = _selected_stages(args)
-    rekeyed = _load_rekey_keys(args.rekey)
+    try:
+        selected = _selected_stages(args)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
+    try:
+        rekeyed = _load_rekey_keys(args.rekey)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
     if rekeyed:
         rekeyed_set = set(rekeyed)
         for stage in selected:
@@ -757,9 +763,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # every decision below, so a mixed line (e.g. judge zen + rest
     # avalai) wires correctly. Precedence per leg: --stage-* win, then
     # --judge-*, then master --llm-provider/--precard-model, then Zen.
-    stage_prov = _parse_stage_map(args.stage_provider,
-                                    ("zen", "avalai", "google"))
-    stage_model = _parse_stage_map(args.stage_model)
+    try:
+        stage_prov = _parse_stage_map(args.stage_provider,
+                                      ("zen", "avalai", "google"))
+        stage_model = _parse_stage_map(args.stage_model)
+    except SystemExit as exc:
+        _preflight_exit(exc.code)
 
     def _leg_provider(leg):
         if leg in stage_prov:

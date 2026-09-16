@@ -306,7 +306,8 @@ def apply_inflection_veto(out, batch, anchor_map):
 import urllib.error
 
 from factory.core.telemetry import (
-    emit_attempt_rows, extract_usage, record_call, resolve_cost)
+    emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
+    resolve_cost)
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
     _call_with_rotation, _tele_tokens, _unwrap_transport_result,
@@ -589,7 +590,9 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 if telemetry is not None:
                     _tele_record(telemetry, stage=tele_stage,
                                  batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model, latency_s=0.0,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
                                  outcome="error", http_status=429,
                                  run_id=tele_run_id, provider=provider,
                                  model_actual=tele_model_actual or model,

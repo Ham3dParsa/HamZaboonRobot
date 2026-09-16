@@ -172,7 +172,8 @@ import pathlib
 import urllib.error
 
 from factory.core.telemetry import (
-    emit_attempt_rows, extract_usage, record_call, resolve_cost)
+    emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
+    resolve_cost)
 from factory.precard.accounting import item_key
 from factory.precard.prompts import TOPIC_TIEBREAK
 from factory.precard.transport import (
@@ -522,7 +523,9 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 if telemetry is not None:
                     record_call(telemetry, stage=tele_stage,
                                  batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model, latency_s=0.0,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
                                  outcome="error", http_status=429,
                                  run_id=tele_run_id, provider=provider,
                                  model_actual=tele_model_actual or model,
@@ -989,7 +992,9 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                 if telemetry is not None:
                     record_call(telemetry, stage=tele_stage,
                                  batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model, latency_s=0.0,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
                                  outcome="error", http_status=429,
                                  run_id=tele_run_id, provider=provider,
                                  model_actual=tele_model_actual or model,
