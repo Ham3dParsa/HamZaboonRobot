@@ -155,3 +155,58 @@ def test_cli_bad_mix_exits_2(tmp_path):
                           "--out", str(tmp_path / "o.jsonl"),
                           "--mix", bad_mix])
         assert exc.value.code == 2
+
+
+def test_resolve_drop_tags_string_flags():
+    """Reviewer finding (opencode WARNING): bare-string include/exclude
+    must act as one tag, not iterate char-by-char."""
+    drop = sampler.resolve_drop_tags("clean", include="slang")
+    assert "slang" not in drop
+    drop = sampler.resolve_drop_tags("media", exclude="slang")
+    assert drop >= {"slang"}
+    assert "s" not in drop
+
+
+def test_sample_bare_string_drop_tags():
+    """Reviewer finding (opencode INFO, trivial): direct-API bare-string
+    drop_tags must drop the row, not silently keep it."""
+    rows = [_row("w:a", tags=["vulgar"]), _row("w:b")]
+    selected, _ = sampler.sample(rows, quotas={"B1": 10},
+                                 drop_tags="vulgar")
+    assert [r["key"] for r in selected] == ["w:b"]
+
+
+def test_reservoir_need_none_survival():
+    """Reviewer finding (opencode INFO, trivial): unknown survival acts
+    as 1.0 (need == quota) instead of raising TypeError."""
+    assert sampler.reservoir_need(5, None) == 5
+
+
+def test_cli_negative_other_quota_exits_2(tmp_path):
+    """Reviewer finding (opencode WARNING): negative --other-quota exits
+    via parser.error (code 2), like negative --mix."""
+    import pytest
+
+    src = tmp_path / "rows.jsonl"
+    src.write_text('{"key": "w:a", "sense_cefr": "B1"}\n',
+                   encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        sampler.main(["--rows", str(src),
+                      "--out", str(tmp_path / "o.jsonl"),
+                      "--mix", "0,0,1,0,0,0", "--other-quota", "-5"])
+    assert exc.value.code == 2
+
+
+def test_cli_non_dict_jsonl_exits_2(tmp_path):
+    """Reviewer finding (opencode WARNING): valid-JSON non-object line
+    exits via parser.error (code 2), not an AttributeError traceback."""
+    import pytest
+
+    src = tmp_path / "rows.jsonl"
+    src.write_text('{"key": "w:a", "sense_cefr": "B1"}\n123\n',
+                   encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        sampler.main(["--rows", str(src),
+                      "--out", str(tmp_path / "o.jsonl"),
+                      "--mix", "0,0,1,0,0,0"])
+    assert exc.value.code == 2

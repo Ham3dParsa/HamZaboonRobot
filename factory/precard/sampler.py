@@ -61,6 +61,10 @@ def resolve_drop_tags(profile="media", include=(), exclude=()):
     `clean`: drops OBSOLETE_TAGS + VULGAR_TAGS + SLANG_TAGS.
     include/exclude: tag names force-kept / force-dropped.
     """
+    if isinstance(include, str):
+        include = [include]
+    if isinstance(exclude, str):
+        exclude = [exclude]
     drop = set(OBSOLETE_TAGS)
     if profile == "clean":
         drop |= set(VULGAR_TAGS) | set(SLANG_TAGS)
@@ -116,7 +120,7 @@ def score_row(row):
 
 def reservoir_need(quota, survival):
     """Upstream rows needed to net `quota` survivors (ceil)."""
-    if survival <= 0:
+    if survival is None or survival <= 0:
         return quota
     return int(math.ceil(quota / survival))
 
@@ -133,6 +137,8 @@ def sample(rows, quotas=None, survival=None, drop_tags=frozenset(),
     """
     quotas = dict(QUOTA_MIX if quotas is None else quotas)
     survival = dict(SURVIVAL if survival is None else survival)
+    if isinstance(drop_tags, str):
+        drop_tags = [drop_tags]
     drop_tags = frozenset(() if drop_tags is None else drop_tags)
     buckets = {level: [] for level in LEVELS}
     buckets["OTHER"] = []
@@ -237,6 +243,9 @@ def main(argv=None):
         quotas = parse_mix(args.mix)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.other_quota < 0:
+        parser.error("--other-quota must be >= 0 (got %r)"
+                     % (args.other_quota,))
     try:
         with open(args.rows, encoding="utf-8") as handle:
             rows = []
@@ -244,10 +253,14 @@ def main(argv=None):
                 if not line.strip():
                     continue
                 try:
-                    rows.append(json.loads(line))
+                    obj = json.loads(line)
                 except ValueError:
                     parser.error("bad JSON on %s line %d"
                                  % (args.rows, lineno))
+                if not isinstance(obj, dict):
+                    parser.error("bad row on %s line %d: expected object"
+                                 % (args.rows, lineno))
+                rows.append(obj)
     except OSError as exc:
         parser.error("cannot read %s: %s" % (args.rows, exc))
     selected, summary = sample(rows, quotas=quotas, drop_tags=drop_tags,
