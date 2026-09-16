@@ -114,6 +114,13 @@ COOLDOWN_S = 300
 CLEAN_TTL_VAR = "EGRESS_CLEAN_TTL"
 CLEAN_CACHE_PATH_VAR = "EGRESS_CLEAN_CACHE_PATH"
 
+# R7 lease-path probe budget (phase 03): /v1/lease runs on the
+# single-threaded HTTPServer handler, so cache pings are capped in
+# count (fastest-first) and time — excess rows fall through to the
+# classic pick instead of stalling leases/health for N x timeout.
+LEASE_PING_TIMEOUT_S = 2.0
+LEASE_PING_MAX_ROWS = 3
+
 
 def _clean_ttl_from_env():
     """Supervisor-side cache TTL: EGRESS_CLEAN_TTL when finite and
@@ -140,12 +147,15 @@ def _clean_cache_path():
     return raw or str(CLEAN_CACHE_PATH)
 
 
-def _server_tcp_ping(server):
+def _server_tcp_ping(server, timeout=LEASE_PING_TIMEOUT_S):
     """net.lease_for ping_fn over the PR-0 TCP probe (seam untouched:
     passed as a callable, internals unchanged). Truthy ms means
     reachable; None means dead (a 0 ms loopback reads as dead and
-    costs one full probe — deferred OC [info], left alone)."""
-    return tcp_ping(server.get("host"), server.get("port"))
+    costs one full probe — deferred OC [info], left alone).
+    ``timeout`` is the lease-path budget (2s), not the 5s probe
+    default: the single-threaded /v1/lease handler must never stall
+    N x 5s on dead rows."""
+    return tcp_ping(server.get("host"), server.get("port"), timeout)
 
 
 # Append-only lease audit (R10): every lease/report decision appends one
@@ -513,6 +523,12 @@ class Pool:
         cache_path = _clean_cache_path()
         entries = load_clean_cache(cache_path)
         ttl = _clean_ttl_from_env()
+        # Probe budget: ping at most the first LEASE_PING_MAX_ROWS
+        # fresh rows (candidates() sorts fastest-first); the rest
+        # fall through to the classic pick inside lease_for — N dead
+        # rows must never stall this handler for N x timeout.
+        entries = clean_cache_candidates(entries, provider, now,
+                                         ttl)[:LEASE_PING_MAX_ROWS]
         closet = NetConfig(servers=snap_servers, clock=lambda: now,
                            cooldown_s=COOLDOWN_S)
         for (sid, prov), exp in snap_cool.items():
@@ -521,7 +537,8 @@ class Pool:
         seen_ms = {}
 
         def _ping(server):
-            ms = _server_tcp_ping(server)
+            ms = _server_tcp_ping(server,
+                                  timeout=LEASE_PING_TIMEOUT_S)
             if ms:
                 seen_ms[server.get("id")] = ms
             return ms

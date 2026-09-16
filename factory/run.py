@@ -694,21 +694,35 @@ def direct_probe_telemetry(ok, provider="avalai"):
 def _load_supervisor_tcp_ping():
     """tcp_ping callable owned by tools/egress/supervisor.py.
 
-    PR-0 probe seam: used as-is, never redefined here. Single shared
-    import (plain ``import supervisor`` with tools/egress on sys.path):
-    the file must execute exactly once per process, because it binds
-    its probe functions into the shared net.TARGETS table — a second
-    exec under another module name would rebind another copy's
-    functions and break probe identity. Import only: no network, no
-    keys, no spawn.
+    PR-0 probe seam: used as-is, never redefined here. Loaded by
+    path, never via sys.path: the module is executed at most once
+    per process under its canonical name ``supervisor`` (a later
+    plain ``import supervisor`` resolves to the same instance),
+    which matters because the file binds its probe functions into
+    the shared net.TARGETS table at import — two instances would
+    rebind each other's functions and break probe identity. A
+    foreign ``supervisor`` already in sys.modules fails loud
+    instead of silently returning the wrong module. Import only:
+    no network, no keys, no spawn.
     """
+    import importlib.util
     mod = sys.modules.get("supervisor")
     if mod is None:
-        import pathlib as _pathlib
-        _dir = str(_pathlib.Path(SUPERVISOR_SCRIPT).resolve().parent)
-        if _dir not in sys.path:
-            sys.path.insert(0, _dir)
-        import supervisor as mod
+        spec = importlib.util.spec_from_file_location(
+            "supervisor", SUPERVISOR_SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["supervisor"] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except BaseException:
+            del sys.modules["supervisor"]
+            raise
+    want = os.path.realpath(SUPERVISOR_SCRIPT)
+    got = getattr(mod, "__file__", None)
+    if got is not None and os.path.realpath(got) != want:
+        raise RuntimeError(
+            "factory/run: sys.modules['supervisor'] is %r, not %s"
+            % (got, want))
     return mod.tcp_ping
 
 

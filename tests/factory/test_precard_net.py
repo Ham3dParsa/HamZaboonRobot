@@ -1479,6 +1479,33 @@ def test_c3_supervisor_lease_miss_takes_first_avail(
     assert not path.exists()
 
 
+def test_c3_supervisor_lease_ping_budget_capped(
+        tmp_path, monkeypatch, capsys):
+    """W2 probe budget: 5 fresh rows but only the first 3 fastest are
+    pinged with the 2s lease timeout; all dead -> classic first-avail
+    pick, MISS, and the cache file is untouched."""
+    pool = SUP.Pool()
+    pool.load([{"scheme": "vless", "host": "h%d" % i, "port": i,
+                "id": "s%d" % i, "link": "vless://u@h%d:%d" % (i, i)}
+               for i in (1, 2, 3, 4, 5)])
+    rows = [_c4_fresh_row("s%d" % i, ms=i) for i in (1, 2, 3, 4, 5)]
+    path = _c4_cache_file(tmp_path, monkeypatch, rows)
+    before = path.read_bytes()
+    probed = []
+
+    def _dead(h, p, timeout=5.0):
+        probed.append((h, p, timeout))
+        return None
+
+    monkeypatch.setattr(SUP, "tcp_ping", _dead)
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"  # classic first-avail
+    assert [h for h, _, _ in probed] == ["h1", "h2", "h3"]
+    assert {t for _, _, t in probed} == {SUP.LEASE_PING_TIMEOUT_S}
+    assert "CACHE MISS" in capsys.readouterr().out
+    assert path.read_bytes() == before
+
+
 def test_c3_supervisor_lease_cooled_mid_ping_falls_through(
         tmp_path, monkeypatch, capsys):
     """W1 lock discipline: a row cooled while its ping was in flight
