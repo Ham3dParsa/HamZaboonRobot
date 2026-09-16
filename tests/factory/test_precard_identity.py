@@ -11,8 +11,8 @@ from factory.precard import __version__
 from factory.precard import accounting, progress
 
 
-def test_version_is_141():
-    assert __version__ == "1.4.1"
+def test_version_is_142():
+    assert __version__ == "1.4.2"
 
 
 def test_stages_speak_real_words():
