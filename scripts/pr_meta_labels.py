@@ -9,11 +9,12 @@ XL 1000+.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
 
-REPO = "Ham3dParsa/HamZaboonRobot"
+REPO = os.environ.get("GITHUB_REPOSITORY", "Ham3dParsa/HamZaboonRobot")
 SIZE_BANDS = (
     ("size/XS", 0, 9),
     ("size/S", 10, 99),
@@ -24,8 +25,10 @@ SIZE_BANDS = (
 SIZE_LABELS = {name for name, _, _ in SIZE_BANDS}
 PROD_PREFIXES = ("services/", "handlers/", "factory/", "tools/", "config/", "scripts/", "bot.py")
 TEST_PREFIX = "tests/"
+# Meta paths that define labeling itself: changing only these never needs tests.
+META_PATHS = (".github/", "scripts/pr_meta_labels.py", "label_definitions.md")
 BREAKING_TITLE = re.compile(r"^[\w-]+(\([^)]*\))?!:")
-BREAKING_BODY = re.compile(r"breaking change", re.IGNORECASE)
+BREAKING_BODY = re.compile(r"^BREAKING[ -]CHANGE\s*:", re.IGNORECASE | re.MULTILINE)
 
 
 def gh(*args):
@@ -58,7 +61,11 @@ def main(pr_number: str) -> int:
 
     # needs-tests: production touched, no tests touched.
     paths = [f.get("path", "") or f.get("filename", "") for f in files]
-    touched_prod = any(p == "bot.py" or p.startswith(PROD_PREFIXES) for p in paths)
+    touched_prod = any(
+        (p == "bot.py" or p.startswith(PROD_PREFIXES))
+        and not p.startswith(META_PATHS)
+        for p in paths
+    )
     touched_tests = any(p.startswith(TEST_PREFIX) for p in paths)
     if touched_prod and not touched_tests:
         want.add("needs-tests")
@@ -79,4 +86,7 @@ def main(pr_number: str) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("usage: pr_meta_labels.py <pr-number>", file=sys.stderr)
+        sys.exit(2)
     sys.exit(main(sys.argv[1]))
