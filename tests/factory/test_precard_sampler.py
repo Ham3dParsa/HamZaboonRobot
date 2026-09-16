@@ -122,3 +122,36 @@ def test_cli_malformed_jsonl_exits_2(tmp_path):
                       "--out", str(tmp_path / "o.jsonl"),
                       "--mix", "0,0,1,0,0,0"])
     assert exc.value.code == 2
+
+
+def test_tag_drop_reason_string_tags():
+    """Reviewer finding (Kilo WARNING): bare-string tags must be treated
+    as one tag, not iterated char-by-char (silent policy bypass)."""
+    drop = frozenset({"vulgar"})
+    assert sampler.tag_drop_reason("vulgar", drop) == "vulgar"
+    assert sampler.tag_drop_reason("slang", drop) is None
+
+
+def test_parse_mix_rejects_negatives():
+    """Reviewer finding (Kilo WARNING): negative quotas must fail fast
+    instead of flowing into a negative reservoir_need."""
+    import pytest
+
+    with pytest.raises(ValueError):
+        sampler.parse_mix("-1,0,0,0,0,0")
+
+
+def test_cli_bad_mix_exits_2(tmp_path):
+    """Reviewer finding (Kilo WARNING): invalid --mix (bad shape or
+    negative) exits via parser.error (code 2), not a raw traceback."""
+    import pytest
+
+    src = tmp_path / "rows.jsonl"
+    src.write_text('{"key": "w:a", "sense_cefr": "B1"}\n',
+                   encoding="utf-8")
+    for bad_mix in ("bad", "-1,0,0,0,0,0"):
+        with pytest.raises(SystemExit) as exc:
+            sampler.main(["--rows", str(src),
+                          "--out", str(tmp_path / "o.jsonl"),
+                          "--mix", bad_mix])
+        assert exc.value.code == 2

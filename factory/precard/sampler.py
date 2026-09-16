@@ -80,6 +80,8 @@ def tag_drop_reason(tags, drop_tags):
     drop_tags must not silently bypass the policy."""
     if tags is None:
         return None
+    if isinstance(tags, str):
+        tags = [tags]
     drop = {str(t or "").strip().casefold() for t in drop_tags or ()}
     hit = {str(t or "").strip().casefold() for t in tags} & drop
     return sorted(hit)[0] if hit else None
@@ -178,6 +180,9 @@ def parse_mix(text):
     except ValueError:
         raise ValueError("mix values must be integers (got %r)"
                          % (text,))
+    if any(value < 0 for value in values):
+        raise ValueError("mix values must be >= 0 (got %r)"
+                         % (text,))
     return {level: value for level, value in zip(LEVELS, values)}
 
 
@@ -228,7 +233,10 @@ def main(argv=None):
     if args.exclude_obsolete:
         exclude |= set(OBSOLETE_TAGS)
     drop_tags = resolve_drop_tags(args.profile, include, exclude)
-    quotas = parse_mix(args.mix)
+    try:
+        quotas = parse_mix(args.mix)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         with open(args.rows, encoding="utf-8") as handle:
             rows = []
