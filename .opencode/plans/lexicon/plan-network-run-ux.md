@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: docs/network-run-spec
 status: in-progress
 ---
-STATE: phase 3/6 — status: in-progress — focus: wave1 done (PR 710 + 711 merged); wave2 PR-A entry merged (PR 713 squash 22ee58d); PR-B table next
+STATE: phase 5/6 — status: in-progress — focus: PR-B table merged (PR 716); PR-C cache+direct merged (PR 717 squash eb94925, precard 1.4.4); PR-D resume next (needs PR-B+PR-C, both merged); then 50-item precard proof run
 
 ## Locked rules
 - R1 thin entry `factory/run.py`; R2 presets avalai/google/zen; R3 `CLI>env>preset>default` + `--list-models` prints the resolved chain; R4 auto-spawn supervisor with pid print + `--no-sup-spawn`.
