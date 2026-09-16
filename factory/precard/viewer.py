@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 import re
 from collections import OrderedDict
 from pathlib import Path
@@ -32,6 +33,7 @@ _HTML_TEMPLATE = """
 <title>__TITLE__</title>
 <style>
 :root {
+  color-scheme: light;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
 
@@ -64,6 +66,7 @@ _HTML_TEMPLATE = """
 
 [data-theme="dark"] {
   /* DARK THEME (Clean Neutral Zinc / Charcoal) */
+  color-scheme: dark;
   --bg-page: #121316;
   --bg-surface: #191a1f;
   --bg-surface-hover: #22232a;
@@ -88,6 +91,137 @@ _HTML_TEMPLATE = """
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.5);
   --shadow-md: 0 4px 14px rgba(0,0,0,0.6);
+}
+
+/* Themed scrollbars: native <select> popups follow color-scheme for free.
+   Sidebar + detail panes keep a 10px hit area with a thin visible thumb.
+   Thumb uses --text-muted (not --border-strong) to hold >= 3:1 contrast
+   against the pane surface in both themes. No new palette. */
+.sidebar, .detail-pane {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+.sidebar::-webkit-scrollbar, .detail-pane::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.sidebar::-webkit-scrollbar-track, .detail-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb, .detail-pane::-webkit-scrollbar-thumb {
+  background-color: var(--text-muted);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover, .detail-pane::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-secondary);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Header strip: always-visible lemma + precard totals (T4). */
+.header-strip {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px 24px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.header-strip b {
+  color: var(--text-primary);
+}
+.hs-dim {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.hs-sep {
+  color: var(--border-strong);
+}
+
+/* Distributions drawer under the filter bar (T4): six metric groups. */
+.dist-drawer {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px 24px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dist-drawer > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  outline: none;
+}
+.dist-drawer > summary .dist-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.dist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  padding: 10px 0 6px 0;
+}
+.dist-group {
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.dist-group h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.dist-group table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.dist-group th, .dist-group td {
+  text-align: left;
+  padding: 2px 6px 2px 0;
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+.dist-group th {
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dist-group td.num {
+  text-align: right;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.dist-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  font-family: var(--font-sans);
+}
+.dist-kv {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 2px 0;
+}
+.dist-kv b {
+  color: var(--text-primary);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -607,6 +741,8 @@ __BANNERS__
     </div>
   </header>
 
+__HEADER_STRIP__
+
   <div class="filter-bar">
     <input type="text" id="searchInput" class="search-input" placeholder="Search lemma or key... (press /)" oninput="applyFilters()">
 
@@ -614,24 +750,29 @@ __BANNERS__
 __CEFR_PILLS__
     </div>
 
-    <select id="topicFilter" class="select-filter" onchange="applyFilters()">
+    <select id="topicFilter" class="select-filter" onchange="applyFilters()"
+      title="All Topics counts all lemmas (kept + dropped); each topic counts kept-only lemmas">
       <option value="ALL">All Topics</option>
     </select>
 
-    <select id="statusFilter" class="select-filter" onchange="applyFilters()">
+    <select id="statusFilter" class="select-filter" onchange="applyFilters()"
+      title="Dropped lemmas carry no senses: Dropped Only combined with a CEFR or topic filter matches nothing">
       <option value="ALL">All Statuses</option>
       <option value="KEPT">Kept Only</option>
       <option value="DROPPED">Dropped Only</option>
       <option value="SYNTHETIC">Needs Synthetic Ex</option>
     </select>
 
-    <select id="sortOrder" class="select-filter" onchange="applyFilters()" style="margin-left:auto;">
+    <select id="sortOrder" class="select-filter" onchange="applyFilters()" style="margin-left:auto;"
+      title="CEFR Level sorts by each kept lemma's lowest sense CEFR (filter matches any sense)">
       <option value="DEFAULT">Original Order</option>
       <option value="ALPHA">A → Z</option>
       <option value="SENSES_DESC">Senses (High to Low)</option>
       <option value="CEFR_ASC">CEFR Level</option>
     </select>
   </div>
+
+__DIST_DRAWER__
 
   <div class="split-workspace">
     <aside class="sidebar" id="sidebarList"></aside>
@@ -648,6 +789,7 @@ __CEFR_PILLS__
 /*PRECARD_VIEWER_DATA_START*/
 const RAW_LEMMAS = __VIEWER_DATA__;
 /*PRECARD_VIEWER_DATA_END*/
+const STATS = __VIEWER_STATS__;
 const KNOWN_TOPICS = __KNOWN_TOPICS__;
 const STAGE_NAMES = __STAGE_NAMES__;
 
@@ -685,10 +827,18 @@ function initTopicsAndPillCounts() {
     }
   });
 
-  // Set CEFR pill counts
+  // Set CEFR pill counts + unit tooltips (label rule: ALL counts all
+  // lemmas incl. dropped; each level counts kept-only lemmas, exists
+  // semantics, so one lemma may count in 2 levels).
+  const allPill = document.querySelector('#cefrPills .pill-btn[data-cefr="ALL"]');
+  if (allPill) allPill.title = `ALL: all ${escapeHtml(STATS.lemmas_total)} lemmas (kept + dropped)`;
   for (const [lvl, count] of Object.entries(cefrCounts)) {
     const el = document.getElementById(`count-${lvl}`);
     if (el) el.textContent = `(${count})`;
+    if (lvl !== "ALL") {
+      const btn = document.querySelector(`#cefrPills .pill-btn[data-cefr="${lvl}"]`);
+      if (btn) btn.title = `${escapeHtml(lvl)}: ${escapeHtml(count)} kept-only lemmas with any sense at ${escapeHtml(lvl)} (pool or sense CEFR; one lemma may count in 2 levels)`;
+    }
   }
 
   // Populate Topics dropdown with counts
@@ -710,6 +860,22 @@ function filterCefr(level) {
     btn.classList.toggle("active", btn.getAttribute("data-cefr") === level);
   });
   applyFilters();
+}
+
+const CEFR_RANK = { "A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6 };
+
+// Lowest CEFR across all senses (pool fallback), consistent with the
+// any-sense CEFR filter. senses[0]-only display/sort drifted from it.
+function lowestCefrOf(item) {
+  let best = null;
+  let bestRank = 99;
+  (item.senses || []).forEach(s => {
+    [s.sense_cefr, s.pool_level, item.pool_level].forEach(lvl => {
+      const r = CEFR_RANK[lvl] || 99;
+      if (r < bestRank) { bestRank = r; best = lvl; }
+    });
+  });
+  return best || item.pool_level || "—";
 }
 
 function applyFilters() {
@@ -746,11 +912,8 @@ function applyFilters() {
   } else if (sort === "SENSES_DESC") {
     filteredList.sort((a, b) => b.senses.length - a.senses.length);
   } else if (sort === "CEFR_ASC") {
-    const rank = { "A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6, "—": 99 };
     filteredList.sort((a, b) => {
-      const ca = a.senses[0]?.sense_cefr || a.pool_level || "—";
-      const cb = b.senses[0]?.sense_cefr || b.pool_level || "—";
-      return (rank[ca] || 99) - (rank[cb] || 99);
+      return (CEFR_RANK[lowestCefrOf(a)] || 99) - (CEFR_RANK[lowestCefrOf(b)] || 99);
     });
   }
 
@@ -758,10 +921,15 @@ function applyFilters() {
   if (filteredList.length > 0) {
     selectLemma(0);
   } else {
+    let hint = "Try adjusting your filters or search query.";
+    if (status === "DROPPED" && (currentCefrFilter !== "ALL" || topic !== "ALL")) {
+      hint = `Dropped lemmas carry no senses, so a CEFR/topic filter never matches them. `
+        + `Clear CEFR/topic to browse all ${STATS.lemmas_dropped} dropped lemmas.`;
+    }
     document.getElementById("detailContent").innerHTML = `
       <div style="text-align:center; padding: 80px; color:var(--text-muted)">
         <h3>No matching lemmas found</h3>
-        <p style="margin-top:6px; font-size:13px;">Try adjusting your filters or search query.</p>
+        <p style="margin-top:6px; font-size:13px;">${escapeHtml(hint)}</p>
       </div>`;
   }
 }
@@ -769,7 +937,10 @@ function applyFilters() {
 function renderSidebar() {
   const sidebar = document.getElementById("sidebarList");
   sidebar.innerHTML = "";
-  document.getElementById("statsCount").textContent = `${filteredList.length} of ${RAW_LEMMAS.length} lemmas`;
+  const filteredPrecards = filteredList.reduce((n, item) => n + (item.dropped ? 0 : item.senses.length), 0);
+  const statsEl = document.getElementById("statsCount");
+  statsEl.textContent = `${escapeHtml(filteredList.length)} of ${escapeHtml(RAW_LEMMAS.length)} lemmas (filtered view, all) · ${escapeHtml(filteredPrecards)} precards (kept-only)`;
+  statsEl.title = `Filtered view over all ${escapeHtml(STATS.lemmas_total)} lemmas (${escapeHtml(STATS.lemmas_kept)} kept, ${escapeHtml(STATS.lemmas_dropped)} dropped) and ${escapeHtml(STATS.precards_total)} precards (kept-only rows)`;
 
   filteredList.forEach((item, idx) => {
     const el = document.createElement("div");
@@ -781,10 +952,11 @@ function renderSidebar() {
     if (item.dropped) {
       rightBadge = `<span class="stats-badge" style="color:var(--drop-text); border-color:var(--drop-b);">DROP</span>`;
     } else {
-      const topCefr = item.senses[0]?.sense_cefr || item.pool_level;
+      const lemmaCefr = lowestCefrOf(item);
+      const nPrecards = item.senses.length;
       rightBadge = `
-        <span class="cefr-tag cefr-${escapeHtml(topCefr)}">${escapeHtml(topCefr)}</span>
-        <span class="stats-badge">${item.senses.length}</span>
+        <span class="cefr-tag cefr-${escapeHtml(lemmaCefr)}" title="lowest CEFR across senses (filter matches any sense)">${escapeHtml(lemmaCefr)}</span>
+        <span class="stats-badge" title="${escapeHtml(nPrecards)} precards (kept-only senses)">${escapeHtml(nPrecards)} precards</span>
       `;
     }
 
@@ -857,7 +1029,7 @@ function selectLemma(index) {
     }
 
     const topicsHtml = (s.topic_vector || []).map(t => `
-      <span class="topic-pill">${escapeHtml(t.label)} <b>${t.weight.toFixed(2)}</b></span>
+      <span class="topic-pill" title="topic label + weight 0..1">${escapeHtml(t.label)} <b>${t.weight.toFixed(2)}</b></span>
     `).join("");
 
     const exs = s.dataset_examples || [];
@@ -934,7 +1106,7 @@ function selectLemma(index) {
         ${heroIpa}
         <span class="hero-key">${escapeHtml(item.key)}</span>
       </div>
-      <span class="stats-badge" style="font-size:12px;">${item.senses.length} sense(s) extracted</span>
+      <span class="stats-badge" style="font-size:12px;" title="${escapeHtml(item.senses.length)} kept-only precard rows for this lemma">${escapeHtml(item.senses.length)} precards</span>
     </div>
     <div class="senses-list">
       ${sensesHtml}
@@ -1088,6 +1260,280 @@ def _neutralise(text):
     return text.replace("</", "<\\/")
 
 
+_CEFR_LEVELS = tuple(CEFR_ORDER) + ("\u2014",)
+_MISSING = "\u2014"
+
+
+def _reason_head(reason):
+    head = (reason or "").split(":")[0].split("/")[0].strip()
+    return head or "(unknown)"
+
+
+def _pct(part, whole):
+    return round(100.0 * part / whole, 1) if whole else 0.0
+
+
+def _median(values):
+    if not values:
+        return 0
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _p90(values):
+    if not values:
+        return 0
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(0.9 * len(ordered)) - 1)]
+
+
+def _compute_stats(rows, dropped_map):
+    """Distribution metrics from kept precard rows + drop reasons.
+
+    Lemma-level counts use exists semantics (one lemma in two buckets
+    counts in both, overlaps tallied separately); precard-level counts
+    are row-level. Stdlib only; single dict embedded as STATS.
+    """
+    kept_keys = [k for k in rows]
+    dropped_keys = [k for k in dropped_map if k not in rows]
+    n_kept = len(kept_keys)
+    n_dropped = len(dropped_keys)
+    n_rows = sum(len(v) for v in rows.values())
+
+    drops = {}
+    for key in dropped_keys:
+        head = _reason_head(dropped_map[key])
+        drops[head] = drops.get(head, 0) + 1
+    drops_by_reason = sorted(drops.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    per_lemma = [len(rows[k]) for k in kept_keys]
+    hist = {"1": 0, "2": 0, "3": 0, "4+": 0}
+    for n in per_lemma:
+        hist["4+" if n >= 4 else str(n)] += 1
+
+    cefr_lemma = {lvl: 0 for lvl in _CEFR_LEVELS}
+    cefr_precard = {lvl: 0 for lvl in _CEFR_LEVELS}
+    cefr_overlap = 0
+    topic_lemma = {}
+    topic_precard = {}
+    topic_overlap = 0
+    untagged_precards = 0
+    synth_precards = 0
+    synth_lemmas = 0
+    mismatch_precards = 0
+    mismatch_lemmas = 0
+
+    for key in kept_keys:
+        lemma_cefrs = set()
+        lemma_topics = set()
+        lemma_synth = False
+        lemma_mismatch = False
+        for rec in rows[key]:
+            if not isinstance(rec, dict):
+                continue
+            sense_cefr = rec.get("sense_cefr") or _MISSING
+            pool = rec.get("pool_level") or _MISSING
+            cefr_precard[sense_cefr] = cefr_precard.get(sense_cefr, 0) + 1
+            lemma_cefrs.add(sense_cefr)
+            lemma_cefrs.add(pool)
+            labels = [t.get("label") for t in (rec.get("topic_vector") or [])
+                      if isinstance(t, dict) and t.get("label")]
+            if labels:
+                for label in labels:
+                    topic_precard[label] = topic_precard.get(label, 0) + 1
+            else:
+                untagged_precards += 1
+            lemma_topics.update(labels)
+            if rec.get("example_synthetic_needed"):
+                synth_precards += 1
+                lemma_synth = True
+            if (sense_cefr != _MISSING and pool != _MISSING
+                    and sense_cefr != pool):
+                mismatch_precards += 1
+                lemma_mismatch = True
+        for level in lemma_cefrs:
+            cefr_lemma[level] = cefr_lemma.get(level, 0) + 1
+        if len(lemma_cefrs) > 1:
+            cefr_overlap += 1
+        for label in lemma_topics:
+            topic_lemma[label] = topic_lemma.get(label, 0) + 1
+        if len(lemma_topics) > 1:
+            topic_overlap += 1
+        if lemma_synth:
+            synth_lemmas += 1
+        if lemma_mismatch:
+            mismatch_lemmas += 1
+
+    n_total = n_kept + n_dropped
+    return {
+        "lemmas_total": n_total,
+        "lemmas_kept": n_kept,
+        "lemmas_dropped": n_dropped,
+        "precards_total": n_rows,
+        "kept_rate_pct": round(100.0 * n_kept / n_total) if n_total else 0,
+        "drops_by_reason": [[head, count] for head, count in drops_by_reason],
+        "ppc": {
+            "mean": round(sum(per_lemma) / len(per_lemma), 2) if per_lemma else 0,
+            "median": _median(per_lemma),
+            "p90": _p90(per_lemma),
+            "hist": hist,
+        },
+        "cefr_lemma": cefr_lemma,
+        "cefr_lemma_overlap": cefr_overlap,
+        "cefr_precard": cefr_precard,
+        "topic_lemma": dict(sorted(topic_lemma.items())),
+        "topic_lemma_overlap": topic_overlap,
+        "topic_precard": dict(sorted(topic_precard.items())),
+        "untagged_precards": untagged_precards,
+        "synthetic": {
+            "precards": synth_precards,
+            "precards_pct": _pct(synth_precards, n_rows),
+            "lemmas": synth_lemmas,
+            "lemmas_pct": _pct(synth_lemmas, n_kept),
+        },
+        "mismatch": {
+            "precards": mismatch_precards,
+            "precards_pct": _pct(mismatch_precards, n_rows),
+            "lemmas": mismatch_lemmas,
+        },
+    }
+
+
+def _header_strip(stats):
+    if stats["drops_by_reason"]:
+        drops_tip = "drops by reason (dropped.log): " + ", ".join(
+            "%s: %d dropped lemmas" % (head, count)
+            for head, count in stats["drops_by_reason"])
+    else:
+        drops_tip = "no drops recorded"
+    return (
+        '<div class="header-strip" id="headerStrip" title="%s">'
+        '<span><b>%d</b> lemmas '
+        '<span class="hs-dim">(all: <b>%d</b> kept, <b>%d</b> dropped)</span></span>'
+        '<span class="hs-sep">\u00b7</span>'
+        '<span><b>%d</b> precards '
+        '<span class="hs-dim">(kept-only rows)</span></span>'
+        '<span class="hs-sep">\u00b7</span>'
+        '<span>kept rate <b>%d%%</b> '
+        '<span class="hs-dim">(kept lemmas / all lemmas)</span></span>'
+        "</div>" % (
+            html.escape(drops_tip, quote=True),
+            stats["lemmas_total"], stats["lemmas_kept"],
+            stats["lemmas_dropped"], stats["precards_total"],
+            stats["kept_rate_pct"]))
+
+
+def _dist_table(headers, rows):
+    head = "".join("<th>%s</th>" % _esc(h) for h in headers)
+    body = "".join(
+        "<tr>" + "".join(
+            '<td class="num">%s</td>' % _esc(c) if i
+            else "<td>%s</td>" % _esc(c)
+            for i, c in enumerate(row)
+        ) + "</tr>"
+        for row in rows)
+    return ("<table><thead><tr>%s</tr></thead>"
+            "<tbody>%s</tbody></table>" % (head, body))
+
+
+def _ordered_levels(*maps):
+    levels = [lvl for lvl in _CEFR_LEVELS
+              if any(m.get(lvl) for m in maps)]
+    extras = sorted({k for m in maps for k in m} - set(_CEFR_LEVELS))
+    return levels + extras
+
+
+def _dist_drawer(stats):
+    ppc = stats["ppc"]
+    g1 = (
+        "<h3>1 \u00b7 precards per kept lemma</h3>"
+        '<p class="dist-kv">mean <b>%(mean)s</b> precards \u00b7 '
+        "median <b>%(median)s</b> \u00b7 p90 <b>%(p90)s</b> "
+        "(over %(n)d kept lemmas)</p>" % {
+            "mean": ppc["mean"], "median": ppc["median"],
+            "p90": ppc["p90"], "n": stats["lemmas_kept"]}
+        + _dist_table(
+            ("precards bucket", "kept lemmas"),
+            [("1 precard", ppc["hist"]["1"]),
+             ("2 precards", ppc["hist"]["2"]),
+             ("3 precards", ppc["hist"]["3"]),
+             ("4+ precards", ppc["hist"]["4+"])]))
+
+    g2 = (
+        "<h3>2 \u00b7 kept vs dropped</h3>"
+        '<p class="dist-kv"><b>%(kept)d</b> kept lemmas \u00b7 '
+        "<b>%(dropped)d</b> dropped lemmas \u00b7 kept rate "
+        "<b>%(rate)d%%</b> (kept lemmas / all lemmas)</p>" % {
+            "kept": stats["lemmas_kept"],
+            "dropped": stats["lemmas_dropped"],
+            "rate": stats["kept_rate_pct"]}
+        + (_dist_table(
+            ("drop reason (stage signal)", "dropped lemmas"),
+            [(head, count) for head, count in stats["drops_by_reason"]])
+            if stats["drops_by_reason"]
+            else '<p class="dist-note">no drops recorded</p>'))
+
+    levels = _ordered_levels(stats["cefr_lemma"], stats["cefr_precard"])
+    g3 = (
+        "<h3>3 \u00b7 senses by CEFR</h3>"
+        + _dist_table(
+            ("CEFR", "kept lemmas, lemma-level (exists)",
+             "precards, row-level"),
+            [(lvl, stats["cefr_lemma"].get(lvl, 0),
+              stats["cefr_precard"].get(lvl, 0)) for lvl in levels])
+        + '<p class="dist-note">lemma counts overlap: '
+        "<b>%d</b> kept lemmas sit in 2+ CEFR buckets "
+        "(sense_cefr \u222a pool_level); precard counts are row-level "
+        "and never overlap.</p>" % stats["cefr_lemma_overlap"])
+
+    labels = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),
+                    key=lambda l: (-stats["topic_precard"].get(l, 0), l))
+    g4 = (
+        "<h3>4 \u00b7 senses by topic</h3>"
+        + (_dist_table(
+            ("topic", "kept lemmas, lemma-level (exists)",
+             "precards, row-level"),
+            [(label, stats["topic_lemma"].get(label, 0),
+              stats["topic_precard"].get(label, 0)) for label in labels])
+            if labels else '<p class="dist-note">no topic labels</p>')
+        + '<p class="dist-note">lemma counts overlap: '
+        "<b>%d</b> kept lemmas sit in 2+ topic buckets; "
+        "<b>%d</b> precards carry no topic label.</p>" % (
+            stats["topic_lemma_overlap"], stats["untagged_precards"]))
+
+    synth = stats["synthetic"]
+    g5 = (
+        "<h3>5 \u00b7 synthetic examples needed</h3>"
+        '<p class="dist-kv"><b>%(p)d</b> precards '
+        "(%(pp)s%% of all precards) \u00b7 <b>%(m)d</b> kept lemmas "
+        "(%(mp)s%% of kept lemmas)</p>" % {
+            "p": synth["precards"], "pp": synth["precards_pct"],
+            "m": synth["lemmas"], "mp": synth["lemmas_pct"]})
+
+    mismatch = stats["mismatch"]
+    g6 = (
+        "<h3>6 \u00b7 pool-vs-sense CEFR mismatch</h3>"
+        '<p class="dist-kv"><b>%(p)d</b> precards '
+        "(%(pp)s%% of all precards) \u00b7 <b>%(m)d</b> kept lemmas "
+        "with \u22651 mismatch</p>" % {
+            "p": mismatch["precards"], "pp": mismatch["precards_pct"],
+            "m": mismatch["lemmas"]})
+
+    return (
+        '<details class="dist-drawer" id="distDrawer">'
+        "<summary>Distributions "
+        '<span class="dist-hint">six metric groups \u00b7 lemma-level '
+        "(exists, overlaps noted) vs precard-level (row-level) \u00b7 "
+        "every number names its unit</span></summary>"
+        '<div class="dist-grid">'
+        + "".join('<section class="dist-group">%s</section>' % g
+                   for g in (g1, g2, g3, g4, g5, g6))
+        + "</div></details>")
+
+
 def _build(run_dir=None, precard=None, sample=None, dropped=None,
            run_log=None, limit=0, title=None):
     run_path = Path(run_dir) if run_dir else None
@@ -1156,8 +1602,13 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
     page = page.replace("__LINE_VERSION__", _esc(_LINE_VERSION))
     page = page.replace("__CEFR_PILLS__", _cefr_pills())
     page = page.replace("__BANNERS__", _banners(warnings))
+    stats = _compute_stats(rows, dropped_map)
+    page = page.replace("__HEADER_STRIP__", _header_strip(stats))
+    page = page.replace("__DIST_DRAWER__", _dist_drawer(stats))
     page = page.replace("__VIEWER_DATA__",
                         _neutralise(json.dumps(lemmas_data, ensure_ascii=False)))
+    page = page.replace("__VIEWER_STATS__",
+                        _neutralise(json.dumps(stats, ensure_ascii=False)))
     page = page.replace("__KNOWN_TOPICS__",
                         _neutralise(json.dumps(list(_TOPIC_LABELS),
                                                ensure_ascii=False)))
