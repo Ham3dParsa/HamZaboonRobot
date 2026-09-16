@@ -67,6 +67,18 @@ from factory.precard.transport import (
 LLM_LEGS = ("inflection_review", "sense_judge", "topic_vectors",
             "topic_label")
 
+# R9: --only/--stages refusal map — a selected judging/labeling/
+# enrich stage runs on its required upstream's done state. Deterministic
+# stages (preprocess/inflection_review/anchor_rank) read the index and
+# datasets, never upstream progress, so they carry no requirement
+# (--only anchor_rank on a fresh dir keeps working).
+_REQUIRES_UPSTREAM = {
+    "sense_judge": "anchor_rank",
+    "topic_vectors": "sense_judge",
+    "topic_label": "sense_judge",
+    "enrich": "sense_judge",
+}
+
 _USE_DEFAULT = object()
 
 
@@ -170,6 +182,32 @@ def _load_rekey_keys(path):
                 if isinstance(k, str) and k.strip()]
     return [line.strip() for line in blob.splitlines()
             if line.strip() and not line.strip().startswith("#")]
+
+
+def _refuse_empty_upstream(selected, states, flag):
+    """R9: --only/--stages with empty upstream refuses (names the stage).
+
+    A selected stage in _REQUIRES_UPSTREAM runs on its upstream's done
+    state — with neither progress-file entries nor the upstream selected
+    in this same run it would silently emit fallbacks, so refuse instead.
+    Full runs and deterministic-only selections never trip this. Returns
+    the refusal message, or None when the selection is runnable.
+    """
+    for stage in progress.STAGES:
+        if stage not in selected or stage not in _REQUIRES_UPSTREAM:
+            continue
+        upstream = _REQUIRES_UPSTREAM[stage]
+        if upstream in selected:
+            continue
+        if len(states.get(upstream, {}).get("done", {}) or {}) == 0:
+            return ("%s %s with empty upstream %s (no %s progress, and "
+                    "%s is not selected) — run the full pipeline first "
+                    "(drop %s), or re-run without --no-resume"
+                    % (flag, progress.display(stage),
+                       progress.display(upstream),
+                       progress.display(upstream),
+                       progress.display(upstream), flag))
+    return None
 
 
 def _stage_range(selected, stage, items, width=BATCH):
@@ -500,6 +538,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
          _type_log_available=None):
     """Run the pre-card pipeline. Returns 0 on success (exit code)."""
     args = parse_args(argv)
+    if args.resume and args.no_resume:
+        raise SystemExit("--resume and --no-resume are mutually exclusive "
+                         "(--resume prints the RESUME PLAN then runs, "
+                         "--no-resume starts fresh)")
     # R10: one run_id (start-ts + pid) joins provider_map.json, the
     # run.log header, every telemetry record, and every --json-log
     # event of this run.
@@ -601,7 +643,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             try:
                 loaded = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                _preflight_exit("corrupt progress %s: %s" % (path, exc))
+                _preflight_exit("corrupt progress %s: %s (re-run with "
+                                "--no-resume to start fresh; the file is "
+                                "kept, never auto-discarded)" % (path, exc))
         states[stage] = {"done": loaded.get("done", {}),
                          "failed": loaded.get("failed", []),
                          "backoffs": loaded.get("backoffs", [])}
@@ -626,6 +670,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         rekeyed = _load_rekey_keys(args.rekey)
     except SystemExit as exc:
         _preflight_exit(exc.code)
+    sample_order = [item_key(i) for i in items]
+    if rekeyed:
+        sample_keys = set(sample_order)
+        unknown = [k for k in rekeyed if k not in sample_keys]
+        if unknown:
+            shown = ", ".join(unknown[:10])
+            if len(unknown) > 10:
+                shown += " (+%d more)" % (len(unknown) - 10)
+            _preflight_exit("rekey key(s) not in sample %s: %s "
+                            "(--rekey keys must match sample item keys)"
+                            % (args.sample, shown))
     if rekeyed:
         rekeyed_set = set(rekeyed)
         for stage in selected:
@@ -644,6 +699,24 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _say("rekey: %d key(s) forced to redo in %s" % (
             len(rekeyed),
             ", ".join(progress.display(s) for s in progress.STAGES if s in selected)))
+    if (args.only or "").strip() or (args.stages or "").strip():
+        _sel_flag = "--only" if (args.only or "").strip() else "--stages"
+        _refusal = _refuse_empty_upstream(selected, states, _sel_flag)
+        if _refusal is not None:
+            _preflight_exit(_refusal)
+    if args.resume:
+        _say("RESUME PLAN (progress %s, sample %s, %d items):" % (
+            progress_dir, args.sample, len(items)))
+        for stage in progress.STAGES:
+            if stage not in selected:
+                _say("  %s: skipped (not selected)"
+                     % progress.display(stage))
+                continue
+            _done_here = (set(states[stage]["done"] or {})
+                          & set(sample_order))
+            _say("  %s: done=%d todo=%d" % (
+                progress.display(stage), len(_done_here),
+                len(sample_order) - len(_done_here)))
 
     # V7: compact run.log in the out dir (stage start/end + counts +
     # timings). Console shows a live one-line progress per batch
@@ -1111,6 +1184,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 except AuthError as exc:
                     _abort("inflection_review", exc)
                     raise
+                except RateLimited as exc:
+                    # R9 (S4 pattern): flush then STOP for a resume —
+                    # ProviderCooldown rides along (RateLimited
+                    # subclass), same as the s2/s3/s4 callers.
+                    _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed,
+                                                    run_id=run_id)
+                    jlog.event("abort", stage="inflection_review",
+                               batch=batch_no, error=str(exc))
+                    jlog.close()
+                    hint = ("wait for quota reset then re-run"
+                            if (full_avalai
+                                or _leg_avalai("inflection_review")
+                                or _leg_google("inflection_review"))
+                            else "switch VPN server then re-run")
+                    raise SystemExit(_color(
+                        "STOP s0b at batch %d: %s — progress flushed, "
+                        "%s" % (batch_no, exc, hint),
+                        "red", stream=sys.stderr))
                 except Exception:
                     verdicts = {}
                 for entry in review:
@@ -1987,6 +2080,10 @@ def parse_args(argv=None):
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--no-resume", action="store_true",
                     help="ignore existing stage progress (default: resume on)")
+    ap.add_argument("--resume", action="store_true",
+                    help="print the RESUME PLAN (per-stage done/todo from "
+                    "progress) then run with resume on; mutually "
+                    "exclusive with --no-resume")
     ap.add_argument("--only", default="",
                     help="run a single stage only (id or name, e.g. "
                      "--only sense_judge; case-insensitive; "

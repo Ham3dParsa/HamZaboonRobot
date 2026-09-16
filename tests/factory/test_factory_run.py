@@ -6,7 +6,10 @@ A test fails if any network/subprocess call escapes (sentinels raise).
 """
 
 import os
+import re
 import sys
+
+import json
 
 import pytest
 
@@ -838,3 +841,368 @@ def test_spawn_supervisor_sets_child_env(monkeypatch):
     assert env["EGRESS_CLEAN_TTL"] == "60.0"
     assert env["EGRESS_CLEAN_CACHE_PATH"] == "C:\\x\\cc.json"
     assert "tok" not in " ".join(captured["argv"])
+
+
+# --- R9 resume (phase 04): RESUME PLAN, 4 refusals, kill-mid-run ---
+#
+# Hermetic: the real precard pipeline runs through RUN.run with injected
+# transports/index/sleeps (no network, no keys on disk — keys come from
+# monkeypatched env, values never asserted). Refusals assert the name
+# (flag, key, file, or stage) in the error.
+
+_WORDS14 = ["apple", "banana", "cherry", "date", "elder", "fig",
+            "grape", "honey", "iris", "jelly", "kiwi", "lemon",
+            "mango", "nectar"]
+
+
+def _resume_rows(word):
+    return [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [{"ipa": "/x/"}],
+                       "senses": [{"glosses": ["a %s fruit" % word],
+                                   "tags": [], "examples": []}]}}]
+
+
+def _resume_index(words):
+    return {w: _resume_rows(w) for w in words}
+
+
+def _resume_read_entry(row):
+    return row["entry"]
+
+
+def _resume_judge(api_key, model, user_text):
+    """S2-shape reply: first candidate id per KEY section."""
+    keys, cands, cur = [], {}, None
+    for line in user_text.splitlines():
+        hit = re.match(r"^KEY (\S+)", line)
+        if hit:
+            cur = hit.group(1)
+            keys.append(cur)
+            cands[cur] = []
+        pick = re.match(r"^- (\S+#\d+)", line)
+        if pick and cur:
+            cands[cur].append(pick.group(1))
+    return json.dumps({"results": [
+        {"key": k, "pick": (cands[k][0] if cands[k] else "")}
+        for k in keys]})
+
+
+def _resume_topics(api_key, model, user_text):
+    """v15-shape reply: every sense -> Other / Abstract @1.0."""
+    lemmas, cur = {}, None
+    for line in user_text.splitlines():
+        hit = re.match(r"^LEMMA (.+):$", line)
+        if hit:
+            cur = hit.group(1)
+            lemmas[cur] = []
+        pick = re.match(r"^- (\S+)", line)
+        if pick and cur is not None:
+            lemmas[cur].append(pick.group(1))
+    return json.dumps({"results": [
+        {"lemma": lemma,
+         "vectors": [{"sense_id": sid,
+                      "vector": [{"topic_id": 16,
+                                  "topic_label": "Other / Abstract",
+                                  "weight": 1.0}]}
+                     for sid in sids]}
+        for lemma, sids in lemmas.items()]})
+
+
+def _http_429():
+    import urllib.error
+    return urllib.error.HTTPError("http://x", 429, "Too Many Requests",
+                                  {}, None)
+
+
+def _resume_items(words):
+    return [{"kind": "word", "text": w, "pos": "noun",
+             "pool_level": "A1"} for w in words]
+
+
+def _write_resume_sample(tmp_path, words):
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(_resume_items(words)), encoding="utf-8")
+    return str(sample)
+
+
+def _resume_pipe(judge_fn, index, calls=None):
+    """pipeline_main_fn for RUN.run: real pipeline, injected legs."""
+    from factory.precard.pipeline import main as precard_main
+
+    def _pipe(argv):
+        return precard_main(
+            argv, _judge_transport=judge_fn,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=index,
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    return _pipe
+
+
+def test_resume_flags_forwarded_to_pipeline():
+    """--resume/--only/--stages/--rekey reach the pipeline argv; the
+    plan prints the resume rows."""
+    seen = {}
+
+    def _pipeline(argv):
+        seen["argv"] = argv
+        return 0
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        rk = os.path.join(tmp, "rekey.txt")
+        with open(rk, "w", encoding="utf-8") as handle:
+            handle.write("w:apple\n")
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = RUN.run(
+                ["--preset", "zen", "--resume", "--only", "sense_judge",
+                 "--rekey", rk],
+                env_map={}, health_fn=_no_network, spawn_fn=_no_spawn,
+                pipeline_main_fn=_pipeline, sleep_fn=lambda s: None)
+    assert code == 0
+    for flag in ("--resume", "--only", "sense_judge", "--rekey", rk):
+        assert flag in seen["argv"]
+    out = buf.getvalue()
+    assert "resume:" in out and "RESUME PLAN" in out
+    assert "only:" in out and "rekey:" in out
+
+
+def test_resume_and_no_resume_refuse(capsys):
+    """Refusal 1/4: --resume + --no-resume errors by flag name (exit 2,
+    pipeline never touched)."""
+    with pytest.raises(SystemExit) as exc:
+        RUN.run(["--preset", "zen", "--resume", "--no-resume"],
+                env_map={}, health_fn=_no_network, spawn_fn=_no_spawn,
+                pipeline_main_fn=_no_pipeline,
+                sleep_fn=lambda s: None)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--resume" in err and "--no-resume" in err
+
+
+def test_pipeline_resume_and_no_resume_refuse():
+    """Refusal 1/4 at the pipeline entry (direct use, no files needed)."""
+    from factory.precard.pipeline import main as precard_main
+    with pytest.raises(SystemExit) as exc:
+        precard_main(["--resume", "--no-resume"])
+    assert "--resume" in str(exc.value.code)
+    assert "--no-resume" in str(exc.value.code)
+
+
+def test_rekey_unknown_keys_refuse(tmp_path, monkeypatch):
+    """Refusal 2/4: --rekey keys missing from the sample error by key."""
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple", "pear"])
+    rk = tmp_path / "rekey.txt"
+    rk.write_text("w:apple\nw:ghost\n", encoding="utf-8")
+    out = str(tmp_path / "precard.jsonl")
+    prog = str(tmp_path / "prog")
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", out, "--progress-dir", prog,
+             "--rekey", str(rk)],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=_resume_index(
+                ["apple", "pear"]),
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    assert "w:ghost" in str(exc.value.code)
+    assert "--rekey" in str(exc.value.code)
+
+
+def test_corrupt_progress_refuses_naming_file(tmp_path, monkeypatch):
+    """Refusal 3/4: corrupt progress names the file, suggests
+    --no-resume, and never auto-discards (bytes kept)."""
+    from factory.precard import progress as PROG
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple"])
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    bad = prog / PROG.FILES["sense_judge"]
+    bad.write_text("not-json{{{", encoding="utf-8")
+    before = bad.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", str(tmp_path / "precard.jsonl"),
+             "--progress-dir", str(prog)],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=_resume_index(["apple"]),
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    msg = str(exc.value.code)
+    assert PROG.FILES["sense_judge"] in msg
+    assert "--no-resume" in msg
+    assert bad.read_bytes() == before  # kept, never auto-discarded
+
+
+def test_only_with_empty_upstream_refuses(tmp_path, monkeypatch):
+    """Refusal 4/4: --only sense_judge with no anchor progress names
+    the stage and its empty upstream."""
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple"])
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", str(tmp_path / "precard.jsonl"),
+             "--progress-dir", str(tmp_path / "prog"),
+             "--only", "sense_judge"],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=_resume_index(["apple"]),
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    msg = str(exc.value.code)
+    assert "--only" in msg and "sense_judge" in msg
+    assert "anchor_rank" in msg
+
+
+def test_resume_plan_prints_counts(tmp_path, monkeypatch, capsys):
+    """--resume prints RESUME PLAN with per-stage done/todo: fresh dir
+    shows all-todo, a resumed run shows all-done with zero re-billing."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple", "pear"])
+    out = str(tmp_path / "precard.jsonl")
+    prog = str(tmp_path / "prog")
+    index = _resume_index(["apple", "pear"])
+    base = ["--sample", sample, "--out", out, "--progress-dir", prog]
+    judge_calls = []
+
+    def _counting(api_key, model, user_text):
+        judge_calls.append(user_text)
+        return _resume_judge(api_key, model, user_text)
+
+    code = RUN.run(["--preset", "zen", "--resume"] + base, env_map={},
+                   health_fn=_no_network, spawn_fn=_no_spawn,
+                   pipeline_main_fn=_resume_pipe(_counting, index),
+                   sleep_fn=lambda s: None)
+    assert code == 0
+    fresh = capsys.readouterr().out
+    assert "RESUME PLAN" in fresh
+    assert "sense_judge: done=0 todo=2" in fresh
+    assert "preprocess: done=0 todo=2" in fresh
+    n_first = len(judge_calls)
+    assert n_first > 0
+    code = RUN.run(["--preset", "zen", "--resume"] + base, env_map={},
+                   health_fn=_no_network, spawn_fn=_no_spawn,
+                   pipeline_main_fn=_resume_pipe(_counting, index),
+                   sleep_fn=lambda s: None)
+    assert code == 0
+    resumed = capsys.readouterr().out
+    assert "sense_judge: done=2 todo=0" in resumed
+    assert "enrich: done=2 todo=0" in resumed
+    assert len(judge_calls) == n_first  # zero re-billing of done items
+
+
+def test_kill_mid_run_resume_changed_chain(tmp_path, monkeypatch, capsys):
+    """Kill at item k (429 in judge batch 2), resume with a different
+    chain: batch-1 items skipped, k retried on the new model, zero
+    re-billing of done items, per-item actual models kept."""
+    from factory.precard.net import LEG_FALLBACKS
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "test-avalai-key")
+    sample = _write_resume_sample(tmp_path, _WORDS14)
+    out = str(tmp_path / "precard.jsonl")
+    prog = str(tmp_path / "prog")
+    index = _resume_index(_WORDS14)
+    base = ["--sample", sample, "--out", out, "--progress-dir", prog]
+    zen_chain = [m for m, _ in LEG_FALLBACKS[("zen", "sense_judge")]]
+    avalai_chain = [m for m, _ in LEG_FALLBACKS[("avalai", "sense_judge")]]
+    assert zen_chain and avalai_chain
+    assert not set(zen_chain) & set(avalai_chain)
+    run1_calls = []
+
+    def _killer(api_key, model, user_text):
+        keys = re.findall(r"^KEY (\S+)", user_text, re.M)
+        run1_calls.append((model, keys))
+        if "w:mango" in user_text or "w:nectar" in user_text:
+            raise _http_429()
+        return _resume_judge(api_key, model, user_text)
+
+    with pytest.raises(SystemExit) as exc:
+        RUN.run(["--preset", "zen"] + base, env_map={},
+                health_fn=_no_network, spawn_fn=_no_spawn,
+                pipeline_main_fn=_resume_pipe(_killer, index),
+                sleep_fn=lambda s: None)
+    assert "STOP" in str(exc.value.code)
+    assert not os.path.exists(out)  # stopped before assembly
+    first_batch = [keys for _, keys in run1_calls if len(keys) == 12]
+    assert len(first_batch) == 1  # batch 1 (items < k) billed once
+    assert {k for keys in first_batch for k in keys} == {
+        "w:%s" % w for w in _WORDS14[:12]}
+    run2_calls = []
+
+    def _healthy(api_key, model, user_text):
+        keys = re.findall(r"^KEY (\S+)", user_text, re.M)
+        run2_calls.append((model, keys))
+        return _resume_judge(api_key, model, user_text)
+
+    code = RUN.run(
+        ["--preset", "zen", "--resume", "--stage-provider",
+         "sense_judge=avalai"] + base, env_map={},
+        health_fn=_no_network, spawn_fn=_no_spawn,
+        pipeline_main_fn=_resume_pipe(_healthy, index),
+        sleep_fn=lambda s: None)
+    assert code == 0
+    rows = [json.loads(line) for line in
+            open(out, encoding="utf-8") if line.strip()]
+    assert len(rows) == 14
+    # Items < k skipped: the retried batch is the only judge call, and it
+    # carries exactly the killed keys on the new chain's model.
+    assert len(run2_calls) == 1
+    new_model, new_keys = run2_calls[0]
+    assert set(new_keys) == {"w:mango", "w:nectar"}
+    assert new_model in avalai_chain
+    assert all(m in zen_chain for m, _ in run1_calls)
+    # Per-item actual models kept: done items stay on the old model,
+    # retried items carry the new one.
+    import pathlib
+    s2 = json.loads(
+        (pathlib.Path(prog) / "sense-judge.json").read_text(
+            encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] in zen_chain
+    assert s2["done"]["w:mango"]["model"] in avalai_chain
+    assert s2["done"]["w:nectar"]["model"] in avalai_chain
+
+
+def test_s0b_all_429_stops_for_resume(tmp_path, monkeypatch):
+    """S4 pattern extended to s0b: an all-429 inflection leg flushes
+    then STOPS (SystemExit) instead of failing closed."""
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["cats"])
+    # Two senses: the first is inflectional (s0b reviews it) while the
+    # second is independent (preprocess G2 keeps the item).
+    index = {"cats": [{"pos": "noun",
+                       "entry": {"pos": "noun", "sounds": [],
+                                 "senses": [{"glosses": ["plural of cat"],
+                                             "tags": [], "examples": []},
+                                            {"glosses": ["a small furry animal"],
+                                             "tags": [], "examples": []}]}}]}
+
+    def _always_429(api_key, model, *texts):
+        raise _http_429()
+
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", str(tmp_path / "precard.jsonl"),
+             "--progress-dir", str(tmp_path / "prog")],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _inflect_transport=_always_429,
+            _sleep_fn=lambda s: None, _index=index,
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    assert "STOP s0b" in str(exc.value.code)
+    assert not os.path.exists(str(tmp_path / "precard.jsonl"))
