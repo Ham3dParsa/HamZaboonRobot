@@ -35,17 +35,25 @@ from factory.core.llm_json import (
 from factory.precard.prompts import JUDGE_SYS
 
 
-GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
+# P2 (R5): the precard/avalai/google consts live in factory.precard.net
+# (single owner). They stay importable from here through the module
+# __getattr__ below (same re-export-shim precedent as the telemetry
+# recorders above), so every existing
+# ``from factory.precard.transport import AVALAI_PRECARD_MODEL`` seam
+# keeps working. Function bodies resolve them lazily for the same
+# reason (net imports this module: a top-level import back would
+# cycle).
+_MOVED_TO_NET = ("GOOGLE_PRECARD_MODEL", "GOOGLE_MODELS_URL",
+                 "AVALAI_PRECARD_MODEL", "AVALAI_CHAT_URL")
 
 
-GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
-                     "models/%s:generateContent")
-
-
-AVALAI_PRECARD_MODEL = "glm-5.3-flash"
-
-
-AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
+def __getattr__(name):
+    """Lazy re-export of the consts moved to factory.precard.net."""
+    if name in _MOVED_TO_NET:
+        from factory.precard import net as _net
+        return getattr(_net, name)
+    raise AttributeError(
+        "module %r has no attribute %r" % (__name__, name))
 
 
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
@@ -116,9 +124,10 @@ def _google_chat_transport(api_key, model, user_text):
     rotation fuel; the shared classify table owns meaning). No usage
     counters on this API shape -> None (telemetry records latency).
     """
+    from factory.precard.net import GOOGLE_MODELS_URL as _models_url
     payload = json.dumps(_google_payload(user_text)).encode("utf-8")
     req = urllib.request.Request(
-        GOOGLE_MODELS_URL % model, data=payload,
+        _models_url % model, data=payload,
         headers={"Content-Type": "application/json",
                  "x-goog-api-key": api_key})
     with urllib.request.urlopen(req, timeout=120) as resp:
@@ -151,6 +160,7 @@ def _avalai_remap_transport(default_model):
 
 
 def _avalai_chat_transport(api_key, model, user_text):
+    from factory.precard.net import AVALAI_CHAT_URL as _chat_url
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": user_text}],
@@ -162,7 +172,7 @@ def _avalai_chat_transport(api_key, model, user_text):
         "extra_body": {"reasoning_effort": "low"},
     }).encode("utf-8")
     req = urllib.request.Request(
-        AVALAI_CHAT_URL, data=payload,
+        _chat_url, data=payload,
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + api_key})
     with urllib.request.urlopen(req, timeout=120) as resp:

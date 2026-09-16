@@ -35,7 +35,9 @@ from factory.precard import progress
 from factory.precard import transport
 from factory.precard.accounting import audit_sample_accounting
 from factory.precard.accounting import item_key
-from factory.precard.net import PROVIDER_KEY_VARS
+from factory.precard.net import (
+    AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL, LEG_FALLBACKS,
+    PROVIDER_KEY_VARS)
 from factory.precard.anchor import (
     PROPER_NOUN_POS, VULGAR_TAGS, anchor_rank_item, build_pos_sets,
     default_zipf, judge_proper_route, kaikki_pos_set,
@@ -57,7 +59,6 @@ from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, append_telemetry_history,
     extract_json, raise_for_auth,
     _note_backoff, _tele_tokens, RunLogger, write_progress,
-    AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL,
     _avalai_chat_transport, _google_chat_transport,
     _avalai_remap_transport, _google_remap_transport,
     _read_egress_env_key)
@@ -844,13 +845,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # legs record the requested name on telemetry rows, so this file
     # stays the disambiguator for cost attribution). The run_id joins
     # every sink (R10); legs stay top-level (existing readers).
+    # P2: every step also carries its full fallback chain (model +
+    # cost per entry, from the net table) and "tried" (every model the
+    # leg actually attempted this run — filled post-stage, [] before).
     provider_map = {"run_id": run_id}
     for leg in LLM_LEGS:
         provider_map[leg] = {
             "provider": providers[leg],
             "model": (models[leg]
                       if providers[leg] in ("avalai", "google")
-                      else "zen-chain")}
+                      else "zen-chain"),
+            "chain": [{"model": item_model, "cost": item_cost}
+                      for item_model, item_cost in
+                      LEG_FALLBACKS.get((providers[leg], leg), ())],
+            "tried": []}
     api_key = "injected"
     api_key_2 = ""
     zen_needed = any(providers[leg] == "zen"
@@ -940,6 +948,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_models = [models["sense_judge"]]
     if full_avalai:
         api_key, ring = avalai_key, KeyRing([avalai_key])
+    # R6 switch rings: every loaded provider ring by provider name, so
+    # a free leg cooled on its own provider can continue on the next
+    # switch_plan provider with THAT provider's key (never another
+    # provider's). Providers without a loaded ring are simply not
+    # attempted (the leg stops for a resume, as before).
+    provider_rings = {}
+    for _leg in LLM_LEGS:
+        _rg = leg_ring.get(_leg, ring)
+        if _rg is not None:
+            provider_rings.setdefault(providers[_leg], _rg)
+    _judge_rg = judge_ring or ring
+    if _judge_rg is not None:
+        provider_rings.setdefault(providers["sense_judge"], _judge_rg)
     topic_transport = assign_transport = inflect_transport = None
     vectors_models_override = [models["topic_vectors"]] if _leg_avalai("topic_vectors") or \
         _leg_google("topic_vectors") else None
@@ -982,6 +1003,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     label_topup_cache = _resolve_label_topup_cache(progress_dir)
     label_calls: dict = {}
+    # P2: every model each LLM leg actually attempts (provider_map
+    # "tried", rewritten post-stage).
+    s0b_tried: list = []
+    s2_tried: list = []
+    s3_tried: list = []
+    s4_tried: list = []
     precards: dict = {}
     inflection_dropped: set = set()
     # Provider manifest: exact stage -> provider + actual model for cost
@@ -1000,17 +1027,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         except (AttributeError, TypeError, ValueError):
             return 0
 
+    def _write_provider_map():
+        # P2: rewritten after every LLM stage so "tried" stays exact
+        # (kill-safe like telemetry: a killed run keeps every step up
+        # to the last completed stage).
+        try:
+            with open(pathlib.Path(args.out).parent / "provider_map.json",
+                      "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(provider_map, ensure_ascii=False))
+        except OSError as exc:
+            _warn("warning: provider_map.json write failed (%s)" % exc)
+
     _prov_line = ", ".join(
         "%s=%s/%s" % (progress.display(leg), provider_map[leg]["provider"],
                       provider_map[leg]["model"]) for leg in LLM_LEGS)
     _say(_color("providers: %s" % _prov_line, "cyan"))
     run_logger.log("providers: %s" % _prov_line)
-    try:
-        with open(pathlib.Path(args.out).parent / "provider_map.json",
-                  "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(provider_map, ensure_ascii=False))
-    except OSError as exc:
-        _warn("warning: provider_map.json write failed (%s)" % exc)
+    _write_provider_map()
     jlog.event("providers", providers={
         leg: provider_map[leg] for leg in LLM_LEGS})
     try:
@@ -1065,7 +1098,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_run_id=run_id,
                         tele_provider=providers["inflection_review"],
                         tele_model_actual=_leg_actual("inflection_review"),
-                        tele_attempts=args.tele_attempts)
+                        tele_attempts=args.tele_attempts,
+                        tried=s0b_tried,
+                        sleep_fn=sleep_fn,
+                        state=states["inflection_review"],
+                        ring=leg_ring.get("inflection_review", ring),
+                        key_var=_provider_key_var(
+                            providers["inflection_review"]),
+                        file_label=_leg_file_label(
+                            providers["inflection_review"]),
+                        rings=provider_rings)
                 except AuthError as exc:
                     _abort("inflection_review", exc)
                     raise
@@ -1129,6 +1171,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _s0b_ok = sum(1 for v in states["inflection_review"]["done"].values()
                       if v.get("kept"))
         _s0b_fail = len(states["inflection_review"].get("failed", []))
+        provider_map["inflection_review"]["tried"] = list(s0b_tried)
+        _write_provider_map()
         run_logger.stage_end("inflection_review", ok=_s0b_ok, fail=_s0b_fail)
         jlog.event("stage_end", stage="inflection_review",
                    ok=_s0b_ok, fail=_s0b_fail)
@@ -1399,7 +1443,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             providers["sense_judge"]),
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("sense_judge"),
-                        tele_attempts=args.tele_attempts)
+                        tele_attempts=args.tele_attempts,
+                        tried=s2_tried, rings=provider_rings)
                 except AuthError as exc:
                     _abort("sense_judge", exc)
                     raise
@@ -1453,6 +1498,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      if not (v.get("model", "") or "").startswith("s1-"))
         _s2_fail = sum(1 for v in states["sense_judge"]["done"].values()
                        if (v.get("model", "") or "").startswith("s1-"))
+        provider_map["sense_judge"]["tried"] = list(s2_tried)
+        _write_provider_map()
         run_logger.stage_end("sense_judge", ok=_s2_ok, fail=_s2_fail)
         jlog.event("stage_end", stage="sense_judge",
                    ok=_s2_ok, fail=_s2_fail)
@@ -1529,7 +1576,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             providers["topic_vectors"]),
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("topic_vectors"),
-                        tele_attempts=args.tele_attempts)
+                        tele_attempts=args.tele_attempts,
+                        tried=s3_tried, rings=provider_rings)
                 except AuthError as exc:
                     _abort("topic_vectors", exc)
                     raise
@@ -1594,6 +1642,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      if v.get("model") != "deterministic")
         _s3_fail = sum(1 for v in states["topic_vectors"]["done"].values()
                        if v.get("model") == "deterministic")
+        provider_map["topic_vectors"]["tried"] = list(s3_tried)
+        _write_provider_map()
         run_logger.stage_end("topic_vectors", ok=_s3_ok, fail=_s3_fail)
         jlog.event("stage_end", stage="topic_vectors",
                    ok=_s3_ok, fail=_s3_fail)
@@ -1674,7 +1724,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("topic_label"),
                         tele_attempts=args.tele_attempts,
-                        counters=s4_counts)
+                        counters=s4_counts, tried=s4_tried,
+                        rings=provider_rings)
                     s4_bar["hits"] += s4_counts.get("hit", 0)
                     s4_bar["misses"] += s4_counts.get("miss", 0)
                     s4_bar["cache"] += s4_counts.get("cache", 0)
@@ -1712,6 +1763,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        batches=n_label_batches, ok=len(batch), fail=0,
                        hits=s4_bar["hits"], misses=s4_bar["misses"])
         _s4_ok = len(states["topic_label"]["done"])
+        provider_map["topic_label"]["tried"] = list(s4_tried)
+        _write_provider_map()
         run_logger.stage_end("topic_label", ok=_s4_ok, fail=0)
         jlog.event("stage_end", stage="topic_label", ok=_s4_ok, fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,

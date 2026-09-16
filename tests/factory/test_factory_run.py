@@ -144,6 +144,21 @@ def test_list_models_output(capsys):
     assert T.GOOGLE_PRECARD_MODEL in out
 
 
+def test_list_models_prints_per_entry_cost_labels(capsys):
+    """P2 (R3): every table entry prints with its cost label."""
+    from factory.precard import net as NET
+    code = RUN.run(["--list-models"], env_map={},
+                   health_fn=_no_network, spawn_fn=_no_spawn,
+                   pipeline_main_fn=_no_pipeline)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "(free)" in out and "(paid)" in out
+    for (provider, leg), entries in NET.LEG_FALLBACKS.items():
+        assert "%s/%s:" % (provider, leg) in out
+        for model, cost in entries:
+            assert "%s (%s)" % (model, cost) in out
+
+
 # --- --dry-run: no network, no writes ---
 
 def test_dry_run_no_network_no_write(tmp_path, capsys):

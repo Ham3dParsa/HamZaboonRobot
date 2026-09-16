@@ -102,7 +102,8 @@ def test_inflection_review_failure_keeps():
     def boom(api_key, model, sys_text, user_text):
         raise urllib.error.HTTPError("u", 500, "x", {}, None)
 
-    out = judge.inflection_review(items, boom)
+    out = judge.inflection_review(items, boom, "k",
+                                  sleep_fn=lambda s: None, state={})
     assert out["w:forced"]["keep"] is True
     assert out["w:forced"]["uncertain"] is True
 

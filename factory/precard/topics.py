@@ -12,6 +12,9 @@ from __future__ import annotations
 import re
 
 from factory.precard.judge import fanout_picks
+# P2 (R5): model chains live in factory.precard.net (single owner);
+# this leg holds zero model lists and reads chains through it.
+from factory.precard import net as _net
 
 LABELS = ["Daily Life & Home", "Food & Drink", "Health & Body",
           "Work & Careers", "Education & Exams", "Travel & Transportation",
@@ -177,8 +180,8 @@ from factory.core.telemetry import (
 from factory.precard.accounting import item_key
 from factory.precard.prompts import TOPIC_TIEBREAK
 from factory.precard.transport import (
-    AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
-    _call_with_rotation, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
+    AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
+    raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
 _tele_record = record_call
 _tele_usage = extract_usage
@@ -203,9 +206,7 @@ V15_LABEL2ID = {lab: i + 1 for i, lab in enumerate(V15_LABELS)}
 V15_TOL = 0.01
 
 
-V15_MODELS = ["muse-spark-1.3-contributor-free", "muse-spark-1.2-contributor-free",
-          "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-          "nemotron-3.5-lightning-free"]
+
 
 
 V15_USER_TMPL = (
@@ -306,9 +307,7 @@ V16B_DEFS = ("1 Daily Life & Home: everyday routines, household, clothing, time.
         "16 Other / Abstract: abstract, grammatical, or unclassifiable meanings.")
 
 
-TOPUP_MODELS = ["muse-spark-1.3-contributor-free", "muse-spark-1.2-contributor-free",
-          "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-          "nemotron-3.5-lightning-free"]
+
 
 
 TOPUP_USER_TMPL = (
@@ -467,7 +466,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                            model_calls, telemetry, tele_stage, tele_batch,
                            ring, models, provider="zen", key_var="",
                            file_label="factory/.env", tele_run_id="",
-                           tele_model_actual=None, tele_attempts=False):
+                           tele_model_actual=None, tele_attempts=False,
+                           tried=None, rings=None):
     """One batched LLM top-up call for up to LABEL_BATCH entries.
 
     Returns {item-key: {"label", "vector", "model"}}. Validated items
@@ -489,153 +489,232 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                          provider="", model_actual="deterministic",
                          cost=resolve_cost(made_call=False))
         return None
-    topup_models = list(models) if models else list(TOPUP_MODELS)
+    # P2: default chain from the net table (zen topic-label five);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    base_models = list(models) if models else None
     if ring is None:
         ring = KeyRing([api_key])
     best = {}
     best_model = "deterministic"
     attempt_rows = []
+    # R6 provider loop (same rule as the other legs): free legs may
+    # continue on the next switch_plan provider after a cooldown
+    # (that provider's own ring); providers without a ring are not
+    # attempted. Explicit models only ever run on the base provider.
+    base_provider = _net.norm_provider(provider) or "zen"
+    ordered = [p for p in _net.switch_plan(provider, "topic_label")
+               if p == base_provider
+               or (rings is not None and p in rings)]
+    limited_all = True  # cleared by any model that is not ROTATE-exhausted
+    n_tried = 0
+    cool_exc = None
+    best_eff = base_provider
 
-    def _attempts():
+    def _attempts(eff):
         if tele_attempts and telemetry is not None:
             emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
                               batch_id=tele_batch, run_id=tele_run_id,
-                              provider=provider,
+                              provider=eff,
                               model_actual=tele_model_actual)
 
-    for model in topup_models:
-        if model_calls is not None:
-            model_calls[model] = model_calls.get(model, 0) + 1
-        for attempt in range(MAX_ATTEMPTS):
-            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
-            label = "%s/s4-label#%d" % (model, attempt)
-            usage = None
-            try:
-                raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label,
-                    provider=provider, key_var=key_var,
-                    file_label=file_label)
-            except AuthError:
-                raise
-            except RateLimited:
-                attempt_rows.extend(list(
-                    getattr(ring, "attempt_log", []) or []))
-                if telemetry is not None:
-                    record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model,
-                                 latency_s=last_attempt_latency(
-                                     attempt_rows),
-                                 outcome="error", http_status=429,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(made_call=True))
-                _attempts()
-                raise
-            except urllib.error.HTTPError as exc:
-                if getattr(exc, "code", None) in (401, 403):
-                    raise_for_auth(exc)
-                raw, usage = None, None
-            except Exception:
-                raw, usage = None, None
-            attempt_rows.extend(list(
-                getattr(ring, "attempt_log", []) or []))
-            if raw is None:
-                continue
-            try:
-                data = extract_json(raw)
-            except AuthError:
-                raise
-            except Exception:
-                continue
-            try:
-                by_lemma = {x.get("lemma"): x for x in
-                            (data.get("results") or [])
-                            if isinstance(x, dict)} \
-                    if isinstance(data, dict) else {}
-                rows = [x for x in (data.get("results") or [])
-                        if isinstance(x, dict)] \
-                    if isinstance(data, dict) else []
-                # Match rows by sense_id (not by lemma dict — two items
-                # may share a lemma text, e.g. word+phrase; a lemma-keyed
-                # map would collapse them and fail the chunk).
-                used = set()
-                merged = {}
-                for entry in entries:
-                    senses = None
-                    for idx, row in enumerate(rows):
-                        if idx in used:
-                            continue
-                        have = {s.get("sense_id") for s in
-                                ((row.get("senses") or [])
-                                 if isinstance(row.get("senses"), list)
-                                 else []) if isinstance(s, dict)}
-                        if entry["sense_id"] in have:
-                            senses = row.get("senses")
-                            used.add(idx)
-                            break
-                    if senses is None:
-                        senses = (by_lemma.get(entry["text"]) or {}).get(
-                            "senses")
-                    try:
-                        good, normed = validate_senses(
-                            senses, [entry["sense_id"]])
-                    except Exception:
-                        good, normed = False, None
-                    if not good or not normed:
-                        continue
-                    found = normed[0].get("topic_label") \
-                        or "Other / Abstract"
-                    vec = [{"label": e.get("topic_label"),
-                            "weight": round(float(e.get("weight")), 4)}
-                           for e in (normed[0].get("vector") or [])
-                           if isinstance(e, dict)
-                           and e.get("topic_label")] or \
-                        single_topic_vector(found)
-                    # Keyed by item key (not sense_id — duplicate texts
-                    # share sense_id shapes but never item keys).
-                    merged[entry["key"]] = (found, vec)
-                if len(merged) > len(best):
-                    best = dict(merged)
-                    best_model = model
-                if len(merged) == len(entries):
+    for eff_idx, eff in enumerate(ordered):
+        eff_models = (list(base_models)
+                      if base_models is not None and eff == base_provider
+                      else _net.leg_chain(eff, "topic_label"))
+        eff_ring = (rings or {}).get(eff) or ring
+        eff_target = _net.target_for(eff)
+        eff_key_var = key_var if eff == base_provider else ""
+        eff_cooled = False
+        for model in eff_models:
+            if isinstance(tried, list) and model not in tried:
+                tried.append(model)
+            n_tried += 1
+            if model_calls is not None:
+                model_calls[model] = model_calls.get(model, 0) + 1
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                label = "%s/s4-label#%d" % (model, attempt)
+                usage = None
+                try:
+                    # P2: every attempt routes through net.call_leg (same
+                    # ring, same rotation — the leg holds no model lists).
+                    raw, usage = _net.call_leg(
+                        None, eff_target, text, transport=transport,
+                        model=model, ring=eff_ring, key_var=eff_key_var,
+                        sleep_fn=sleep_fn, state=state, label=label,
+                        file_label=file_label)
+                except AuthError:
+                    raise
+                except ProviderCooldown as exc:
+                    # P2 (R6): project-level quota on a free leg with
+                    # more providers continues on the next provider's
+                    # chain (same chunk, that provider's ring); paid
+                    # legs and the last provider STOP loud for a
+                    # resume.
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
                     if telemetry is not None:
-                        prompt_tokens, completion_tokens = _tele_tokens(
-                            usage)
-                        last = getattr(ring, "last_call", None) or {}
                         record_call(telemetry, stage=tele_stage,
                                      batch_id=tele_batch,
-                                     key_idx=last.get("key_idx", ring.idx),
+                                     key_idx=eff_ring.idx,
                                      model=model,
-                                     latency_s=last.get("latency_s", 0.0),
-                                     outcome="ok",
-                                     prompt_tokens=prompt_tokens,
-                                     completion_tokens=completion_tokens,
-                                     run_id=tele_run_id,
-                                     provider=provider,
-                                     model_actual=(
-                                         tele_model_actual or model),
-                                     cost=resolve_cost(
-                                         prompt_tokens=prompt_tokens,
-                                         completion_tokens=completion_tokens))
-                    _attempts()
-                    return {k: {"label": lab, "vector": vec,
-                                "model": model}
-                            for k, (lab, vec) in merged.items()}
-            except AuthError:
-                raise
-            except Exception:
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
+                    break
+                except RateLimited:
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        record_call(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    # P2 (R6): ROTATE-exhausted steps down to the next
+                    # model in the same leg's chain (the caller still
+                    # flushes+STOPS when the whole chain is exhausted).
+                    break
+                except urllib.error.HTTPError as exc:
+                    limited_all = False
+                    if getattr(exc, "code", None) in (401, 403):
+                        raise_for_auth(exc)
+                    raw, usage = None, None
+                except Exception:
+                    limited_all = False
+                    raw, usage = None, None
+                else:
+                    limited_all = False
+                attempt_rows.extend(list(
+                    getattr(eff_ring, "attempt_log", []) or []))
+                if raw is None:
+                    continue
+                try:
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except Exception:
+                    continue
+                try:
+                    by_lemma = {x.get("lemma"): x for x in
+                                (data.get("results") or [])
+                                if isinstance(x, dict)} \
+                        if isinstance(data, dict) else {}
+                    rows = [x for x in (data.get("results") or [])
+                            if isinstance(x, dict)] \
+                        if isinstance(data, dict) else []
+                    # Match rows by sense_id (not by lemma dict — two
+                    # items may share a lemma text, e.g. word+phrase;
+                    # a lemma-keyed map would collapse them and fail
+                    # the chunk).
+                    used = set()
+                    merged = {}
+                    for entry in entries:
+                        senses = None
+                        for idx, row in enumerate(rows):
+                            if idx in used:
+                                continue
+                            have = {s.get("sense_id") for s in
+                                    ((row.get("senses") or [])
+                                     if isinstance(row.get("senses"), list)
+                                     else []) if isinstance(s, dict)}
+                            if entry["sense_id"] in have:
+                                senses = row.get("senses")
+                                used.add(idx)
+                                break
+                        if senses is None:
+                            senses = (by_lemma.get(entry["text"]) or {}).get(
+                                "senses")
+                        try:
+                            good, normed = validate_senses(
+                                senses, [entry["sense_id"]])
+                        except Exception:
+                            good, normed = False, None
+                        if not good or not normed:
+                            continue
+                        found = normed[0].get("topic_label") \
+                            or "Other / Abstract"
+                        vec = [{"label": e.get("topic_label"),
+                                "weight": round(float(e.get("weight")), 4)}
+                               for e in (normed[0].get("vector") or [])
+                               if isinstance(e, dict)
+                               and e.get("topic_label")] or \
+                            single_topic_vector(found)
+                        # Keyed by item key (not sense_id — duplicate
+                        # texts share sense_id shapes but never item
+                        # keys).
+                        merged[entry["key"]] = (found, vec)
+                    if len(merged) > len(best):
+                        best = dict(merged)
+                        best_model = model
+                        best_eff = eff
+                    if len(merged) == len(entries):
+                        if telemetry is not None:
+                            prompt_tokens, completion_tokens = _tele_tokens(
+                                usage)
+                            last = getattr(eff_ring, "last_call", None) or {}
+                            record_call(
+                                telemetry, stage=tele_stage,
+                                batch_id=tele_batch,
+                                key_idx=last.get("key_idx", eff_ring.idx),
+                                model=model,
+                                latency_s=last.get("latency_s", 0.0),
+                                outcome="ok",
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens,
+                                run_id=tele_run_id,
+                                provider=eff,
+                                model_actual=(
+                                    tele_model_actual or model),
+                                cost=resolve_cost(
+                                    prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens))
+                        _attempts(eff)
+                        return {k: {"label": lab, "vector": vec,
+                                    "model": model}
+                                for k, (lab, vec) in merged.items()}
+                except AuthError:
+                    raise
+                except Exception:
+                    continue
+            if eff_cooled:
+                break
+        if eff_cooled:
+            # R6: a free-leg cooldown moves to the next provider's
+            # chain (same chunk, that provider's ring); the last —
+            # or any paid — provider stops loud for a resume.
+            if eff_idx + 1 < len(ordered):
                 continue
+            raise cool_exc
+    if limited_all and n_tried:
+        # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
+        # caller flushes progress). Per-model error records exist.
+        _attempts(base_provider)
+        raise RateLimited(
+            "all topic_label models 429 (provider quotas exhausted) — "
+            "re-run later (progress flushed, resume safe)")
     if best:
         if telemetry is not None:
             record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
                          key_idx=ring.idx, model=best_model,
                          latency_s=last_attempt_latency(attempt_rows),
                          outcome="ok", run_id=tele_run_id,
-                         provider=provider,
+                         provider=best_eff,
                          model_actual=tele_model_actual or best_model,
                          cost=resolve_cost(made_call=True))
-        _attempts()
+        _attempts(best_eff)
         return {k: {"label": lab, "vector": vec, "model": best_model}
                 for k, (lab, vec) in best.items()}
     if telemetry is not None:
@@ -643,21 +722,21 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                      key_idx=ring.idx, model="deterministic",
                      latency_s=last_attempt_latency(attempt_rows),
                      outcome="fallback", run_id=tele_run_id,
-                     provider=provider,
+                     provider=base_provider,
                      model_actual=tele_model_actual or "deterministic",
                      cost=resolve_cost(made_call=True))
-    _attempts()
+    _attempts(base_provider)
     return None
 
 
 def label_batch(batch, picks, vector_lookups, api_key, transport,
                 sleep_fn, state, progress_path, model_calls,
                 telemetry=None, tele_stage="s4", tele_batch=0,
-                ring=None, models=None, lookup=None,
-                provider="zen", key_var="",
-                file_label="factory/.env", tele_run_id="",
-                tele_model_actual=None, tele_attempts=False,
-                counters=None):
+                 ring=None, models=None, lookup=None,
+                 provider="zen", key_var="",
+                 file_label="factory/.env", tele_run_id="",
+                  tele_model_actual=None, tele_attempts=False,
+                 counters=None, tried=None, rings=None):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
     batch: sample items; picks: {key: {sense_id, gloss, picks?}};
@@ -774,7 +853,7 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 provider=provider, key_var=key_var,
                 file_label=file_label, tele_run_id=tele_run_id,
                 tele_model_actual=tele_model_actual,
-                tele_attempts=tele_attempts)
+                tele_attempts=tele_attempts, tried=tried, rings=rings)
         for entry in chunk:
             # The chunk consulted the LLM (or fell back after trying):
             # a miss per entry; transport=None resolves with no call.
@@ -880,7 +959,7 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                    ring=None, provider="zen", key_var="",
                    file_label="factory/.env", tele_run_id="",
                    tele_model_actual=None, tele_attempts=False,
-                   counters=None):
+                   counters=None, rings=None):
     """Label topic (s4) for one item via the batched path (B1).
 
     Thin single-item wrapper over label_batch (no second code path):
@@ -901,7 +980,7 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
             provider=provider, key_var=key_var,
             file_label=file_label, tele_run_id=tele_run_id,
             tele_model_actual=tele_model_actual,
-            tele_attempts=tele_attempts, counters=counters)
+            tele_attempts=tele_attempts, counters=counters, rings=rings)
     except AuthError:
         raise
     except RateLimited:
@@ -945,21 +1024,28 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
                     ring=None, models=None, provider="zen", key_var="",
                     file_label="factory/.env", tele_run_id="",
-                    tele_model_actual=None, tele_attempts=False):
+                    tele_model_actual=None, tele_attempts=False,
+                    tried=None, rings=None):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
     Empty-pick items are absent (caller maps them to the single Other
     fallback). Total failure fails closed per lemma to fallback_vectors.
-    429 rotates the KeyRing (brief pause, same-call retry; all-keys-429
-    raises RateLimited so the runner flushes and STOPS).
+    429 rotates the KeyRing (brief pause, same-call retry; a
+    ROTATE-exhausted model steps down to the next chain model and only
+    a fully-exhausted chain raises RateLimited so the runner flushes
+    and STOPS); a free leg cooled at project level continues on the
+    next switch_plan provider's chain with that provider's own ring
+    (R6).
     R27: one telemetry record per batch (ok / fallback / error); tuple
     (text, usage) transports surface token counts (None-tolerated,
     cost-unknown flagged). Terminal records carry the REAL perf_counter
     latency and REAL ring.idx, model vs model_actual, provider, run_id;
     per-try attempt rows only when ``tele_attempts`` is on.
     """
-    v15_models = list(models) if models else list(V15_MODELS)
+    # P2: default chain from the net table (zen vectors five);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    base_models = list(models) if models else None
     pseudos = vectors_pseudo_records(batch, judge_map, anchor_map)
     out = {}
     if not pseudos:
@@ -968,96 +1054,172 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
+    # R6 provider loop (same rule as the other legs): free legs may
+    # continue on the next switch_plan provider after a cooldown
+    # (that provider's own ring); providers without a ring are not
+    # attempted. Explicit models only ever run on the base provider.
+    base_provider = _net.norm_provider(provider) or "zen"
+    ordered = [p for p in _net.switch_plan(provider, "topic_vectors")
+               if p == base_provider
+               or (rings is not None and p in rings)]
+    limited_all = True  # cleared by any model that is not ROTATE-exhausted
+    n_tried = 0
+    cool_exc = None
 
-    def _attempts():
+    def _attempts(eff):
         if tele_attempts and telemetry is not None:
             emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
                               batch_id=tele_batch, run_id=tele_run_id,
-                              provider=provider,
+                              provider=eff,
                               model_actual=tele_model_actual)
 
-    for model in v15_models:
-        for attempt in range(MAX_ATTEMPTS):
-            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
-            label = "%s/v15#%d" % (model, attempt)
-            usage = None
-            try:
-                raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label,
-                    provider=provider, key_var=key_var,
-                    file_label=file_label)
-            except AuthError:
-                raise
-            except RateLimited:
-                attempt_rows.extend(list(
-                    getattr(ring, "attempt_log", []) or []))
-                if telemetry is not None:
-                    record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model,
-                                 latency_s=last_attempt_latency(
-                                     attempt_rows),
-                                 outcome="error", http_status=429,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(made_call=True))
-                _attempts()
-                raise
-            except urllib.error.HTTPError as exc:
-                if getattr(exc, "code", None) in (401, 403):
-                    raise_for_auth(exc)
-                raw, usage = None, None
-            except Exception:
-                raw, usage = None, None
-            attempt_rows.extend(list(
-                getattr(ring, "attempt_log", []) or []))
-            if raw is None:
-                continue
-            try:
-                data = extract_json(raw)
-            except AuthError:
-                raise
-            except Exception:
-                continue
-            by_lemma = {x.get("lemma"): x for x in
-                        (data.get("results") or [])
-                        if isinstance(x, dict)} \
-                if isinstance(data, dict) else {}
-            ok_all, merged = True, {}
-            for pseudo in pseudos:
-                vecs = (by_lemma.get(pseudo["lemma"]) or {}).get("vectors")
+    for eff_idx, eff in enumerate(ordered):
+        eff_models = (list(base_models)
+                      if base_models is not None and eff == base_provider
+                      else _net.leg_chain(eff, "topic_vectors"))
+        eff_ring = (rings or {}).get(eff) or ring
+        eff_target = _net.target_for(eff)
+        eff_key_var = key_var if eff == base_provider else ""
+        eff_cooled = False
+        for model in eff_models:
+            if isinstance(tried, list) and model not in tried:
+                tried.append(model)
+            n_tried += 1
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                label = "%s/v15#%d" % (model, attempt)
+                usage = None
                 try:
-                    good, normed = validate_vectors(vecs, pseudo)
-                except Exception:
-                    good, normed = False, None
-                if not good or normed is None:
-                    ok_all = False
+                    # P2: every attempt routes through net.call_leg (same
+                    # ring, same rotation — the leg holds no model lists).
+                    raw, usage = _net.call_leg(
+                        None, eff_target, text, transport=transport,
+                        model=model, ring=eff_ring, key_var=eff_key_var,
+                        sleep_fn=sleep_fn, state=state, label=label,
+                        file_label=file_label)
+                except AuthError:
+                    raise
+                except ProviderCooldown as exc:
+                    # P2 (R6): project-level quota on a free leg with
+                    # more providers continues on the next provider's
+                    # chain (same batch, that provider's ring); paid
+                    # legs and the last provider STOP loud for a
+                    # resume.
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        record_call(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
                     break
-                for entry in normed:
-                    merged[entry["sense_id"]] = {
-                        "vector": [{"label": e["topic_label"],
-                                    "weight": round(float(e["weight"]), 4)}
-                                   for e in entry["vector"]],
-                        "model": model}
-            if ok_all:
-                if telemetry is not None:
-                    prompt_tokens, completion_tokens = _tele_tokens(usage)
-                    last = getattr(ring, "last_call", None) or {}
-                    record_call(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch,
-                                 key_idx=last.get("key_idx", ring.idx),
-                                 model=model,
-                                 latency_s=last.get("latency_s", 0.0),
-                                 outcome="ok",
-                                 prompt_tokens=prompt_tokens,
-                                 completion_tokens=completion_tokens,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(
-                                     prompt_tokens=prompt_tokens,
-                                     completion_tokens=completion_tokens))
-                _attempts()
-                return merged
+                except RateLimited:
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        record_call(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    # P2 (R6): ROTATE-exhausted steps down to the next
+                    # model in the same leg's chain (the caller still
+                    # flushes+STOPS when the whole chain is exhausted).
+                    break
+                except urllib.error.HTTPError as exc:
+                    limited_all = False
+                    if getattr(exc, "code", None) in (401, 403):
+                        raise_for_auth(exc)
+                    raw, usage = None, None
+                except Exception:
+                    limited_all = False
+                    raw, usage = None, None
+                else:
+                    limited_all = False
+                attempt_rows.extend(list(
+                    getattr(eff_ring, "attempt_log", []) or []))
+                if raw is None:
+                    continue
+                try:
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except Exception:
+                    continue
+                by_lemma = {x.get("lemma"): x for x in
+                            (data.get("results") or [])
+                            if isinstance(x, dict)} \
+                    if isinstance(data, dict) else {}
+                ok_all, merged = True, {}
+                for pseudo in pseudos:
+                    vecs = (by_lemma.get(pseudo["lemma"]) or {}).get(
+                        "vectors")
+                    try:
+                        good, normed = validate_vectors(vecs, pseudo)
+                    except Exception:
+                        good, normed = False, None
+                    if not good or normed is None:
+                        ok_all = False
+                        break
+                    for entry in normed:
+                        merged[entry["sense_id"]] = {
+                            "vector": [{"label": e["topic_label"],
+                                        "weight": round(
+                                            float(e["weight"]), 4)}
+                                       for e in entry["vector"]],
+                            "model": model}
+                if ok_all:
+                    if telemetry is not None:
+                        prompt_tokens, completion_tokens = _tele_tokens(
+                            usage)
+                        last = getattr(eff_ring, "last_call", None) or {}
+                        record_call(
+                            telemetry, stage=tele_stage,
+                            batch_id=tele_batch,
+                            key_idx=last.get("key_idx", eff_ring.idx),
+                            model=model,
+                            latency_s=last.get("latency_s", 0.0),
+                            outcome="ok",
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            run_id=tele_run_id, provider=eff,
+                            model_actual=tele_model_actual or model,
+                            cost=resolve_cost(
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens))
+                    _attempts(eff)
+                    return merged
+            if eff_cooled:
+                break
+        if eff_cooled:
+            # R6: a free-leg cooldown moves to the next provider's
+            # chain (same batch, that provider's ring); the last —
+            # or any paid — provider stops loud for a resume.
+            if eff_idx + 1 < len(ordered):
+                continue
+            raise cool_exc
+    if limited_all and n_tried:
+        # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
+        # caller flushes progress). Per-model error records exist.
+        _attempts(base_provider)
+        raise RateLimited(
+            "all topic_vectors models 429 (provider quotas exhausted) "
+            "— re-run later (progress flushed, resume safe)")
     for pseudo in pseudos:
         try:
             legs = fallback_vectors(pseudo)
@@ -1074,8 +1236,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                      key_idx=ring.idx, model="deterministic",
                      latency_s=last_attempt_latency(attempt_rows),
                      outcome="fallback", run_id=tele_run_id,
-                     provider=provider,
+                     provider=base_provider,
                      model_actual=tele_model_actual or "deterministic",
                      cost=resolve_cost(made_call=True))
-    _attempts()
+    _attempts(base_provider)
     return out

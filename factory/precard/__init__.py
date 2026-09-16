@@ -1,4 +1,4 @@
-"""Precard line, independent home (v1.4.2).
+"""Precard line, independent home (v1.4.3).
 
 Self-contained like a factory tool: only Python stdlib plus this
 package's own modules. No imports from factory/archive,
@@ -6,7 +6,7 @@ factory/pipeline, or factory/lexicon domain code (enforced by
 tests/factory/test_precard_identity.py::test_no_archive_imports).
 """
 
-__version__ = "1.4.2"
+__version__ = "1.4.3"
 
 
 def run(argv=None, **kwargs):
