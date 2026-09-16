@@ -254,3 +254,15 @@ def test_script_hardening_escapes_data_and_declares_state(tmp_path):
                 "${s.en_def}", "${s.sense_id}", "${s.pre_card_id}",
                 "${topCefr}", "${s.sense_cefr}"):
         assert raw not in html
+
+
+def test_all_topics_option_shows_lemma_count(tmp_path):
+    """Owner review (PR 718 comment): the ALL topic option must render
+    a lemma count (RAW_LEMMAS.length, consistent with CEFR ALL), not
+    the distinct-topic count (Object.keys(topicCounts).length)."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "All Topics (${RAW_LEMMAS.length})" in html
+    assert "Object.keys(topicCounts).length" not in html

@@ -693,7 +693,9 @@ function initTopicsAndPillCounts() {
 
   // Populate Topics dropdown with counts
   const sel = document.getElementById("topicFilter");
-  sel.innerHTML = `<option value="ALL">All Topics (${Object.keys(topicCounts).length})</option>`;
+  // ALL is a lemma count (total incl. dropped), matching CEFR ALL;
+  // per-topic rows count kept lemmas (dropped never match a topic).
+  sel.innerHTML = `<option value="ALL">All Topics (${RAW_LEMMAS.length})</option>`;
   KNOWN_TOPICS.filter(t => topicCounts[t] !== undefined).concat(Object.keys(topicCounts).filter(t => !KNOWN_TOPICS.includes(t)).sort()).forEach(t => {
     const opt = document.createElement("option");
     opt.value = t;
