@@ -948,6 +948,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_models = [models["sense_judge"]]
     if full_avalai:
         api_key, ring = avalai_key, KeyRing([avalai_key])
+    # R6 switch rings: every loaded provider ring by provider name, so
+    # a free leg cooled on its own provider can continue on the next
+    # switch_plan provider with THAT provider's key (never another
+    # provider's). Providers without a loaded ring are simply not
+    # attempted (the leg stops for a resume, as before).
+    provider_rings = {}
+    for _leg in LLM_LEGS:
+        _rg = leg_ring.get(_leg, ring)
+        if _rg is not None:
+            provider_rings.setdefault(providers[_leg], _rg)
+    _judge_rg = judge_ring or ring
+    if _judge_rg is not None:
+        provider_rings.setdefault(providers["sense_judge"], _judge_rg)
     topic_transport = assign_transport = inflect_transport = None
     vectors_models_override = [models["topic_vectors"]] if _leg_avalai("topic_vectors") or \
         _leg_google("topic_vectors") else None
@@ -1086,7 +1099,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_provider=providers["inflection_review"],
                         tele_model_actual=_leg_actual("inflection_review"),
                         tele_attempts=args.tele_attempts,
-                        tried=s0b_tried)
+                        tried=s0b_tried,
+                        sleep_fn=sleep_fn,
+                        state=states["inflection_review"],
+                        ring=leg_ring.get("inflection_review", ring),
+                        key_var=_provider_key_var(
+                            providers["inflection_review"]),
+                        file_label=_leg_file_label(
+                            providers["inflection_review"]),
+                        rings=provider_rings)
                 except AuthError as exc:
                     _abort("inflection_review", exc)
                     raise
@@ -1423,7 +1444,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("sense_judge"),
                         tele_attempts=args.tele_attempts,
-                        tried=s2_tried)
+                        tried=s2_tried, rings=provider_rings)
                 except AuthError as exc:
                     _abort("sense_judge", exc)
                     raise
@@ -1556,7 +1577,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("topic_vectors"),
                         tele_attempts=args.tele_attempts,
-                        tried=s3_tried)
+                        tried=s3_tried, rings=provider_rings)
                 except AuthError as exc:
                     _abort("topic_vectors", exc)
                     raise
@@ -1703,7 +1724,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         tele_run_id=run_id,
                         tele_model_actual=_leg_actual("topic_label"),
                         tele_attempts=args.tele_attempts,
-                        counters=s4_counts, tried=s4_tried)
+                        counters=s4_counts, tried=s4_tried,
+                        rings=provider_rings)
                     s4_bar["hits"] += s4_counts.get("hit", 0)
                     s4_bar["misses"] += s4_counts.get("miss", 0)
                     s4_bar["cache"] += s4_counts.get("cache", 0)

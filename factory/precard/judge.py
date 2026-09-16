@@ -8,8 +8,9 @@ factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
 superlative stub predicates (frozen copy from factory/pipeline/card_pilot).
 JUDGE_MODELS is NOT vendored here: it lives in factory.precard.net
 (P2 single owner) and is imported. Model attempts route through
-net.call_leg; the chain steps down to the next model only on
-ROTATE-exhausted (R6).
+net.call_leg (single-model + KeyRing rotation); each leg walks its
+net-table chain (steps down only on ROTATE-exhausted) and free legs
+switch provider on COOLDOWN_SWITCH via net.switch_plan (R6).
 """
 
 from __future__ import annotations
@@ -23,6 +24,11 @@ from factory.precard.ids import normalize_id_part
 # this leg holds zero model lists and reads chains through it.
 from factory.precard.net import JUDGE_MODELS
 from factory.precard import net as _net
+
+# Model attempts route through net.call_leg (single-model + KeyRing
+# rotation). Each leg walks its net-table chain (steps down only on
+# ROTATE-exhausted) and free legs switch provider on COOLDOWN_SWITCH
+# via net.switch_plan, always with that provider's own ring (R6).
 
 MAX_FANOUT = 4
 
@@ -313,8 +319,7 @@ from factory.core.telemetry import (
     resolve_cost)
 from factory.precard.transport import (
     AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
-    raise_for_auth, _tele_tokens, _unwrap_transport_result,
-    MAX_ATTEMPTS, RETRY_PREFIX)
+    raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
 _tele_record = record_call
 _tele_usage = extract_usage
@@ -401,7 +406,9 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                        telemetry=None, tele_stage="s0b",
                        tele_key_idx=0, tele_run_id="", tele_provider="",
                        tele_model_actual=None, tele_attempts=False,
-                       models=None, tried=None):
+                       models=None, tried=None, sleep_fn=None, state=None,
+                       ring=None, key_var="", file_label="factory/.env",
+                       rings=None):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
@@ -409,19 +416,42 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     drop verdict; every failure (transport error, bad JSON, envelope
     mismatch) fails closed to {keep: True, uncertain: True} flagged
     review-uncertain (never drop on uncertainty). Auth aborts loudly.
-    Hermetic with an injected transport. Tuple (text, usage) transports
-    surface token counts into one terminal telemetry record per batch
-    (None-tolerated, cost-unknown flagged, real perf_counter latency,
-    real key idx, run_id-joined; per-try attempt rows only when
-    ``tele_attempts`` is on).
+    Hermetic with an injected transport. Every attempt routes through
+    net.call_leg (single-model + KeyRing rotation, so a 429 rotates
+    to the next key on the same model); a ROTATE-exhausted model
+    steps down to the next chain model, and a free leg cooled at
+    project level continues on the next switch_plan provider's chain
+    with that provider's own ring (R6). Tuple (text, usage)
+    transports surface token counts into one terminal telemetry
+    record per batch (None-tolerated, cost-unknown flagged, real
+    perf_counter latency, real key idx, run_id-joined; per-try
+    attempt rows only when ``tele_attempts`` is on).
     """
     import time as _time
     if model_calls is None:
         model_calls = {}
+    if state is None:
+        state = {}
+    if ring is None:
+        ring = KeyRing([api_key])
     # P2: default chain from the net table (zen inflection pair);
     # explicit models (e.g. avalai/google single-model legs) win.
-    chain = list(models) if models else _net.leg_chain(
-        tele_provider or "zen", "inflection_review")
+    base_models = list(models) if models else None
+    # R6 provider loop (same rule as the other legs): free legs may
+    # continue on the next switch_plan provider after a cooldown
+    # (that provider's own ring); providers without a ring are not
+    # attempted. Explicit models only ever run on the base provider.
+    base_provider = _net.norm_provider(tele_provider or "zen") or "zen"
+    ordered = [p for p in _net.switch_plan(base_provider,
+                                           "inflection_review")
+               if p == base_provider
+               or (rings is not None and p in rings)]
+    # Inflection transports take (key, model, system, text) while
+    # call_leg drives (key, model, text): bind the fixed review
+    # system prompt once (extra leading texts pass through, so the
+    # avalai/google remap transports keep working unchanged).
+    def _adapted(key, model, text, _t=transport):
+        return _t(key, model, INFLECTION_REVIEW_SYS, text)
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
@@ -431,93 +461,137 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         settled = False
         win_model, win_usage = "review-fallback", None
         attempt_log = []
-        for model in chain:
-            if isinstance(tried, list) and model not in tried:
-                tried.append(model)
-            for attempt in range(MAX_ATTEMPTS):
-                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
-                start = _time.perf_counter()
-                try:
-                    model_calls[model] = model_calls.get(model, 0) + 1
-                    res = transport(api_key, model,
-                                    INFLECTION_REVIEW_SYS, text)
-                    raw, usage = _unwrap_transport_result(res)
-                    data = extract_json(raw)
-                except AuthError:
-                    attempt_log.append(
-                        {"model": model, "attempt": attempt,
-                         "latency_s": _time.perf_counter() - start,
-                         "key_idx": tele_key_idx, "outcome": "auth"})
-                    _review_auth_tele(telemetry, tele_stage, batch_no,
-                                      tele_key_idx, model,
-                                      run_id=tele_run_id,
-                                      provider=tele_provider,
-                                      model_actual=tele_model_actual,
-                                      latency_s=last_attempt_latency(
-                                          attempt_log))
-                    raise
-                except urllib.error.HTTPError as exc:
-                    if exc.code in (401, 403):
+        cool_exc = None
+        cur_ring = ring
+        for eff_idx, eff in enumerate(ordered):
+            eff_models = (list(base_models)
+                          if base_models is not None and eff == base_provider
+                          else _net.leg_chain(eff, "inflection_review"))
+            eff_ring = (rings or {}).get(eff) or ring
+            cur_ring = eff_ring
+            eff_target = _net.target_for(eff)
+            eff_key_var = key_var if eff == base_provider else ""
+            eff_cooled = False
+            for model in eff_models:
+                if isinstance(tried, list) and model not in tried:
+                    tried.append(model)
+                for attempt in range(MAX_ATTEMPTS):
+                    text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                    start = _time.perf_counter()
+                    try:
+                        model_calls[model] = model_calls.get(model, 0) + 1
+                        raw, usage = _net.call_leg(
+                            None, eff_target, text, transport=_adapted,
+                            model=model, ring=eff_ring,
+                            key_var=eff_key_var, sleep_fn=sleep_fn,
+                            state=state,
+                            label="%s/inflection#%d" % (model, attempt),
+                            file_label=file_label)
+                        data = extract_json(raw)
+                    except AuthError:
                         attempt_log.append(
                             {"model": model, "attempt": attempt,
                              "latency_s": _time.perf_counter() - start,
-                             "key_idx": tele_key_idx, "outcome": "auth",
-                             "http_status": exc.code})
+                             "key_idx": eff_ring.idx, "outcome": "auth"})
                         _review_auth_tele(telemetry, tele_stage, batch_no,
-                                          tele_key_idx, model,
-                                          http_status=exc.code,
+                                          eff_ring.idx, model,
                                           run_id=tele_run_id,
-                                          provider=tele_provider,
+                                          provider=eff,
                                           model_actual=tele_model_actual,
                                           latency_s=last_attempt_latency(
                                               attempt_log))
-                        raise_for_auth(exc)
-                    data = None
-                except Exception:
-                    data = None
-                if data is None:
-                    attempt_log.append(
-                        {"model": model, "attempt": attempt,
-                         "latency_s": _time.perf_counter() - start,
-                         "key_idx": tele_key_idx, "outcome": "retry"})
-                    continue
-                by_key = _validate_review_results(data, want)
-                if by_key is None:
-                    attempt_log.append(
-                        {"model": model, "attempt": attempt,
-                         "latency_s": _time.perf_counter() - start,
-                         "key_idx": tele_key_idx, "outcome": "retry"})
-                    continue
-                rows_ok = True
-                for key in want:
-                    row = by_key[key]
-                    keep = row.get("keep")
-                    reason = row.get("reason", "")
-                    if not isinstance(keep, bool):
-                        rows_ok = False
+                        raise
+                    except ProviderCooldown as exc:
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx,
+                             "outcome": "cooldown",
+                             "http_status": 429})
+                        eff_cooled = True
+                        cool_exc = exc
                         break
-                    out[key] = {
-                        "keep": keep,
-                        "reason": reason if isinstance(reason, str)
-                        else "",
-                        "model": model, "uncertain": False}
-                if not rows_ok:
-                    out = {k: v for k, v in out.items() if k not in want}
+                    except RateLimited:
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx, "outcome": "retry"})
+                        break  # ROTATE-exhausted: step down, as before
+                    except urllib.error.HTTPError as exc:
+                        if exc.code in (401, 403):
+                            attempt_log.append(
+                                {"model": model, "attempt": attempt,
+                                 "latency_s": _time.perf_counter() - start,
+                                 "key_idx": eff_ring.idx,
+                                 "outcome": "auth",
+                                 "http_status": exc.code})
+                            _review_auth_tele(
+                                telemetry, tele_stage, batch_no,
+                                eff_ring.idx, model,
+                                http_status=exc.code,
+                                run_id=tele_run_id,
+                                provider=eff,
+                                model_actual=tele_model_actual,
+                                latency_s=last_attempt_latency(
+                                    attempt_log))
+                            raise_for_auth(exc)
+                        data = None
+                    except Exception:
+                        data = None
+                    if data is None:
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx, "outcome": "retry"})
+                        continue
+                    by_key = _validate_review_results(data, want)
+                    if by_key is None:
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx, "outcome": "retry"})
+                        continue
+                    rows_ok = True
+                    for key in want:
+                        row = by_key[key]
+                        keep = row.get("keep")
+                        reason = row.get("reason", "")
+                        if not isinstance(keep, bool):
+                            rows_ok = False
+                            break
+                        out[key] = {
+                            "keep": keep,
+                            "reason": reason if isinstance(reason, str)
+                            else "",
+                            "model": model, "uncertain": False}
+                    if not rows_ok:
+                        out = {k: v for k, v in out.items()
+                               if k not in want}
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx, "outcome": "retry"})
+                        continue
+                    settled = True
+                    win_latency = _time.perf_counter() - start
                     attempt_log.append(
                         {"model": model, "attempt": attempt,
-                         "latency_s": _time.perf_counter() - start,
-                         "key_idx": tele_key_idx, "outcome": "retry"})
+                         "latency_s": win_latency,
+                         "key_idx": eff_ring.idx, "outcome": "settled"})
+                    win_model, win_usage = model, usage
+                    break
+                if eff_cooled:
+                    break
+                if settled:
+                    break
+            if eff_cooled:
+                # R6: a free-leg cooldown moves to the next provider's
+                # chain (same batch, that provider's ring); the last —
+                # or any paid — provider raises loud (the caller fails
+                # the batch closed to review-uncertain).
+                if eff_idx + 1 < len(ordered):
                     continue
-                settled = True
-                win_latency = _time.perf_counter() - start
-                attempt_log.append(
-                    {"model": model, "attempt": attempt,
-                     "latency_s": win_latency,
-                     "key_idx": tele_key_idx, "outcome": "settled"})
-                win_model, win_usage = model, usage
-                break
-            if settled:
-                break
+                raise cool_exc
         if not settled:
             for key in want:
                 if key not in out:
@@ -527,16 +601,16 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         # Terminal record: the transport was attempted either way, so
         # a fallback still flags cost-unknown (calls burned, usage
         # unseen) — never cost-none (that means no call happened).
-        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+        _review_tele(telemetry, tele_stage, batch_no, cur_ring.idx,
                      win_model, win_usage,
                      "ok" if settled else "fallback",
                      latency_s=last_attempt_latency(attempt_log),
-                     run_id=tele_run_id, provider=tele_provider,
+                     run_id=tele_run_id, provider=eff,
                      model_actual=tele_model_actual)
         if tele_attempts:
             emit_attempt_rows(telemetry, attempt_log, stage=tele_stage,
                               batch_id=batch_no, run_id=tele_run_id,
-                              provider=tele_provider,
+                              provider=eff,
                               model_actual=tele_model_actual)
     return out
 
@@ -546,7 +620,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    ring=None, models=None, provider="zen", key_var="",
                    file_label="factory/.env", tele_run_id="",
                    tele_model_actual=None, tele_attempts=False,
-                   tried=None):
+                   tried=None, rings=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
     Default chain comes from the net table (zen sense-judge pair); an
@@ -555,7 +629,10 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     a ROTATE-exhausted model steps down to the next chain model and
     only a fully-exhausted chain raises RateLimited so the runner
-    flushes and STOPS),
+    flushes and STOPS); a free leg cooled at project level
+    (ProviderCooldown) continues on the next switch_plan provider's
+    chain with that provider's own ring, while paid legs (and the
+    last provider) raise for a resume (R6),
     anything else fail-closed to the S1 top pick per item. v14.1: the
     judge returns 1-4 ordered picks per item (judge_validate_multi —
     legacy single "pick" rows still validate as one pick); the ordered
@@ -575,130 +652,165 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     """
     # P2: default chain from the net table (zen sense-judge pair);
     # explicit models (e.g. avalai/google single-model legs) win.
-    models = list(models) if models else _net.leg_chain(
-        provider, "sense_judge")
+    base_models = list(models) if models else None
     prompt = judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
-    leg_target = _net.target_for(provider)
+    # R6 provider loop: free legs may continue on the next
+    # switch_plan provider after a cooldown (that provider's own
+    # ring — never another provider's key); providers without a
+    # ring are not attempted (the leg stops for a resume, as
+    # before). Explicit models only ever run on the base provider.
+    base_provider = _net.norm_provider(provider) or "zen"
+    ordered = [p for p in _net.switch_plan(provider, "sense_judge")
+               if p == base_provider
+               or (rings is not None and p in rings)]
     limited_all = True  # cleared by any model that is not ROTATE-exhausted
+    n_tried = 0
+    cool_exc = None
 
-    def _attempts():
+    def _attempts(eff):
         if tele_attempts and telemetry is not None:
             emit_attempt_rows(telemetry, attempt_rows, stage=tele_stage,
                               batch_id=tele_batch, run_id=tele_run_id,
-                              provider=provider,
+                              provider=eff,
                               model_actual=tele_model_actual)
 
-    for model in models:
-        if isinstance(tried, list) and model not in tried:
-            tried.append(model)
-        for attempt in range(MAX_ATTEMPTS):
-            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
-            label = "%s/%s#%d" % (model, "+".join(
-                item_key(i) for i in batch), attempt)
-            usage = None
-            try:
-                # P2: every attempt routes through net.call_leg (same
-                # ring, same rotation — the leg holds no model lists).
-                raw, usage = _net.call_leg(
-                    None, leg_target, text, transport=transport,
-                    model=model, ring=ring, key_var=key_var,
-                    sleep_fn=sleep_fn, state=state, label=label,
-                    file_label=file_label)
-            except AuthError:
-                raise
-            except ProviderCooldown:
-                # P2 (R6): project-level quota never steps down and
-                # never switches inside a batch loop — STOP loud for
-                # a resume (free-leg switching lives in
-                # net.call_leg chain mode only).
+    for eff_idx, eff in enumerate(ordered):
+        eff_models = (list(base_models)
+                      if base_models is not None and eff == base_provider
+                      else _net.leg_chain(eff, "sense_judge"))
+        eff_ring = (rings or {}).get(eff) or ring
+        eff_target = _net.target_for(eff)
+        eff_key_var = key_var if eff == base_provider else ""
+        eff_cooled = False
+        for model in eff_models:
+            if isinstance(tried, list) and model not in tried:
+                tried.append(model)
+            n_tried += 1
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+                label = "%s/%s#%d" % (model, "+".join(
+                    item_key(i) for i in batch), attempt)
+                usage = None
+                try:
+                    # P2: every attempt routes through net.call_leg (same
+                    # ring, same rotation — the leg holds no model lists).
+                    raw, usage = _net.call_leg(
+                        None, eff_target, text, transport=transport,
+                        model=model, ring=eff_ring, key_var=eff_key_var,
+                        sleep_fn=sleep_fn, state=state, label=label,
+                        file_label=file_label)
+                except AuthError:
+                    raise
+                except ProviderCooldown as exc:
+                    # P2 (R6): project-level quota on a free leg with
+                    # more providers continues on the next provider's
+                    # chain (same batch, that provider's ring); paid
+                    # legs and the last provider STOP loud for a
+                    # resume.
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        _tele_record(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
+                    break
+                except RateLimited:
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        _tele_record(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    # P2 (R6): ROTATE-exhausted steps down to the next
+                    # model in the same leg's chain (no run abort here;
+                    # the caller still flushes+STOPS when the whole chain
+                    # is exhausted — see the raise below).
+                    break
+                except urllib.error.HTTPError as exc:
+                    limited_all = False
+                    if getattr(exc, "code", None) in (401, 403):
+                        raise_for_auth(exc)
+                    raw, usage = None, None
+                except Exception:
+                    limited_all = False
+                    raw, usage = None, None
+                else:
+                    limited_all = False
                 attempt_rows.extend(list(
-                    getattr(ring, "attempt_log", []) or []))
-                if telemetry is not None:
-                    _tele_record(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model,
-                                 latency_s=last_attempt_latency(
-                                     attempt_rows),
-                                 outcome="error", http_status=429,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(made_call=True))
-                _attempts()
-                raise
-            except RateLimited:
-                attempt_rows.extend(list(
-                    getattr(ring, "attempt_log", []) or []))
-                if telemetry is not None:
-                    _tele_record(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch, key_idx=ring.idx,
-                                 model=model,
-                                 latency_s=last_attempt_latency(
-                                     attempt_rows),
-                                 outcome="error", http_status=429,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(made_call=True))
-                _attempts()
-                # P2 (R6): ROTATE-exhausted steps down to the next
-                # model in the same leg's chain (no run abort here;
-                # the caller still flushes+STOPS when the whole chain
-                # is exhausted — see the raise below).
+                    getattr(eff_ring, "attempt_log", []) or []))
+                if raw is None:
+                    continue
+                try:
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except Exception:
+                    continue
+                try:
+                    valid = judge_validate_multi(data, batch, anchor_map)
+                except Exception:
+                    valid = None
+                if valid is not None:
+                    out = {k: {**v, "model": model}
+                           for k, v in valid.items()}
+                    apply_inflection_veto(out, batch, anchor_map)  # F4
+                    if telemetry is not None:
+                        prompt_tokens, completion_tokens = _tele_tokens(
+                            usage)
+                        last = getattr(eff_ring, "last_call", None) or {}
+                        _tele_record(
+                            telemetry, stage=tele_stage,
+                            batch_id=tele_batch,
+                            key_idx=last.get("key_idx", eff_ring.idx),
+                            model=model,
+                            latency_s=last.get("latency_s", 0.0),
+                            outcome="ok",
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            run_id=tele_run_id, provider=eff,
+                            model_actual=tele_model_actual or model,
+                            cost=resolve_cost(
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens))
+                    _attempts(eff)
+                    return out
+            if eff_cooled:
                 break
-            except urllib.error.HTTPError as exc:
-                limited_all = False
-                if getattr(exc, "code", None) in (401, 403):
-                    raise_for_auth(exc)
-                raw, usage = None, None
-            except Exception:
-                limited_all = False
-                raw, usage = None, None
-            else:
-                limited_all = False
-            attempt_rows.extend(list(
-                getattr(ring, "attempt_log", []) or []))
-            if raw is None:
+        if eff_cooled:
+            # R6: a free-leg cooldown moves to the next provider's
+            # chain (same batch, that provider's ring); the last —
+            # or any paid — provider stops loud for a resume.
+            if eff_idx + 1 < len(ordered):
                 continue
-            try:
-                data = extract_json(raw)
-            except AuthError:
-                raise
-            except Exception:
-                continue
-            try:
-                valid = judge_validate_multi(data, batch, anchor_map)
-            except Exception:
-                valid = None
-            if valid is not None:
-                out = {k: {**v, "model": model} for k, v in valid.items()}
-                apply_inflection_veto(out, batch, anchor_map)  # F4
-                if telemetry is not None:
-                    prompt_tokens, completion_tokens = _tele_tokens(usage)
-                    last = getattr(ring, "last_call", None) or {}
-                    _tele_record(telemetry, stage=tele_stage,
-                                 batch_id=tele_batch,
-                                 key_idx=last.get("key_idx", ring.idx),
-                                 model=model,
-                                 latency_s=last.get("latency_s", 0.0),
-                                 outcome="ok",
-                                 prompt_tokens=prompt_tokens,
-                                 completion_tokens=completion_tokens,
-                                 run_id=tele_run_id, provider=provider,
-                                 model_actual=tele_model_actual or model,
-                                 cost=resolve_cost(
-                                     prompt_tokens=prompt_tokens,
-                                     completion_tokens=completion_tokens))
-                _attempts()
-                return out
-    if limited_all and models:
+            raise cool_exc
+    if limited_all and n_tried:
         # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
         # caller flushes progress); anything else already fell back
         # per item above. Per-model error records exist, so no extra
         # terminal row here.
-        _attempts()
+        _attempts(base_provider)
         raise RateLimited(
             "all sense_judge models 429 (provider quotas exhausted) — "
             "re-run later (progress flushed, resume safe)")
@@ -714,7 +826,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                      provider=provider,
                      model_actual=tele_model_actual or "s1-fallback",
                      cost=resolve_cost(made_call=True))
-    _attempts()
+    _attempts(base_provider)
     return out
 
 

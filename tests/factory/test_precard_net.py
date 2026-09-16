@@ -760,16 +760,24 @@ def test_p2_table_keys_shape_and_costs():
         for entry_model, cost in entries:
             assert isinstance(entry_model, str) and entry_model
             assert cost in ("free", "paid"), cost
-    # Zen judge/inflection keep the historic Muse-only pair; vectors
-    # and label keep the full five (defaults unchanged by the move).
+    # Frozen literals (not derived from the module): the zen
+    # judge/inflection legs keep the historic Muse-only pair while
+    # vectors/label keep the full five. A silent reorder/rename of
+    # JUDGE_MODELS must fail here, not slide through.
+    frozen_pair = ["muse-spark-1.3-contributor-free",
+                   "muse-spark-1.2-contributor-free"]
+    frozen_five = frozen_pair + ["ling-3.0-flash-fin-free",
+                                 "mimo-v2.5-free",
+                                 "nemotron-3.5-lightning-free"]
+    assert NET.JUDGE_MODELS == frozen_five
     assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "sense_judge")]] == NET.JUDGE_MODELS[:2]
+        ("zen", "sense_judge")]] == frozen_pair
     assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "inflection_review")]] == NET.JUDGE_MODELS[:2]
+        ("zen", "inflection_review")]] == frozen_pair
     assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "topic_vectors")]] == NET.JUDGE_MODELS
+        ("zen", "topic_vectors")]] == frozen_five
     assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "topic_label")]] == NET.JUDGE_MODELS
+        ("zen", "topic_label")]] == frozen_five
     assert all(cost == "free" for _, cost in NET.LEG_FALLBACKS[
         ("zen", "sense_judge")])
     # AvalAI/Google legs are single paid defaults.
@@ -828,133 +836,105 @@ def test_p2_switch_policy_and_target_routing():
     assert NET.target_for("bogus") == "zen"
 
 
-def test_p2_chain_429_steps_down_to_model2_with_map_and_tele():
-    """Injected 429 on model 1 (all keys) reaches model 2 same leg;
-    provider_map records every model tried; one telemetry entry per
-    step."""
-    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
-    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+def test_p2_switch_plan_order_and_paid_stop():
+    """R6 provider order lives in one helper: free legs try self then
+    the rest of SWITCH_ORDER that own the step; paid legs try only
+    themselves (a cooldown stops for a resume)."""
+    assert NET.switch_plan("zen", "sense_judge") == [
+        "zen", "google", "avalai"]
+    assert NET.switch_plan("google", "sense_judge") == ["google"]
+    assert NET.switch_plan("avalai", "topic_label") == ["avalai"]
+    assert NET.switch_plan("zen", "topic_vectors") == [
+        "zen", "google", "avalai"]
+
+
+def test_p2_switch_plan_unknown_step_is_programmer_error():
+    cfg = _cfg(keys={"zen": ["k1"]})
+    with pytest.raises(ValueError):
+        NET.switch_plan("zen", "bogus")
+
+
+def test_p2_leg_free_cooldown_switches_provider_with_own_keys():
+    """R6 in the production path (finding A+B): a free leg cooled on
+    zen continues on google's chain, and the google attempt presents
+    GOOGLE's key — never zen's. z2 is skipped (same-project rotation
+    is forbidden on a cooldown)."""
+    from factory.precard import judge as J
+    z1 = NET.JUDGE_MODELS[0]
+    gmodel = T.GOOGLE_PRECARD_MODEL
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
     seen = []
 
     def fake(api_key, model, text):
         seen.append((api_key, model))
-        if model == m1:
-            raise _http(429)
-        return "settled", {"input_tokens": 1, "output_tokens": 2}
-
-    pmap, tele = {}, []
-    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
-                       step="sense_judge", sleep_fn=lambda s: None,
-                       state={}, provider_map=pmap, telemetry=tele,
-                       run_id="run-1", tele_batch=3)
-    assert out[0] == "settled"
-    assert [m for _, m in seen] == [m1, m1, m2]  # m1 burns both keys
-    assert pmap["sense_judge"] == {
-        "provider": "zen", "model": m2, "cost": "free",
-        "tried": [m1, m2]}
-    assert [(r["model"], r["outcome"]) for r in tele] == [
-        (m1, "error"), (m2, "ok")]
-    assert all(r["provider"] == "zen" and r["run_id"] == "run-1"
-               and r["batch_id"] == 3 for r in tele)
-
-
-def test_p2_chain_401_stops_after_one_attempt_flushed():
-    """Injected 401: STOP, zero second calls, flush hook ran, values
-    never surface."""
-    m1 = NET.JUDGE_MODELS[0]
-    cfg = _cfg(keys={"zen": ["zz-secret-1", "zz-secret-2"]})
-    seen, flushed = [], []
-
-    def fake(api_key, model, text):
-        seen.append((api_key, model))
-        raise _http(401)
-
-    pmap = {}
-    with pytest.raises(T.AuthError) as exc:
-        NET.call_leg(cfg, "zen", "prompt", transport=fake,
-                     step="sense_judge", sleep_fn=lambda s: None,
-                     state={}, provider_map=pmap,
-                     flush_fn=lambda: flushed.append(1))
-    assert seen == [("zz-secret-1", m1)]  # no second call
-    assert flushed == [1]
-    assert pmap["sense_judge"]["tried"] == [m1]
-    msg = str(exc.value)
-    assert "OPENCODE_ZEN_API_KEY" in msg
-    assert "zz-secret-1" not in msg and "zz-secret-2" not in msg
-
-
-def test_p2_chain_exhaustion_raises_rate_limited_flushed():
-    cfg = _cfg(keys={"zen": ["k1", "k2"]})
-    flushed = []
-
-    def fake(api_key, model, text):
-        raise _http(429)
-
-    pmap = {}
-    with pytest.raises(T.RateLimited):
-        NET.call_leg(cfg, "zen", "prompt", transport=fake,
-                     step="sense_judge", sleep_fn=lambda s: None,
-                     state={}, provider_map=pmap,
-                     flush_fn=lambda: flushed.append(1))
-    assert flushed == [1]
-    assert pmap["sense_judge"]["tried"] == NET.JUDGE_MODELS[:2]
-    assert pmap["sense_judge"]["model"] == ""
-
-
-def test_p2_chain_paid_cooldown_stops_no_switch():
-    """Google project quota: single attempt, no provider switch, loud
-    stop for a resume (R6 paid rule)."""
-    cfg = _cfg(keys={"google": ["k1", "k2"]})
-    seen, flushed = [], []
-
-    def fake(api_key, model, text):
-        seen.append((api_key, model))
-        raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
-
-    pmap = {}
-    with pytest.raises(T.ProviderCooldown):
-        NET.call_leg(cfg, "google", "prompt", transport=fake,
-                     step="sense_judge", sleep_fn=lambda s: None,
-                     state={}, provider_map=pmap,
-                     flush_fn=lambda: flushed.append(1))
-    assert seen == [("k1", T.GOOGLE_PRECARD_MODEL)]  # no rotation/switch
-    assert flushed == [1]
-    assert pmap["sense_judge"]["tried"] == [T.GOOGLE_PRECARD_MODEL]
-
-
-def test_p2_chain_free_cooldown_switches_provider():
-    """Free-leg COOLDOWN_SWITCH continues on the next provider chain
-    (R6 free rule); paid legs never reach here."""
-    z1, z2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
-    cfg = _cfg(keys={"zen": ["k1", "k2"]})
-    seen, flushed = [], []
-
-    def fake(api_key, model, text):
-        seen.append((api_key, model))
-        if model in (z1, z2):
+        if model in NET.leg_chain("zen", "sense_judge"):
             raise T.ProviderCooldown("project blocked")
-        return "switched-ok", None
+        return ('{"results": [{"key": "w:call", '
+                '"picks": ["call#0"]}]}'), None
 
-    pmap = {}
-    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
-                       step="sense_judge", sleep_fn=lambda s: None,
-                       state={}, provider_map=pmap,
-                       flush_fn=lambda: flushed.append(1))
-    assert out[0] == "switched-ok"
-    assert flushed == []  # success never flushes
-    assert pmap["sense_judge"]["provider"] == "google"
-    assert pmap["sense_judge"]["model"] == T.GOOGLE_PRECARD_MODEL
-    # Same-project rotation is forbidden on a cooldown: z2 is skipped,
-    # the free leg switches provider instead.
-    assert pmap["sense_judge"]["tried"] == [z1, T.GOOGLE_PRECARD_MODEL]
+    zen_ring = T.KeyRing(["zk1", "zk2"])
+    tele, tried = [], []
+    out = J.judge_batch(batch, amap, "zk1", fake, lambda s: None, {},
+                        telemetry=tele, tele_batch=1, provider="zen",
+                        ring=zen_ring,
+                        rings={"zen": zen_ring,
+                               "google": T.KeyRing(["gk1"])},
+                        tried=tried)
+    assert out["w:call"]["sense_id"] == "call#0"
+    assert out["w:call"]["model"] == gmodel
+    assert seen == [("zk1", z1), ("gk1", gmodel)]
+    assert tried == [z1, gmodel]
+    assert [(r["model"], r["provider"], r["outcome"]) for r in tele] == [
+        (z1, "zen", "error"), (gmodel, "google", "ok")]
 
 
-def test_p2_chain_unknown_step_is_programmer_error():
-    cfg = _cfg(keys={"zen": ["k1"]})
-    with pytest.raises(ValueError):
-        NET.call_leg(cfg, "zen", "prompt",
-                     transport=lambda *a: ("x", None),
-                     step="bogus", sleep_fn=lambda s: None, state={})
+def test_p2_leg_paid_cooldown_stops_no_switch():
+    """Paid legs never auto-switch in the production path either:
+    google project quota stops after one attempt for a resume."""
+    from factory.precard import judge as J
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        raise T.ProviderCooldown("project blocked")
+
+    with pytest.raises(T.ProviderCooldown):
+        J.judge_batch(batch, amap, "gk1", fake, lambda s: None, {},
+                      provider="google",
+                      ring=T.KeyRing(["gk1"]),
+                      rings={"google": T.KeyRing(["gk1"])})
+    assert seen == [("gk1", T.GOOGLE_PRECARD_MODEL)]  # no rotation/switch
+
+
+def test_p2_inflection_review_429_rotates_keys():
+    """Finding C: inflection attempts route through net.call_leg, so a
+    429 rotates to the next key on the SAME model (the old raw
+    transport call never rotated)."""
+    from factory.precard import judge as J
+    m1 = NET.JUDGE_MODELS[0]
+    items = [{"key": "k1", "text": "w", "gloss": "g"}]
+    seen = []
+    calls = {"n": 0}
+
+    def fake(api_key, model, *texts):
+        seen.append((api_key, model))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http(429)
+        return ('{"results": [{"key": "k1", "keep": true, '
+                '"reason": "ok"}]}'), None
+
+    out = J.inflection_review(items, fake, "k",
+                              ring=T.KeyRing(["k1", "k2"]),
+                              sleep_fn=lambda s: None, state={})
+    assert out["k1"] == {"keep": True, "reason": "ok", "model": m1,
+                         "uncertain": False}
+    assert seen == [("k1", m1), ("k2", m1)]
 
 
 def test_p2_judge_batch_steps_down_on_429():
