@@ -56,6 +56,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `i18n` | Changes affecting Persian language, RTL, localization |
 | `UI/UX` | Changes to Telegram keyboard layouts, message formatting, user experience |
 | `risk` | High-risk change: DB schema migration, security-sensitive, concurrency-critical |
+| `security` | Touches secrets, keys, tunnels, or auth paths (`services/db/key_crypto.py`, `tools/egress/**/*`, `.env.example`) — auto-applied |
 | `blocked` | PR blocked by an external dependency or decision |
 | `needs-verification` | PR needs focused verification/regression test before merge |
 | `tech-debt` | Technical debt reduction with no user-facing change |
@@ -72,6 +73,19 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `priority-high` | Critical path, blocks other work, or urgent user impact |
 | `priority-medium` | Important but not blocking |
 | `priority-low` | Nice-to-have or backlog |
+
+### Dimension 5: Computed (AUTOMATIC via `pr-meta` workflow, zero or more)
+
+| Label | How it is derived |
+|---|---|
+| `size/XS` | Total churn 0–9 lines |
+| `size/S` | Total churn 10–99 lines |
+| `size/M` | Total churn 100–499 lines |
+| `size/L` | Total churn 500–999 lines |
+| `size/XL` | Total churn 1000+ lines (exactly one size label per PR) |
+| `breaking-change` | Title has `!` before `:` (e.g. `feat(api)!:`) or a line-anchored `BREAKING CHANGE:` footer in the body |
+| `needs-tests` | Production paths (`services/`, `handlers/`, `factory/`, `tools/`, `config/`, `scripts/`, `bot.py`) changed with no `tests/` change; removed automatically once tests are added |
+| `dependencies` | Applied by dependabot itself; no workflow needed |
 
 ## Rules
 

@@ -114,6 +114,10 @@ risk:
   - changed-files:
       - any-glob-to-any-file: ['services/db/schema.py', 'migrations/**/*']
 
+security:
+  - changed-files:
+      - any-glob-to-any-file: ['services/db/key_crypto.py', 'tools/egress/**/*', '.env.example']
+
 tech-debt:
   - changed-files:
       - any-glob-to-any-file: ['services/utils/helpers.py']

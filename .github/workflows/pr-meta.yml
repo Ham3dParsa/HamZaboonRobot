@@ -1,0 +1,21 @@
+name: PR Meta Labels
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4 # fetches scripts/pr_meta_labels.py itself; PR data comes from the gh API
+      - name: Apply breaking-change, size, and needs-tests labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/pr_meta_labels.py "$PR_NUMBER"
