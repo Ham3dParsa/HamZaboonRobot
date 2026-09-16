@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: TBD (fix/network-p1)
 status: locked
 ---
-STATE: phase 0/6 — status: locked — focus: implement after owner proceed
+STATE: phase 1/6 — status: complete — focus: merged c540d07 (PR 710); reviewer 0 findings; 2841 passed
 
 ## Scope
 - Move 4 probe functions into `factory/precard/net.py`; supervisor CLI calls them (no logic rewrite); `egress_pool.json` single writer; per-provider cooldown (429 on one provider never cools another).
