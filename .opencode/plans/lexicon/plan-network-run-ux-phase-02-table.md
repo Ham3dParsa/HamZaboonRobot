@@ -4,9 +4,9 @@ description: LEG_FALLBACKS single table in net.py with call_leg chain walk
 created: 2026-09-15
 base_commit: 926a19b
 branch: TBD (feat/network-fallback-table)
-status: locked
+status: merged
 ---
-STATE: phase 4/6 — status: locked — focus: implement after PR-A
+STATE: phase 4/6 — status: merged — PR 716 squash f6d62d3 (HEAD 927d946, OpenCode APPROVED zero-blocking, 6/6 blocking CI pass, Kilo review in-progress at merge per standing permission)
 
 ## Scope
 - `LEG_FALLBACKS[(provider, leg)]` in `net.py` with per-entry cost labels; move `JUDGE_MODELS` + precard/avalai/google consts in (legs hold zero lists); `call_leg` walks chain on ROTATE only; ABORT stops+flushes; per-step provider_map + telemetry entries. `tests/test_single_source_of_truth.py` gains `LEG_FALLBACKS` keyword.
