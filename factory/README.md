@@ -63,6 +63,34 @@ Reading a run: the console speaks real-word ids (`[STAGE sense_judge]`);
 `run.log` speaks the same ids (`stage sense_judge start`) — human-readable; progress keys and filenames match.
 Persian drop details go to `dropped.log`, never the console.
 
+## One-command runs (`factory/run.py`, R1–R4)
+
+Thin entry over supervisor + home probe table + `precard.pipeline`
+(moves no logic, wiring only). Presets: `avalai` (direct, no VPN),
+`google` (tunnel, auto-spawns the supervisor), `zen` (default).
+Precedence everywhere: CLI flag > env var > preset > code default
+(see `python -m factory.run --help` for the full flag/env table).
+Every flag has a `FACTORY_*`/`EGRESS_*` env mirror; LLM API keys are
+never flags and never printed.
+
+```powershell
+# avalai direct (no VPN): dry-run first, then the real run
+python -m factory.run --preset avalai --sample W:\hamzaban_data_factory\pilot\sample200b.json `
+  --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run
+python -m factory.run --preset avalai --sample W:\hamzaban_data_factory\pilot\sample200b.json `
+  --out out\precard.jsonl --progress-dir out\prog
+
+# google tunnel (supervisor health-checked, auto-spawned with pid+port;
+# --no-sup-spawn refuses with exit 2 instead of spawning)
+python -m factory.run --preset google --sample W:\hamzaban_data_factory\pilot\sample200b.json `
+  --out out\precard.jsonl --progress-dir out\prog --limit 20
+```
+
+`--dry-run` is fully hermetic (no network, no writes, supervisor
+untouched); `--list-models` prints the known precard models and exits.
+`--cache`/`--cooldown-secs`/`--max-429-strikes`/`--yes` are accepted
+and shown in the plan; PR-B/C/D wire their behavior.
+
 ## Run
 
 ```powershell
