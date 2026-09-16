@@ -288,6 +288,37 @@ def test_json_log_events_run_id_joined(tmp_path):
             "run_done"} <= kinds
 
 
+def test_quota_stop_emits_abort_event_and_closes_json_log(
+        tmp_path, monkeypatch):
+    """Reviewer must-fix: a quota STOP records an abort event and the
+    json-log stream is closed by the finally (readable, complete)."""
+    import pytest
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    from factory.precard import pipeline as pipe
+    items = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(items), encoding="utf-8")
+    out = str(tmp_path / "precard.jsonl")
+    prog = str(tmp_path / "prog")
+
+    def always_429(api_key, model, user_text):
+        raise _http_429()
+
+    with pytest.raises(SystemExit):
+        pipe.main(["--sample", str(sample), "--out", out,
+                   "--progress-dir", prog, "--json-log"],
+                  **{**_hermetic_kwargs(),
+                     "_judge_transport": always_429})
+    parent = _out_dir(out)
+    events = [json.loads(line) for line in
+              (parent / "run_events.jsonl").read_text(
+                  encoding="utf-8").splitlines() if line.strip()]
+    aborts = [e for e in events if e["event"] == "abort"]
+    assert aborts and aborts[0]["stage"] == "sense_judge"
+    assert len({e["run_id"] for e in events}) == 1  # joined, complete
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""

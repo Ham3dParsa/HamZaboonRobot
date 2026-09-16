@@ -76,6 +76,12 @@ COOLDOWN_S = 300
 # Secret-free by construction: lease ids truncate to 8 chars (same as
 # the console line), proxy URLs and keys are never recorded. Probe
 # logic is untouched (parallel PR-0 owns it).
+# Retention (reviewer must-fix: documented, not capped): this file has
+# no reader inside the repo — audit only, every line self-contained
+# with its own ts — so it is safe to rotate, truncate, or delete at
+# any time (e.g. logrotate or a periodic tail cap). No cap is enforced
+# here by design: the supervisor must never fail a lease/report over
+# audit upkeep.
 LEASES_PATH = pathlib.Path(__file__).resolve().parent / "leases.jsonl"
 
 

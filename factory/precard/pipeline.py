@@ -568,6 +568,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      % (progress.display(stage), exc),
                      "red", stream=sys.stderr), file=sys.stderr)
         jlog.event("abort", stage=stage, error=str(exc))
+        # The bare raise below skips everything after the try/finally
+        # (telemetry-history append, summary, run_done): the json-log
+        # stream ends here, closed, with the abort as its last event.
+        jlog.close()
 
     progress_dir = pathlib.Path(args.progress_dir)
     progress_dir.mkdir(parents=True, exist_ok=True)
@@ -1379,6 +1383,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
                                                     tele_flushed,
                                                     run_id=run_id)
+                    jlog.event("abort", stage="sense_judge",
+                               batch=batch_no, error=str(exc))
+                    # The SystemExit below skips the post-try summary and
+                    # run_done: end the json-log stream here, closed.
+                    jlog.close()
                     hint = ("wait for quota reset then re-run"
                             if (full_avalai or judge_avalai
                                 or providers["sense_judge"] == "google"
@@ -1504,6 +1513,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
                                                     tele_flushed,
                                                     run_id=run_id)
+                    jlog.event("abort", stage="topic_vectors",
+                               batch=batch_no, error=str(exc))
+                    jlog.close()
                     raise SystemExit(_color(
                         "STOP s3 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc,
@@ -1648,6 +1660,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(
                         tele_dir, tele_store, tele_flushed, run_id=run_id)
+                    jlog.event("abort", stage="topic_label",
+                               batch=batch_no, error=str(exc))
+                    jlog.close()
                     raise SystemExit(_color(
                         "STOP s4 at batch %d: %s — progress flushed, "
                         "%s"
@@ -1785,6 +1800,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # R11: aborts go to stderr (stdout is human progress).
         print("interrupted — flushing stage progress", file=sys.stderr)
         jlog.event("abort", stage="run", error="KeyboardInterrupt")
+        jlog.close()
         raise SystemExit(130)
     finally:
         if not args.dry_run:
