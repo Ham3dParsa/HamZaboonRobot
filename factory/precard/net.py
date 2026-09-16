@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import os
 import pathlib
 import secrets
@@ -436,8 +437,18 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
     missing/ping-dead) falls through to the classic first-avail pick
     with ``cache_hit False`` — the caller runs its full probe only on
     that miss, then writes successes back via record_clean_success +
-    save_clean_cache. ``now`` is injectable for hermetic tests. Every
+    save_clean_cache.     ``now`` is injectable for hermetic tests. Every
     result carries ``cache_hit`` (False on direct/park rows too).
+
+    Concurrency: candidate snapshots are taken under the pool lock,
+    but ``ping_fn`` (network I/O) always runs WITHOUT the lock — a
+    slow/hung ping must never serialize all lease callers. The first
+    ping-ok row is re-checked for cooling under the lock before the
+    lease is minted (a row cooled mid-ping falls through to the
+    classic pick). ``clean_ttl`` garbage (non-numeric, non-finite,
+    or non-positive) falls back to ``CLEAN_CACHE_TTL_S`` — the run
+    entry rejects such values with exit 2, library callers get the
+    safe default and never an exception.
     """
     with cfg._lock:
         at = cfg._clock() if now is None else now
@@ -458,9 +469,10 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
                     "egress_ip": "direct",
                     "provider": spec["provider"], "target": name,
                     "cache_hit": False}
-        ttl = CLEAN_CACHE_TTL_S if clean_ttl is None else float(clean_ttl)
+        ttl = _clean_ttl(clean_ttl)
+        plan = []
         if clean_cache and ping_fn is not None:
-            by_id = {s["id"]: s for s in cfg.servers
+            by_id = {s["id"]: dict(s) for s in cfg.servers
                      if isinstance(s, dict) and s.get("id")}
             for entry in clean_cache_candidates(
                     clean_cache, spec["provider"], at, ttl):
@@ -470,21 +482,29 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
                     continue
                 if is_cool(cfg, sid, spec["provider"], now=at):
                     continue
-                try:
-                    ok = ping_fn(by_id[sid])
-                except Exception:  # noqa: BLE001 (ping fail = next row)
-                    ok = False
-                if not ok:
-                    continue
-                lid = secrets.token_hex(8)
-                cfg._leases[lid] = {"mode": "tunnel", "server": sid,
-                                    "since": at,
-                                    "provider": spec["provider"],
-                                    "target": name}
-                return {"lease_id": lid, "mode": "tunnel",
-                        "server_id": sid,
-                        "provider": spec["provider"], "target": name,
-                        "cache_hit": True}
+                plan.append((sid, by_id[sid]))
+    winner = None
+    for sid, snapshot in plan:
+        try:
+            ok = ping_fn(snapshot)
+        except Exception:  # noqa: BLE001 (ping fail = next row)
+            ok = False
+        if not ok:
+            continue
+        winner = sid
+        break
+    with cfg._lock:
+        if winner is not None and not is_cool(
+                cfg, winner, spec["provider"], now=at):
+            lid = secrets.token_hex(8)
+            cfg._leases[lid] = {"mode": "tunnel", "server": winner,
+                                "since": at,
+                                "provider": spec["provider"],
+                                "target": name}
+            return {"lease_id": lid, "mode": "tunnel",
+                    "server_id": winner,
+                    "provider": spec["provider"], "target": name,
+                    "cache_hit": True}
         avail = [s for s in cfg.servers
                  if s.get("id")
                  and not is_cool(cfg, s["id"], spec["provider"],
@@ -696,6 +716,53 @@ CLEAN_CACHE_TTL_S = 86400.0
 CLEAN_CACHE_FILENAME = "clean_cache.json"
 
 
+def _clean_ttl(value):
+    """Finite positive TTL seconds; anything else -> the default.
+
+    ``None`` (unset) means ``CLEAN_CACHE_TTL_S``; non-numeric,
+    non-finite (inf/nan), or non-positive values also fall back to it.
+    The run entry rejects such values loudly (exit 2); library-level
+    callers get the safe default and never an exception, and a NaN
+    TTL can never invert freshness (``age > NaN`` is always False,
+    which used to make stale rows look fresh).
+    """
+    try:
+        ttl = CLEAN_CACHE_TTL_S if value is None else float(value)
+    except (TypeError, ValueError):
+        return CLEAN_CACHE_TTL_S
+    if not math.isfinite(ttl) or ttl <= 0:
+        return CLEAN_CACHE_TTL_S
+    return ttl
+
+
+def _clean_ts(value):
+    """last_ok_ts float normalization (write path mirrors load).
+
+    Non-numeric or non-finite (nan/inf) timestamps become 0.0 (epoch:
+    always stale) so the writer never emits NaN/Infinity payloads.
+    """
+    try:
+        ts = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return ts if math.isfinite(ts) else 0.0
+
+
+def _clean_latency(value):
+    """latency_ms int/None normalization (write path mirrors load).
+
+    Truncates floats/numeric strings to int; None stays None; anything
+    non-numeric (including inf, which int() rejects with OverflowError)
+    becomes None so the writer never emits a non-serializable payload.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def default_clean_cache_path(pool_path):
     """Cache path beside a pool path (same directory, fixed filename)."""
     try:
@@ -731,10 +798,12 @@ def load_clean_cache(path):
             entry["last_ok_ts"] = float(row.get("last_ok_ts", 0) or 0)
         except (TypeError, ValueError):
             entry["last_ok_ts"] = 0.0
+        if not math.isfinite(entry["last_ok_ts"]):
+            entry["last_ok_ts"] = 0.0
         try:
             entry["latency_ms"] = (None if row.get("latency_ms") is None
                                    else int(row["latency_ms"]))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             entry["latency_ms"] = None
         clean.append(entry)
     return clean
@@ -747,7 +816,8 @@ def save_clean_cache(path, entries):
     server_id-bearing row — in which case the path is NOT touched (an
     empty probe clobbers neither pool nor cache). Atomic tmp+replace
     (a crash mid-write keeps the previous good file); failed writes
-    remove the temp file best-effort and raise OSError. Sync I/O.
+    remove the temp file best-effort and raise (OSError, ValueError,
+    or TypeError — e.g. an unserializable id). Sync I/O.
     """
     live = [e for e in (entries or [])
             if isinstance(e, dict) and e.get("server_id")]
@@ -757,8 +827,8 @@ def save_clean_cache(path, entries):
         datetime.timezone.utc).isoformat(),
         "entries": [{"server_id": e["server_id"],
                      "provider": norm_provider(e.get("provider")),
-                     "last_ok_ts": float(e.get("last_ok_ts", 0) or 0),
-                     "latency_ms": e.get("latency_ms")}
+                     "last_ok_ts": _clean_ts(e.get("last_ok_ts", 0)),
+                     "latency_ms": _clean_latency(e.get("latency_ms"))}
                     for e in live]}
     tmp_path = str(path) + ".tmp"
     try:
@@ -767,7 +837,7 @@ def save_clean_cache(path, entries):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)
-    except OSError:
+    except (OSError, ValueError, TypeError):
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -781,9 +851,11 @@ def clean_cache_candidates(entries, provider, now, ttl=None):
 
     Fresh = now - last_ok_ts <= ttl (default 24h); stale rows never
     return (a stale entry is a MISS, re-probed only by the caller's
-    full scan). latency_ms None sorts last. Pure.
+    full scan). latency_ms None sorts last. Non-numeric/non-finite
+    TTL falls back to the default (see _clean_ttl); rows whose age is
+    non-numeric or non-finite (e.g. NaN last_ok_ts) are stale. Pure.
     """
-    limit = CLEAN_CACHE_TTL_S if ttl is None else float(ttl)
+    limit = _clean_ttl(ttl)
     want = norm_provider(provider)
     fresh = []
     for row in entries or []:
@@ -794,6 +866,8 @@ def clean_cache_candidates(entries, provider, now, ttl=None):
         try:
             age = float(now) - float(row.get("last_ok_ts", 0) or 0)
         except (TypeError, ValueError):
+            continue
+        if not math.isfinite(age):
             continue
         if age < 0 or age > limit:
             continue
@@ -818,14 +892,8 @@ def record_clean_success(entries, server_id, provider, latency_ms,
     rows = [e for e in rows
             if not (e.get("server_id") == server_id
                     and norm_provider(e.get("provider")) == want)]
-    try:
-        at = float(now)
-    except (TypeError, ValueError):
-        at = 0.0
-    try:
-        ms = None if latency_ms is None else int(latency_ms)
-    except (TypeError, ValueError):
-        ms = None
+    at = _clean_ts(now)
+    ms = _clean_latency(latency_ms)
     rows.append({"server_id": server_id, "provider": want,
                  "last_ok_ts": at, "latency_ms": ms})
     return rows

@@ -1215,8 +1215,8 @@ def test_c3_supervisor_reexports_cache_home():
 
 
 def test_c3_supervisor_writeback_hook(tmp_path):
-    """note_clean_success writes back; empty/failed upkeep never
-    raises and never creates a file."""
+    """note_clean_success writes back; empty/I-O-failed upkeep never
+    raises and never creates a file (programming errors propagate)."""
     import json
     path = tmp_path / "clean_cache.json"
     SUP.note_clean_success("s1", "zen", 12, now=2000.0,
@@ -1258,3 +1258,131 @@ def test_c3_run_flags_clean_ttl_and_direct_probe():
     src = open(RUN.__file__, encoding="utf-8").read()
     assert "AVALAI_API_KEY" not in src
     assert "CLEAN_CACHE_TTL_S" in src  # code default cited, not moved
+
+
+# --- OC-bot blocking fixes (PR 717 re-review): ping outside the pool
+# lock, finite TTL, symmetric write normalization, narrow write-back ---
+
+def test_c3_ping_runs_outside_pool_lock():
+    """W1: a second thread takes cfg._lock while ping_fn runs (a
+    slow/hung ping must never serialize lease callers)."""
+    import threading
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    entered = threading.Event()
+    lock_free = []
+
+    def _ping(server):
+        entered.set()
+
+        def _take():
+            with cfg._lock:
+                lock_free.append(True)
+
+        worker = threading.Thread(target=_take, daemon=True)
+        worker.start()
+        worker.join(timeout=5.0)
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert entered.is_set()
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert lock_free == [True]  # lock was free during the ping
+
+
+def test_c3_ping_gets_snapshot_not_live_pool_row():
+    """W1: ping_fn mutating its arg must not corrupt the pool."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    seen = []
+
+    def _ping(server):
+        seen.append(server)
+        server["host"] = "MUTATED"
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert seen[0] is not cfg.servers[1]
+    assert cfg.servers[1]["host"] == "h2"
+
+
+def test_c3_nonfinite_ttl_falls_back_to_default():
+    """W2: inf/nan/garbage/non-positive TTL never hangs the lib path:
+    the default window applies and fresh rows still hit."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    for bad in ("inf", float("inf"), float("nan"), "nan",
+                "garbage", 0, -5, object()):
+        lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                              clean_ttl=bad,
+                              ping_fn=lambda s: 10, now=1000.0)
+        assert lease["server_id"] == "s2" \
+            and lease["cache_hit"] is True
+
+
+def test_c3_nan_last_ok_row_is_stale():
+    """W2: a NaN last_ok_ts row is stale (never fresh via NaN math)."""
+    rows = NET.clean_cache_candidates(
+        [{"server_id": "s1", "provider": "zen",
+          "last_ok_ts": float("nan"), "latency_ms": 5}],
+        "zen", 1000.0, 86400.0)
+    assert rows == []
+
+
+def test_c3_inf_ttl_uses_default_window():
+    """W2: an inf TTL falls back to the default (fresh rows return)."""
+    rows = NET.clean_cache_candidates(
+        [_cache_entry("s1", age_s=1000)], "zen", 1000.0, float("inf"))
+    assert [r["server_id"] for r in rows] == ["s1"]
+
+
+def test_c3_run_rejects_nonfinite_clean_ttl():
+    """W2: --clean-ttl/EGRESS_CLEAN_TTL inf/nan exits 2."""
+    from factory import run as RUN
+    import pytest as _pytest
+    ns = RUN.parse_args([])
+    for bad in ("inf", "nan"):
+        with _pytest.raises(SystemExit):
+            RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": bad})
+    ns_cli = RUN.parse_args(["--clean-ttl", "inf"])
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns_cli, {})
+
+
+def test_c3_save_normalizes_latency_like_load(tmp_path):
+    """W3: the writer emits int/None latency (mirror load); junk
+    latency becomes None instead of a non-serializable payload."""
+    path = str(tmp_path / "clean_cache.json")
+    rows = [{"server_id": "s1", "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": "12"},
+            {"server_id": "s2", "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": object()},
+            {"server_id": "s3", "provider": "zen",
+             "last_ok_ts": float("nan"), "latency_ms": 12.9}]
+    assert NET.save_clean_cache(path, rows) == 3
+    loaded = NET.load_clean_cache(path)
+    assert [e["latency_ms"] for e in loaded] == [12, None, 12]
+    assert [e["last_ok_ts"] for e in loaded] == [1000.0, 1000.0, 0.0]
+
+
+def test_c3_save_cleans_tmp_and_raises_on_unserializable(tmp_path):
+    """W3: a failed write removes path.tmp and still raises."""
+    import pytest as _pytest
+    path = tmp_path / "clean_cache.json"
+    rows = [{"server_id": {"unserializable", 1}, "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": 5}]
+    with _pytest.raises(TypeError):
+        NET.save_clean_cache(str(path), rows)
+    assert not path.exists()
+    assert not (tmp_path / "clean_cache.json.tmp").exists()
+
+
+def test_c3_writeback_propagates_programming_errors():
+    """W4: TypeError/AttributeError surface (only OSError/ValueError
+    stay best-effort)."""
+    import pytest as _pytest
+    with _pytest.raises(TypeError):
+        SUP.note_clean_success("s1", "zen", 12, now=2000.0, path=None)

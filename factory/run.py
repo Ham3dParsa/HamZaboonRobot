@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import subprocess
 import sys
@@ -471,7 +472,11 @@ def _validate(cfg):
         _fail("factory/run: --max-429-strikes must be >= 1")
     if (cfg["probe_top_n"] or 0) < 0:
         _fail("factory/run: --probe-top-n must be >= 0")
-    if not (cfg["clean_ttl"] or 0) > 0:
+    try:
+        _ttl = float(cfg["clean_ttl"])
+    except (TypeError, ValueError):
+        _ttl = 0.0
+    if not math.isfinite(_ttl) or _ttl <= 0:
         _fail("factory/run: --clean-ttl must be > 0")
 
 

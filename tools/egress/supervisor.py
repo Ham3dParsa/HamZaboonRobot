@@ -170,9 +170,12 @@ def note_clean_success(server_id, provider, latency_ms, now=None,
 
     Thin over the net home (load -> record_clean_success -> save):
     empty results never touch the file (save refuses empty, so an
-    empty probe clobbers neither pool nor cache). Best-effort, never
-    raises — cache upkeep must never fail a lease or startup.
-    ``path`` defaults to the pool-side clean_cache.json (hermetic
+    empty probe clobbers neither pool nor cache). Best-effort on I/O
+    and corrupt-cache failures only (OSError, ValueError) — cache
+    upkeep must never fail a lease or startup for those. Programming
+    errors (wrong shapes, bad path types: TypeError/AttributeError)
+    propagate so typos never hide as cache silence. ``path``
+    defaults to the pool-side clean_cache.json (hermetic
     tests point it at tmp_path).
     """
     try:
@@ -181,7 +184,7 @@ def note_clean_success(server_id, provider, latency_ms, now=None,
         updated = record_clean_success(entries, server_id, provider,
                                        latency_ms, at)
         save_clean_cache(path, updated)
-    except (OSError, ValueError, TypeError, AttributeError):
+    except (OSError, ValueError):
         pass
 
 
