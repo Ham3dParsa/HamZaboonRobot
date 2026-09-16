@@ -14,6 +14,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools",
                                 "egress"))
 import supervisor
 from supervisor import HTTPServer, Handler, Pool, parse_subscription
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _egress_clean_cache_isolated(monkeypatch, tmp_path):
+    """R7: Pool.lease tunnel path reads/writes clean_cache.json and pings
+    via tcp_ping — pin the file at tmp_path and the probe at dead so
+    this hermetic suite never touches the repo file or real DNS."""
+    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
+                       str(tmp_path / "clean_cache.json"))
+    monkeypatch.setattr(supervisor, "tcp_ping",
+                        lambda *args, **kwargs: None)
 
 
 def _sub_body():

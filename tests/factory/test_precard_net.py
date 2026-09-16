@@ -1386,3 +1386,147 @@ def test_c3_writeback_propagates_programming_errors():
     import pytest as _pytest
     with _pytest.raises(TypeError):
         SUP.note_clean_success("s1", "zen", 12, now=2000.0, path=None)
+
+
+# --- Phase-03 W1/W2 production wiring: supervisor Pool.lease is the
+# ONE production caller of the cache seam (load -> lease_for with
+# tcp_ping + ttl -> note_clean_success), hermetic via a tmp cache
+# file (env knob) + a fake ping. No network, no keys, no W: drive. ---
+
+def _c4_link_pool():
+    pool = SUP.Pool()
+    pool.load([
+        {"scheme": "vless", "host": "h1", "port": 1, "id": "s1",
+         "link": "vless://u@h1:1"},
+        {"scheme": "vless", "host": "h2", "port": 2, "id": "s2",
+         "link": "vless://u@h2:2"},
+    ])
+    return pool
+
+
+def _c4_cache_file(tmp_path, monkeypatch, rows):
+    import json
+    import time as _time
+    path = tmp_path / "clean_cache.json"
+    payload = {"saved_at": "test",
+               "entries": [dict(r) for r in rows]}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, str(path))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    return path
+
+
+def _c4_fresh_row(server_id, provider="zen", age_s=10, ms=7):
+    import time as _time
+    return {"server_id": server_id, "provider": provider,
+            "last_ok_ts": _time.time() - age_s, "latency_ms": ms}
+
+
+def test_c3_supervisor_lease_cache_hit_skips_scan(
+        tmp_path, monkeypatch, capsys):
+    """W2: a fresh cached row + reachable ping mints that server
+    (not first-avail), prints CACHE HIT, and writes back the
+    measured latency."""
+    import json
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    seen = []
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: seen.append((h, p)) or (
+            42 if h == "h2" else None))
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["mode"] == "tunnel" and lease["server_id"] == "s2"
+    assert ("h2", 2) in seen and ("h1", 1) not in seen
+    out = capsys.readouterr().out
+    assert "CACHE HIT" in out and "s2" in out
+    saved = json.loads(path.read_text(encoding="utf-8"))["entries"]
+    back = [e for e in saved if e["server_id"] == "s2"]
+    assert len(back) == 1 and back[0]["latency_ms"] == 42
+
+
+def test_c3_supervisor_lease_miss_takes_first_avail(
+        tmp_path, monkeypatch, capsys):
+    """W2: no cache file -> classic first-avail pick, CACHE MISS
+    line, and the minted server is written back (unknown latency)."""
+    import json
+    path = tmp_path / "clean_cache.json"
+    assert not path.exists()
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, str(path))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    calls = []
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: calls.append((h, p)) or 99)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"  # first-avail, no ping needed
+    assert calls == []
+    assert "CACHE MISS" in capsys.readouterr().out
+    saved = json.loads(path.read_text(encoding="utf-8"))["entries"]
+    assert [e["server_id"] for e in saved] == ["s1"]
+    assert saved[0]["latency_ms"] is None
+
+
+def test_c3_supervisor_lease_cooled_mid_ping_falls_through(
+        tmp_path, monkeypatch, capsys):
+    """W1 lock discipline: a row cooled while its ping was in flight
+    is never minted (re-checked under the lock) — the lease falls
+    through to the classic pick."""
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    pool = _c4_link_pool()
+
+    def _ping(h, p, timeout=5.0):
+        pool.cool("s2", "zen")  # cooled mid-ping by a reporter
+        return 30
+
+    monkeypatch.setattr(SUP, "tcp_ping", _ping)
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"
+    assert "CACHE MISS" in capsys.readouterr().out
+
+
+def test_c3_supervisor_lease_audit_shape_unchanged(
+        tmp_path, monkeypatch, capsys):
+    """leases.jsonl behavior is untouched: the same event keys, no
+    cache keys leak into the audit."""
+    import json
+    monkeypatch.setattr(SUP, "LEASES_PATH",
+                        tmp_path / "leases.jsonl")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR,
+                       str(tmp_path / "no-cache.json"))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    monkeypatch.setattr(SUP, "tcp_ping",
+                        lambda h, p, timeout=5.0: None)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"
+    lines = (tmp_path / "leases.jsonl").read_text(
+        encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    rec = json.loads(lines[0])
+    assert rec["event"] == "lease" and rec["mode"] == "tunnel"
+    assert rec["server"] == "s1" and rec["lease"] == \
+        lease["lease_id"][:8]
+    assert set(rec) == {"ts", "event", "lease", "mode", "server",
+                        "provider", "target"}
+
+
+def test_c3_supervisor_clean_env_knobs(tmp_path, monkeypatch):
+    """EGRESS_CLEAN_TTL: finite-positive wins, garbage is the
+    default; EGRESS_CLEAN_CACHE_PATH overrides the beside-pool file
+    (empty falls back to it)."""
+    monkeypatch.setenv(SUP.CLEAN_TTL_VAR, "60")
+    assert SUP._clean_ttl_from_env() == 60.0
+    for bad in ("0", "-5", "inf", "nan", "garbage", ""):
+        monkeypatch.setenv(SUP.CLEAN_TTL_VAR, bad)
+        assert SUP._clean_ttl_from_env() == NET.CLEAN_CACHE_TTL_S
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    assert SUP._clean_ttl_from_env() == NET.CLEAN_CACHE_TTL_S
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR,
+                       str(tmp_path / "custom.json"))
+    assert SUP._clean_cache_path() == str(tmp_path / "custom.json")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, "   ")
+    assert SUP._clean_cache_path() == str(SUP.CLEAN_CACHE_PATH)

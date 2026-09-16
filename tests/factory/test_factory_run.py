@@ -32,7 +32,7 @@ def _no_network(url, token):
     raise AssertionError("network touched in a hermetic test")
 
 
-def _no_spawn(port, token, health_fn, sleep_fn):
+def _no_spawn(*args, **kwargs):
     raise AssertionError("spawn touched in a hermetic test")
 
 
@@ -253,7 +253,7 @@ def test_tunnel_spawn_prints_pid_port(capsys):
     def _down(url, token):
         return None
 
-    def _spawn(port, token, health_fn, sleep_fn):
+    def _spawn(port, token, health_fn, sleep_fn, **kwargs):
         assert port == 18791
         return 4242, 18791
 
@@ -276,7 +276,7 @@ def test_tunnel_spawn_failure_returns_2(capsys):
     def _down(url, token):
         return None
 
-    def _fail(port, token, health_fn, sleep_fn):
+    def _fail(port, token, health_fn, sleep_fn, **kwargs):
         raise RuntimeError("never healthy (5s budget)")
 
     code = RUN.run(["--preset", "google"], env_map={},
@@ -558,3 +558,220 @@ def test_help_shows_boolean_pairs(capsys):
                  "--quiet", "--no-quiet", "--sup-spawn", "--no-sup-spawn",
                  "--color", "--no-color", "--json-log", "--no-json-log"):
         assert pair in out, "help missing %s" % pair
+
+
+# --- R8 direct-first gate (phase 03 W1): the flag changes behavior ---
+
+def _raising_probe():
+    raise AssertionError("direct probe touched in a hermetic test")
+
+
+def test_direct_probe_default_loader_returns_supervisor_ping():
+    """The default probe is the supervisor's tcp_ping (PR-0 seam
+    reused as a callable, never redefined): import-only, no network."""
+    ping = RUN._load_supervisor_tcp_ping()
+    assert callable(ping) and ping.__name__ == "tcp_ping"
+
+
+def test_direct_probe_hit_prints_cache_hit_and_continues(capsys):
+    """Flag on + avalai + reachable: probe runs once, CACHE HIT +
+    direct-ok lines print, the run continues to the pipeline."""
+    calls = []
+
+    def _probe():
+        calls.append(True)
+        return 12
+
+    seen = {}
+
+    def _pipeline(argv):
+        seen["argv"] = argv
+        return 0
+
+    code = RUN.run(["--preset", "avalai", "--direct-probe"],
+                   env_map={}, health_fn=_no_network,
+                   spawn_fn=_no_spawn, pipeline_main_fn=_pipeline,
+                   sleep_fn=lambda s: None, direct_probe_fn=_probe)
+    assert code == 0
+    assert calls == [True]
+    out = capsys.readouterr().out
+    assert "CACHE HIT" in out and "direct" in out
+    assert "direct-ok" in out and "lease_taken=False" in out
+    assert seen["argv"]  # normal path continued
+
+
+def test_direct_probe_off_never_probes(capsys):
+    """Flag off: the probe is never touched, no CACHE lines print."""
+    code = RUN.run(["--preset", "avalai"], env_map={},
+                   health_fn=_no_network, spawn_fn=_no_spawn,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=_raising_probe)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "CACHE HIT" not in out and "CACHE MISS" not in out
+    assert "direct-ok" not in out and "lease-fallback" not in out
+
+
+def test_direct_probe_miss_falls_back_to_normal_path(capsys):
+    """Unreachable direct: CACHE MISS + lease-fallback print, the run
+    still continues (fallback, never a refusal)."""
+    seen = {}
+
+    def _pipeline(argv):
+        seen["argv"] = argv
+        return 0
+
+    code = RUN.run(["--preset", "avalai", "--direct-probe"],
+                   env_map={}, health_fn=_no_network,
+                   spawn_fn=_no_spawn, pipeline_main_fn=_pipeline,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=lambda: None)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "CACHE MISS" in out
+    assert "lease-fallback" in out and "lease_taken=True" in out
+    assert seen["argv"]
+
+
+def test_direct_probe_env_flag_enables_gate(capsys):
+    """AVALAI_DIRECT_FIRST=1 enables the gate without the CLI flag."""
+    calls = []
+
+    def _probe():
+        calls.append(True)
+        return 5
+
+    code = RUN.run(["--preset", "avalai"],
+                   env_map={"AVALAI_DIRECT_FIRST": "1"},
+                   health_fn=_no_network, spawn_fn=_no_spawn,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=_probe)
+    assert code == 0
+    assert calls == [True]
+    assert "CACHE HIT" in capsys.readouterr().out
+
+
+def test_direct_probe_skipped_off_provider():
+    """Flag on but non-avalai provider: gate inactive, probe untouched
+    (tunnel path proceeds via the supervisor as before)."""
+    def _healthy(url, token):
+        return {"ok": True, "servers": 1, "leases": 0, "healthy": True}
+
+    code = RUN.run(["--preset", "google", "--direct-probe"],
+                   env_map={}, health_fn=_healthy, spawn_fn=_no_spawn,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=_raising_probe)
+    assert code == 0
+
+
+def test_direct_probe_skipped_on_dry_run(capsys):
+    """Dry-run stays network-free: the gate never probes even with the
+    flag set (plan prints, stub pipeline sees --dry-run)."""
+    seen = {}
+
+    def _pipeline(argv):
+        seen["argv"] = argv
+        assert "--dry-run" in argv
+        return 0
+
+    code = RUN.run(["--preset", "avalai", "--dry-run", "--direct-probe"],
+                   env_map={}, health_fn=_no_network,
+                   spawn_fn=_no_spawn, pipeline_main_fn=_pipeline,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=_raising_probe)
+    assert code == 0
+    assert "no network, no writes" in capsys.readouterr().out
+
+
+def test_direct_probe_failure_falls_back(capsys):
+    """A raising probe is a miss, not a crash (unreachable IS the
+    fallback)."""
+    def _boom():
+        raise RuntimeError("boom")
+
+    event = RUN.maybe_direct_first(
+        {"direct_probe": True, "llm_provider": "avalai"},
+        direct_probe_fn=_boom)
+    assert event["outcome"] == "lease-fallback"
+    assert "CACHE MISS" in capsys.readouterr().out
+
+
+# --- spawn forwarding (phase 03 W1): --clean-ttl/--cache reach the
+# auto-spawned supervisor's env, where the W2 lease path reads them ---
+
+def test_spawn_forwards_clean_cache_config():
+    """Resolved clean-ttl + explicit cache path arrive at spawn_fn."""
+    seen = {}
+
+    def _record(port, token, health_fn, sleep_fn, **kwargs):
+        seen.update(kwargs)
+        return 4242, 18789
+
+    def _down(url, token):
+        return None
+
+    code = RUN.run(["--preset", "google", "--clean-ttl", "3600",
+                    "--cache", "C:\\fakecache\\cc.json"],
+                   env_map={}, health_fn=_down, spawn_fn=_record,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None)
+    assert code == 0
+    assert seen["clean_ttl"] == 3600.0
+    assert seen["cache_path"] == "C:\\fakecache\\cc.json"
+
+
+def test_spawn_defaults_keep_supervisor_default_cache():
+    """No --cache: None forwarded (the supervisor keeps its
+    beside-pool file); clean-ttl forwards the resolved default."""
+    seen = {}
+
+    def _record(port, token, health_fn, sleep_fn, **kwargs):
+        seen.update(kwargs)
+        return 4242, 18789
+
+    def _down(url, token):
+        return None
+
+    code = RUN.run(["--preset", "google"], env_map={},
+                   health_fn=_down, spawn_fn=_record,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None)
+    assert code == 0
+    assert seen["cache_path"] is None
+    from factory.precard import net as NET
+    assert seen["clean_ttl"] == NET.CLEAN_CACHE_TTL_S
+
+
+def test_spawn_supervisor_sets_child_env(monkeypatch):
+    """The live spawner exports the bearer + cache knobs to the child
+    env only (never argv, never logs)."""
+    captured = {}
+
+    class _StubProc:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    def _popen(argv, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = kwargs.get("env") or {}
+        return _StubProc()
+
+    monkeypatch.setattr(RUN.subprocess, "Popen", _popen)
+
+    def _healthy(url, token):
+        return {"ok": True, "servers": 1, "leases": 0, "healthy": True}
+
+    pid, port = RUN._spawn_supervisor(
+        18799, "tok", _healthy, lambda s: None,
+        clean_ttl=60.0, cache_path="C:\\x\\cc.json")
+    assert (pid, port) == (4242, 18799)
+    env = captured["env"]
+    assert env["EGRESS_SUP_TOKEN"] == "tok"
+    assert env["EGRESS_CLEAN_TTL"] == "60.0"
+    assert env["EGRESS_CLEAN_CACHE_PATH"] == "C:\\x\\cc.json"
+    assert "tok" not in " ".join(captured["argv"])

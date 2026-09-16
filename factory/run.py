@@ -43,6 +43,7 @@ from factory.precard.pipeline import (  # noqa: E402 (path bootstrap above)
     main as pipeline_main,
 )
 from factory.precard.net import (  # noqa: E402
+    AVALAI_CHAT_URL,
     AVALAI_PRECARD_MODEL,
     CLEAN_CACHE_TTL_S,
     GOOGLE_PRECARD_MODEL,
@@ -300,7 +301,9 @@ def parse_args(argv=None):
                          "the probe call)")
     ap.add_argument("--cache", default=None,
                     help="clean-cache path (default: beside the pool; "
-                         "empty/disabled skips the cache)")
+                         "forwarded to auto-spawned supervisors via "
+                         "EGRESS_CLEAN_CACHE_PATH; a running supervisor "
+                         "keeps its own file)")
     ap.add_argument("--clean-ttl", type=float, default=None,
                     help="clean-cache freshness seconds (default: 86400; "
                          "env EGRESS_CLEAN_TTL)")
@@ -515,16 +518,26 @@ def _sup_is_healthy(payload):
 
 
 def _spawn_supervisor(port, token, health_fn, sleep_fn=time.sleep,
-                      timeout=SPAWN_TIMEOUT_S):
+                      timeout=SPAWN_TIMEOUT_S, clean_ttl=None,
+                      cache_path=None):
     """Spawn ``tools/egress/supervisor.py --port`` and wait for health.
 
     Returns (pid, port) once the health check passes first (R4); raises
     RuntimeError when the supervisor never becomes healthy. The bearer
     travels in the child's environment only (never argv, never logs).
+    ``clean_ttl``/``cache_path`` forward the resolved --clean-ttl/
+    --cache into the child's env (EGRESS_CLEAN_TTL/
+    EGRESS_CLEAN_CACHE_PATH) so the supervisor's cache-first lease
+    path honors the CLI for auto-spawned supervisors; a running
+    supervisor keeps whatever env it started with.
     """
     env = dict(os.environ)
     if token:
         env["EGRESS_SUP_TOKEN"] = token
+    if clean_ttl is not None:
+        env["EGRESS_CLEAN_TTL"] = str(clean_ttl)
+    if cache_path:
+        env["EGRESS_CLEAN_CACHE_PATH"] = str(cache_path)
     try:
         proc = subprocess.Popen(
             [sys.executable, SUPERVISOR_SCRIPT, "--port", str(port)],
@@ -570,7 +583,9 @@ def ensure_supervisor(cfg, health_fn=None, spawn_fn=None,
     refusal/failure; SystemExit stays with the caller).
 
     ``health_fn(url, token)`` and ``spawn_fn(port, token, health_fn,
-    sleep_fn)`` are injectable (hermetic tests); defaults are live.
+    sleep_fn, clean_ttl, cache_path)`` are injectable (hermetic tests);
+    defaults are live. ``clean_ttl``/``cache_path`` carry the resolved
+    --clean-ttl/--cache to the spawned child (see _spawn_supervisor).
     """
     if cfg["egress_mode"] != "tunnel":
         return {"action": "skip", "reason": "direct mode needs no VPN"}
@@ -591,7 +606,8 @@ def ensure_supervisor(cfg, health_fn=None, spawn_fn=None,
                           "at %s" % cfg["sup_url"]}
     try:
         pid, port = spawn(cfg["sup_port"], cfg["sup_token"], health,
-                          sleep_fn)
+                          sleep_fn, clean_ttl=cfg.get("clean_ttl"),
+                          cache_path=(cfg.get("cache") or None))
     except RuntimeError as exc:
         return {"action": "failed", "reason": str(exc)}
     return {"action": "spawned", "pid": pid, "port": port}
@@ -646,7 +662,7 @@ def print_plan(cfg, sources):
             ("cooldown-secs", str(cfg["cooldown_secs"])),
             ("max-429-strikes", str(cfg["max_429_strikes"])),
             ("probe-top-n", str(cfg["probe_top_n"])),
-            ("cache", cfg["cache"] or "(disabled: no clean-cache)"),
+            ("cache", cfg["cache"] or "(default: beside the pool)"),
             ("clean-ttl", str(cfg["clean_ttl"])),
             ("direct-probe", str(bool(cfg["direct_probe"]))),
             ("dry-run", str(bool(cfg["dry_run"]))),
@@ -675,6 +691,79 @@ def direct_probe_telemetry(ok, provider="avalai"):
     return direct_probe_event(ok, provider)
 
 
+def _load_supervisor_tcp_ping():
+    """tcp_ping callable owned by tools/egress/supervisor.py.
+
+    PR-0 probe seam: used as-is, never redefined here. Single shared
+    import (plain ``import supervisor`` with tools/egress on sys.path):
+    the file must execute exactly once per process, because it binds
+    its probe functions into the shared net.TARGETS table — a second
+    exec under another module name would rebind another copy's
+    functions and break probe identity. Import only: no network, no
+    keys, no spawn.
+    """
+    mod = sys.modules.get("supervisor")
+    if mod is None:
+        import pathlib as _pathlib
+        _dir = str(_pathlib.Path(SUPERVISOR_SCRIPT).resolve().parent)
+        if _dir not in sys.path:
+            sys.path.insert(0, _dir)
+        import supervisor as mod
+    return mod.tcp_ping
+
+
+def _avalai_direct_probe(ping_fn=None):
+    """One TCP handshake to the AvalAI API host:443 (R8 default).
+
+    No keys, no lease, no model call: reachability only. Returns
+    truthy ms on success, None when unreachable. ``ping_fn(host,
+    port)`` is injectable (hermetic tests); default is the
+    supervisor's tcp_ping. Never raises for probe failures
+    (unreachable is the fallback, not an error).
+    """
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(AVALAI_CHAT_URL).hostname or "api.avalai.ir"
+    except Exception:  # noqa: BLE001 (URL is a const; keep a host)
+        host = "api.avalai.ir"
+    ping = ping_fn or _load_supervisor_tcp_ping()
+    try:
+        return ping(host, 443)
+    except Exception:  # noqa: BLE001 (probe failure = lease fallback)
+        return None
+
+
+def maybe_direct_first(cfg, direct_probe_fn=None):
+    """R8 AvalAI direct-first gate: the production branch on
+    cfg["direct_probe"].
+
+    Returns the telemetry event dict, or None when the gate is
+    inactive (flag off or non-avalai provider: zero behavior change).
+    Active: one direct reachability probe (injectable; the default is
+    a TCP handshake to the AvalAI API host — no keys, no lease). Hit
+    prints CACHE HIT (server=direct: no lease, no full probe) with a
+    direct-ok event; miss prints CACHE MISS with a lease-fallback
+    event and the caller continues the normal (lease-taking) path.
+    Probe failures fall back, never raise: unreachable IS the miss.
+    """
+    if not cfg.get("direct_probe") \
+            or cfg.get("llm_provider") != "avalai":
+        return None
+    probe = direct_probe_fn or _avalai_direct_probe
+    try:
+        ok = bool(probe())
+    except Exception:  # noqa: BLE001 (probe failure = lease fallback)
+        ok = False
+    event = direct_probe_telemetry(ok, "avalai")
+    if ok:
+        print_cache_line(True, "direct", "avalai")
+    else:
+        print_cache_line(False, "", "avalai")
+    print("direct-probe: %s (lease_taken=%s)"
+          % (event["outcome"], event["lease_taken"]))
+    return event
+
+
 def print_models():
     """--list-models: known precard models + cost labels.
 
@@ -698,13 +787,17 @@ def print_models():
 
 
 def run(argv=None, env_map=None, health_fn=None, spawn_fn=None,
-        pipeline_main_fn=None, sleep_fn=time.sleep):
+        pipeline_main_fn=None, sleep_fn=time.sleep,
+        direct_probe_fn=None):
     """Orchestrate: parse -> resolve -> plan -> egress ensure -> pipeline.
 
     Returns the process exit code (pipeline SystemExit propagates, same
     as calling the pipeline directly). ``health_fn``/``spawn_fn``/
     ``pipeline_main_fn`` inject fakes (hermetic tests); ``env_map``
-    replaces ``os.environ``.
+    replaces ``os.environ``. ``direct_probe_fn`` injects the R8 AvalAI
+    reachability probe (None uses the TCP default; never called unless
+    --direct-probe/AVALAI_DIRECT_FIRST is set on an avalai run outside
+    --dry-run).
     """
     ns = parse_args(argv)
     if ns.list_models:
@@ -718,6 +811,10 @@ def run(argv=None, env_map=None, health_fn=None, spawn_fn=None,
         print("dry-run: no network, no writes, supervisor untouched")
         pipe = pipeline_main_fn or pipeline_main
         return pipe(build_pipeline_argv(cfg))
+    # R8 direct-first: leaseless AvalAI attempt with telemetry; a miss
+    # falls back to the normal path below (the run continues either
+    # way — the gate only adds the probe + lines, never a refusal).
+    maybe_direct_first(cfg, direct_probe_fn=direct_probe_fn)
     result = ensure_supervisor(cfg, health_fn=health_fn,
                                spawn_fn=spawn_fn, sleep_fn=sleep_fn)
     action = result.get("action")
