@@ -629,7 +629,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
     if best:
         if telemetry is not None:
             record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                         key_idx=ring.idx, model=best_model, latency_s=0.0,
+                         key_idx=ring.idx, model=best_model,
+                         latency_s=last_attempt_latency(attempt_rows),
                          outcome="ok", run_id=tele_run_id,
                          provider=provider,
                          model_actual=tele_model_actual or best_model,
@@ -639,7 +640,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 for k, (lab, vec) in best.items()}
     if telemetry is not None:
         record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=ring.idx, model="deterministic", latency_s=0.0,
+                     key_idx=ring.idx, model="deterministic",
+                     latency_s=last_attempt_latency(attempt_rows),
                      outcome="fallback", run_id=tele_run_id,
                      provider=provider,
                      model_actual=tele_model_actual or "deterministic",
@@ -1069,7 +1071,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                 "model": "deterministic"}
     if telemetry is not None:
         record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=ring.idx, model="deterministic", latency_s=0.0,
+                     key_idx=ring.idx, model="deterministic",
+                     latency_s=last_attempt_latency(attempt_rows),
                      outcome="fallback", run_id=tele_run_id,
                      provider=provider,
                      model_actual=tele_model_actual or "deterministic",

@@ -339,14 +339,14 @@ def _inflection_review_prompt(batch):
 
 def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
                       http_status=401, run_id="", provider="",
-                      model_actual=None):
+                      model_actual=None, latency_s=0.0):
     """Auth record before a loud 401/403 abort (never silent)."""
     if telemetry is None:
         return
     record_call(
         telemetry, stage=tele_stage, batch_id=batch_id,
         key_idx=tele_key_idx, model=model,
-        latency_s=0.0, outcome="auth", http_status=http_status,
+        latency_s=latency_s, outcome="auth", http_status=http_status,
         run_id=run_id, provider=provider,
         model_actual=model_actual or model,
         cost=resolve_cost(made_call=True))
@@ -422,7 +422,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         want = [e["key"] for e in batch]
         prompt = _inflection_review_prompt(batch)
         settled = False
-        win_model, win_usage, win_latency = "review-fallback", None, 0.0
+        win_model, win_usage = "review-fallback", None
         attempt_log = []
         for model in INFLECTION_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
@@ -443,7 +443,9 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                                       tele_key_idx, model,
                                       run_id=tele_run_id,
                                       provider=tele_provider,
-                                      model_actual=tele_model_actual)
+                                      model_actual=tele_model_actual,
+                                      latency_s=last_attempt_latency(
+                                          attempt_log))
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
@@ -457,7 +459,9 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                                           http_status=exc.code,
                                           run_id=tele_run_id,
                                           provider=tele_provider,
-                                          model_actual=tele_model_actual)
+                                          model_actual=tele_model_actual,
+                                          latency_s=last_attempt_latency(
+                                              attempt_log))
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -517,7 +521,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
                      win_model, win_usage,
                      "ok" if settled else "fallback",
-                     latency_s=win_latency if settled else 0.0,
+                     latency_s=last_attempt_latency(attempt_log),
                      run_id=tele_run_id, provider=tele_provider,
                      model_actual=tele_model_actual)
         if tele_attempts:
@@ -646,7 +650,8 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     # the anchor top itself can be a stub when inflection kept it)
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
-                     key_idx=ring.idx, model="s1-fallback", latency_s=0.0,
+                     key_idx=ring.idx, model="s1-fallback",
+                     latency_s=last_attempt_latency(attempt_rows),
                      outcome="fallback", run_id=tele_run_id,
                      provider=provider,
                      model_actual=tele_model_actual or "s1-fallback",

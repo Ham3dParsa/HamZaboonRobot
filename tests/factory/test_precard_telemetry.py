@@ -445,6 +445,63 @@ def test_stage_selection_abort_closes_json_log(tmp_path):
     assert aborts and aborts[-1]["stage"] == "preflight"
 
 
+def test_last_attempt_latency_helper():
+    """Unit pin: last measured try wins; empty/garbage yields 0.0."""
+    assert core_tele.last_attempt_latency([]) == 0.0
+    assert core_tele.last_attempt_latency(None) == 0.0
+    assert core_tele.last_attempt_latency(
+        [{"latency_s": 0.1}, {"latency_s": 0.4}]) == 0.4
+    assert core_tele.last_attempt_latency([{"latency_s": "bad"}]) == 0.0
+
+
+def _inflect_items():
+    return [{"key": "w:cats", "text": "cats", "gloss": "plural of cat"}]
+
+
+def test_inflection_fallback_stamps_measured_latency():
+    """Reviewer must-fix: a fallback terminal row carries the last
+    measured try latency, not 0.0 (calls were attempted)."""
+    import time
+    from factory.precard.judge import inflection_review
+
+    def garbage(api_key, model, sys_text, user_text):
+        time.sleep(0.002)
+        return "not json at all {{{"
+
+    store = []
+    out = inflection_review(_inflect_items(), garbage, "k", {},
+                            telemetry=store, tele_run_id="r1")
+    assert out["w:cats"]["model"] == "review-fallback"
+    terms = [r for r in store if r.get("kind", "terminal") == "terminal"]
+    assert terms and terms[0]["outcome"] == "fallback"
+    assert terms[0]["latency_s"] > 0
+
+
+def test_inflection_auth_row_stamps_measured_latency():
+    """Reviewer must-fix: the auth terminal row carries the measured
+    attempt latency."""
+    import time
+    import pytest
+    from factory.precard.judge import inflection_review
+
+    def boom_401(api_key, model, sys_text, user_text):
+        time.sleep(0.002)
+        raise _http_401()
+
+    store = []
+    with pytest.raises(Exception):
+        inflection_review(_inflect_items(), boom_401, "k", {},
+                          telemetry=store, tele_run_id="r1")
+    auths = [r for r in store if r.get("outcome") == "auth"]
+    assert auths and auths[0]["latency_s"] > 0
+
+
+def _http_401():
+    import urllib.error
+    return urllib.error.HTTPError(
+        "http://x", 401, "unauthorized", {}, None)
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""
