@@ -42,35 +42,57 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
     from factory.precard.net import (
+        CLEAN_CACHE_TTL_S,
         TARGETS,
+        NetConfig,
         build_probe_rows,
+        clean_cache_candidates,
+        default_clean_cache_path,
+        direct_probe_event,
+        format_cache_line,
         known_provider,
+        lease_for,
+        load_clean_cache,
         norm_provider,
         norm_target,
         order_google_first,
         order_pool_by_rank,
+        record_clean_success,
+        save_clean_cache,
         should_save_whitelist,
         supervisor_health,
         target_spec,
         write_pool_file,
     )
+    from factory.precard.net import cool as net_cool
 except ImportError:  # top-level script run: repo root is not on sys.path
     import sys as _sys
     _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent
                              .parent.parent))
     from factory.precard.net import (
+        CLEAN_CACHE_TTL_S,
         TARGETS,
+        NetConfig,
         build_probe_rows,
+        clean_cache_candidates,
+        default_clean_cache_path,
+        direct_probe_event,
+        format_cache_line,
         known_provider,
+        lease_for,
+        load_clean_cache,
         norm_provider,
         norm_target,
         order_google_first,
         order_pool_by_rank,
+        record_clean_success,
+        save_clean_cache,
         should_save_whitelist,
         supervisor_health,
         target_spec,
         write_pool_file,
     )
+    from factory.precard.net import cool as net_cool
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
@@ -80,7 +102,60 @@ DEFAULT_PORT = 18789
 PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
+CLEAN_CACHE_PATH = (
+    pathlib.Path(__file__).resolve().parent / "clean_cache.json")
 COOLDOWN_S = 300
+
+# Env knobs for the R7 cache-first lease path (phase 03). Secret-free:
+# a TTL float and a cache-file path only (keys never ride env reads
+# here — probe_key owns key resolution). run.py forwards the resolved
+# --clean-ttl/--cache into auto-spawned supervisors through these; a
+# running supervisor keeps whatever env it started with.
+CLEAN_TTL_VAR = "EGRESS_CLEAN_TTL"
+CLEAN_CACHE_PATH_VAR = "EGRESS_CLEAN_CACHE_PATH"
+
+# R7 lease-path probe budget (phase 03): /v1/lease runs on the
+# single-threaded HTTPServer handler, so cache pings are capped in
+# count (fastest-first) and time — excess rows fall through to the
+# classic pick instead of stalling leases/health for N x timeout.
+LEASE_PING_TIMEOUT_S = 2.0
+LEASE_PING_MAX_ROWS = 3
+
+
+def _clean_ttl_from_env():
+    """Supervisor-side cache TTL: EGRESS_CLEAN_TTL when finite and
+    positive, else CLEAN_CACHE_TTL_S (the net home default). Garbage
+    never raises and never disables expiry (an unset/unparseable var
+    is the default window, not infinity)."""
+    try:
+        value = float(os.environ.get(CLEAN_TTL_VAR, "") or 0)
+    except (TypeError, ValueError):
+        return CLEAN_CACHE_TTL_S
+    if not (value > 0) or not (value < float("inf")):
+        return CLEAN_CACHE_TTL_S
+    return value
+
+
+def _clean_cache_path():
+    """Effective clean-cache file: EGRESS_CLEAN_CACHE_PATH when set
+    (an explicit --cache forwarded at spawn), else the beside-pool
+    default. Never empty (empty falls back to the default)."""
+    try:
+        raw = (os.environ.get(CLEAN_CACHE_PATH_VAR, "") or "").strip()
+    except AttributeError:
+        raw = ""
+    return raw or str(CLEAN_CACHE_PATH)
+
+
+def _server_tcp_ping(server, timeout=LEASE_PING_TIMEOUT_S):
+    """net.lease_for ping_fn over the PR-0 TCP probe (seam untouched:
+    passed as a callable, internals unchanged). Truthy ms means
+    reachable; None means dead (a 0 ms loopback reads as dead and
+    costs one full probe — deferred OC [info], left alone).
+    ``timeout`` is the lease-path budget (2s), not the 5s probe
+    default: the single-threaded /v1/lease handler must never stall
+    N x 5s on dead rows."""
+    return tcp_ping(server.get("host"), server.get("port"), timeout)
 
 
 # Append-only lease audit (R10): every lease/report decision appends one
@@ -146,6 +221,34 @@ def _trim_leases_file():
             os.unlink(tmp)
         except OSError:
             pass
+
+
+def note_clean_success(server_id, provider, latency_ms, now=None,
+                       path=CLEAN_CACHE_PATH):
+    """Write-back one clean-server success (R7 minimal hook).
+
+    Thin over the net home (load -> record_clean_success -> save):
+    empty results never touch the file (save refuses empty, so an
+    empty probe clobbers neither pool nor cache). Best-effort on I/O,
+    corrupt-cache, and unserializable-payload failures (OSError,
+    ValueError, TypeError: save already removed its tmp file before
+    raising) — cache upkeep must never fail a lease or startup for
+    those. Other programming errors (wrong shapes: AttributeError)
+    propagate out of this helper so typos never hide as cache
+    silence (the one production caller, Pool.lease, additionally
+    wraps the call best-effort so a minted lease never fails on
+    upkeep). ``path``
+    defaults to the pool-side clean_cache.json (hermetic
+    tests point it at tmp_path).
+    """
+    try:
+        at = time.time() if now is None else now
+        entries = load_clean_cache(path)
+        updated = record_clean_success(entries, server_id, provider,
+                                       latency_ms, at)
+        save_clean_cache(path, updated)
+    except (OSError, ValueError, TypeError):
+        pass
 
 
 def load_env():
@@ -373,6 +476,24 @@ class Pool:
         with self._lock:
             self.leases.pop(lease_id, None)
 
+    def retarget_lease(self, lease_id, server_id):
+        """Point a minted lease at the actual tunnel server (the hint
+        lost a cooling race between lease and acquire): reports must
+        cool the server carrying traffic. No-op on unknown leases.
+        The switch is audit-logged (append-only, secret-free like the
+        lease line) so post-mortem forensics reads the tunnel server,
+        not the stale hint."""
+        with self._lock:
+            lease = self.leases.get(lease_id)
+            if lease is not None and server_id:
+                lease["server"] = server_id
+                _append_lease_event(
+                    {"event": "retarget",
+                     "lease": str(lease_id)[:8],
+                     "server": server_id,
+                     "provider": lease.get("provider") or "",
+                     "target": lease.get("target") or ""})
+
     def lease(self, target):
         with self._lock:
             now = time.time()
@@ -398,28 +519,96 @@ class Pool:
                 return {"lease_id": lid, "mode": "direct", "proxy_url": "",
                         "egress_ip": "direct",
                         "provider": spec["provider"], "target": name}
-            avail = [s for s in self.servers
-                     if not self.is_cool(s["id"], spec["provider"], now)
-                     and s.get("link")]
-            if not avail:
-                _append_lease_event(
-                    {"event": "park", "target": name,
-                     "reason": "no-server"})
-                return {"error": "park",
-                        "message": "no link-bearing server available "
-                                   "(refresh the subscription)"}
-            s = avail[0]
+            provider = spec["provider"]
+            snap_servers = [dict(s) for s in self.servers
+                            if isinstance(s, dict) and s.get("id")
+                            and s.get("link")]
+            snap_cool = dict(self.cooldown_until)
+        # R7 cache-first (phase 03): the ONE production caller of the
+        # net home's cache seam — load → lease_for(..., clean_cache,
+        # ping_fn=tcp_ping, clean_ttl) → note_clean_success on success.
+        # File + ping I/O run OUTSIDE the lock (a slow ping must never
+        # serialize lease callers); the decision below is re-checked
+        # and minted under the lock. lease_for's own mint goes to a
+        # throwaway NetConfig (decision only); the real lease lives in
+        # self.leases with the historic shape + audit lines.
+        cache_path = _clean_cache_path()
+        entries = load_clean_cache(cache_path)
+        ttl = _clean_ttl_from_env()
+        # Probe budget: ping at most the first LEASE_PING_MAX_ROWS
+        # fresh rows (candidates() sorts fastest-first); the rest
+        # fall through to the classic pick inside lease_for — N dead
+        # rows must never stall this handler for N x timeout.
+        entries = clean_cache_candidates(entries, provider, now,
+                                         ttl)[:LEASE_PING_MAX_ROWS]
+        closet = NetConfig(servers=snap_servers, clock=lambda: now,
+                           cooldown_s=COOLDOWN_S)
+        for (sid, prov), exp in snap_cool.items():
+            if exp > now:
+                net_cool(closet, sid, prov, seconds=exp - now)
+        seen_ms = {}
+
+        def _ping(server):
+            ms = _server_tcp_ping(server,
+                                  timeout=LEASE_PING_TIMEOUT_S)
+            if ms:
+                seen_ms[server.get("id")] = ms
+            return ms
+
+        res = lease_for(closet, name, clean_cache=entries,
+                        clean_ttl=ttl, ping_fn=_ping, now=now)
+        with self._lock:
+            fresh = time.time()
+            hint = res.get("server_id") if isinstance(res, dict) \
+                else None
+            live = {s["id"] for s in self.servers
+                    if isinstance(s, dict) and s.get("id")
+                    and s.get("link")}
+            if hint is not None and hint in live and not self.is_cool(
+                    hint, provider, fresh) \
+                    and isinstance(res, dict) and res.get("cache_hit"):
+                picked, cache_hit = hint, True
+            else:
+                avail = [s for s in self.servers
+                         if isinstance(s, dict) and s.get("id")
+                         and s.get("link")
+                         and not self.is_cool(s["id"], provider, fresh)]
+                if not avail:
+                    _append_lease_event(
+                        {"event": "park", "target": name,
+                         "reason": "no-server"})
+                    return {"error": "park",
+                            "message": "no link-bearing server available "
+                                       "(refresh the subscription)"}
+                picked, cache_hit = avail[0]["id"], False
             lid = secrets.token_hex(8)
-            self.leases[lid] = {"mode": "tunnel", "server": s["id"],
-                                "since": now, "provider": spec["provider"],
+            self.leases[lid] = {"mode": "tunnel", "server": picked,
+                                "since": fresh, "provider": provider,
                                 "target": name}
             _append_lease_event(
                 {"event": "lease", "lease": lid[:8], "mode": "tunnel",
-                 "server": s["id"], "provider": spec["provider"],
+                 "server": picked, "provider": provider,
                  "target": name})
-            return {"lease_id": lid, "mode": "tunnel",
-                    "server_id": s["id"], "provider": spec["provider"],
-                    "target": name}
+            result = {"lease_id": lid, "mode": "tunnel",
+                      "server_id": picked, "provider": provider,
+                      "target": name}
+        # Outside the lock: the CACHE HIT/MISS console line plus the
+        # write-back (local file I/O never blocks lease callers and
+        # never fails the lease — note_clean_success is best-effort).
+        # Verified-only write-back: a hit answered a real ping
+        # (measured ms in seen_ms). A miss minted an unprobed server —
+        # lease is not success, so it must never be cached as clean.
+        print(format_cache_line(cache_hit, picked, provider))
+        if cache_hit:
+            try:
+                note_clean_success(picked, provider,
+                                   seen_ms.get(picked),
+                                   now=fresh, path=cache_path)
+            except Exception:  # noqa: BLE001 (OC round-6: cache upkeep
+                # never fails a minted lease — the helper stays narrow
+                # for debuggability, this call site stays best-effort)
+                pass
+        return result
 
     def report(self, lease_id, outcome, provider=None):
         with self._lock:
@@ -490,12 +679,17 @@ class TunnelOwner:
         self._tunnel = None
         self._server_id = None
 
-    def acquire(self, provider=None):
+    def acquire(self, provider=None, prefer=None):
         """Start (or reuse) the tunnel for the best server. Returns
         (proxy_url, egress_ip, server_id) or raises RuntimeError.
 
         Availability skips only servers cooling for ``provider``: a
         zen-429 never blocks a google lease on the same server.
+        ``prefer`` (a leased cache hint) wins while it is still live,
+        link-bearing, and not cooling — the lease and the tunnel must
+        name the same server, or a later http429 report cools the
+        wrong one. Otherwise the classic first-avail pick applies
+        (the caller syncs the lease record to it).
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -504,17 +698,23 @@ class TunnelOwner:
         with self._lock:
             now = time.time()
             avail = [s for s in self._pool.servers
-                     if not self._pool.is_cool(s["id"], provider, now)
+                     if isinstance(s, dict) and s.get("id")
+                     and not self._pool.is_cool(s["id"], provider, now)
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
-            if self._tunnel is not None and self._server_id == avail[0]["id"] \
+            wanted = avail[0]
+            if prefer is not None:
+                hinted = [s for s in avail if s.get("id") == prefer]
+                if hinted:
+                    wanted = hinted[0]
+            if self._tunnel is not None and self._server_id == wanted["id"] \
                     and self._tunnel.proc is not None \
                     and self._tunnel.proc.poll() is None:
                 return (self._tunnel.proxy_url,
                         self._tunnel.egress_ip(), self._server_id)
             self._drop_locked()
-            server = avail[0]
+            server = wanted
             tun = _tunnel_mod.Tunnel(server, server["link"])
             proxy = tun.start()
             try:
@@ -595,14 +795,21 @@ class Handler(BaseHTTPRequestHandler):
             data = POOL.lease(data.get("target", ""))
             if data.get("mode") == "tunnel":
                 try:
-                    proxy, ip, _sid = TUNNELS.acquire(
-                        provider=data.get("provider"))
+                    proxy, ip, sid = TUNNELS.acquire(
+                        provider=data.get("provider"),
+                        prefer=data.get("server_id"))
                 except (RuntimeError, ValueError, OSError) as exc:
                     # Acquire failed: drop the minted lease (no orphan
                     # records) and park with a message.
                     POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
+                if sid != data.get("server_id"):
+                    # Hint lost a cooling race between lease and
+                    # acquire: sync the response + record to the
+                    # actual tunnel server so reports cool it.
+                    data["server_id"] = sid
+                    POOL.retarget_lease(data.get("lease_id", ""), sid)
                 data["proxy_url"] = proxy
                 data["egress_ip"] = ip
             return self._send(200, data)

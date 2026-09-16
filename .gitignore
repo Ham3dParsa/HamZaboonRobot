@@ -79,3 +79,4 @@ tools/**/archive/
 tools/egress/bin/
 tools/egress/egress_pool.json
 tools/egress/leases.jsonl
+tools/egress/clean_cache.json

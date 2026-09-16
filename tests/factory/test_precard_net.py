@@ -1049,3 +1049,541 @@ def test_p2_inflection_review_default_chain_from_table():
                          "uncertain": False}
     assert tried == [m1, m2]
     assert seen == [m1, m1, m2]
+
+
+# --- PR-C clean-cache + direct-first (R7/R8, hermetic) ---
+
+def _cache_entry(sid, provider="zen", age_s=0, ms=50, now=1000.0):
+    return {"server_id": sid, "provider": provider,
+            "last_ok_ts": now - age_s, "latency_ms": ms}
+
+
+def test_c3_cache_hit_picks_cached_not_first_avail():
+    """Fresh cached row wins behind one ping: s2 leased, s1 untouched."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    calls = []
+
+    def _ping(server):
+        calls.append(server["id"])
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert calls == ["s2"]  # one real-ping gate, no full scan
+
+
+def test_c3_stale_entry_misses_without_ping():
+    """Expired rows are a MISS: no ping, classic first-avail fallback."""
+    cfg = _cfg()
+    cache = [_cache_entry("s1", age_s=90000, ms=5)]
+    calls = []
+
+    def _ping(server):  # pragma: no cover (must never run)
+        calls.append(server["id"])
+        return 5
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s1" and lease["cache_hit"] is False
+    assert calls == []
+
+
+def test_c3_cooling_cached_row_skipped_for_next_fresh():
+    """Cooling cached rows are skipped even when fresh (per-provider)."""
+    cfg = _cfg()
+    NET.cool(cfg, "s1", "zen")
+    cache = [_cache_entry("s1", ms=5), _cache_entry("s2", ms=50)]
+    calls = []
+
+    def _ping(server):
+        calls.append(server["id"])
+        return 50
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert calls == ["s2"]
+
+
+def test_c3_ping_dead_falls_back_to_full_probe():
+    """Ping-dead cached rows fall through to the first-avail pick."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+
+    def _ping(server):
+        return None
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s1" and lease["cache_hit"] is False
+
+
+def test_c3_empty_probe_never_clobbers_cache(tmp_path):
+    """save refuses empty (0, touches nothing); load tolerates
+    missing/corrupt; only the four cache keys persist."""
+    import json
+    missing = tmp_path / "clean_cache.json"
+    assert NET.save_clean_cache(str(missing), []) == 0
+    assert not missing.exists()
+    assert NET.load_clean_cache(str(missing)) == []
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{not json", encoding="utf-8")
+    assert NET.load_clean_cache(str(corrupt)) == []
+    dirty = [{"server_id": "s1", "provider": "zen",
+              "last_ok_ts": 1000.0, "latency_ms": 12,
+              "link": "vless://SECRET@h:1", "key": "SECRET-KEY"}]
+    assert NET.save_clean_cache(str(missing), dirty) == 1
+    payload = json.loads(missing.read_text(encoding="utf-8"))
+    assert set(payload["entries"][0]) == {
+        "server_id", "provider", "last_ok_ts", "latency_ms"}
+    assert "SECRET" not in missing.read_text(encoding="utf-8")
+    assert NET.load_clean_cache(str(missing)) == [
+        {"server_id": "s1", "provider": "zen",
+         "last_ok_ts": 1000.0, "latency_ms": 12}]
+
+
+def test_c3_writeback_upserts_and_roundtrips(tmp_path):
+    """record_clean_success upserts (fresh ts, moves to end); the file
+    round-trips through the single writer."""
+    rows = NET.record_clean_success(
+        [_cache_entry("s1", ms=90)], "s2", "zen", 12, 2000.0)
+    assert rows[-1] == {"server_id": "s2", "provider": "zen",
+                        "last_ok_ts": 2000.0, "latency_ms": 12}
+    rows2 = NET.record_clean_success(rows, "s1", "zen", 7, 2000.0)
+    assert rows2[-1]["server_id"] == "s1"
+    assert len(rows2) == 2  # upsert, not duplicate
+    path = str(tmp_path / "clean_cache.json")
+    assert NET.save_clean_cache(path, rows2) == 2
+    assert [e["server_id"] for e in NET.load_clean_cache(path)] == [
+        "s2", "s1"]
+
+
+def test_c3_direct_ok_takes_zero_lease():
+    """R8: direct ping ok => leaseless (no lease minted) + telemetry."""
+    cfg = _cfg()
+    before = len(cfg._leases)
+    event = NET.direct_probe_event(True, "avalai")
+    assert event == {"event": "direct-probe", "provider": "avalai",
+                     "outcome": "direct-ok", "lease_taken": False}
+    assert len(cfg._leases) == before  # caller mints nothing on ok
+
+
+def test_c3_direct_fail_falls_back_to_lease_with_telemetry():
+    """R8: direct ping fail => lease fallback (direct lease) + event."""
+    cfg = _cfg()
+    event = NET.direct_probe_event(False, "avalai")
+    assert event["outcome"] == "lease-fallback"
+    assert event["lease_taken"] is True
+    lease = NET.lease_for(cfg, "avalai")
+    assert lease["mode"] == "direct" and lease["cache_hit"] is False
+
+
+def test_c3_cache_console_lines_and_run_printer(capsys):
+    """Single-owner HIT/MISS text; the run entry only prints it."""
+    from factory import run as RUN
+    assert "CACHE HIT" in NET.format_cache_line(True, "s1", "zen")
+    assert "s1" in NET.format_cache_line(True, "s1", "zen")
+    assert "CACHE MISS" in NET.format_cache_line(False, "", "zen")
+    RUN.print_cache_line(True, "s1", "zen")
+    RUN.print_cache_line(False, "", "zen")
+    out = capsys.readouterr().out
+    assert "CACHE HIT" in out and "CACHE MISS" in out
+    assert RUN.direct_probe_telemetry(True)["outcome"] == "direct-ok"
+    assert RUN.direct_probe_telemetry(
+        False)["lease_taken"] is True
+
+
+def test_c3_supervisor_reexports_cache_home():
+    """Supervisor holds zero cache logic: same objects + pool-side
+    path; the write-back hook never raises and never clobbers."""
+    import pathlib
+    assert SUP.load_clean_cache is NET.load_clean_cache
+    assert SUP.save_clean_cache is NET.save_clean_cache
+    assert SUP.clean_cache_candidates is NET.clean_cache_candidates
+    assert SUP.record_clean_success is NET.record_clean_success
+    assert SUP.direct_probe_event is NET.direct_probe_event
+    assert SUP.format_cache_line is NET.format_cache_line
+    assert SUP.CLEAN_CACHE_PATH.name == "clean_cache.json"
+    assert SUP.CLEAN_CACHE_PATH.parent == SUP.POOL_PATH.parent
+    assert NET.default_clean_cache_path(str(SUP.POOL_PATH)) == str(
+        SUP.CLEAN_CACHE_PATH)
+    assert pathlib.Path(
+        NET.default_clean_cache_path("/x/egress_pool.json")).name == \
+        "clean_cache.json"
+
+
+def test_c3_supervisor_writeback_hook(tmp_path):
+    """note_clean_success writes back; empty/I-O-failed upkeep never
+    raises and never creates a file (programming errors propagate)."""
+    import json
+    path = tmp_path / "clean_cache.json"
+    SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+                           path=str(path))
+    assert json.loads(path.read_text(encoding="utf-8"))[
+        "entries"][-1]["server_id"] == "s1"
+    ghost = tmp_path / "ghost.json"
+    SUP.note_clean_success("", "zen", 12, now=2000.0,
+                           path=str(ghost))
+    assert not ghost.exists()
+
+
+def test_c3_run_flags_clean_ttl_and_direct_probe():
+    """R3: CLI > env > code for --clean-ttl/--direct-probe; bad ttl
+    exits 2; keys never become flags."""
+    from factory import run as RUN
+    assert "clean_ttl" in RUN.FLAG_ENVS
+    assert RUN.FLAG_ENVS["clean_ttl"] == "EGRESS_CLEAN_TTL"
+    assert RUN.FLAG_ENVS["direct_probe"] == "AVALAI_DIRECT_FIRST"
+    ns = RUN.parse_args([])
+    assert hasattr(ns, "clean_ttl") and hasattr(ns, "direct_probe")
+    cfg, sources = RUN.resolve_config(ns, {})
+    assert cfg["clean_ttl"] == NET.CLEAN_CACHE_TTL_S
+    assert cfg["direct_probe"] is False
+    cfg2, sources2 = RUN.resolve_config(
+        ns, {"EGRESS_CLEAN_TTL": "3600",
+             "AVALAI_DIRECT_FIRST": "1"})
+    assert cfg2["clean_ttl"] == 3600.0 and sources2["clean_ttl"] == "env"
+    assert cfg2["direct_probe"] is True
+    ns_cli = RUN.parse_args(["--clean-ttl", "60", "--direct-probe"])
+    cfg3, _ = RUN.resolve_config(ns_cli, {"EGRESS_CLEAN_TTL": "3600"})
+    assert cfg3["clean_ttl"] == 60.0
+    assert cfg3["direct_probe"] is True
+    import pytest as _pytest
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "0"})
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "abc"})
+    src = open(RUN.__file__, encoding="utf-8").read()
+    assert "AVALAI_API_KEY" not in src
+    assert "CLEAN_CACHE_TTL_S" in src  # code default cited, not moved
+
+
+# --- OC-bot blocking fixes (PR 717 re-review): ping outside the pool
+# lock, finite TTL, symmetric write normalization, narrow write-back ---
+
+def test_c3_ping_runs_outside_pool_lock():
+    """W1: a second thread takes cfg._lock while ping_fn runs (a
+    slow/hung ping must never serialize lease callers)."""
+    import threading
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    entered = threading.Event()
+    lock_free = []
+
+    def _ping(server):
+        entered.set()
+
+        def _take():
+            with cfg._lock:
+                lock_free.append(True)
+
+        worker = threading.Thread(target=_take, daemon=True)
+        worker.start()
+        worker.join(timeout=5.0)
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert entered.is_set()
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert lock_free == [True]  # lock was free during the ping
+
+
+def test_c3_ping_gets_snapshot_not_live_pool_row():
+    """W1: ping_fn mutating its arg must not corrupt the pool."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    seen = []
+
+    def _ping(server):
+        seen.append(server)
+        server["host"] = "MUTATED"
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert seen[0] is not cfg.servers[1]
+    assert cfg.servers[1]["host"] == "h2"
+
+
+def test_c3_nonfinite_ttl_falls_back_to_default():
+    """W2: inf/nan/garbage/non-positive TTL never hangs the lib path:
+    the default window applies and fresh rows still hit."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    for bad in ("inf", float("inf"), float("nan"), "nan",
+                "garbage", 0, -5, object()):
+        lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                              clean_ttl=bad,
+                              ping_fn=lambda s: 10, now=1000.0)
+        assert lease["server_id"] == "s2" \
+            and lease["cache_hit"] is True
+
+
+def test_c3_nan_last_ok_row_is_stale():
+    """W2: a NaN last_ok_ts row is stale (never fresh via NaN math)."""
+    rows = NET.clean_cache_candidates(
+        [{"server_id": "s1", "provider": "zen",
+          "last_ok_ts": float("nan"), "latency_ms": 5}],
+        "zen", 1000.0, 86400.0)
+    assert rows == []
+
+
+def test_c3_inf_ttl_uses_default_window():
+    """W2: an inf TTL falls back to the default (fresh rows return)."""
+    rows = NET.clean_cache_candidates(
+        [_cache_entry("s1", age_s=1000)], "zen", 1000.0, float("inf"))
+    assert [r["server_id"] for r in rows] == ["s1"]
+
+
+def test_c3_run_rejects_nonfinite_clean_ttl():
+    """W2: --clean-ttl/EGRESS_CLEAN_TTL inf/nan exits 2."""
+    from factory import run as RUN
+    import pytest as _pytest
+    ns = RUN.parse_args([])
+    for bad in ("inf", "nan"):
+        with _pytest.raises(SystemExit):
+            RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": bad})
+    ns_cli = RUN.parse_args(["--clean-ttl", "inf"])
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns_cli, {})
+
+
+def test_c3_save_normalizes_latency_like_load(tmp_path):
+    """W3: the writer emits int/None latency (mirror load); junk
+    latency becomes None instead of a non-serializable payload."""
+    path = str(tmp_path / "clean_cache.json")
+    rows = [{"server_id": "s1", "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": "12"},
+            {"server_id": "s2", "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": object()},
+            {"server_id": "s3", "provider": "zen",
+             "last_ok_ts": float("nan"), "latency_ms": 12.9}]
+    assert NET.save_clean_cache(path, rows) == 3
+    loaded = NET.load_clean_cache(path)
+    assert [e["latency_ms"] for e in loaded] == [12, None, 12]
+    assert [e["last_ok_ts"] for e in loaded] == [1000.0, 1000.0, 0.0]
+
+
+def test_c3_save_cleans_tmp_and_raises_on_unserializable(tmp_path):
+    """W3: a failed write removes path.tmp and still raises."""
+    import pytest as _pytest
+    path = tmp_path / "clean_cache.json"
+    rows = [{"server_id": {"unserializable", 1}, "provider": "zen",
+             "last_ok_ts": 1000.0, "latency_ms": 5}]
+    with _pytest.raises(TypeError):
+        NET.save_clean_cache(str(path), rows)
+    assert not path.exists()
+    assert not (tmp_path / "clean_cache.json.tmp").exists()
+
+
+def test_c3_writeback_best_effort_types(tmp_path, monkeypatch):
+    """Unserializable payload (TypeError) is swallowed after tmp
+    cleanup — the lease stands. Real programming errors
+    (AttributeError) still surface."""
+    import pytest as _pytest
+    path = tmp_path / "clean_cache.json"
+    SUP.note_clean_success(object(), "zen", 12, now=2000.0,
+                           path=str(path))
+    assert not path.exists()
+
+    def _boom(p, entries):
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(SUP, "save_clean_cache", _boom)
+    with _pytest.raises(AttributeError):
+        SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+                               path=str(path))
+
+
+# --- Phase-03 W1/W2 production wiring: supervisor Pool.lease is the
+# ONE production caller of the cache seam (load -> lease_for with
+# tcp_ping + ttl -> note_clean_success), hermetic via a tmp cache
+# file (env knob) + a fake ping. No network, no keys, no W: drive. ---
+
+def _c4_link_pool():
+    pool = SUP.Pool()
+    pool.load([
+        {"scheme": "vless", "host": "h1", "port": 1, "id": "s1",
+         "link": "vless://u@h1:1"},
+        {"scheme": "vless", "host": "h2", "port": 2, "id": "s2",
+         "link": "vless://u@h2:2"},
+    ])
+    return pool
+
+
+def _c4_cache_file(tmp_path, monkeypatch, rows):
+    import json
+    import time as _time
+    path = tmp_path / "clean_cache.json"
+    payload = {"saved_at": "test",
+               "entries": [dict(r) for r in rows]}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, str(path))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    return path
+
+
+def _c4_fresh_row(server_id, provider="zen", age_s=10, ms=7):
+    import time as _time
+    return {"server_id": server_id, "provider": provider,
+            "last_ok_ts": _time.time() - age_s, "latency_ms": ms}
+
+
+def test_c3_supervisor_lease_cache_hit_skips_scan(
+        tmp_path, monkeypatch, capsys):
+    """W2: a fresh cached row + reachable ping mints that server
+    (not first-avail), prints CACHE HIT, and writes back the
+    measured latency."""
+    import json
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    seen = []
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: seen.append((h, p)) or (
+            42 if h == "h2" else None))
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["mode"] == "tunnel" and lease["server_id"] == "s2"
+    assert ("h2", 2) in seen and ("h1", 1) not in seen
+    out = capsys.readouterr().out
+    assert "CACHE HIT" in out and "s2" in out
+    saved = json.loads(path.read_text(encoding="utf-8"))["entries"]
+    back = [e for e in saved if e["server_id"] == "s2"]
+    assert len(back) == 1 and back[0]["latency_ms"] == 42
+
+
+def test_c3_supervisor_lease_miss_takes_first_avail(
+        tmp_path, monkeypatch, capsys):
+    """W2: no cache file -> classic first-avail pick, CACHE MISS
+    line, and nothing is written back (lease is not success: the
+    minted server was never probe-verified)."""
+    import json
+    path = tmp_path / "clean_cache.json"
+    assert not path.exists()
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, str(path))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    calls = []
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: calls.append((h, p)) or 99)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"  # first-avail, no ping needed
+    assert calls == []
+    assert "CACHE MISS" in capsys.readouterr().out
+    assert not path.exists()
+
+
+def test_c3_supervisor_lease_ping_budget_capped(
+        tmp_path, monkeypatch, capsys):
+    """W2 probe budget: 5 fresh rows but only the first 3 fastest are
+    pinged with the 2s lease timeout; all dead -> classic first-avail
+    pick, MISS, and the cache file is untouched."""
+    pool = SUP.Pool()
+    pool.load([{"scheme": "vless", "host": "h%d" % i, "port": i,
+                "id": "s%d" % i, "link": "vless://u@h%d:%d" % (i, i)}
+               for i in (1, 2, 3, 4, 5)])
+    rows = [_c4_fresh_row("s%d" % i, ms=i) for i in (1, 2, 3, 4, 5)]
+    path = _c4_cache_file(tmp_path, monkeypatch, rows)
+    before = path.read_bytes()
+    probed = []
+
+    def _dead(h, p, timeout=5.0):
+        probed.append((h, p, timeout))
+        return None
+
+    monkeypatch.setattr(SUP, "tcp_ping", _dead)
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"  # classic first-avail
+    assert [h for h, _, _ in probed] == ["h1", "h2", "h3"]
+    assert {t for _, _, t in probed} == {SUP.LEASE_PING_TIMEOUT_S}
+    assert "CACHE MISS" in capsys.readouterr().out
+    assert path.read_bytes() == before
+
+
+def test_c3_supervisor_lease_survives_writeback_crash(
+        tmp_path, monkeypatch, capsys):
+    """OC round-6: even an AttributeError from write-back upkeep never
+    fails a minted lease (best-effort call site; helper stays narrow)."""
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: 42 if h == "h2" else None)
+
+    def _boom(*args, **kwargs):
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(SUP, "note_clean_success", _boom)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s2"  # hit stands despite crashed upkeep
+    assert "CACHE HIT" in capsys.readouterr().out
+
+
+def test_c3_supervisor_lease_cooled_mid_ping_falls_through(
+        tmp_path, monkeypatch, capsys):
+    """W1 lock discipline: a row cooled while its ping was in flight
+    is never minted (re-checked under the lock) — the lease falls
+    through to the classic pick."""
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    pool = _c4_link_pool()
+
+    def _ping(h, p, timeout=5.0):
+        pool.cool("s2", "zen")  # cooled mid-ping by a reporter
+        return 30
+
+    monkeypatch.setattr(SUP, "tcp_ping", _ping)
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"
+    assert "CACHE MISS" in capsys.readouterr().out
+
+
+def test_c3_supervisor_lease_audit_shape_unchanged(
+        tmp_path, monkeypatch, capsys):
+    """leases.jsonl behavior is untouched: the same event keys, no
+    cache keys leak into the audit."""
+    import json
+    monkeypatch.setattr(SUP, "LEASES_PATH",
+                        tmp_path / "leases.jsonl")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR,
+                       str(tmp_path / "no-cache.json"))
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    monkeypatch.setattr(SUP, "tcp_ping",
+                        lambda h, p, timeout=5.0: None)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s1"
+    lines = (tmp_path / "leases.jsonl").read_text(
+        encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    rec = json.loads(lines[0])
+    assert rec["event"] == "lease" and rec["mode"] == "tunnel"
+    assert rec["server"] == "s1" and rec["lease"] == \
+        lease["lease_id"][:8]
+    assert set(rec) == {"ts", "event", "lease", "mode", "server",
+                        "provider", "target"}
+
+
+def test_c3_supervisor_clean_env_knobs(tmp_path, monkeypatch):
+    """EGRESS_CLEAN_TTL: finite-positive wins, garbage is the
+    default; EGRESS_CLEAN_CACHE_PATH overrides the beside-pool file
+    (empty falls back to it)."""
+    monkeypatch.setenv(SUP.CLEAN_TTL_VAR, "60")
+    assert SUP._clean_ttl_from_env() == 60.0
+    for bad in ("0", "-5", "inf", "nan", "garbage", ""):
+        monkeypatch.setenv(SUP.CLEAN_TTL_VAR, bad)
+        assert SUP._clean_ttl_from_env() == NET.CLEAN_CACHE_TTL_S
+    monkeypatch.delenv(SUP.CLEAN_TTL_VAR, raising=False)
+    assert SUP._clean_ttl_from_env() == NET.CLEAN_CACHE_TTL_S
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR,
+                       str(tmp_path / "custom.json"))
+    assert SUP._clean_cache_path() == str(tmp_path / "custom.json")
+    monkeypatch.setenv(SUP.CLEAN_CACHE_PATH_VAR, "   ")
+    assert SUP._clean_cache_path() == str(SUP.CLEAN_CACHE_PATH)
