@@ -463,6 +463,8 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         attempt_log = []
         cool_exc = None
         cur_ring = ring
+        limited_all = True  # cleared by any outcome that is not a 429
+        n_tried = 0
         for eff_idx, eff in enumerate(ordered):
             eff_models = (list(base_models)
                           if base_models is not None and eff == base_provider
@@ -475,6 +477,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
             for model in eff_models:
                 if isinstance(tried, list) and model not in tried:
                     tried.append(model)
+                n_tried += 1
                 for attempt in range(MAX_ATTEMPTS):
                     text = prompt if attempt == 0 else RETRY_PREFIX + prompt
                     start = _time.perf_counter()
@@ -535,10 +538,22 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                                 latency_s=last_attempt_latency(
                                     attempt_log))
                             raise_for_auth(exc)
+                        if exc.code == 429:
+                            # Direct targets (provider None) re-raise raw
+                            # 429 with no rotation wrapper — treat as quota
+                            # (keep limited_all) so an all-429 chain still
+                            # STOPs loud via the RateLimited raise below.
+                            attempt_log.append(
+                                {"model": model, "attempt": attempt,
+                                 "latency_s": _time.perf_counter() - start,
+                                 "key_idx": eff_ring.idx,
+                                 "outcome": "retry", "http_status": 429})
+                            break  # ROTATE-exhausted: step down, as before
                         data = None
                     except Exception:
                         data = None
                     if data is None:
+                        limited_all = False  # transport/HTTP failure, not quota
                         attempt_log.append(
                             {"model": model, "attempt": attempt,
                              "latency_s": _time.perf_counter() - start,
@@ -546,6 +561,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                         continue
                     by_key = _validate_review_results(data, want)
                     if by_key is None:
+                        limited_all = False  # bad envelope, not quota
                         attempt_log.append(
                             {"model": model, "attempt": attempt,
                              "latency_s": _time.perf_counter() - start,
@@ -565,6 +581,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                             else "",
                             "model": model, "uncertain": False}
                     if not rows_ok:
+                        limited_all = False  # bad rows, not quota
                         out = {k: v for k, v in out.items()
                                if k not in want}
                         attempt_log.append(
@@ -592,6 +609,27 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                 if eff_idx + 1 < len(ordered):
                     continue
                 raise cool_exc
+        if not settled and limited_all and n_tried:
+            # R9 (S4 pattern): the whole chain ROTATE-exhausted — STOP
+            # loud (the caller flushes progress + telemetry for a
+            # resume); anything else already failed closed per item
+            # below. One terminal error record; per-try rows only when
+            # tele_attempts is on.
+            last_model = (attempt_log[-1]["model"] if attempt_log
+                          else "review-fallback")
+            _review_tele(telemetry, tele_stage, batch_no, cur_ring.idx,
+                         last_model, None, "error",
+                         latency_s=last_attempt_latency(attempt_log),
+                         run_id=tele_run_id, provider=eff,
+                         model_actual=tele_model_actual)
+            if tele_attempts:
+                emit_attempt_rows(telemetry, attempt_log, stage=tele_stage,
+                                  batch_id=batch_no, run_id=tele_run_id,
+                                  provider=eff,
+                                  model_actual=tele_model_actual)
+            raise RateLimited(
+                "all inflection_review models 429 (provider quotas "
+                "exhausted) — re-run later (progress flushed, resume safe)")
         if not settled:
             for key in want:
                 if key not in out:

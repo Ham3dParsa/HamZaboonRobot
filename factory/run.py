@@ -328,6 +328,26 @@ def parse_args(argv=None):
                     action="store_false", default=None,
                     help="force a real run even when FACTORY_DRY_RUN is "
                          "set (negates --dry-run)")
+    # R9 resume scope (CLI-only, no env mirror — like --list-models):
+    # per-invocation run scoping, forwarded to the pipeline argv.
+    ap.add_argument("--resume", default=None, action="store_true",
+                    help="print the RESUME PLAN (per-stage done/todo from "
+                    "progress) then run with resume on (refuses with "
+                    "--no-resume)")
+    ap.add_argument("--no-resume", default=None, action="store_true",
+                    help="ignore existing stage progress and start fresh "
+                    "(refuses with --resume)")
+    ap.add_argument("--only", default=None,
+                    help="run a single pipeline stage only (forwarded; "
+                    "the pipeline refuses when its upstream has no "
+                    "progress)")
+    ap.add_argument("--stages", default=None,
+                    help="comma-separated pipeline stage subset "
+                    "(forwarded; mutually exclusive with --only)")
+    ap.add_argument("--rekey", default=None,
+                    help="keyfile of item keys forced to redo (forwarded; "
+                    "the pipeline refuses on keys missing from the "
+                    "sample)")
     ap.add_argument("--yes", action="store_true", default=None,
                     help="accepted for forward-compat (PR-D resume "
                          "confirms); no prompts exist in this phase "
@@ -432,6 +452,17 @@ def resolve_config(ns, env_map=None):
          _env_bool(env, "AVALAI_DIRECT_FIRST"), None, False)
     _set("dry_run", getattr(ns, "dry_run", None),
          _env_bool(env, "FACTORY_DRY_RUN"), None, False)
+    # R9 resume scope: CLI-only (no env/preset layer — per-invocation).
+    _set("resume", getattr(ns, "resume", None),
+         None, None, False)
+    _set("no_resume", getattr(ns, "no_resume", None),
+         None, None, False)
+    _set("only", getattr(ns, "only", None),
+         None, None, "")
+    _set("stages", getattr(ns, "stages", None),
+         None, None, "")
+    _set("rekey", getattr(ns, "rekey", None),
+         None, None, "")
     _set("yes", getattr(ns, "yes", None),
          _env_bool(env, "FACTORY_YES"), None, False)
     _set("quiet", getattr(ns, "quiet", None),
@@ -475,6 +506,12 @@ def _validate(cfg):
         _fail("factory/run: --sup-port must be 1..65535")
     if (cfg["max_429_strikes"] or 0) < 1:
         _fail("factory/run: --max-429-strikes must be >= 1")
+    if cfg["resume"] and cfg["no_resume"]:
+        _fail("factory/run: --resume and --no-resume are mutually "
+              "exclusive (pick one)")
+    if cfg["only"] and cfg["stages"]:
+        _fail("factory/run: --only and --stages are mutually exclusive "
+              "(pick one)")
     if (cfg["probe_top_n"] or 0) < 0:
         _fail("factory/run: --probe-top-n must be >= 0")
     try:
@@ -634,6 +671,16 @@ def build_pipeline_argv(cfg):
         argv += ["--quiet"]
     if cfg["json_log"]:
         argv += ["--json-log"]
+    if cfg["resume"]:
+        argv += ["--resume"]
+    if cfg["no_resume"]:
+        argv += ["--no-resume"]
+    if cfg["only"]:
+        argv += ["--only", cfg["only"]]
+    if cfg["stages"]:
+        argv += ["--stages", cfg["stages"]]
+    if cfg["rekey"]:
+        argv += ["--rekey", cfg["rekey"]]
     if cfg["dry_run"]:
         argv += ["--dry-run"]
     return argv
@@ -659,6 +706,11 @@ def print_plan(cfg, sources):
             ("sample", cfg["sample"]),
             ("out", cfg["out"]),
             ("progress-dir", cfg["progress_dir"]),
+            ("resume", "off (fresh)" if cfg["no_resume"]
+             else "on (RESUME PLAN)" if cfg["resume"] else "on"),
+            ("only", cfg["only"] or "-"),
+            ("stages", cfg["stages"] or "-"),
+            ("rekey", cfg["rekey"] or "-"),
             ("limit", str(cfg["limit"] or 0)),
             ("sleep-secs", str(cfg["sleep_secs"])),
             ("cooldown-secs", str(cfg["cooldown_secs"])),
