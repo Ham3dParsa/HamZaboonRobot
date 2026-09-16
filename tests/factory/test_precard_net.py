@@ -555,3 +555,193 @@ def test_file_label_threads_to_auth_errors():
                      transport=lambda *a: "x", model="m",
                      file_label="custom.env")
     assert "custom.env" in str(exc3.value)
+
+
+# --- P1 whitelist home: hermetic (fake pairs/rows/files, no network) ---
+
+def _pair(sid, ms):
+    return (ms, {"scheme": "vless", "host": "h-" + sid, "port": 1,
+                 "id": sid})
+
+
+def test_p1_build_probe_rows_top_n_order_and_dead():
+    rows = NET.build_probe_rows(
+        [_pair("slow", 900), _pair("fast", 120),
+         _pair("dead", NET.PROBE_DEAD_MS)], top_n=1)
+    assert [r["id"] for r in rows] == ["fast", "slow", "dead"]
+    assert rows[0]["latency_ms"] == 120
+    assert rows[0]["zen_candidate"] is True
+    assert rows[1]["zen_candidate"] is False  # alive but outside top-1
+    assert rows[2] == {"host": "h-dead", "port": 1, "scheme": "vless",
+                       "id": "dead", "latency_ms": None, "alive": False,
+                       "zen_candidate": False}
+
+
+def test_p1_order_pool_by_rank_alive_first_ghost_ignored():
+    servers = [{"scheme": "vless", "host": "b", "port": 1, "id": "s1"},
+               {"scheme": "vless", "host": "a", "port": 1, "id": "s2"},
+               {"scheme": "vless", "host": "d", "port": 1, "id": "s3"}]
+    ranked = [{"id": "s2", "alive": True},
+              {"id": "ghost", "alive": True},
+              {"id": "s1", "alive": False},
+              "junk-row"]
+    ordered = NET.order_pool_by_rank(servers, ranked)
+    assert [s["id"] for s in ordered] == ["s2", "s1", "s3"]
+
+
+def test_p1_order_google_first_keeps_rest_in_order():
+    rows = [{"id": "a", "alive": True}, {"id": "b", "alive": True},
+            {"id": "c", "alive": False}, {"id": "d", "alive": True}]
+    assert [r["id"] for r in NET.order_google_first(rows, ["d", "b"])] == \
+        ["b", "d", "a", "c"]
+    # Kept supervisor behavior: a good id that is dead drops out.
+    assert [r["id"] for r in NET.order_google_first(rows, ["c"])] == \
+        ["a", "b", "d"]
+
+
+def test_p1_should_save_whitelist_never_empty():
+    assert NET.should_save_whitelist([]) is False
+    assert NET.should_save_whitelist(None) is False
+    assert NET.should_save_whitelist(
+        [{"id": "a", "alive": False}]) is False
+    assert NET.should_save_whitelist(
+        [{"id": "a", "alive": False},
+         {"id": "b", "alive": True}]) is True
+
+
+def test_p1_write_pool_file_single_writer(tmp_path):
+    import json
+    missing = tmp_path / "pool.json"
+    assert NET.write_pool_file(str(missing), []) == 0
+    assert not missing.exists()  # empty probe touches nothing
+    assert NET.write_pool_file(str(missing), [{"id": ""}]) == 0
+    assert not missing.exists()
+    servers = [{"scheme": "vless", "host": "h", "port": 1, "id": "s1",
+                "link": "vless://SECRET-creds@h:1"}]
+    assert NET.write_pool_file(str(missing), servers) == 1
+    payload = json.loads(missing.read_text(encoding="utf-8"))
+    assert set(payload) == {"saved_at", "servers"}
+    assert payload["servers"] == [{"scheme": "vless", "host": "h",
+                                   "port": 1, "id": "s1"}]
+    assert "SECRET" not in missing.read_text(encoding="utf-8")
+
+
+def test_p1_pool_save_delegates_and_never_overwrites_empty(tmp_path):
+    pool = SUP.Pool()
+    ghost = str(tmp_path / "ghost.json")
+    pool.save_pool(ghost)  # empty pool: single writer refuses, no file
+    assert not (tmp_path / "ghost.json").exists()
+    pool.load([{"scheme": "vless", "host": "h", "port": 1, "id": "s1",
+                "link": "vless://SECRET@h:1"}])
+    path = str(tmp_path / "pool.json")
+    pool.save_pool(path)
+    import json
+    payload = json.loads(
+        (tmp_path / "pool.json").read_text(encoding="utf-8"))
+    assert [s["id"] for s in payload["servers"]] == ["s1"]
+    assert "SECRET" not in (tmp_path / "pool.json").read_text(
+        encoding="utf-8")
+    pool2 = SUP.Pool()
+    assert pool2.load_pool(path) == 1
+
+
+def test_p1_pool_load_ranked_uses_home_order():
+    pool = SUP.Pool()
+    pool.load([
+        {"scheme": "vless", "host": "slow", "port": 1, "id": "s1"},
+        {"scheme": "vless", "host": "fast", "port": 1, "id": "s2"},
+    ])
+    pool.load_ranked([{"id": "s2", "alive": True},
+                      {"id": "ghost", "alive": True}])
+    assert [s["id"] for s in pool.servers] == ["s2", "s1"]
+
+
+def test_p1_supervisor_health_healthy_flag():
+    assert NET.supervisor_health([], {}) == {
+        "ok": True, "servers": 0, "leases": 0, "healthy": False}
+    got = NET.supervisor_health([{"id": "s1"}], {"l1": {}})
+    assert got == {"ok": True, "servers": 1, "leases": 1,
+                   "healthy": True}
+    pool = SUP.Pool()
+    assert pool.health()["healthy"] is False
+    assert pool.health()["ok"] is True  # old shape preserved
+    pool.load([{"scheme": "vless", "host": "h", "port": 1, "id": "s1"}])
+    assert pool.health()["healthy"] is True
+
+
+def test_p1_cooldown_parity_per_provider():
+    """Retire parity: supervisor Pool and NetConfig isolate providers
+    identically (zen-429 never cools google on the same server)."""
+    cfg = _cfg()
+    NET.cool(cfg, "s1", "zen")
+    assert NET.is_cool(cfg, "s1", "zen") is True
+    assert NET.is_cool(cfg, "s1", "google") is False
+    pool = SUP.Pool()
+    pool.cool("s1", "zen", seconds=60)
+    assert pool.is_cool("s1", "zen") is True
+    assert pool.is_cool("s1", "google") is False
+    assert pool.is_cool("s1", "zen", now=10 ** 12) is False
+
+
+def test_p1_build_probe_rows_skips_malformed():
+    """Reviewer hardening: junk pairs never raise — only clean server
+    dicts become rows, ranked as usual."""
+    ranked = [_pair("fast", 120),
+              "junk-row",
+              ("not-a-pair",),
+              (50, "not-a-dict"),
+              (60, {"scheme": "vless", "host": "h", "port": 1}),  # no id
+              (70, {"scheme": "vless", "host": "h", "id": "x"}),  # no port
+              _pair("slow", 900)]
+    rows = NET.build_probe_rows(ranked, top_n=5)
+    assert [r["id"] for r in rows] == ["fast", "slow"]
+    assert NET.build_probe_rows(None, top_n=1) == []
+
+
+def test_p1_order_pool_by_rank_skips_malformed_servers():
+    """Reviewer hardening: non-dict/id-less pool entries are dropped
+    from the output instead of raising KeyError."""
+    servers = [{"scheme": "vless", "host": "a", "port": 1, "id": "s1"},
+               "junk-server",
+               {"scheme": "vless", "host": "b", "port": 1},  # no id
+               {"scheme": "vless", "host": "c", "port": 1, "id": "s2"}]
+    ordered = NET.order_pool_by_rank(
+        servers, [{"id": "s2", "alive": True}])
+    assert [s["id"] for s in ordered] == ["s2", "s1"]
+
+
+def test_p1_order_google_first_skips_malformed_rows():
+    """Reviewer hardening: non-dict rows never raise; clean rows keep
+    the moved google-first order."""
+    rows = [{"id": "a", "alive": True}, "junk-row",
+            {"id": "b", "alive": True}, {"id": "c", "alive": False}]
+    assert [r["id"] for r in NET.order_google_first(rows, ["b"])] == \
+        ["b", "a", "c"]
+
+
+def test_p1_write_pool_file_atomic_keeps_old_on_failure(tmp_path):
+    """Reviewer hardening: a failed write never truncates the good
+    file (tmp + os.replace) and leaves no .tmp behind."""
+    from unittest import mock
+    path = tmp_path / "pool.json"
+    servers = [{"scheme": "vless", "host": "h", "port": 1, "id": "s1"}]
+    assert NET.write_pool_file(str(path), servers) == 1
+    before = path.read_text(encoding="utf-8")
+    assert not (tmp_path / "pool.json.tmp").exists()  # no tmp leftover
+    with mock.patch.object(NET.json, "dump",
+                           side_effect=OSError("boom")):
+        with pytest.raises(OSError):
+            NET.write_pool_file(str(path), servers)
+    assert path.read_text(encoding="utf-8") == before  # old file intact
+    assert not (tmp_path / "pool.json.tmp").exists()
+
+
+def test_p1_supervisor_calls_home_functions():
+    """Supervisor holds zero probe logic: the moved names are the home
+    objects (same function, no twin defs)."""
+    assert SUP.build_probe_rows is NET.build_probe_rows
+    assert SUP.order_pool_by_rank is NET.order_pool_by_rank
+    assert SUP.order_google_first is NET.order_google_first
+    assert SUP.should_save_whitelist is NET.should_save_whitelist
+    assert SUP.write_pool_file is NET.write_pool_file
+    assert SUP.supervisor_health is NET.supervisor_health
