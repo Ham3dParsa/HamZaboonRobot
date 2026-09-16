@@ -463,6 +463,72 @@ The next language addition must use this contract.
 - German is added as a supported language with German-specific content rules,
   rather than treating it as a renamed English prompt.
 
+## Locked Direction: Closed Beta via Factory-First English (2026-09-16)
+
+Owner-locked on 2026-09-16. This section supersedes conflicting older locks
+where explicitly noted; everything else in this document stays in force.
+
+- **Factory is upstream (L5).** The production bot stays OFF until factory
+  output meets quality. The bot schema follows the factory card schema, not
+  the reverse. Pre-factory locks are reviewable; breaks are recorded below,
+  not silently applied.
+- **Study engine serves factory-gated cards only (L2).** Every card a learner
+  sees must have passed the industrial factory gates: sense-level CEFR,
+  sense-matched examples, sense-matched topic labels. One-shot live-prompt
+  generation is NOT study content; at most it may appear as a separate,
+  explicitly labeled extra ("raw, unverified AI answer"), never silently.
+- **Factory Card Schema v1 (MS-1 contract).** Required: `sense_id`, `cefr`,
+  `topics`, `card_type` (word / phrase / acronym / ...). Optional: `pos`.
+  Reserved-nullable, no beta content: `pack_id` (e.g. a future TOEFL pack).
+  Beta-1 ships general vocabulary classified by sense and CEFR only.
+- **Word query is pool-first with transparent miss (MS-1).** Hit → standard
+  sense-based factory card. Miss → either an honest "not yet processed,
+  queued for production" notice or an explicitly labeled raw-AI answer.
+  Silent improv answers are banned from the study path.
+- **Push Policy v1 (L1) — BREAKS the old "no push delivery" lock.**
+  Sessions are still learner-started, but Duolingo-style return nudges are
+  allowed: max one nudge/day, quiet hours, user opt-out, nudge content only
+  (streak at risk, backlog) — never card content. Retires: "no push
+  delivery" (Locked Product Decisions) and the retired-push list to the
+  extent it bans nudges.
+- **Pooling deferral (DAU ≥ 50) is OBSOLETE — broken.** The study core is now
+  pool-driven; pooling cannot be deferred. The old trigger condition is
+  retired.
+- **Premium plan gates are SUSPENDED for the closed beta.** With 10–50
+  warm-network testers the goal is measuring learning and behavior, not
+  revenue. Plan limits stay in code but do not gate beta users. Revisit at
+  v1.0.0.
+- **Streak = completed study set (L3 prep).** The interaction-based streak
+  model is retired; the one-sentence streak rule (streak advances on
+  completing a valid study set) must lock before MS-2b implementation.
+- **"German support: done" (Phase 2) is RE-LABELED, not done.** It describes
+  the old improv path, not factory output. All such pre-factory language
+  claims must be re-labeled "improv path, not factory" until the language
+  passes factory gates. New factory languages (DE, TR) are post-beta.
+- **Beta testers = warm network (10–50).** Recruitment is pre-solved via
+  personal contacts; no acquisition campaign is part of the beta.
+- **#84 (points toggle race) is an acceptance constraint, not beta scope.**
+  The points ledger does not exist yet, so there is nothing to fix; the
+  issue stays open and becomes an acceptance criterion on the future
+  post-beta points-system spec.
+- **Milestone map (GitHub Milestones #1–#4).** MS-1: Factory Card Schema &
+  EN Pool (issues #550, #588, #590) → MS-2a: Frictionless Study Session
+  (break down #467; dead-ends incl. #161) → MS-2b: Retention Loop & Push
+  Policy v1 (needs locked streak rule) → MS-3: Closed Beta Pilot
+  (`v0.9.0-beta` tag; structured logs + manual review, no dashboard).
+  Max one open milestone at a time. DE/TR factory, packs content, and
+  gamification beyond streak are post-beta.
+- **Streak rule, one sentence (locks RULE-001, 2026-09-16).** Streak advances
+  by one only when the learner completes at least one full study session
+  (every card in the session graded) within a calendar day (APP_TIMEZONE);
+  single taps, word queries, or unfinished sessions never advance it, and a
+  fully missed day resets it (same-day idempotent, yesterday-derived
+  increment, gap-reset per `services/streak.next_streak`). This UNBLOCKS
+  RULE-001 (`services/streak/__init__.py`); flipping the Boolean per-tap
+  callers (`srs_handler`, `words.py:527/:594`, `word_query.py:295`) to
+  SessionCompleted-only is MS-2b implementation work. Owner may veto the
+  sentence; the Boolean behavior stays until then.
+
 ## Delivery Principles
 
 1. Prefer one reliable, validated content contract over loosely structured AI

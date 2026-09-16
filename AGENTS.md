@@ -14,7 +14,12 @@ _Last updated: 2026-09-05._
 Telegram language-learning assistant for Persian speakers. MVP: AI-generated
 vocabulary cards + grammar tips; pull-based study sessions with saved-word
 spaced repetition (FSRS-6); language/goal/level preferences; Free/Bronze/Silver/
-Gold/Emerald session limits; owner-only admin. No daily push delivery.
+Gold/Emerald session limits; owner-only admin. Push Policy v1 (2026-09-16):
+sessions stay learner-started; return nudges allowed (max 1/day, quiet hours,
+opt-out, nudge content only — never card content). Study cards must be
+factory-gated (sense-level CEFR/topics); silent live-prompt cards are banned
+from the study path. See ROADMAP.md "Locked Direction: Closed Beta via
+Factory-First English (2026-09-16)".
 
 Priorities: safe understandable Telegram UX; predictable AI/Telegram resource
 use; durable, restart-safe background work; correct quotas/dates/idempotency;
@@ -174,6 +179,13 @@ Load the relevant skill by trigger (see §9). Core discipline:
    change) skips this step — state it under `<SYSTEM_GATE>`.
 4. Stage explicitly (`git add file.py` — never `git add .`); Conventional
    Commits; push; open PR via `gh pr create --fill --base main` linking issues.
+   **Milestone & Issue Closing Discipline:** every behavior-change PR MUST
+   reference its tracking issue in the PR body; use `Closes #<n>`/`Fixes #<n>`
+   only when the PR fully resolves that issue (partial work references without
+   the keyword). Milestone bars move only on issue close — never assume
+   progress from commits alone. Chore/docs-only PRs reference an issue when
+   one exists, else state `No tracking issue`. Each issue carries exactly one
+   milestone; never close another milestone's issue to inflate progress.
 5. Owner merges **Squash and merge**; agent may `gh pr merge --squash` only on
    explicit "merge it" after CI passes. Cleanup worktree, delete branch, release
    parallel claim, update issues/ROADMAP.
