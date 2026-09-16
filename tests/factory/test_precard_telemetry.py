@@ -554,6 +554,34 @@ def test_auth_abort_flushes_stage_telemetry(tmp_path, monkeypatch):
     assert recs  # judge rows flushed by _abort, not lost
 
 
+def test_no_double_attempt_entry_on_raise_paths():
+    """Reviewer-noise evidence: raises inside the rotation wrapper's
+    `except HTTPError` block (RateLimited/AuthError/ProviderCooldown)
+    propagate outward and never re-enter the generic handler — exactly
+    one attempt_log entry per try."""
+    import pytest
+    from factory.core.llm_json import AuthError
+    from factory.precard.transport import (
+        KeyRing, RateLimited, _call_with_rotation)
+    state = {"done": {}, "failed": [], "backoffs": []}
+    ring = KeyRing(["k1"])
+    with pytest.raises(RateLimited):
+        _call_with_rotation(
+            lambda *a: (_ for _ in ()).throw(_http_429()),
+            ring, "m", "t", lambda s: None, state, "lbl")
+    assert len(ring.attempt_log) == 1
+    assert ring.attempt_log[0]["outcome"] == "rotated"
+    ring2 = KeyRing(["k1"])
+    with pytest.raises(AuthError):
+        _call_with_rotation(
+            lambda *a: (_ for _ in ()).throw(_http_401()),
+            ring2, "m", "t", lambda s: None,
+            {"done": {}, "failed": [], "backoffs": []}, "lbl",
+            key_var="K", file_label="f.env")
+    assert len(ring2.attempt_log) == 1
+    assert ring2.attempt_log[0]["outcome"] == "auth"
+
+
 def test_transport_shim_reexports_owner():
     """Route-delete: transport keeps the narrow shim, bodies live in
     core."""
