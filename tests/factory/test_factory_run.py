@@ -5,6 +5,7 @@ dicts, supervisor health/spawn and the pipeline main are injected fakes.
 A test fails if any network/subprocess call escapes (sentinels raise).
 """
 
+import os
 import sys
 
 import pytest
@@ -354,14 +355,15 @@ def test_validation_rejects_nonsense():
 
 def test_code_defaults_track_owners():
     """run.py cites (not moves) owner constants: drift fails here."""
-    sys.path.insert(0, "tools/egress")
+    _egress = os.path.join(RUN.REPO_ROOT, "tools", "egress")
+    sys.path.insert(0, _egress)
     try:
         import supervisor as SUP
         assert RUN.SUP_DEFAULT_PORT == SUP.DEFAULT_PORT
         assert RUN.SUP_DEFAULT_PROBE_TOP_N == SUP.PROBE_TOP_N
         assert RUN.SUP_DEFAULT_COOLDOWN_SECS == SUP.COOLDOWN_S
     finally:
-        sys.path.remove("tools/egress")
+        sys.path.remove(_egress)
     from factory.precard.pipeline import DEFAULT_OUT, DEFAULT_SAMPLE, SLEEP
     cfg, _ = RUN.resolve_config(_ns(), {})
     assert cfg["sample"] == DEFAULT_SAMPLE
@@ -375,3 +377,107 @@ def test_no_key_flags():
     for var in ("AVALAI_API_KEY", "GOOGLE_AI_API_KEY",
                 "OPENCODE_ZEN_API_KEY", "OPENROUTER_API_KEY"):
         assert var not in src
+
+
+# --- reviewer fixes: fail-fast env parsing (exit 2, names the var) ---
+
+def test_env_garbage_fails_fast(capsys):
+    with pytest.raises(SystemExit) as exc:
+        RUN.resolve_config(_ns(), {"FACTORY_LIMIT": "abc"})
+    assert exc.value.code == 2
+    assert "FACTORY_LIMIT" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        RUN.resolve_config(_ns(), {"FACTORY_SLEEP_SECS": "not_a_number"})
+    assert exc.value.code == 2
+    assert "FACTORY_SLEEP_SECS" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        RUN.resolve_config(_ns(), {"FACTORY_DRY_RUN": "tru"})
+    assert exc.value.code == 2
+    assert "FACTORY_DRY_RUN" in capsys.readouterr().err
+
+
+def test_env_list_empty_entry_fails_fast(capsys):
+    with pytest.raises(SystemExit) as exc:
+        RUN.resolve_config(
+            _ns(), {"FACTORY_STAGE_PROVIDER":
+                    "sense_judge=avalai,,topic_label=zen"})
+    assert exc.value.code == 2
+    assert "FACTORY_STAGE_PROVIDER" in capsys.readouterr().err
+
+
+# --- reviewer fixes: self-documenting flags ---
+
+def test_no_color_and_sup_token_help(capsys):
+    with pytest.raises(SystemExit):
+        RUN.parse_args(["--help"])
+    out = capsys.readouterr().out
+    assert "ANSI" in out  # --no-color finally has help text
+    assert "process list" in out  # --sup-token warns argv is visible
+
+
+# --- reviewer fixes: supervisor auth vs down + child reap ---
+
+def test_supervisor_auth_error_skips_spawn():
+    def _auth(url, token):
+        return {"auth_error": "HTTP 401 from %s/v1/health "
+                              "(check EGRESS_SUP_TOKEN)" % url}
+
+    result = RUN.ensure_supervisor(
+        {"egress_mode": "tunnel", "sup_url": "http://127.0.0.1:18789",
+         "sup_token": "wrong", "sup_port": 18789, "no_sup_spawn": False},
+        health_fn=_auth, spawn_fn=_no_spawn,
+        sleep_fn=lambda s: None)
+    assert result["action"] == "failed"
+    assert "auth" in result["reason"].lower()
+
+
+def test_sup_http_health_maps_401_to_auth_error(monkeypatch):
+    import urllib.error as urlerror
+
+    def _raise_401(req, timeout=None):
+        raise urlerror.HTTPError(req.full_url, 401, "Unauthorized",
+                                 {}, None)
+
+    monkeypatch.setattr(RUN.urllib.request, "urlopen", _raise_401)
+    payload = RUN._sup_http_health("http://127.0.0.1:18789", "wrong")
+    assert "401" in payload["auth_error"]
+    assert "EGRESS_SUP_TOKEN" in payload["auth_error"]
+
+    def _raise_500(req, timeout=None):
+        raise urlerror.HTTPError(req.full_url, 500, "Server Error",
+                                 {}, None)
+
+    monkeypatch.setattr(RUN.urllib.request, "urlopen", _raise_500)
+    assert RUN._sup_http_health("http://127.0.0.1:18789", "tok") is None
+
+
+def test_spawn_timeout_reaps_child(monkeypatch):
+    import subprocess as _subprocess
+
+    class _StubProc:
+        pid = 4242
+        returncode = None
+
+        def __init__(self):
+            self.calls = []
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.calls.append("terminate")
+
+        def kill(self):
+            self.calls.append("kill")
+
+        def wait(self, timeout=None):
+            self.calls.append("wait")
+            raise _subprocess.TimeoutExpired("supervisor", timeout)
+
+    stub = _StubProc()
+    monkeypatch.setattr(RUN.subprocess, "Popen",
+                        lambda *a, **k: stub)
+    with pytest.raises(RuntimeError):
+        RUN._spawn_supervisor(18799, "", lambda u, t: None,
+                              sleep_fn=lambda s: None, timeout=0)
+    assert stub.calls == ["terminate", "wait", "kill", "wait"]

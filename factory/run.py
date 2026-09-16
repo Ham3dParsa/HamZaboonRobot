@@ -58,6 +58,7 @@ SUPERVISOR_SCRIPT = os.path.join(REPO_ROOT, "tools", "egress",
 HEALTH_TIMEOUT_S = 5.0
 SPAWN_POLL_S = 0.5
 SPAWN_TIMEOUT_S = 20.0
+SPAWN_REAP_TIMEOUT_S = 5.0
 
 # R2 presets: avalai is domestic-direct (no VPN, no supervisor);
 # google rides the tunnel (supervisor auto-spawn); zen is the default.
@@ -115,6 +116,18 @@ def _env_str(env_map, var):
     return _env_raw(env_map, var) or None
 
 
+def _bad_env(var, raw, want):
+    """Fail-fast on a set-but-unparseable env value (exit 2, names var).
+
+    Silent fallback to the code default once inverted real behavior
+    (``FACTORY_DRY_RUN=tru`` ran a real run), so every typed parser
+    below rejects garbage instead of returning None.
+    """
+    print("factory/run: bad %s=%r (want %s)" % (var, raw, want),
+          file=sys.stderr)
+    raise SystemExit(2)
+
+
 def _env_bool(env_map, var):
     raw = _env_raw(env_map, var).lower()
     if not raw:
@@ -123,7 +136,9 @@ def _env_bool(env_map, var):
         return True
     if raw in _FALSE_WORDS:
         return False
-    return None
+    return _bad_env(var, _env_raw(env_map, var),
+                    "one of: %s" % ", ".join(sorted(
+                        _TRUE_WORDS | _FALSE_WORDS)))
 
 
 def _env_int(env_map, var):
@@ -133,7 +148,7 @@ def _env_int(env_map, var):
     try:
         return int(raw)
     except ValueError:
-        return None
+        return _bad_env(var, raw, "an integer")
 
 
 def _env_float(env_map, var):
@@ -143,14 +158,17 @@ def _env_float(env_map, var):
     try:
         return float(raw)
     except ValueError:
-        return None
+        return _bad_env(var, raw, "a number")
 
 
 def _env_list(env_map, var):
     raw = _env_raw(env_map, var)
     if not raw:
         return None
-    return [p.strip() for p in raw.split(",") if p.strip()]
+    parts = raw.split(",")
+    if any(not p.strip() for p in parts):
+        return _bad_env(var, raw, "comma-separated entries, no empties")
+    return [p.strip() for p in parts]
 
 
 def _cli_present(value):
@@ -248,7 +266,8 @@ def parse_args(argv=None):
                          "http://127.0.0.1:<sup-port>)")
     ap.add_argument("--sup-token", default=None,
                     help="supervisor bearer (env EGRESS_SUP_TOKEN "
-                         "preferred; never printed)")
+                         "preferred: argv is visible in process lists on "
+                         "multi-user hosts; never printed)")
     ap.add_argument("--sup-port", type=int, default=None)
     ap.add_argument("--no-sup-spawn", action="store_true", default=None,
                     help="refuse to spawn the supervisor (exit 2 when it "
@@ -266,7 +285,9 @@ def parse_args(argv=None):
                          "confirms); no prompts exist in this phase")
     ap.add_argument("--quiet", action="store_true", default=None)
     ap.add_argument("--json-log", action="store_true", default=None)
-    ap.add_argument("--no-color", action="store_true", default=None)
+    ap.add_argument("--no-color", action="store_true", default=None,
+                    help="disable ANSI colors (reserved for a later "
+                         "phase; accepted only)")
     ap.add_argument("--list-models", action="store_true",
                     help="print known precard models and exit "
                          "(no network, no writes)")
@@ -389,14 +410,22 @@ def _validate(cfg):
 def _sup_http_health(url, token, timeout=HEALTH_TIMEOUT_S):
     """GET <url>/v1/health (loopback contract owned by the supervisor;
     shape owned by net.supervisor_health). Returns the payload dict,
+    ``{"auth_error": ...}`` on HTTP 401/403 (wrong EGRESS_SUP_TOKEN),
     or None when the supervisor is down/unreachable."""
     import json as _json
+    import urllib.error as _urlerror
     req = urllib.request.Request(
         url.rstrip("/") + "/v1/health",
         headers={"Authorization": "Bearer " + (token or "")})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = _json.load(resp)
+    except _urlerror.HTTPError as exc:
+        if exc.code in (401, 403):
+            return {"auth_error":
+                    "HTTP %s from %s/v1/health (check EGRESS_SUP_TOKEN)"
+                    % (exc.code, url.rstrip("/"))}
+        return None
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
@@ -444,6 +473,19 @@ def _spawn_supervisor(port, token, health_fn, sleep_fn=time.sleep,
         proc.terminate()
     except OSError:
         pass
+    # Reap the child so a SIGTERM-ignoring supervisor cannot linger as
+    # a zombie holding the port; escalate to kill on a bounded wait.
+    try:
+        proc.wait(timeout=SPAWN_REAP_TIMEOUT_S)
+    except Exception:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=SPAWN_REAP_TIMEOUT_S)
+        except Exception:
+            pass
     raise RuntimeError("supervisor on 127.0.0.1:%d never became healthy "
                        "(%ds budget)" % (port, timeout))
 
@@ -462,6 +504,10 @@ def ensure_supervisor(cfg, health_fn=None, spawn_fn=None,
     health = health_fn or _sup_http_health
     spawn = spawn_fn or _spawn_supervisor
     payload = health(cfg["sup_url"], cfg["sup_token"])
+    if isinstance(payload, dict) and payload.get("auth_error"):
+        return {"action": "failed",
+                "reason": "supervisor auth error: %s (not a spawn "
+                          "problem)" % payload["auth_error"]}
     if _sup_is_healthy(payload):
         return {"action": "ok", "sup_url": cfg["sup_url"],
                 "servers": (payload or {}).get("servers", "?"),
