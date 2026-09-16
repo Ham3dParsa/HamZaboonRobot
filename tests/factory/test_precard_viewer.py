@@ -304,7 +304,12 @@ def test_stats_const_embedded_once_with_mini_counts(tmp_path):
         "precards": 1, "precards_pct": 10.0,
         "lemmas": 1, "lemmas_pct": 14.3}
     assert stats["mismatch"] == {
-        "precards": 0, "precards_pct": 0.0, "lemmas": 0}
+        "precards": 0, "precards_pct": 0.0, "lemmas": 0,
+        "evidenced_precards": 0, "evidenced_denominator": 0,
+        "evidenced_pct": 0.0}
+    assert stats["cefr_method"] == {"pool-fallback": 10}
+    assert stats["topic_path"] == {"(unknown)": 10}
+    assert stats["example_source"] == {"sense": 10}
 
 
 def test_header_strip_names_every_unit(tmp_path):
@@ -322,7 +327,7 @@ def test_header_strip_names_every_unit(tmp_path):
     assert "sense-judge-drop: 1 dropped lemmas" in html
 
 
-def test_dist_drawer_has_six_labeled_groups(tmp_path):
+def test_dist_drawer_has_nine_labeled_groups(tmp_path):
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
@@ -333,12 +338,16 @@ def test_dist_drawer_has_six_labeled_groups(tmp_path):
                     "3 \u00b7 senses by CEFR",
                     "4 \u00b7 senses by topic",
                     "5 \u00b7 synthetic examples needed",
-                    "6 \u00b7 pool-vs-sense CEFR mismatch"):
+                    "6 \u00b7 pool-vs-sense CEFR mismatch",
+                    "7 \u00b7 CEFR provenance",
+                    "8 \u00b7 topic s4 paths",
+                    "9 \u00b7 example sourcing"):
         assert heading in html
-    assert html.count('class="dist-group"') == 6
+    assert html.count('class="dist-group"') == 9
     assert "lemma-level (exists)" in html
     assert "row-level" in html
     assert "lemma counts overlap" in html
+    assert "nine metric groups" in html
 
 
 def test_label_rule_no_bare_counts(tmp_path):
@@ -388,6 +397,8 @@ def _v141_shape_run(tmp_path):
         encoding="utf-8")
     levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
     labels = ["Food & Drink", "Travel", "Work"]
+    paths = ["llm", "fallback", "leg1", "cache"]
+    sources = ["sense", "lemma", "pool"]
     rows = []
     idx = 0
     for j, key in enumerate(kept):
@@ -399,6 +410,12 @@ def _v141_shape_run(tmp_path):
                 "key": key, "text": key.split(":", 1)[1],
                 "sense_id": "%s#%d" % (key, idx),
                 "sense_cefr": sense, "pool_level": pool,
+                "sense_cefr_method": "wn-single" if idx % 3 == 0
+                else "pool-fallback",
+                "stage_calls": {"s4_path": paths[idx % 4]},
+                "example_fallback": sources[idx % 3],
+                "register": "informal" if idx % 17 == 0 else "neutral",
+                "lexical_type": "colloquial" if idx % 29 == 0 else "word",
                 "topic_vector": [] if idx % 13 == 0 else [
                     {"label": labels[idx % 3], "weight": 1.0}],
                 "example_synthetic_needed": idx % 11 == 0})
@@ -454,6 +471,16 @@ def test_stats_match_v141_shape_totals(tmp_path):
     assert stats["mismatch"]["precards"] == 71
     assert stats["mismatch"]["precards_pct"] == 14.5
     assert 0 < stats["mismatch"]["lemmas"] <= 185
+    assert stats["mismatch"]["evidenced_precards"] == 24
+    assert stats["mismatch"]["evidenced_denominator"] == 164
+    assert stats["mismatch"]["evidenced_pct"] == 14.6
+    assert stats["cefr_method"] == {
+        "pool-fallback": 327, "wn-single": 164}
+    assert stats["topic_path"] == {
+        "llm": 123, "fallback": 123, "leg1": 123, "cache": 122}
+    assert stats["example_source"] == {
+        "sense": 164, "lemma": 164, "pool": 163}
+    assert "evidenced-only" in html
     assert "<b>276</b> lemmas" in html
     assert "kept rate <b>67%</b>" in html
     assert "<b>491</b> precards" in html
@@ -470,9 +497,14 @@ def test_stats_empty_run_has_zeroed_header_and_drawer(tmp_path):
     assert stats["precards_total"] == 0
     assert stats["kept_rate_pct"] == 0
     assert stats["drops_by_reason"] == []
+    assert stats["cefr_method"] == {}
+    assert stats["topic_path"] == {}
+    assert stats["example_source"] == {}
+    assert stats["mismatch"]["evidenced_denominator"] == 0
     assert "<b>0</b> lemmas" in html
     assert "no drops recorded" in html
-    assert html.count('class="dist-group"') == 6
+    assert "no rows" in html
+    assert html.count('class="dist-group"') == 9
 
 
 def test_missing_cefr_renders_single_dash_row(tmp_path):
@@ -497,3 +529,20 @@ def test_missing_cefr_renders_single_dash_row(tmp_path):
     assert stats["cefr_precard"]["\u2014"] == 1
     assert stats["cefr_lemma"]["\u2014"] == 1
     assert html.count("<td>\u2014</td>") == 1
+
+
+def test_register_filter_wiring_and_units(tmp_path):
+    """Issue #729 item 4: one combined style select, kept-only counts,
+    any-sense match, labeled units. JS runs client-side; assert wiring."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert '<select id="registerFilter"' in html
+    assert "each style counts kept-only lemmas" in html
+    assert "All Styles (${RAW_LEMMAS.length})" in html
+    assert "lemmaStyles" in html
+    assert 's.register === style || s.lexical_type === style' in html
+    assert "kept lemmas)" in html
+    assert "opt.textContent = `${v} (${styleCounts[v]} kept lemmas)`" in html
+    assert "${style}" not in html

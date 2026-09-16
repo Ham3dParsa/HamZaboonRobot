@@ -146,7 +146,7 @@ _HTML_TEMPLATE = """
   color: var(--border-strong);
 }
 
-/* Distributions drawer under the filter bar (T4): six metric groups. */
+/* Distributions drawer under the filter bar: nine metric groups. */
 .dist-drawer {
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
@@ -756,11 +756,16 @@ __CEFR_PILLS__
     </select>
 
     <select id="statusFilter" class="select-filter" onchange="applyFilters()"
-      title="Dropped lemmas carry no senses: Dropped Only combined with a CEFR or topic filter matches nothing">
+      title="Dropped lemmas carry no senses: Dropped Only combined with a CEFR, topic, or style filter matches nothing">
       <option value="ALL">All Statuses</option>
       <option value="KEPT">Kept Only</option>
       <option value="DROPPED">Dropped Only</option>
       <option value="SYNTHETIC">Needs Synthetic Ex</option>
+    </select>
+
+    <select id="registerFilter" class="select-filter" onchange="applyFilters()"
+      title="All Styles counts all lemmas (kept + dropped); each style counts kept-only lemmas with any sense carrying it">
+      <option value="ALL">All Styles</option>
     </select>
 
     <select id="sortOrder" class="select-filter" onchange="applyFilters()" style="margin-left:auto;"
@@ -805,6 +810,7 @@ function escapeHtml(value) {
 
 function initTopicsAndPillCounts() {
   const topicCounts = {};
+  const styleCounts = {};
   const cefrCounts = { "ALL": 0, "A1": 0, "A2": 0, "B1": 0, "B2": 0, "C1": 0, "C2": 0 };
 
   RAW_LEMMAS.forEach(l => {
@@ -813,16 +819,22 @@ function initTopicsAndPillCounts() {
       // Find all unique CEFR levels present in this lemma
       const lemmaCefrs = new Set();
       const lemmaTopics = new Set();
+      const lemmaStyles = new Set();
       l.senses.forEach(s => {
         if (s.sense_cefr) lemmaCefrs.add(s.sense_cefr);
         if (s.pool_level) lemmaCefrs.add(s.pool_level);
         (s.topic_vector || []).forEach(t => lemmaTopics.add(t.label));
+        if (s.register) lemmaStyles.add(s.register);
+        if (s.lexical_type && s.lexical_type !== "word") lemmaStyles.add(s.lexical_type);
       });
       lemmaCefrs.forEach(c => {
         if (cefrCounts[c] !== undefined) cefrCounts[c]++;
       });
       lemmaTopics.forEach(t => {
         topicCounts[t] = (topicCounts[t] || 0) + 1;
+      });
+      lemmaStyles.forEach(v => {
+        styleCounts[v] = (styleCounts[v] || 0) + 1;
       });
     }
   });
@@ -851,6 +863,17 @@ function initTopicsAndPillCounts() {
     opt.value = t;
     opt.textContent = `${t} (${topicCounts[t]})`;
     sel.appendChild(opt);
+  });
+
+  // Populate Styles dropdown with kept-only lemma counts (exists semantics)
+  const styleSel = document.getElementById("registerFilter");
+  styleSel.innerHTML = `<option value="ALL">All Styles (${RAW_LEMMAS.length})</option>`;
+  Object.keys(styleCounts).sort().forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = `${v} (${styleCounts[v]} kept lemmas)`;
+    opt.title = `${v}: ${styleCounts[v]} kept-only lemmas with any sense carrying it`;
+    styleSel.appendChild(opt);
   });
 }
 
@@ -882,6 +905,7 @@ function applyFilters() {
   const q = document.getElementById("searchInput").value.trim().toLowerCase();
   const topic = document.getElementById("topicFilter").value;
   const status = document.getElementById("statusFilter").value;
+  const style = document.getElementById("registerFilter").value;
   const sort = document.getElementById("sortOrder").value;
 
   filteredList = RAW_LEMMAS.filter(item => {
@@ -904,6 +928,11 @@ function applyFilters() {
       const hasTopic = item.senses.some(s => (s.topic_vector || []).some(t => t.label === topic));
       if (!hasTopic) return false;
     }
+    if (style !== "ALL") {
+      if (item.dropped) return false;
+      const hasStyle = item.senses.some(s => s.register === style || s.lexical_type === style);
+      if (!hasStyle) return false;
+    }
     return true;
   });
 
@@ -922,9 +951,9 @@ function applyFilters() {
     selectLemma(0);
   } else {
     let hint = "Try adjusting your filters or search query.";
-    if (status === "DROPPED" && (currentCefrFilter !== "ALL" || topic !== "ALL")) {
-      hint = `Dropped lemmas carry no senses, so a CEFR/topic filter never matches them. `
-        + `Clear CEFR/topic to browse all ${STATS.lemmas_dropped} dropped lemmas.`;
+    if (status === "DROPPED" && (currentCefrFilter !== "ALL" || topic !== "ALL" || style !== "ALL")) {
+      hint = `Dropped lemmas carry no senses, so a CEFR/topic/style filter never matches them. `
+        + `Clear CEFR/topic/style to browse all ${STATS.lemmas_dropped} dropped lemmas.`;
     }
     document.getElementById("detailContent").innerHTML = `
       <div style="text-align:center; padding: 80px; color:var(--text-muted)">
@@ -1262,6 +1291,7 @@ def _neutralise(text):
 
 _CEFR_LEVELS = tuple(CEFR_ORDER) + ("\u2014",)
 _MISSING = "\u2014"
+_UNKNOWN_METHOD = "(unknown)"
 
 
 def _reason_head(reason):
@@ -1288,6 +1318,10 @@ def _p90(values):
         return 0
     ordered = sorted(values)
     return ordered[max(0, math.ceil(0.9 * len(ordered)) - 1)]
+
+
+def _sort_dist(dist):
+    return dict(sorted(dist.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def _compute_stats(rows, dropped_map):
@@ -1325,6 +1359,11 @@ def _compute_stats(rows, dropped_map):
     synth_lemmas = 0
     mismatch_precards = 0
     mismatch_lemmas = 0
+    method_precard = {}
+    path_precard = {}
+    source_precard = {}
+    evidenced_rows = 0
+    evidenced_mismatch = 0
 
     for key in kept_keys:
         lemma_cefrs = set()
@@ -1350,10 +1389,23 @@ def _compute_stats(rows, dropped_map):
             if rec.get("example_synthetic_needed"):
                 synth_precards += 1
                 lemma_synth = True
+            method = rec.get("sense_cefr_method") or _UNKNOWN_METHOD
+            method_precard[method] = method_precard.get(method, 0) + 1
+            calls = rec.get("stage_calls")
+            path = calls.get("s4_path") if isinstance(calls, dict) else None
+            path = path or _UNKNOWN_METHOD
+            path_precard[path] = path_precard.get(path, 0) + 1
+            source = rec.get("example_fallback") or _UNKNOWN_METHOD
+            source_precard[source] = source_precard.get(source, 0) + 1
+            evidenced = method not in ("pool-fallback", _UNKNOWN_METHOD)
+            if evidenced:
+                evidenced_rows += 1
             if (sense_cefr != _MISSING and pool != _MISSING
                     and sense_cefr != pool):
                 mismatch_precards += 1
                 lemma_mismatch = True
+                if evidenced:
+                    evidenced_mismatch += 1
         for level in lemma_cefrs:
             cefr_lemma[level] = cefr_lemma.get(level, 0) + 1
         if len(lemma_cefrs) > 1:
@@ -1398,7 +1450,13 @@ def _compute_stats(rows, dropped_map):
             "precards": mismatch_precards,
             "precards_pct": _pct(mismatch_precards, n_rows),
             "lemmas": mismatch_lemmas,
+            "evidenced_precards": evidenced_mismatch,
+            "evidenced_denominator": evidenced_rows,
+            "evidenced_pct": _pct(evidenced_mismatch, evidenced_rows),
         },
+        "cefr_method": _sort_dist(method_precard),
+        "topic_path": _sort_dist(path_precard),
+        "example_source": _sort_dist(source_precard),
     }
 
 
@@ -1518,19 +1576,59 @@ def _dist_drawer(stats):
         "<h3>6 \u00b7 pool-vs-sense CEFR mismatch</h3>"
         '<p class="dist-kv"><b>%(p)d</b> precards '
         "(%(pp)s%% of all precards) \u00b7 <b>%(m)d</b> kept lemmas "
-        "with \u22651 mismatch</p>" % {
+        "with \u22651 mismatch</p>"
+        '<p class="dist-kv">evidenced-only: <b>%(ep)d</b> precards '
+        "(%(epp)s%% of %(ed)d evidenced precards)</p>"
+        '<p class="dist-note">evidenced = sense_cefr_method other than '
+        "pool-fallback (copied levels match by construction).</p>" % {
             "p": mismatch["precards"], "pp": mismatch["precards_pct"],
-            "m": mismatch["lemmas"]})
+            "m": mismatch["lemmas"], "ep": mismatch["evidenced_precards"],
+            "epp": mismatch["evidenced_pct"],
+            "ed": mismatch["evidenced_denominator"]})
+
+    g7 = (
+        "<h3>7 \u00b7 CEFR provenance</h3>"
+        + (_dist_table(
+            ("CEFR method", "precards, row-level"),
+            [(method, "%d precards (%s%%)" % (
+                count, _pct(count, stats["precards_total"])))
+             for method, count in stats["cefr_method"].items()])
+            if stats["cefr_method"]
+            else '<p class="dist-note">no rows</p>')
+        + '<p class="dist-note">row-level sense_cefr_method; '
+        "pool-fallback levels are copied from the pool.</p>")
+
+    g8 = (
+        "<h3>8 \u00b7 topic s4 paths</h3>"
+        + (_dist_table(
+            ("s4 path", "precards, row-level"),
+            [(path, "%d precards (%s%%)" % (
+                count, _pct(count, stats["precards_total"])))
+             for path, count in stats["topic_path"].items()])
+            if stats["topic_path"]
+            else '<p class="dist-note">no rows</p>')
+        + '<p class="dist-note">row-level stage_calls.s4_path.</p>')
+
+    g9 = (
+        "<h3>9 \u00b7 example sourcing</h3>"
+        + (_dist_table(
+            ("example source", "precards, row-level"),
+            [(source, "%d precards (%s%%)" % (
+                count, _pct(count, stats["precards_total"])))
+             for source, count in stats["example_source"].items()])
+            if stats["example_source"]
+            else '<p class="dist-note">no rows</p>')
+        + '<p class="dist-note">row-level example_fallback.</p>')
 
     return (
         '<details class="dist-drawer" id="distDrawer">'
         "<summary>Distributions "
-        '<span class="dist-hint">six metric groups \u00b7 lemma-level '
+        '<span class="dist-hint">nine metric groups \u00b7 lemma-level '
         "(exists, overlaps noted) vs precard-level (row-level) \u00b7 "
         "every number names its unit</span></summary>"
         '<div class="dist-grid">'
         + "".join('<section class="dist-group">%s</section>' % g
-                   for g in (g1, g2, g3, g4, g5, g6))
+                   for g in (g1, g2, g3, g4, g5, g6, g7, g8, g9))
         + "</div></details>")
 
 
