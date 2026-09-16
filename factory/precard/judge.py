@@ -3,9 +3,13 @@
 Moved verbatim from factory/pipeline/precard_pipeline (provenance:
 precard line R1-R6/F4, 2026-09-14); only the imports changed (intra-
 package) and two names went public (judge_prompt, apply_inflection_veto).
-Vendored with it: LEVEL_N + validate_picks + JUDGE_MODELS (frozen copy
-from factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
+Vendored with it: LEVEL_N + validate_picks (frozen copy from
+factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
 superlative stub predicates (frozen copy from factory/pipeline/card_pilot).
+JUDGE_MODELS is NOT vendored here: it lives in factory.precard.net
+(P2 single owner) and is imported. Model attempts route through
+net.call_leg; the chain steps down to the next model only on
+ROTATE-exhausted (R6).
 """
 
 from __future__ import annotations
@@ -15,15 +19,14 @@ import re
 from factory.precard.accounting import item_key
 from factory.precard import anchor as _anchor_home
 from factory.precard.ids import normalize_id_part
+# P2 (R5): JUDGE_MODELS lives in factory.precard.net (single owner);
+# this leg holds zero model lists and reads chains through it.
+from factory.precard.net import JUDGE_MODELS
+from factory.precard import net as _net
 
 MAX_FANOUT = 4
 
 LEVEL_N = (("beginner", 2), ("intermediate", 3), ("advanced", 4))
-
-JUDGE_MODELS = ["muse-spark-1.3-contributor-free",
-                "muse-spark-1.2-contributor-free",
-                "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-                "nemotron-3.5-lightning-free"]
 
 
 def validate_picks(picks, input_ids):
@@ -309,8 +312,8 @@ from factory.core.telemetry import (
     emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
     resolve_cost)
 from factory.precard.transport import (
-    AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
-    _call_with_rotation, _tele_tokens, _unwrap_transport_result,
+    AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
+    raise_for_auth, _tele_tokens, _unwrap_transport_result,
     MAX_ATTEMPTS, RETRY_PREFIX)
 
 _tele_record = record_call
@@ -319,7 +322,6 @@ from factory.precard.prompts import INFLECTION_REVIEW_SYS
 
 
 INFLECTION_REVIEW_BATCH = 16
-INFLECTION_REVIEW_MODELS = JUDGE_MODELS[:2]
 JUDGE_BATCH = 12
 
 
@@ -398,7 +400,8 @@ def _validate_review_results(data, want_keys, key_field="key"):
 def inflection_review(items, transport, api_key="", model_calls=None,
                        telemetry=None, tele_stage="s0b",
                        tele_key_idx=0, tele_run_id="", tele_provider="",
-                       tele_model_actual=None, tele_attempts=False):
+                       tele_model_actual=None, tele_attempts=False,
+                       models=None, tried=None):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
@@ -415,6 +418,10 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     import time as _time
     if model_calls is None:
         model_calls = {}
+    # P2: default chain from the net table (zen inflection pair);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    chain = list(models) if models else _net.leg_chain(
+        tele_provider or "zen", "inflection_review")
     out = {}
     for batch_no, base in enumerate(
             range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
@@ -424,7 +431,9 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         settled = False
         win_model, win_usage = "review-fallback", None
         attempt_log = []
-        for model in INFLECTION_REVIEW_MODELS:
+        for model in chain:
+            if isinstance(tried, list) and model not in tried:
+                tried.append(model)
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else RETRY_PREFIX + prompt
                 start = _time.perf_counter()
@@ -536,14 +545,17 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None, provider="zen", key_var="",
                    file_label="factory/.env", tele_run_id="",
-                   tele_model_actual=None, tele_attempts=False):
+                   tele_model_actual=None, tele_attempts=False,
+                   tried=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
-    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
-    list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
-    it. 2 attempts per model, 401/403
+    Default chain comes from the net table (zen sense-judge pair); an
+    explicit `models` list (e.g. AvalAI glm-5.3-flash via
+    --judge-provider avalai) replaces it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
-    all-keys-429 raises RateLimited so the runner flushes and STOPS),
+    a ROTATE-exhausted model steps down to the next chain model and
+    only a fully-exhausted chain raises RateLimited so the runner
+    flushes and STOPS),
     anything else fail-closed to the S1 top pick per item. v14.1: the
     judge returns 1-4 ordered picks per item (judge_validate_multi —
     legacy single "pick" rows still validate as one pick); the ordered
@@ -561,12 +573,17 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     attempt rows only when ``tele_attempts`` is on (default off, so
     attempt-row volume is unchanged by default).
     """
-    models = list(models) if models else list(JUDGE_MODELS[:2])
+    # P2: default chain from the net table (zen sense-judge pair);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    models = list(models) if models else _net.leg_chain(
+        provider, "sense_judge")
     prompt = judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
+    leg_target = _net.target_for(provider)
+    limited_all = True  # cleared by any model that is not ROTATE-exhausted
 
     def _attempts():
         if tele_attempts and telemetry is not None:
@@ -576,17 +593,41 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                               model_actual=tele_model_actual)
 
     for model in models:
+        if isinstance(tried, list) and model not in tried:
+            tried.append(model)
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/%s#%d" % (model, "+".join(
                 item_key(i) for i in batch), attempt)
             usage = None
             try:
-                raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label,
-                    provider=provider, key_var=key_var,
+                # P2: every attempt routes through net.call_leg (same
+                # ring, same rotation — the leg holds no model lists).
+                raw, usage = _net.call_leg(
+                    None, leg_target, text, transport=transport,
+                    model=model, ring=ring, key_var=key_var,
+                    sleep_fn=sleep_fn, state=state, label=label,
                     file_label=file_label)
             except AuthError:
+                raise
+            except ProviderCooldown:
+                # P2 (R6): project-level quota never steps down and
+                # never switches inside a batch loop — STOP loud for
+                # a resume (free-leg switching lives in
+                # net.call_leg chain mode only).
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except RateLimited:
                 attempt_rows.extend(list(
@@ -602,13 +643,21 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                                  model_actual=tele_model_actual or model,
                                  cost=resolve_cost(made_call=True))
                 _attempts()
-                raise
+                # P2 (R6): ROTATE-exhausted steps down to the next
+                # model in the same leg's chain (no run abort here;
+                # the caller still flushes+STOPS when the whole chain
+                # is exhausted — see the raise below).
+                break
             except urllib.error.HTTPError as exc:
+                limited_all = False
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
                 raw, usage = None, None
             except Exception:
+                limited_all = False
                 raw, usage = None, None
+            else:
+                limited_all = False
             attempt_rows.extend(list(
                 getattr(ring, "attempt_log", []) or []))
             if raw is None:
@@ -644,6 +693,15 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                                      completion_tokens=completion_tokens))
                 _attempts()
                 return out
+    if limited_all and models:
+        # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
+        # caller flushes progress); anything else already fell back
+        # per item above. Per-model error records exist, so no extra
+        # terminal row here.
+        _attempts()
+        raise RateLimited(
+            "all sense_judge models 429 (provider quotas exhausted) — "
+            "re-run later (progress flushed, resume safe)")
     out = {item_key(i): {**judge_fallback(i, anchor_map.get(item_key(i))),
                          } for i in batch}
     apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:

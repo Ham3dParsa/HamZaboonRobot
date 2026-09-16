@@ -745,3 +745,327 @@ def test_p1_supervisor_calls_home_functions():
     assert SUP.should_save_whitelist is NET.should_save_whitelist
     assert SUP.write_pool_file is NET.write_pool_file
     assert SUP.supervisor_health is NET.supervisor_health
+
+
+# --- P2 LEG_FALLBACKS single table (R5/R6, hermetic) ---
+
+def test_p2_table_keys_shape_and_costs():
+    legs = ("inflection_review", "sense_judge", "topic_vectors",
+            "topic_label")
+    assert set(NET.LEG_FALLBACKS) == {
+        (provider, leg)
+        for provider in ("zen", "avalai", "google") for leg in legs}
+    for (provider, leg), entries in NET.LEG_FALLBACKS.items():
+        assert entries, "empty chain for %r" % ((provider, leg),)
+        for entry_model, cost in entries:
+            assert isinstance(entry_model, str) and entry_model
+            assert cost in ("free", "paid"), cost
+    # Zen judge/inflection keep the historic Muse-only pair; vectors
+    # and label keep the full five (defaults unchanged by the move).
+    assert [m for m, _ in NET.LEG_FALLBACKS[
+        ("zen", "sense_judge")]] == NET.JUDGE_MODELS[:2]
+    assert [m for m, _ in NET.LEG_FALLBACKS[
+        ("zen", "inflection_review")]] == NET.JUDGE_MODELS[:2]
+    assert [m for m, _ in NET.LEG_FALLBACKS[
+        ("zen", "topic_vectors")]] == NET.JUDGE_MODELS
+    assert [m for m, _ in NET.LEG_FALLBACKS[
+        ("zen", "topic_label")]] == NET.JUDGE_MODELS
+    assert all(cost == "free" for _, cost in NET.LEG_FALLBACKS[
+        ("zen", "sense_judge")])
+    # AvalAI/Google legs are single paid defaults.
+    assert NET.LEG_FALLBACKS[("avalai", "sense_judge")] == (
+        (T.AVALAI_PRECARD_MODEL, "paid"),)
+    assert NET.LEG_FALLBACKS[("google", "sense_judge")] == (
+        (T.GOOGLE_PRECARD_MODEL, "paid"),)
+    assert NET.leg_chain("avalai", "topic_label") == [
+        T.AVALAI_PRECARD_MODEL]
+    assert NET.leg_chain("google", "topic_vectors") == [
+        T.GOOGLE_PRECARD_MODEL]
+    assert NET.leg_chain("bogus", "sense_judge") == []
+
+
+def test_p2_consts_moved_single_owner_legs_hold_zero_lists():
+    """JUDGE_MODELS + precard/avalai/google consts live in net; the
+    legs import them (same objects, no twin defs, no list literals)."""
+    import ast
+    import pathlib
+    from factory.precard import judge as J
+    assert J.JUDGE_MODELS is NET.JUDGE_MODELS
+    assert T.AVALAI_PRECARD_MODEL is NET.AVALAI_PRECARD_MODEL
+    assert T.AVALAI_CHAT_URL is NET.AVALAI_CHAT_URL
+    assert T.GOOGLE_PRECARD_MODEL is NET.GOOGLE_PRECARD_MODEL
+    assert T.GOOGLE_MODELS_URL is NET.GOOGLE_MODELS_URL
+    moved = {"JUDGE_MODELS", "V15_MODELS", "TOPUP_MODELS",
+             "INFLECTION_REVIEW_MODELS", "AVALAI_PRECARD_MODEL",
+             "AVALAI_CHAT_URL", "GOOGLE_PRECARD_MODEL",
+             "GOOGLE_MODELS_URL"}
+    for name in ("judge.py", "topics.py"):
+        tree = ast.parse(pathlib.Path(
+            NET.__file__).parent.joinpath(name).read_text(
+                encoding="utf-8"))
+        defined = set()
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef)):
+                defined.add(node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = (node.targets if isinstance(node, ast.Assign)
+                           else [node.target])
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        defined.add(target.id)
+        assert not (defined & moved), \
+            "%s still defines %s" % (name, defined & moved)
+
+
+def test_p2_switch_policy_and_target_routing():
+    assert NET.may_auto_switch("zen") is True
+    assert NET.may_auto_switch("avalai") is False
+    assert NET.may_auto_switch("google") is False
+    assert NET.target_for("zen") == "zen"
+    assert NET.target_for("avalai") == "avalai"
+    assert NET.target_for("google") == "google"
+    assert NET.target_for("bogus") == "zen"
+
+
+def test_p2_chain_429_steps_down_to_model2_with_map_and_tele():
+    """Injected 429 on model 1 (all keys) reaches model 2 same leg;
+    provider_map records every model tried; one telemetry entry per
+    step."""
+    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        if model == m1:
+            raise _http(429)
+        return "settled", {"input_tokens": 1, "output_tokens": 2}
+
+    pmap, tele = {}, []
+    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
+                       step="sense_judge", sleep_fn=lambda s: None,
+                       state={}, provider_map=pmap, telemetry=tele,
+                       run_id="run-1", tele_batch=3)
+    assert out[0] == "settled"
+    assert [m for _, m in seen] == [m1, m1, m2]  # m1 burns both keys
+    assert pmap["sense_judge"] == {
+        "provider": "zen", "model": m2, "cost": "free",
+        "tried": [m1, m2]}
+    assert [(r["model"], r["outcome"]) for r in tele] == [
+        (m1, "error"), (m2, "ok")]
+    assert all(r["provider"] == "zen" and r["run_id"] == "run-1"
+               and r["batch_id"] == 3 for r in tele)
+
+
+def test_p2_chain_401_stops_after_one_attempt_flushed():
+    """Injected 401: STOP, zero second calls, flush hook ran, values
+    never surface."""
+    m1 = NET.JUDGE_MODELS[0]
+    cfg = _cfg(keys={"zen": ["zz-secret-1", "zz-secret-2"]})
+    seen, flushed = [], []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        raise _http(401)
+
+    pmap = {}
+    with pytest.raises(T.AuthError) as exc:
+        NET.call_leg(cfg, "zen", "prompt", transport=fake,
+                     step="sense_judge", sleep_fn=lambda s: None,
+                     state={}, provider_map=pmap,
+                     flush_fn=lambda: flushed.append(1))
+    assert seen == [("zz-secret-1", m1)]  # no second call
+    assert flushed == [1]
+    assert pmap["sense_judge"]["tried"] == [m1]
+    msg = str(exc.value)
+    assert "OPENCODE_ZEN_API_KEY" in msg
+    assert "zz-secret-1" not in msg and "zz-secret-2" not in msg
+
+
+def test_p2_chain_exhaustion_raises_rate_limited_flushed():
+    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+    flushed = []
+
+    def fake(api_key, model, text):
+        raise _http(429)
+
+    pmap = {}
+    with pytest.raises(T.RateLimited):
+        NET.call_leg(cfg, "zen", "prompt", transport=fake,
+                     step="sense_judge", sleep_fn=lambda s: None,
+                     state={}, provider_map=pmap,
+                     flush_fn=lambda: flushed.append(1))
+    assert flushed == [1]
+    assert pmap["sense_judge"]["tried"] == NET.JUDGE_MODELS[:2]
+    assert pmap["sense_judge"]["model"] == ""
+
+
+def test_p2_chain_paid_cooldown_stops_no_switch():
+    """Google project quota: single attempt, no provider switch, loud
+    stop for a resume (R6 paid rule)."""
+    cfg = _cfg(keys={"google": ["k1", "k2"]})
+    seen, flushed = [], []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
+
+    pmap = {}
+    with pytest.raises(T.ProviderCooldown):
+        NET.call_leg(cfg, "google", "prompt", transport=fake,
+                     step="sense_judge", sleep_fn=lambda s: None,
+                     state={}, provider_map=pmap,
+                     flush_fn=lambda: flushed.append(1))
+    assert seen == [("k1", T.GOOGLE_PRECARD_MODEL)]  # no rotation/switch
+    assert flushed == [1]
+    assert pmap["sense_judge"]["tried"] == [T.GOOGLE_PRECARD_MODEL]
+
+
+def test_p2_chain_free_cooldown_switches_provider():
+    """Free-leg COOLDOWN_SWITCH continues on the next provider chain
+    (R6 free rule); paid legs never reach here."""
+    z1, z2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+    seen, flushed = [], []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        if model in (z1, z2):
+            raise T.ProviderCooldown("project blocked")
+        return "switched-ok", None
+
+    pmap = {}
+    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
+                       step="sense_judge", sleep_fn=lambda s: None,
+                       state={}, provider_map=pmap,
+                       flush_fn=lambda: flushed.append(1))
+    assert out[0] == "switched-ok"
+    assert flushed == []  # success never flushes
+    assert pmap["sense_judge"]["provider"] == "google"
+    assert pmap["sense_judge"]["model"] == T.GOOGLE_PRECARD_MODEL
+    # Same-project rotation is forbidden on a cooldown: z2 is skipped,
+    # the free leg switches provider instead.
+    assert pmap["sense_judge"]["tried"] == [z1, T.GOOGLE_PRECARD_MODEL]
+
+
+def test_p2_chain_unknown_step_is_programmer_error():
+    cfg = _cfg(keys={"zen": ["k1"]})
+    with pytest.raises(ValueError):
+        NET.call_leg(cfg, "zen", "prompt",
+                     transport=lambda *a: ("x", None),
+                     step="bogus", sleep_fn=lambda s: None, state={})
+
+
+def test_p2_judge_batch_steps_down_on_429():
+    """Leg level: model-1 429 (all keys) settles on model 2; tried
+    records both; telemetry keeps the per-model error + ok rows."""
+    from factory.precard import judge as J
+    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        if model == m1:
+            raise _http(429)
+        return ('{"results": [{"key": "w:call", '
+                '"picks": ["call#0"]}]}'), None
+
+    tele, tried = [], []
+    out = J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+                        telemetry=tele, tele_batch=1,
+                        ring=T.KeyRing(["k1", "k2"]), tried=tried)
+    assert out["w:call"]["sense_id"] == "call#0"
+    assert out["w:call"]["model"] == m2
+    assert tried == [m1, m2]
+    assert [r["model"] for r in tele] == [m1, m2]
+
+
+def test_p2_judge_batch_401_single_attempt():
+    from factory.precard import judge as J
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        raise _http(401)
+
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+    with pytest.raises(LJ.AuthError):
+        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+                      ring=T.KeyRing(["k1", "k2"]))
+    assert len(seen) == 1  # STOP, no second call
+
+
+def test_p2_judge_batch_chain_exhaustion_raises():
+    from factory.precard import judge as J
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
+
+    def fake(api_key, model, text):
+        raise _http(429)
+
+    with pytest.raises(T.RateLimited):
+        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+                      ring=T.KeyRing(["k1"]))
+    # A validation failure (not ROTATE) still fails closed to the s1
+    # pick instead of stepping down or raising.
+    out = J.judge_batch(
+        batch, amap, "k", lambda *a: ("not json", None),
+        lambda s: None, {}, ring=T.KeyRing(["k1"]))
+    assert out["w:call"]["model"] == "s1-fallback"
+
+
+def test_p2_vectors_batch_steps_down_on_429():
+    """Vectors leg: model-1 429 settles on model 2 with tried recorded."""
+    from factory.precard import topics as TOP
+    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    lab = TOP.V15_ID2LABEL[1]
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    jmap = {"w:call": {"sense_id": "call#0", "gloss": "a call"}}
+    amap = {"w:call": {"candidates": [
+        {"sense_id": "call#0", "gloss": "a call"}]}}
+    seen = []
+
+    def fake(api_key, model, text):
+        seen.append((api_key, model))
+        if model == m1:
+            raise _http(429)
+        return ('{"results": [{"lemma": "call", "vectors": ['
+                '{"sense_id": "call#0", "vector": [{"topic_id": 1, '
+                '"topic_label": "%s", "weight": 1.0}]}]}]}' % lab), None
+
+    tried = []
+    out = TOP.vectors_batch(batch, jmap, amap, "k", fake,
+                            lambda s: None, {}, ring=T.KeyRing(
+                                ["k1", "k2"]), tried=tried)
+    assert out["call#0"]["model"] == m2
+    assert tried == [m1, m2]
+
+
+def test_p2_inflection_review_default_chain_from_table():
+    """Inflection leg defaults to the table pair: garbage on model 1
+    steps down to model 2 (2 attempts each); tried records both."""
+    from factory.precard import judge as J
+    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    items = [{"key": "k1", "text": "w", "gloss": "g"}]
+    seen = []
+
+    def fake(api_key, model, *texts):
+        seen.append(model)
+        if model == m1:
+            return "not json", None
+        return ('{"results": [{"key": "k1", "keep": true, '
+                '"reason": "ok"}]}'), None
+
+    tried = []
+    out = J.inflection_review(items, fake, "k", tried=tried)
+    assert out["k1"] == {"keep": True, "reason": "ok", "model": m2,
+                         "uncertain": False}
+    assert tried == [m1, m2]
+    assert seen == [m1, m1, m2]

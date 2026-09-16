@@ -16,14 +16,22 @@ maps keep every path testable with no network, no keys, and no W: drive.
 - lease_for / report_lease: cooldown-aware server picking with the same
   lease/report shapes as the egress supervisor (proxy attach stays in
   the supervisor/tunnel layer).
+- LEG_FALLBACKS: single owner of every precard model chain
+  (R5: JUDGE_MODELS + the AvalAI/Google precard consts moved in; the
+  legs hold zero lists). Rows are ((model, cost), ...) in step-down
+  order with per-entry cost labels ("free"/"paid").
 - call_leg: one LLM leg with KeyRing rotation. Rotation and abort
   meaning come from factory.core.llm_json.classify via the transport
   wrapper (this module never redefines the error table): 429/quota
   rotates to the next key, 401/403 stops loudly with no further
   attempts, and project-level quota (COOLDOWN_SWITCH, e.g. Google
   RESOURCE_EXHAUSTED) raises ProviderCooldown after exactly one
-  attempt with no rotation. Progress flushing and telemetry stay with
-  the caller, as they do for every other transport caller today.
+  attempt with no rotation. Chain mode (step=...) walks the table:
+  steps down to the next model only on ROTATE-exhausted, stops loud
+  on ABORT (optional flush hook first), and lets only free providers
+  continue on the next provider chain (R6: paid stops for a resume).
+  Progress flushing and telemetry otherwise stay with the caller, as
+  they do for every other transport caller today.
 - P1 whitelist home (moved verbatim from tools/egress/supervisor.py;
   the supervisor CLI calls these with zero logic rewrite):
   build_probe_rows (rank + top-N mark), order_pool_by_rank (alive
@@ -48,6 +56,10 @@ import secrets
 import threading
 import time
 
+from factory.core.telemetry import (
+    record_call as _record_call,
+    resolve_cost as _resolve_cost,
+)
 from factory.precard.transport import (
     AuthError,
     KeyRing,
@@ -66,6 +78,20 @@ __all__ = [
     "NetConfig",
     "TARGETS",
     "PROVIDER_KEY_VARS",
+    "LEGS",
+    "FREE_PROVIDERS",
+    "PAID_PROVIDERS",
+    "SWITCH_ORDER",
+    "JUDGE_MODELS",
+    "AVALAI_PRECARD_MODEL",
+    "AVALAI_CHAT_URL",
+    "GOOGLE_PRECARD_MODEL",
+    "GOOGLE_MODELS_URL",
+    "LEG_FALLBACKS",
+    "leg_chain",
+    "leg_entries",
+    "may_auto_switch",
+    "target_for",
     "resolve_key",
     "require_key",
     "cool",
@@ -108,6 +134,106 @@ PROVIDER_KEY_VARS = {
     "openrouter": ("OPENROUTER_API_KEY",),
     "avalai": ("AVALAI_API_KEY",),
 }
+
+# --- P2 LEG_FALLBACKS home (R5): single owner of every precard model
+# chain (moved here; the legs hold zero lists and read through
+# leg_chain/LEG_FALLBACKS). Values moved verbatim: JUDGE_MODELS from
+# judge.py (frozen copy from run_v14_phase3_judge); the AvalAI/Google
+# precard consts from transport.py. ---
+
+# Zen free-model chain (frozen order: cost steps down, never up).
+JUDGE_MODELS = ["muse-spark-1.3-contributor-free",
+                "muse-spark-1.2-contributor-free",
+                "ling-3.0-flash-fin-free", "mimo-v2.5-free",
+                "nemotron-3.5-lightning-free"]
+
+AVALAI_PRECARD_MODEL = "glm-5.3-flash"
+
+AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
+
+GOOGLE_PRECARD_MODEL = "gemini-3.5-flash-lite"
+
+GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
+                     "models/%s:generateContent")
+
+# Pipeline LLM legs (mirrors pipeline.LLM_LEGS; the tuple lives here so
+# the table keys stay valid even for callers that never import the
+# pipeline).
+LEGS = ("inflection_review", "sense_judge", "topic_vectors",
+        "topic_label")
+
+# R6 cost tiers: zen serves the free chain; avalai/google legs are paid
+# (google direct exposes no usage counters, so its spend is
+# cost-unknown, never a silent zero). Paid legs never auto-switch:
+# ProviderCooldown stops for a resume; free legs may switch provider.
+FREE_PROVIDERS = frozenset({"zen"})
+PAID_PROVIDERS = frozenset({"avalai", "google"})
+
+# Provider switch order for free-leg COOLDOWN_SWITCH (R6): the leg's own
+# provider first, then the rest in this order.
+SWITCH_ORDER = ("zen", "google", "avalai")
+
+
+def _zen_chain(n):
+    """First n JUDGE_MODELS as (model, "free") fallback entries."""
+    return tuple((model, "free") for model in JUDGE_MODELS[:n])
+
+
+# LEG_FALLBACKS[(provider, leg)] = ((model, cost), ...) in step-down
+# order. Zen judge/inflection legs keep their historic Muse-only pair;
+# zen vectors/label legs keep the full five; avalai/google legs are
+# single paid defaults (the remap transports substitute the actual
+# model, telemetry keeps the requested name).
+LEG_FALLBACKS = {
+    ("zen", "inflection_review"): _zen_chain(2),
+    ("zen", "sense_judge"): _zen_chain(2),
+    ("zen", "topic_vectors"): _zen_chain(5),
+    ("zen", "topic_label"): _zen_chain(5),
+    ("avalai", "inflection_review"): ((AVALAI_PRECARD_MODEL, "paid"),),
+    ("avalai", "sense_judge"): ((AVALAI_PRECARD_MODEL, "paid"),),
+    ("avalai", "topic_vectors"): ((AVALAI_PRECARD_MODEL, "paid"),),
+    ("avalai", "topic_label"): ((AVALAI_PRECARD_MODEL, "paid"),),
+    ("google", "inflection_review"): ((GOOGLE_PRECARD_MODEL, "paid"),),
+    ("google", "sense_judge"): ((GOOGLE_PRECARD_MODEL, "paid"),),
+    ("google", "topic_vectors"): ((GOOGLE_PRECARD_MODEL, "paid"),),
+    ("google", "topic_label"): ((GOOGLE_PRECARD_MODEL, "paid"),),
+}
+
+
+def leg_entries(provider, leg):
+    """Raw ((model, cost), ...) chain for (provider, leg) ([] unknown)."""
+    return list(LEG_FALLBACKS.get(
+        (norm_provider(provider), leg), ()))
+
+
+def leg_chain(provider, leg):
+    """Model names for (provider, leg) in step-down order ([] unknown)."""
+    return [model for model, _cost in leg_entries(provider, leg)]
+
+
+def may_auto_switch(provider):
+    """True iff a leg on provider may auto-switch on COOLDOWN_SWITCH.
+
+    R6 gate: free legs only. Paid legs stop (flush + resume) — the
+    caller treats ProviderCooldown as stop+resume either way.
+    """
+    return norm_provider(provider) in FREE_PROVIDERS
+
+
+def target_for(provider):
+    """TARGETS target whose provider matches (leg-loop routing seam).
+
+    Lets the leg batch loops route every model attempt through
+    call_leg with their real provider ("zen"/"avalai"/"google" are
+    all TARGETS keys); unknown providers fall back to "zen" (same
+    default the rotation wrapper already uses for classify).
+    """
+    want = norm_provider(provider)
+    for name, spec in TARGETS.items():
+        if spec.get("provider") is not None \
+                and norm_provider(spec["provider"]) == want:
+            return name
+    return "zen"
 
 _USE_DEFAULT = object()
 
@@ -472,22 +598,79 @@ def supervisor_health(servers, leases):
             "healthy": n_servers > 0}
 
 
-def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
-             key_var="", sleep_fn=None, state=None, label="",
-             file_label="factory/.env"):
+def _flush_best_effort(flush_fn):
+    """Run the caller's flush hook; a failing hook never masks the stop."""
+    if flush_fn is None:
+        return
+    try:
+        flush_fn()
+    except Exception:
+        pass
+
+
+def _chain_tele(store, ring, *, stage, batch_id, key_idx, model,
+                provider, outcome, run_id="", http_status=None,
+                made_call=True):
+    """One per-step chain record (no-op when the caller keeps telemetry).
+
+    Latency is the settled try's measured perf_counter span (never a
+    hardcoded 0); auth carries no status (401/403 are both ABORT).
+    """
+    if store is None:
+        return
+    try:
+        latency = float((getattr(ring, "last_call", None) or {}).get(
+            "latency_s", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        latency = 0.0
+    _record_call(store, stage=stage or "chain", batch_id=batch_id,
+                 key_idx=key_idx, model=model, latency_s=latency,
+                 outcome=outcome, http_status=http_status,
+                 run_id=run_id, provider=provider,
+                 model_actual=model,
+                 cost=_resolve_cost(made_call=made_call))
+
+
+def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
+             ring=None, key_var="", sleep_fn=None, state=None,
+             label="", file_label="factory/.env", step=None,
+             provider_map=None, telemetry=None, flush_fn=None,
+             run_id="", tele_stage="", tele_batch=0):
     """One LLM leg with KeyRing rotation. Returns (text, usage-or-None).
 
     leg selects the provider through TARGETS (e.g. "zen"); keys default
-    to the config's key values for that provider. 429/quota rotates to
-    the next key and retries the same call; when every key is exhausted
-    the wrapper raises RateLimited. Project-level quota
+    to the config's key values for that provider. An explicit ``ring``
+    is used as-is (the leg batch loops keep their cross-batch ring, so
+    routing them through here changes no rotation state); otherwise a
+    fresh ring is built from ``keys`` (or the config). ``cfg`` may be
+    None only when ``ring`` and ``sleep_fn`` are both given.
+
+    Two modes. Single-model (``model`` given, or ``step`` None — every
+    existing caller): exactly one model with key rotation. 429/quota
+    rotates to the next key and retries the same call; when every key
+    is exhausted the wrapper raises RateLimited. Project-level quota
     (COOLDOWN_SWITCH, e.g. Google RESOURCE_EXHAUSTED) raises
     ProviderCooldown (a RateLimited subclass, so existing flush+stop
     handlers stay safe) after exactly one attempt with no rotation.
-    401/403 raises AuthError naming the
-    key variable and file after exactly one attempt (no silent retry,
-    no fallback). Progress flushing and telemetry stay with the caller,
-    exactly as for every other transport caller today.
+    401/403 raises AuthError naming the key variable and file after
+    exactly one attempt (no silent retry, no fallback).
+
+    Chain mode (``step`` given, ``model`` None): walks
+    LEG_FALLBACKS[(provider, step)] in order. Steps down to the next
+    model ONLY on RateLimited (all-keys-429 for that model); anything
+    else keeps its single-model meaning — AuthError stops loudly after
+    one attempt, transient/unknown errors propagate to the caller
+    (fail-closed per item upstream). ProviderCooldown on a free
+    provider continues on the next SWITCH_ORDER provider's chain for
+    the same step; on a paid provider it stops (flush + resume, same
+    as every other STOP path). Every tried model lands in
+    ``provider_map[step]`` (``{provider, model, cost, tried}``) and as
+    one telemetry entry per step when those sinks are given.
+
+    ``flush_fn`` (both modes) runs before a terminal stop raise so a
+    401 still flushes progress with zero second calls. Progress
+    flushing and telemetry otherwise stay with the caller, exactly as
+    for every other transport caller today.
     """
     spec = target_spec(leg)
     if spec is None:
@@ -496,22 +679,129 @@ def call_leg(cfg, leg, prompt, *, transport, model, keys=None,
             % (leg, ", ".join(sorted(TARGETS))))
     provider = spec["provider"]
     var = key_var or (PROVIDER_KEY_VARS.get(provider or "", ("",))[0])
-    ring_keys = ([k for k in (keys if keys is not None
-                              else cfg.keys.get(provider or "", []))
-                  if k])
+    if state is None:
+        state = {}
+    sleep = sleep_fn or (cfg._sleep if cfg is not None else time.sleep)
     if provider is None:
         # Direct targets carry no keys: a single attempt, no rotation.
         return transport("", model, prompt)
-    if not ring_keys:
-        raise MissingKeyError(
-            "no %s (set %s in the environment, or add it to "
-            "%s) — aborting with no silent fallback"
-            % (var or "keys", var or "keys", file_label))
-    ring = KeyRing(ring_keys)
-    if state is None:
-        state = {}
-    return _call_with_rotation(
-        transport, ring, model, prompt, sleep_fn or cfg._sleep,
-        state, label or ("%s/%s" % (model, norm_target(leg))),
-        provider=provider or "zen", key_var=var,
-        file_label=file_label)
+    owned_ring = ring
+    if owned_ring is None:
+        ring_keys = ([k for k in (keys if keys is not None
+                                  else (cfg.keys.get(provider or "", [])
+                                        if cfg is not None else []))
+                      if k])
+        if not ring_keys:
+            raise MissingKeyError(
+                "no %s (set %s in the environment, or add it to "
+                "%s) — aborting with no silent fallback"
+                % (var or "keys", var or "keys", file_label))
+        owned_ring = KeyRing(ring_keys)
+    if model is not None or step is None:
+        # Single-model path (all pre-P2 callers): one model, key
+        # rotation only. flush_fn keeps the ABORT path flushed.
+        try:
+            return _call_with_rotation(
+                transport, owned_ring, model, prompt, sleep,
+                state, label or ("%s/%s" % (model, norm_target(leg))),
+                provider=provider or "zen", key_var=var,
+                file_label=file_label)
+        except (AuthError, ProviderCooldown, RateLimited):
+            _flush_best_effort(flush_fn)
+            raise
+    return _call_chain(owned_ring, provider, step, prompt, transport=transport,
+                       sleep=sleep, state=state, key_var=var,
+                       file_label=file_label, provider_map=provider_map,
+                       telemetry=telemetry, flush_fn=flush_fn,
+                       run_id=run_id, tele_stage=tele_stage or step,
+                       tele_batch=tele_batch)
+
+
+def _call_chain(ring, provider, step, prompt, *, transport, sleep,
+                state, key_var="", file_label="factory/.env",
+                provider_map=None, telemetry=None, flush_fn=None,
+                run_id="", tele_stage="", tele_batch=0):
+    """Walk one step's fallback chain (chain-mode body of call_leg)."""
+    if step not in LEGS:
+        raise ValueError(
+            "unknown step %r (want one of: %s)" % (step, ", ".join(LEGS)))
+    tried = []
+    cool_exc = None
+    if may_auto_switch(provider):
+        ordered = [provider] + [p for p in SWITCH_ORDER
+                                if p != norm_provider(provider)
+                                and (p, step) in LEG_FALLBACKS]
+    else:
+        ordered = [provider]
+    for eff in ordered:
+        entries = leg_entries(eff, step)
+        if not entries:
+            continue
+        var = key_var or (PROVIDER_KEY_VARS.get(eff or "", ("",))[0])
+        cooled = False
+        for entry_model, cost in entries:
+            tried.append(entry_model)
+            try:
+                raw, usage = _call_with_rotation(
+                    transport, ring, entry_model, prompt, sleep, state,
+                    "%s/%s" % (entry_model, step), provider=eff or "zen",
+                    key_var=var, file_label=file_label)
+            except AuthError:
+                _chain_tele(telemetry, ring, stage=tele_stage,
+                            batch_id=tele_batch, key_idx=ring.idx,
+                            model=entry_model, provider=eff or "",
+                            outcome="auth", run_id=run_id)
+                if provider_map is not None:
+                    provider_map[step] = {
+                        "provider": eff, "model": entry_model,
+                        "cost": cost, "tried": list(tried)}
+                _flush_best_effort(flush_fn)
+                raise
+            except ProviderCooldown as exc:
+                _chain_tele(telemetry, ring, stage=tele_stage,
+                            batch_id=tele_batch, key_idx=ring.idx,
+                            model=entry_model, provider=eff or "",
+                            outcome="error", run_id=run_id,
+                            http_status=429)
+                if provider_map is not None:
+                    provider_map[step] = {
+                        "provider": eff, "model": entry_model,
+                        "cost": cost, "tried": list(tried)}
+                cooled = True
+                cool_exc = exc
+                break
+            except RateLimited:
+                _chain_tele(telemetry, ring, stage=tele_stage,
+                            batch_id=tele_batch, key_idx=ring.idx,
+                            model=entry_model, provider=eff or "",
+                            outcome="error", run_id=run_id,
+                            http_status=429)
+                continue  # R6: step down only on ROTATE-exhausted
+            _chain_tele(telemetry, ring, stage=tele_stage,
+                        batch_id=tele_batch, key_idx=ring.idx,
+                        model=entry_model, provider=eff or "",
+                        outcome="ok", run_id=run_id)
+            if provider_map is not None:
+                provider_map[step] = {
+                    "provider": eff, "model": entry_model,
+                    "cost": cost, "tried": list(tried)}
+            return raw, usage
+        # R6: only COOLDOWN_SWITCH on a free leg continues on the next
+        # provider's chain. Pure ROTATE exhaustion stops (even free —
+        # same-project quota is resume work, not a switch); paid legs
+        # hold only their own provider in ordered, so they stop here.
+        if cooled and may_auto_switch(eff):
+            continue
+        break
+    if provider_map is not None and step not in provider_map:
+        provider_map[step] = {"provider": provider, "model": "",
+                              "cost": "unknown", "tried": list(tried)}
+    _flush_best_effort(flush_fn)
+    if cool_exc is not None:
+        # A provider-level quota was seen and no free switch settled:
+        # the original cooldown propagates (callers branch their STOP
+        # hints on the type — paid legs resume, free legs may switch).
+        raise cool_exc
+    raise RateLimited(
+        "all %s models 429 (provider quotas exhausted) — re-run later "
+        "(progress flushed, resume safe)" % step)

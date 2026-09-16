@@ -12,6 +12,9 @@ from __future__ import annotations
 import re
 
 from factory.precard.judge import fanout_picks
+# P2 (R5): model chains live in factory.precard.net (single owner);
+# this leg holds zero model lists and reads chains through it.
+from factory.precard import net as _net
 
 LABELS = ["Daily Life & Home", "Food & Drink", "Health & Body",
           "Work & Careers", "Education & Exams", "Travel & Transportation",
@@ -177,8 +180,8 @@ from factory.core.telemetry import (
 from factory.precard.accounting import item_key
 from factory.precard.prompts import TOPIC_TIEBREAK
 from factory.precard.transport import (
-    AuthError, KeyRing, RateLimited, extract_json, raise_for_auth,
-    _call_with_rotation, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
+    AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
+    raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
 _tele_record = record_call
 _tele_usage = extract_usage
@@ -203,9 +206,7 @@ V15_LABEL2ID = {lab: i + 1 for i, lab in enumerate(V15_LABELS)}
 V15_TOL = 0.01
 
 
-V15_MODELS = ["muse-spark-1.3-contributor-free", "muse-spark-1.2-contributor-free",
-          "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-          "nemotron-3.5-lightning-free"]
+
 
 
 V15_USER_TMPL = (
@@ -306,9 +307,7 @@ V16B_DEFS = ("1 Daily Life & Home: everyday routines, household, clothing, time.
         "16 Other / Abstract: abstract, grammatical, or unclassifiable meanings.")
 
 
-TOPUP_MODELS = ["muse-spark-1.3-contributor-free", "muse-spark-1.2-contributor-free",
-          "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-          "nemotron-3.5-lightning-free"]
+
 
 
 TOPUP_USER_TMPL = (
@@ -467,7 +466,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                            model_calls, telemetry, tele_stage, tele_batch,
                            ring, models, provider="zen", key_var="",
                            file_label="factory/.env", tele_run_id="",
-                           tele_model_actual=None, tele_attempts=False):
+                           tele_model_actual=None, tele_attempts=False,
+                           tried=None):
     """One batched LLM top-up call for up to LABEL_BATCH entries.
 
     Returns {item-key: {"label", "vector", "model"}}. Validated items
@@ -489,12 +489,17 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                          provider="", model_actual="deterministic",
                          cost=resolve_cost(made_call=False))
         return None
-    topup_models = list(models) if models else list(TOPUP_MODELS)
+    # P2: default chain from the net table (zen topic-label five);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    topup_models = list(models) if models else _net.leg_chain(
+        provider, "topic_label")
     if ring is None:
         ring = KeyRing([api_key])
     best = {}
     best_model = "deterministic"
     attempt_rows = []
+    leg_target = _net.target_for(provider)
+    limited_all = True  # cleared by any model that is not ROTATE-exhausted
 
     def _attempts():
         if tele_attempts and telemetry is not None:
@@ -504,6 +509,8 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                               model_actual=tele_model_actual)
 
     for model in topup_models:
+        if isinstance(tried, list) and model not in tried:
+            tried.append(model)
         if model_calls is not None:
             model_calls[model] = model_calls.get(model, 0) + 1
         for attempt in range(MAX_ATTEMPTS):
@@ -511,11 +518,33 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
             label = "%s/s4-label#%d" % (model, attempt)
             usage = None
             try:
-                raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label,
-                    provider=provider, key_var=key_var,
+                # P2: every attempt routes through net.call_leg (same
+                # ring, same rotation — the leg holds no model lists).
+                raw, usage = _net.call_leg(
+                    None, leg_target, text, transport=transport,
+                    model=model, ring=ring, key_var=key_var,
+                    sleep_fn=sleep_fn, state=state, label=label,
                     file_label=file_label)
             except AuthError:
+                raise
+            except ProviderCooldown:
+                # P2 (R6): project-level quota never steps down and
+                # never switches inside a batch loop — STOP loud for
+                # a resume (free-leg switching lives in net.call_leg
+                # chain mode only).
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
+                if telemetry is not None:
+                    record_call(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except RateLimited:
                 attempt_rows.extend(list(
@@ -531,13 +560,20 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                                  model_actual=tele_model_actual or model,
                                  cost=resolve_cost(made_call=True))
                 _attempts()
-                raise
+                # P2 (R6): ROTATE-exhausted steps down to the next
+                # model in the same leg's chain (the caller still
+                # flushes+STOPS when the whole chain is exhausted).
+                break
             except urllib.error.HTTPError as exc:
+                limited_all = False
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
                 raw, usage = None, None
             except Exception:
+                limited_all = False
                 raw, usage = None, None
+            else:
+                limited_all = False
             attempt_rows.extend(list(
                 getattr(ring, "attempt_log", []) or []))
             if raw is None:
@@ -626,6 +662,13 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 raise
             except Exception:
                 continue
+    if limited_all and topup_models:
+        # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
+        # caller flushes progress). Per-model error records exist.
+        _attempts()
+        raise RateLimited(
+            "all topic_label models 429 (provider quotas exhausted) — "
+            "re-run later (progress flushed, resume safe)")
     if best:
         if telemetry is not None:
             record_call(telemetry, stage=tele_stage, batch_id=tele_batch,
@@ -656,8 +699,8 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 ring=None, models=None, lookup=None,
                 provider="zen", key_var="",
                 file_label="factory/.env", tele_run_id="",
-                tele_model_actual=None, tele_attempts=False,
-                counters=None):
+                 tele_model_actual=None, tele_attempts=False,
+                 counters=None, tried=None):
     """Label topics (s4) for one batch, batching the LLM leg (B1).
 
     batch: sample items; picks: {key: {sense_id, gloss, picks?}};
@@ -774,7 +817,7 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 provider=provider, key_var=key_var,
                 file_label=file_label, tele_run_id=tele_run_id,
                 tele_model_actual=tele_model_actual,
-                tele_attempts=tele_attempts)
+                tele_attempts=tele_attempts, tried=tried)
         for entry in chunk:
             # The chunk consulted the LLM (or fell back after trying):
             # a miss per entry; transport=None resolves with no call.
@@ -945,21 +988,27 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
                     ring=None, models=None, provider="zen", key_var="",
                     file_label="factory/.env", tele_run_id="",
-                    tele_model_actual=None, tele_attempts=False):
+                    tele_model_actual=None, tele_attempts=False,
+                    tried=None):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
     Empty-pick items are absent (caller maps them to the single Other
     fallback). Total failure fails closed per lemma to fallback_vectors.
-    429 rotates the KeyRing (brief pause, same-call retry; all-keys-429
-    raises RateLimited so the runner flushes and STOPS).
+    429 rotates the KeyRing (brief pause, same-call retry; a
+    ROTATE-exhausted model steps down to the next chain model and only
+    a fully-exhausted chain raises RateLimited so the runner flushes
+    and STOPS).
     R27: one telemetry record per batch (ok / fallback / error); tuple
     (text, usage) transports surface token counts (None-tolerated,
     cost-unknown flagged). Terminal records carry the REAL perf_counter
     latency and REAL ring.idx, model vs model_actual, provider, run_id;
     per-try attempt rows only when ``tele_attempts`` is on.
     """
-    v15_models = list(models) if models else list(V15_MODELS)
+    # P2: default chain from the net table (zen vectors five);
+    # explicit models (e.g. avalai/google single-model legs) win.
+    v15_models = list(models) if models else _net.leg_chain(
+        provider, "topic_vectors")
     pseudos = vectors_pseudo_records(batch, judge_map, anchor_map)
     out = {}
     if not pseudos:
@@ -968,6 +1017,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
+    leg_target = _net.target_for(provider)
+    limited_all = True  # cleared by any model that is not ROTATE-exhausted
 
     def _attempts():
         if tele_attempts and telemetry is not None:
@@ -977,16 +1028,40 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                               model_actual=tele_model_actual)
 
     for model in v15_models:
+        if isinstance(tried, list) and model not in tried:
+            tried.append(model)
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/v15#%d" % (model, attempt)
             usage = None
             try:
-                raw, usage = _call_with_rotation(
-                    transport, ring, model, text, sleep_fn, state, label,
-                    provider=provider, key_var=key_var,
+                # P2: every attempt routes through net.call_leg (same
+                # ring, same rotation — the leg holds no model lists).
+                raw, usage = _net.call_leg(
+                    None, leg_target, text, transport=transport,
+                    model=model, ring=ring, key_var=key_var,
+                    sleep_fn=sleep_fn, state=state, label=label,
                     file_label=file_label)
             except AuthError:
+                raise
+            except ProviderCooldown:
+                # P2 (R6): project-level quota never steps down and
+                # never switches inside a batch loop — STOP loud for
+                # a resume (free-leg switching lives in net.call_leg
+                # chain mode only).
+                attempt_rows.extend(list(
+                    getattr(ring, "attempt_log", []) or []))
+                if telemetry is not None:
+                    record_call(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=ring.idx,
+                                 model=model,
+                                 latency_s=last_attempt_latency(
+                                     attempt_rows),
+                                 outcome="error", http_status=429,
+                                 run_id=tele_run_id, provider=provider,
+                                 model_actual=tele_model_actual or model,
+                                 cost=resolve_cost(made_call=True))
+                _attempts()
                 raise
             except RateLimited:
                 attempt_rows.extend(list(
@@ -1002,13 +1077,20 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                                  model_actual=tele_model_actual or model,
                                  cost=resolve_cost(made_call=True))
                 _attempts()
-                raise
+                # P2 (R6): ROTATE-exhausted steps down to the next
+                # model in the same leg's chain (the caller still
+                # flushes+STOPS when the whole chain is exhausted).
+                break
             except urllib.error.HTTPError as exc:
+                limited_all = False
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
                 raw, usage = None, None
             except Exception:
+                limited_all = False
                 raw, usage = None, None
+            else:
+                limited_all = False
             attempt_rows.extend(list(
                 getattr(ring, "attempt_log", []) or []))
             if raw is None:
@@ -1058,6 +1140,13 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                                      completion_tokens=completion_tokens))
                 _attempts()
                 return merged
+    if limited_all and v15_models:
+        # P2 (R6): the whole chain ROTATE-exhausted — STOP loud (the
+        # caller flushes progress). Per-model error records exist.
+        _attempts()
+        raise RateLimited(
+            "all topic_vectors models 429 (provider quotas exhausted) "
+            "— re-run later (progress flushed, resume safe)")
     for pseudo in pseudos:
         try:
             legs = fallback_vectors(pseudo)

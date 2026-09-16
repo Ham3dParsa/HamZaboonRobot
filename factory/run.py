@@ -41,9 +41,11 @@ from factory.precard.pipeline import (  # noqa: E402 (path bootstrap above)
     SLEEP,
     main as pipeline_main,
 )
-from factory.precard.transport import (  # noqa: E402
+from factory.precard.net import (  # noqa: E402
     AVALAI_PRECARD_MODEL,
     GOOGLE_PRECARD_MODEL,
+    LEG_FALLBACKS,
+    LEGS,
 )
 
 # Code defaults whose owners live elsewhere (cited, not moved):
@@ -628,11 +630,25 @@ def print_plan(cfg, sources):
 
 
 def print_models():
-    """--list-models: known precard models (no network, no writes)."""
+    """--list-models: known precard models + cost labels.
+
+    No network, no writes. Every entry comes from the net table
+    (R3/R5): (provider, leg) -> model (cost). Costs are "free" (zen
+    chain) or "paid" (avalai/google legs).
+    """
     print("precard models:")
-    print("  avalai default: %s" % AVALAI_PRECARD_MODEL)
-    print("  google default: %s" % GOOGLE_PRECARD_MODEL)
-    print("  zen: chain models (factory.precard.transport Zen legs)")
+    print("  avalai default: %s (paid)" % AVALAI_PRECARD_MODEL)
+    print("  google default: %s (paid)" % GOOGLE_PRECARD_MODEL)
+    print("  zen: chain models (free)")
+    for leg in LEGS:
+        for provider in ("zen", "avalai", "google"):
+            entries = LEG_FALLBACKS.get((provider, leg), ())
+            if not entries:
+                continue
+            print("    %s/%s: %s" % (
+                provider, leg,
+                ", ".join("%s (%s)" % (model, cost)
+                          for model, cost in entries)))
 
 
 def run(argv=None, env_map=None, health_fn=None, spawn_fn=None,
