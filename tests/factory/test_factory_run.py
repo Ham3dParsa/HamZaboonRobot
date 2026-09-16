@@ -211,7 +211,7 @@ def test_no_sup_spawn_refuses_without_spawning(capsys):
                    sleep_fn=lambda s: None)
     assert code == 2
     err = capsys.readouterr().err
-    assert "--no-sup-spawn" in err
+    assert "--sup-spawn" in err
 
 
 def test_tunnel_healthy_proceeds_without_spawn(capsys):
@@ -494,3 +494,52 @@ def test_spawn_timeout_reaps_child(monkeypatch):
         RUN._spawn_supervisor(18799, "", lambda u, t: None,
                               sleep_fn=lambda s: None, timeout=0)
     assert stub.calls == ["terminate", "wait", "kill", "wait"]
+
+
+# --- Boolean pairs: CLI beats env in both directions ---
+
+def test_no_quiet_beats_env_quiet():
+    """FACTORY_QUIET=yes silenced, but --no-quiet forces full output."""
+    ns = RUN.parse_args(["--no-quiet"])
+    cfg, sources = RUN.resolve_config(ns, {"FACTORY_QUIET": "yes"})
+    assert cfg["quiet"] is False and sources["quiet"] == "cli"
+
+
+def test_quiet_beats_unset_env():
+    ns = RUN.parse_args(["--quiet"])
+    cfg, sources = RUN.resolve_config(ns, {})
+    assert cfg["quiet"] is True and sources["quiet"] == "cli"
+
+
+def test_sup_spawn_beats_env_refusal():
+    """EGRESS_NO_SUP_SPAWN=1 refuses, but --sup-spawn re-allows."""
+    ns = RUN.parse_args(["--sup-spawn"])
+    cfg, sources = RUN.resolve_config(ns, {"EGRESS_NO_SUP_SPAWN": "1"})
+    assert cfg["no_sup_spawn"] is False
+    assert sources["no_sup_spawn"] == "cli"
+
+
+def test_no_dry_run_beats_env_dry_run():
+    ns = RUN.parse_args(["--no-dry-run"])
+    cfg, sources = RUN.resolve_config(ns, {"FACTORY_DRY_RUN": "yes"})
+    assert cfg["dry_run"] is False and sources["dry_run"] == "cli"
+
+
+def test_color_pair_beats_env():
+    ns = RUN.parse_args(["--color"])
+    cfg, sources = RUN.resolve_config(ns, {"FACTORY_NO_COLOR": "yes"})
+    assert cfg["no_color"] is False and sources["no_color"] == "cli"
+    ns2 = RUN.parse_args(["--no-color"])
+    cfg2, _ = RUN.resolve_config(ns2, {})
+    assert cfg2["no_color"] is True
+
+
+def test_help_shows_boolean_pairs(capsys):
+    with pytest.raises(SystemExit) as exc:
+        RUN.parse_args(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    for pair in ("--dry-run", "--no-dry-run", "--yes", "--no-yes",
+                 "--quiet", "--no-quiet", "--sup-spawn", "--no-sup-spawn",
+                 "--color", "--no-color", "--json-log", "--no-json-log"):
+        assert pair in out, "help missing %s" % pair

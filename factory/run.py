@@ -277,9 +277,15 @@ def parse_args(argv=None):
                          "preferred: argv is visible in process lists on "
                          "multi-user hosts; never printed)")
     ap.add_argument("--sup-port", type=int, default=None)
-    ap.add_argument("--no-sup-spawn", action="store_true", default=None,
+    ap.add_argument("--sup-spawn", dest="no_sup_spawn",
+                    action="store_false", default=None,
+                    help="allow auto-spawning the supervisor (default; "
+                         "negates --no-sup-spawn; CLI beats env "
+                         "EGRESS_NO_SUP_SPAWN either way)")
+    ap.add_argument("--no-sup-spawn", dest="no_sup_spawn",
+                    action="store_true", default=None,
                     help="refuse to spawn the supervisor (exit 2 when it "
-                         "is down instead)")
+                         "is down instead; negates --sup-spawn)")
     ap.add_argument("--probe-top-n", type=int, default=None,
                     help="whitelist top-N (resolved + shown; PR-B owns "
                          "the probe call)")
@@ -287,15 +293,39 @@ def parse_args(argv=None):
                     help="file-cache path (reserved for PR-C)")
     ap.add_argument("--dry-run", action="store_true", default=None,
                     help="print the plan, run the pipeline dry-run: no "
-                         "network, no writes, supervisor untouched")
+                         "network, no writes, supervisor untouched "
+                         "(negates --no-dry-run)")
+    ap.add_argument("--no-dry-run", dest="dry_run",
+                    action="store_false", default=None,
+                    help="force a real run even when FACTORY_DRY_RUN is "
+                         "set (negates --dry-run)")
     ap.add_argument("--yes", action="store_true", default=None,
                     help="accepted for forward-compat (PR-D resume "
-                         "confirms); no prompts exist in this phase")
-    ap.add_argument("--quiet", action="store_true", default=None)
-    ap.add_argument("--json-log", action="store_true", default=None)
+                         "confirms); no prompts exist in this phase "
+                         "(negates --no-yes)")
+    ap.add_argument("--no-yes", dest="yes",
+                    action="store_false", default=None,
+                    help="force asking even when FACTORY_YES is set "
+                         "(negates --yes)")
+    ap.add_argument("--quiet", action="store_true", default=None,
+                    help="less output (negates --no-quiet)")
+    ap.add_argument("--no-quiet", dest="quiet",
+                    action="store_false", default=None,
+                    help="force full output even when FACTORY_QUIET is "
+                         "set (negates --quiet)")
+    ap.add_argument("--json-log", action="store_true", default=None,
+                    help="also emit the machine event stream "
+                         "(negates --no-json-log)")
+    ap.add_argument("--no-json-log", dest="json_log",
+                    action="store_false", default=None,
+                    help="suppress the event stream even when "
+                         "FACTORY_JSON_LOG is set (negates --json-log)")
+    ap.add_argument("--color", dest="no_color",
+                    action="store_false", default=None,
+                    help="force ANSI colors even when FACTORY_NO_COLOR "
+                         "is set (negates --no-color)")
     ap.add_argument("--no-color", action="store_true", default=None,
-                    help="disable ANSI colors (reserved for a later "
-                         "phase; accepted only)")
+                    help="disable ANSI colors (negates --color)")
     ap.add_argument("--list-models", action="store_true",
                     help="print known precard models and exit "
                          "(no network, no writes)")
@@ -584,9 +614,15 @@ def print_plan(cfg, sources):
             ("cache", cfg["cache"] or "(pr-c wires behavior)"),
             ("dry-run", str(bool(cfg["dry_run"]))),
             ("quiet", str(bool(cfg["quiet"]))),
-            ("json-log", str(bool(cfg["json_log"])))]
+            ("json-log", str(bool(cfg["json_log"]))),
+            ("sup-spawn", str(not cfg["no_sup_spawn"])),
+            ("color", str(not cfg["no_color"]))]
+    _DEST = {"sup-spawn": "no_sup_spawn", "color": "no_color"}
     for key, shown in rows:
-        dest = key.replace("-", "_") if key != "egress" else "egress_mode"
+        if key == "egress":
+            dest = "egress_mode"
+        else:
+            dest = _DEST.get(key, key.replace("-", "_"))
         src = sources.get(dest, "?")
         print("  %-14s %s (%s)" % (key + ":", shown, src))
 
@@ -635,7 +671,7 @@ def run(argv=None, env_map=None, health_fn=None, spawn_fn=None,
         print("supervisor: skipped (%s)" % result.get("reason"))
     elif action == "refused":
         print("factory/run: refusing to run: %s "
-              "(drop --no-sup-spawn to auto-spawn)" % result.get("reason"),
+              "(pass --sup-spawn to auto-spawn)" % result.get("reason"),
               file=sys.stderr)
         return 2
     else:
