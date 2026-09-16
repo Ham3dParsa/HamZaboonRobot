@@ -93,3 +93,32 @@ def test_cli_end_to_end(tmp_path):
             out.read_text(encoding="utf-8").splitlines()]
     assert len(kept) == 2
     assert all("obsolete" not in (r.get("tags") or []) for r in kept)
+
+
+def test_reviewer_findings_casefold_nan_empty_quotas():
+    """Reviewer findings (OC warnings): uncasefolded drop_tags must not
+    bypass the policy; NaN zipf sorts last; explicit {} quotas mean
+    nothing selected (not full defaults)."""
+    assert sampler.tag_drop_reason(["vulgar"],
+                                   frozenset({"VULGAR"})) == "vulgar"
+    assert sampler.score_row({"zipf": float("nan")}) < \
+        sampler.score_row({"zipf": 0.0, "sense_cefr_method": "wn-single"})
+    selected, summary = sampler.sample(
+        [_row("w:a")], quotas={}, survival={},
+        drop_tags=frozenset())
+    assert selected == []
+    assert summary["per_level"]["B1"]["quota"] == 0
+
+
+def test_cli_malformed_jsonl_exits_2(tmp_path):
+    """Reviewer finding (Kilo WARNING): bad input line -> usage error
+    naming file + line, not a traceback."""
+    import pytest
+
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text('{"key": "w:a"}\nNOT JSON\n', encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        sampler.main(["--rows", str(bad),
+                      "--out", str(tmp_path / "o.jsonl"),
+                      "--mix", "0,0,1,0,0,0"])
+    assert exc.value.code == 2

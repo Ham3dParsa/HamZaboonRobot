@@ -74,10 +74,14 @@ def resolve_drop_tags(profile="media", include=(), exclude=()):
 
 
 def tag_drop_reason(tags, drop_tags):
-    """First drop-tag hit (lowercased) or None. Missing tags -> None."""
+    """First drop-tag hit (lowercased) or None. Missing tags -> None.
+
+    Both sides are normalized: a direct caller passing uncasefolded
+    drop_tags must not silently bypass the policy."""
     if tags is None:
         return None
-    hit = {str(t or "").strip().casefold() for t in tags} & set(drop_tags)
+    drop = {str(t or "").strip().casefold() for t in drop_tags or ()}
+    hit = {str(t or "").strip().casefold() for t in tags} & drop
     return sorted(hit)[0] if hit else None
 
 
@@ -100,6 +104,11 @@ def score_row(row):
         zipf = float((row or {}).get("zipf", 0) or 0)
     except (TypeError, ValueError):
         zipf = 0.0
+    if not math.isfinite(zipf):
+        zipf = 0.0
+    # Cap rationale: wordfreq zipf tops out near 8 in practice; the cap
+    # keeps one extreme frequency from outweighing the method rank
+    # (METHOD_SCALE 100). Recalibration must keep cap >> EXAMPLE_BONUS.
     return score + max(0.0, min(8.0, zipf))
 
 
@@ -120,9 +129,9 @@ def sample(rows, quotas=None, survival=None, drop_tags=frozenset(),
     candidates / selected / shortfall / reservoir_need plus drop counts
     by reason, so shortfalls are observable, never silent.
     """
-    quotas = dict(quotas or QUOTA_MIX)
-    survival = dict(survival or SURVIVAL)
-    drop_tags = frozenset(drop_tags or ())
+    quotas = dict(QUOTA_MIX if quotas is None else quotas)
+    survival = dict(SURVIVAL if survival is None else survival)
+    drop_tags = frozenset(() if drop_tags is None else drop_tags)
     buckets = {level: [] for level in LEVELS}
     buckets["OTHER"] = []
     drops = {}
@@ -162,9 +171,14 @@ def parse_mix(text):
     """'276,448,753,700,438,385' -> {level: quota} (A1..C2 order)."""
     parts = [p.strip() for p in str(text or "").split(",")]
     if len(parts) != len(LEVELS):
-        raise ValueError("mix needs %d comma values" % len(LEVELS))
-    return {level: int(value)
-            for level, value in zip(LEVELS, parts)}
+        raise ValueError("mix needs %d comma values (got %r)"
+                         % (len(LEVELS), text))
+    try:
+        values = [int(value) for value in parts]
+    except ValueError:
+        raise ValueError("mix values must be integers (got %r)"
+                         % (text,))
+    return {level: value for level, value in zip(LEVELS, values)}
 
 
 def build_parser():
@@ -193,7 +207,8 @@ def build_parser():
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     include = set()
     exclude = set()
     if args.include_obsolete:
@@ -214,15 +229,29 @@ def main(argv=None):
         exclude |= set(OBSOLETE_TAGS)
     drop_tags = resolve_drop_tags(args.profile, include, exclude)
     quotas = parse_mix(args.mix)
-    with open(args.rows, encoding="utf-8") as handle:
-        rows = [json.loads(line) for line in handle if line.strip()]
+    try:
+        with open(args.rows, encoding="utf-8") as handle:
+            rows = []
+            for lineno, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    parser.error("bad JSON on %s line %d"
+                                 % (args.rows, lineno))
+    except OSError as exc:
+        parser.error("cannot read %s: %s" % (args.rows, exc))
     selected, summary = sample(rows, quotas=quotas, drop_tags=drop_tags,
                                other_quota=args.other_quota)
     summary["profile"] = args.profile
     summary["drop_tags"] = sorted(drop_tags)
-    with open(args.out, "w", encoding="utf-8") as handle:
-        for row in selected:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            for row in selected:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        parser.error("cannot write %s: %s" % (args.out, exc))
     print(json.dumps(summary, ensure_ascii=False))
     return 0
 
