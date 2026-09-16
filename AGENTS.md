@@ -166,7 +166,8 @@ Load the relevant skill by trigger (see §9). Core discipline:
 3. Independent Review Gate — mandatory for behavioral changes: if change touches
    handlers/DB/callbacks/AI/quota/schema/production `.py` (same scope as §7 Full
    suite), launch `hamzaban-reviewer` via `Task(subagent_type="hamzaban-reviewer")`
-   BEFORE `pre-commit-gate`. Gate passes only when reviewer reports `0 confirmed
+   using the `reviewer-gate` skill template verbatim (raw inputs only, no custom
+   prompt text) BEFORE `pre-commit-gate`. Gate passes only when reviewer reports `0 confirmed
    findings` or every confirmed finding is fixed and re-verified. Include
    `<SYSTEM_GATE> Independent review required before commit </SYSTEM_GATE>`.
    Fast-track docs/skills/agents/plans/formatting/comments/test-only (no behavior
