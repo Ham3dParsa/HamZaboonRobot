@@ -695,34 +695,43 @@ def _load_supervisor_tcp_ping():
     """tcp_ping callable owned by tools/egress/supervisor.py.
 
     PR-0 probe seam: used as-is, never redefined here. Loaded by
-    path, never via sys.path: the module is executed at most once
-    per process under its canonical name ``supervisor`` (a later
-    plain ``import supervisor`` resolves to the same instance),
-    which matters because the file binds its probe functions into
-    the shared net.TARGETS table at import — two instances would
-    rebind each other's functions and break probe identity. A
-    foreign ``supervisor`` already in sys.modules fails loud
-    instead of silently returning the wrong module. Import only:
-    no network, no keys, no spawn.
+    path under the unique name ``egress_supervisor`` — sys.path is
+    never touched and a resident foreign ``supervisor`` is never
+    overwritten (the plain key is only aliased when free, so a
+    third-party package can neither collide nor be hijacked). Single instance still holds: a resident
+    ``supervisor`` module pointing at the same file is adopted
+    (never re-executed), and our instance is aliased to the plain
+    name only when that key is free — so a later plain ``import
+    supervisor`` resolves to the same object. That matters because
+    the file binds its probe functions into the shared net.TARGETS
+    table at import; two live instances would rebind each other's
+    functions and break probe identity. Import only: no network,
+    no keys, no spawn.
     """
     import importlib.util
-    mod = sys.modules.get("supervisor")
-    if mod is None:
-        spec = importlib.util.spec_from_file_location(
-            "supervisor", SUPERVISOR_SCRIPT)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["supervisor"] = mod
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules["supervisor"]
-            raise
     want = os.path.realpath(SUPERVISOR_SCRIPT)
-    got = getattr(mod, "__file__", None)
-    if got is not None and os.path.realpath(got) != want:
-        raise RuntimeError(
-            "factory/run: sys.modules['supervisor'] is %r, not %s"
-            % (got, want))
+
+    def _same_file(mod):
+        got = getattr(mod, "__file__", None)
+        return got is not None and os.path.realpath(got) == want
+
+    mod = sys.modules.get("egress_supervisor")
+    if mod is None:
+        plain = sys.modules.get("supervisor")
+        if plain is not None and _same_file(plain):
+            mod = plain  # adopt: no second exec, identity preserved
+        else:
+            spec = importlib.util.spec_from_file_location(
+                "egress_supervisor", SUPERVISOR_SCRIPT)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["egress_supervisor"] = mod
+            try:
+                spec.loader.exec_module(mod)
+            except BaseException:
+                del sys.modules["egress_supervisor"]
+                raise
+    sys.modules.setdefault("egress_supervisor", mod)
+    sys.modules.setdefault("supervisor", mod)  # alias iff key free
     return mod.tcp_ping
 
 

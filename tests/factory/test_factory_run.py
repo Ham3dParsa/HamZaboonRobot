@@ -573,6 +573,19 @@ def test_direct_probe_default_loader_returns_supervisor_ping():
     assert callable(ping) and ping.__name__ == "tcp_ping"
 
 
+def test_direct_probe_loader_returns_single_shared_instance():
+    """The loader never double-executes supervisor.py: its tcp_ping
+    is the same object as a plain import's (probe identity holds in
+    both import orders)."""
+    _egress = os.path.join(RUN.REPO_ROOT, "tools", "egress")
+    sys.path.insert(0, _egress)
+    try:
+        import supervisor as SUP
+        assert RUN._load_supervisor_tcp_ping() is SUP.tcp_ping
+    finally:
+        sys.path.remove(_egress)
+
+
 def test_direct_probe_hit_prints_cache_hit_and_continues(capsys):
     """Flag on + avalai + reachable: probe runs once, CACHE HIT +
     direct-ok lines print, the run continues to the pipeline."""

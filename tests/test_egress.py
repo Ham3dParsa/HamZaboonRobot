@@ -1097,10 +1097,14 @@ def test_http_lease_tunnel_server_matches_on_cache_hit(
         sup.TOKEN = ""
 
 
-def test_pool_retarget_lease_syncs_record_to_tunnel():
+def test_pool_retarget_lease_syncs_record_to_tunnel(
+        tmp_path, monkeypatch):
     """Fallback sync: when acquire serves another server than the
     hint, the lease record follows it — a later http429 cools the
-    server carrying traffic, not the stale hint."""
+    server carrying traffic, not the stale hint. The switch is
+    audit-logged (secret-free)."""
+    import supervisor as sup
+    monkeypatch.setattr(sup, "LEASES_PATH", tmp_path / "leases.jsonl")
     pool = Pool()
     pool.load([
         {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
@@ -1115,3 +1119,34 @@ def test_pool_retarget_lease_syncs_record_to_tunnel():
     assert pool.report(lease["lease_id"], "http429",
                        "zen") == {"action": "switch"}
     assert pool.lease("zen")["server_id"] == "s1"  # s2 cooling
+    events = [json.loads(line) for line in
+              (tmp_path / "leases.jsonl").read_text(
+                  encoding="utf-8").splitlines()]
+    assert [e["event"] for e in events] == ["lease", "retarget",
+                                            "report", "lease"]
+    assert events[1]["server"] == "s2"
+    assert len(events[1]["lease"]) <= 8
+    blob = "\n".join(json.dumps(e) for e in events)
+    assert "proxy_url" not in blob and "token" not in blob.lower()
+
+
+def test_tunnel_owner_acquire_skips_malformed_servers(monkeypatch):
+    """acquire mirrors the lease guards: entries without id (or not
+    dicts) never raise KeyError — the first healthy server wins."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    pool = Pool()
+    pool.servers = [
+        {"scheme": "vless", "host": "bad", "port": 1,
+         "link": "vless://u@bad:1"},  # no id
+        "not-a-dict",
+        {"scheme": "vless", "host": "good", "port": 2, "id": "s-good",
+         "link": "vless://u@good:2"},
+    ]
+    owner = TunnelOwner(pool)
+    _, _, sid = owner.acquire()
+    assert sid == "s-good"
+    owner.stop()

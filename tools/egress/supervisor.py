@@ -476,11 +476,20 @@ class Pool:
     def retarget_lease(self, lease_id, server_id):
         """Point a minted lease at the actual tunnel server (the hint
         lost a cooling race between lease and acquire): reports must
-        cool the server carrying traffic. No-op on unknown leases."""
+        cool the server carrying traffic. No-op on unknown leases.
+        The switch is audit-logged (append-only, secret-free like the
+        lease line) so post-mortem forensics reads the tunnel server,
+        not the stale hint."""
         with self._lock:
             lease = self.leases.get(lease_id)
             if lease is not None and server_id:
                 lease["server"] = server_id
+                _append_lease_event(
+                    {"event": "retarget",
+                     "lease": str(lease_id)[:8],
+                     "server": server_id,
+                     "provider": lease.get("provider") or "",
+                     "target": lease.get("target") or ""})
 
     def lease(self, target):
         with self._lock:
@@ -680,7 +689,8 @@ class TunnelOwner:
         with self._lock:
             now = time.time()
             avail = [s for s in self._pool.servers
-                     if not self._pool.is_cool(s["id"], provider, now)
+                     if isinstance(s, dict) and s.get("id")
+                     and not self._pool.is_cool(s["id"], provider, now)
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
