@@ -1506,6 +1506,26 @@ def test_c3_supervisor_lease_ping_budget_capped(
     assert path.read_bytes() == before
 
 
+def test_c3_supervisor_lease_survives_writeback_crash(
+        tmp_path, monkeypatch, capsys):
+    """OC round-6: even an AttributeError from write-back upkeep never
+    fails a minted lease (best-effort call site; helper stays narrow)."""
+    path = _c4_cache_file(tmp_path, monkeypatch,
+                          [_c4_fresh_row("s2", ms=7)])
+    monkeypatch.setattr(
+        SUP, "tcp_ping",
+        lambda h, p, timeout=5.0: 42 if h == "h2" else None)
+
+    def _boom(*args, **kwargs):
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(SUP, "note_clean_success", _boom)
+    pool = _c4_link_pool()
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s2"  # hit stands despite crashed upkeep
+    assert "CACHE HIT" in capsys.readouterr().out
+
+
 def test_c3_supervisor_lease_cooled_mid_ping_falls_through(
         tmp_path, monkeypatch, capsys):
     """W1 lock discipline: a row cooled while its ping was in flight

@@ -63,6 +63,7 @@ DEFAULT_MAX_429_STRIKES = 3  # README runbook: three consecutive 429s stop.
 SUPERVISOR_SCRIPT = os.path.join(REPO_ROOT, "tools", "egress",
                                  "supervisor.py")
 HEALTH_TIMEOUT_S = 5.0
+DIRECT_PROBE_TIMEOUT_S = 2.0
 SPAWN_POLL_S = 0.5
 SPAWN_TIMEOUT_S = 20.0
 SPAWN_REAP_TIMEOUT_S = 5.0
@@ -696,17 +697,16 @@ def _load_supervisor_tcp_ping():
 
     PR-0 probe seam: used as-is, never redefined here. Loaded by
     path under the unique name ``egress_supervisor`` — sys.path is
-    never touched and a resident foreign ``supervisor`` is never
-    overwritten (the plain key is only aliased when free, so a
-    third-party package can neither collide nor be hijacked). Single instance still holds: a resident
-    ``supervisor`` module pointing at the same file is adopted
-    (never re-executed), and our instance is aliased to the plain
-    name only when that key is free — so a later plain ``import
-    supervisor`` resolves to the same object. That matters because
-    the file binds its probe functions into the shared net.TARGETS
-    table at import; two live instances would rebind each other's
-    functions and break probe identity. Import only: no network,
-    no keys, no spawn.
+    never touched and the generic ``supervisor`` key is never
+    written, so a third-party package of that name can neither
+    collide nor be shadowed. A resident same-file ``supervisor``
+    module is adopted instead of re-executing. Probe identity still
+    holds with a single shared net.TARGETS table: a cold exec runs
+    before any same-file import, so the table is pristine (net.py
+    ships probe=None and only this file ever writes those slots —
+    verified by grep); the exec's attachments are reset to None
+    afterwards, leaving the table exactly as found for the later
+    plain import. Import only: no network, no keys, no spawn.
     """
     import importlib.util
     want = os.path.realpath(SUPERVISOR_SCRIPT)
@@ -720,6 +720,7 @@ def _load_supervisor_tcp_ping():
         plain = sys.modules.get("supervisor")
         if plain is not None and _same_file(plain):
             mod = plain  # adopt: no second exec, identity preserved
+            sys.modules["egress_supervisor"] = mod
         else:
             spec = importlib.util.spec_from_file_location(
                 "egress_supervisor", SUPERVISOR_SCRIPT)
@@ -730,8 +731,9 @@ def _load_supervisor_tcp_ping():
             except BaseException:
                 del sys.modules["egress_supervisor"]
                 raise
-    sys.modules.setdefault("egress_supervisor", mod)
-    sys.modules.setdefault("supervisor", mod)  # alias iff key free
+            # Leave the shared table as found (see docstring).
+            mod.TARGETS["zen"]["probe"] = None
+            mod.TARGETS["google"]["probe"] = None
     return mod.tcp_ping
 
 
@@ -740,9 +742,11 @@ def _avalai_direct_probe(ping_fn=None):
 
     No keys, no lease, no model call: reachability only. Returns
     truthy ms on success, None when unreachable. ``ping_fn(host,
-    port)`` is injectable (hermetic tests); default is the
-    supervisor's tcp_ping. Never raises for probe failures
-    (unreachable is the fallback, not an error).
+    port, timeout)`` is injectable (hermetic tests); default is the
+    supervisor's tcp_ping. Bounded by DIRECT_PROBE_TIMEOUT_S (a slow
+    handshake must never stall a run on the 5s probe default).
+    Never raises for probe failures (unreachable is the fallback,
+    not an error).
     """
     from urllib.parse import urlparse
     try:
@@ -751,7 +755,7 @@ def _avalai_direct_probe(ping_fn=None):
         host = "api.avalai.ir"
     ping = ping_fn or _load_supervisor_tcp_ping()
     try:
-        return ping(host, 443)
+        return ping(host, 443, DIRECT_PROBE_TIMEOUT_S)
     except Exception:  # noqa: BLE001 (probe failure = lease fallback)
         return None
 

@@ -574,9 +574,9 @@ def test_direct_probe_default_loader_returns_supervisor_ping():
 
 
 def test_direct_probe_loader_returns_single_shared_instance():
-    """The loader never double-executes supervisor.py: its tcp_ping
-    is the same object as a plain import's (probe identity holds in
-    both import orders)."""
+    """The loader adopts a resident same-file supervisor instead of
+    re-executing it: its tcp_ping is the same object as a plain
+    import's (probe identity holds)."""
     _egress = os.path.join(RUN.REPO_ROOT, "tools", "egress")
     sys.path.insert(0, _egress)
     try:
@@ -584,6 +584,20 @@ def test_direct_probe_loader_returns_single_shared_instance():
         assert RUN._load_supervisor_tcp_ping() is SUP.tcp_ping
     finally:
         sys.path.remove(_egress)
+
+
+def test_direct_probe_uses_short_timeout():
+    """OC round-6: the AvalAI handshake is bounded by the 2s
+    direct-probe budget, not the 5s probe default."""
+    seen = {}
+
+    def _ping(host, port, timeout):
+        seen["all"] = (host, port, timeout)
+        return 3
+
+    assert RUN._avalai_direct_probe(ping_fn=_ping) == 3
+    assert seen["all"][0] and seen["all"][1] == 443
+    assert seen["all"][2] == RUN.DIRECT_PROBE_TIMEOUT_S == 2.0
 
 
 def test_direct_probe_hit_prints_cache_hit_and_continues(capsys):

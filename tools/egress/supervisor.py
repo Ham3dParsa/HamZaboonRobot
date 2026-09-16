@@ -234,7 +234,10 @@ def note_clean_success(server_id, provider, latency_ms, now=None,
     ValueError, TypeError: save already removed its tmp file before
     raising) — cache upkeep must never fail a lease or startup for
     those. Other programming errors (wrong shapes: AttributeError)
-    propagate so typos never hide as cache silence. ``path``
+    propagate out of this helper so typos never hide as cache
+    silence (the one production caller, Pool.lease, additionally
+    wraps the call best-effort so a minted lease never fails on
+    upkeep). ``path``
     defaults to the pool-side clean_cache.json (hermetic
     tests point it at tmp_path).
     """
@@ -597,8 +600,14 @@ class Pool:
         # lease is not success, so it must never be cached as clean.
         print(format_cache_line(cache_hit, picked, provider))
         if cache_hit:
-            note_clean_success(picked, provider, seen_ms.get(picked),
-                               now=fresh, path=cache_path)
+            try:
+                note_clean_success(picked, provider,
+                                   seen_ms.get(picked),
+                                   now=fresh, path=cache_path)
+            except Exception:  # noqa: BLE001 (OC round-6: cache upkeep
+                # never fails a minted lease — the helper stays narrow
+                # for debuggability, this call site stays best-effort)
+                pass
         return result
 
     def report(self, lease_id, outcome, provider=None):
@@ -1002,14 +1011,9 @@ def geo_country(proxy_url, ip, timeout=15, opener=None):
 # Live probes attach here: net.TARGETS ships probe=None (hermetic core
 # owns the table); the supervisor owns the probe functions and fills
 # them into this same dict, so `from supervisor import TARGETS` keeps
-# working unchanged (including probe identity). First import wins:
-# run.py also loads this file under a second module name (lazy probe
-# import), and a re-exec must never rebind another module's functions
-# into the shared table.
-if TARGETS["zen"].get("probe") is None:
-    TARGETS["zen"]["probe"] = zen_probe
-if TARGETS["google"].get("probe") is None:
-    TARGETS["google"]["probe"] = google_probe
+# working unchanged (including probe identity).
+TARGETS["zen"]["probe"] = zen_probe
+TARGETS["google"]["probe"] = google_probe
 
 
 def probe_pool(top_n=PROBE_TOP_N, workers=20):
