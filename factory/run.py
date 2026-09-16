@@ -49,6 +49,7 @@ from factory.precard.net import (  # noqa: E402
     GOOGLE_PRECARD_MODEL,
     LEG_FALLBACKS,
     LEGS,
+    TARGETS as NET_TARGETS,
     direct_probe_event,
     format_cache_line,
 )
@@ -701,12 +702,12 @@ def _load_supervisor_tcp_ping():
     written, so a third-party package of that name can neither
     collide nor be shadowed. A resident same-file ``supervisor``
     module is adopted instead of re-executing. Probe identity still
-    holds with a single shared net.TARGETS table: a cold exec runs
-    before any same-file import, so the table is pristine (net.py
-    ships probe=None and only this file ever writes those slots —
-    verified by grep); the exec's attachments are reset to None
-    afterwards, leaving the table exactly as found for the later
-    plain import. Import only: no network, no keys, no spawn.
+    holds with a single shared net.TARGETS table: a cold exec
+    snapshots the pre-exec probes and restores them afterwards, so
+    whatever a prior importer attached (including a package-style
+    supervisor import) survives untouched for the later plain
+    import, which re-attaches its own functions unconditionally.
+    Import only: no network, no keys, no spawn.
     """
     import importlib.util
     want = os.path.realpath(SUPERVISOR_SCRIPT)
@@ -722,6 +723,8 @@ def _load_supervisor_tcp_ping():
             mod = plain  # adopt: no second exec, identity preserved
             sys.modules["egress_supervisor"] = mod
         else:
+            prev = (NET_TARGETS["zen"].get("probe"),
+                    NET_TARGETS["google"].get("probe"))
             spec = importlib.util.spec_from_file_location(
                 "egress_supervisor", SUPERVISOR_SCRIPT)
             mod = importlib.util.module_from_spec(spec)
@@ -731,9 +734,10 @@ def _load_supervisor_tcp_ping():
             except BaseException:
                 del sys.modules["egress_supervisor"]
                 raise
-            # Leave the shared table as found (see docstring).
-            mod.TARGETS["zen"]["probe"] = None
-            mod.TARGETS["google"]["probe"] = None
+            finally:
+                # Leave the shared table as found (see docstring).
+                NET_TARGETS["zen"]["probe"] = prev[0]
+                NET_TARGETS["google"]["probe"] = prev[1]
     return mod.tcp_ping
 
 

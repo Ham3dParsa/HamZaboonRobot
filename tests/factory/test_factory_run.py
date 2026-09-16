@@ -600,6 +600,23 @@ def test_direct_probe_uses_short_timeout():
     assert seen["all"][2] == RUN.DIRECT_PROBE_TIMEOUT_S == 2.0
 
 
+def test_direct_probe_loader_preserves_shared_probes(monkeypatch):
+    """OC round-7: a cold exec snapshots + restores pre-exec probes,
+    so a prior importer's attachments survive untouched."""
+    import sys as _sys
+    from factory.precard import net as _net
+    _zen = object()
+    _google = object()
+    monkeypatch.delitem(_sys.modules, "egress_supervisor",
+                        raising=False)
+    monkeypatch.delitem(_sys.modules, "supervisor", raising=False)
+    monkeypatch.setitem(_net.TARGETS["zen"], "probe", _zen)
+    monkeypatch.setitem(_net.TARGETS["google"], "probe", _google)
+    assert callable(RUN._load_supervisor_tcp_ping())
+    assert _net.TARGETS["zen"]["probe"] is _zen
+    assert _net.TARGETS["google"]["probe"] is _google
+
+
 def test_direct_probe_hit_prints_cache_hit_and_continues(capsys):
     """Flag on + avalai + reachable: probe runs once, CACHE HIT +
     direct-ok lines print, the run continues to the pipeline."""
