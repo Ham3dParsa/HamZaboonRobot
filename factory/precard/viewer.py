@@ -1442,9 +1442,7 @@ def _dist_table(headers, rows):
 def _ordered_levels(*maps):
     levels = [lvl for lvl in _CEFR_LEVELS
               if any(m.get(lvl) for m in maps)]
-    extras = sorted({k for m in maps for k in m} - set(_CEFR_LEVELS)
-                    - {_MISSING} | ({_MISSING} if any(
-                        m.get(_MISSING) for m in maps) else set()))
+    extras = sorted({k for m in maps for k in m} - set(_CEFR_LEVELS))
     return levels + extras
 
 

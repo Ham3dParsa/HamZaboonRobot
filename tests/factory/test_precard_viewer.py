@@ -473,3 +473,27 @@ def test_stats_empty_run_has_zeroed_header_and_drawer(tmp_path):
     assert "<b>0</b> lemmas" in html
     assert "no drops recorded" in html
     assert html.count('class="dist-group"') == 6
+
+
+def test_missing_cefr_renders_single_dash_row(tmp_path):
+    """OC review round 1 (PR 727): a precard without CEFR must render
+    exactly one missing-CEFR row in the drawer CEFR table."""
+    run_dir = tmp_path / "run-missing"
+    run_dir.mkdir()
+    sample_path = run_dir / "sample.json"
+    sample_path.write_text(json.dumps([{"key": "w:bare"}]),
+                           encoding="utf-8")
+    precard_path = run_dir / "precard.jsonl"
+    precard_path.write_text(
+        json.dumps({"key": "w:bare", "text": "bare",
+                    "sense_id": "bare#1"}) + "\n",
+        encoding="utf-8")
+    for name in ("dropped.log", "run.log"):
+        (run_dir / name).write_text("", encoding="utf-8")
+    html = viewer.build_html(
+        run_dir, precard=precard_path, sample=sample_path,
+        dropped=run_dir / "dropped.log", run_log=run_dir / "run.log")
+    stats = _stats_blob(html)
+    assert stats["cefr_precard"]["\u2014"] == 1
+    assert stats["cefr_lemma"]["\u2014"] == 1
+    assert html.count("<td>\u2014</td>") == 1
