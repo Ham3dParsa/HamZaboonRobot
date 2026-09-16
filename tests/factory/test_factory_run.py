@@ -969,6 +969,18 @@ def test_resume_flags_forwarded_to_pipeline():
     out = buf.getvalue()
     assert "resume:" in out and "RESUME PLAN" in out
     assert "only:" in out and "rekey:" in out
+    # --stages/--no-resume forward independently (--only/--stages and
+    # --resume/--no-resume are each mutually exclusive, so a second run).
+    buf2 = io.StringIO()
+    with redirect_stdout(buf2):
+        code2 = RUN.run(
+            ["--preset", "zen", "--no-resume", "--stages", "sense_judge",
+             "--rekey", rk],
+            env_map={}, health_fn=_no_network, spawn_fn=_no_spawn,
+            pipeline_main_fn=_pipeline, sleep_fn=lambda s: None)
+    assert code2 == 0
+    for flag in ("--no-resume", "--stages", "sense_judge"):
+        assert flag in seen["argv"]
 
 
 def test_resume_and_no_resume_refuse(capsys):
@@ -982,6 +994,20 @@ def test_resume_and_no_resume_refuse(capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "--resume" in err and "--no-resume" in err
+
+
+def test_only_and_stages_refuse_early(capsys):
+    """--only + --stages fails fast in run._validate (exit 2, names
+    both flags) instead of late in the pipeline selection."""
+    with pytest.raises(SystemExit) as exc:
+        RUN.run(["--preset", "zen", "--only", "sense_judge",
+                 "--stages", "sense_judge"],
+                env_map={}, health_fn=_no_network, spawn_fn=_no_spawn,
+                pipeline_main_fn=_no_pipeline,
+                sleep_fn=lambda s: None)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--only" in err and "--stages" in err
 
 
 def test_pipeline_resume_and_no_resume_refuse():
@@ -1065,6 +1091,77 @@ def test_only_with_empty_upstream_refuses(tmp_path, monkeypatch):
     msg = str(exc.value.code)
     assert "--only" in msg and "sense_judge" in msg
     assert "anchor_rank" in msg
+
+
+def test_only_topic_label_with_empty_upstreams_refuses(tmp_path,
+                                                        monkeypatch):
+    """--only topic_label needs BOTH sense progress and topic vectors:
+    fresh dir refuses naming the first empty upstream (sense_judge)."""
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple"])
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", str(tmp_path / "precard.jsonl"),
+             "--progress-dir", str(tmp_path / "prog"),
+             "--only", "topic_label"],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=_resume_index(["apple"]),
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    msg = str(exc.value.code)
+    assert "--only" in msg and "topic_label" in msg
+    assert "sense_judge" in msg
+
+
+def test_only_topic_label_with_empty_vectors_refuses(tmp_path,
+                                                      monkeypatch):
+    """--only topic_label with sense progress but no vectors refuses
+    naming topic_vectors (vectors are the second required upstream)."""
+    from factory.precard import progress as PROG
+    from factory.precard.pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = _write_resume_sample(tmp_path, ["apple"])
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / PROG.FILES["sense_judge"]).write_text(
+        json.dumps({"done": {"w:apple": {"pick": "apple#0"}}}),
+        encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", str(tmp_path / "precard.jsonl"),
+             "--progress-dir", str(prog),
+             "--only", "topic_label"],
+            _judge_transport=_resume_judge,
+            _topic_transport=_resume_topics, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=_resume_index(["apple"]),
+            _read_entry=_resume_read_entry, _tatoeba={},
+            _zipf_fn=lambda t: 5.0, _awl_set=set(), _type_map={},
+            _type_log_available=False)
+    msg = str(exc.value.code)
+    assert "--only" in msg and "topic_label" in msg
+    assert "topic_vectors" in msg
+
+
+def test_inflection_raw_429_direct_target_stops_loud(monkeypatch):
+    """Raw HTTPError 429 (direct target, no rotation wrapper) counts as
+    quota: an all-429 chain STOPs loud (RateLimited, flush+resume)
+    instead of failing closed."""
+    from factory.precard import judge as J
+    import urllib.error
+
+    def _raw_429(*args, **kwargs):
+        raise urllib.error.HTTPError("http://x", 429, "Too Many Requests",
+                                     {}, None)
+
+    monkeypatch.setattr(J._net, "call_leg", _raw_429)
+    items = [{"key": "k1", "text": "w", "gloss": "g"}]
+    with pytest.raises(T.RateLimited):
+        J.inflection_review(items, _raw_429, "k",
+                            ring=T.KeyRing(["k1", "k2"]),
+                            sleep_fn=lambda s: None, state={})
 
 
 def test_resume_plan_prints_counts(tmp_path, monkeypatch, capsys):

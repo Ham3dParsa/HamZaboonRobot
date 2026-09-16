@@ -509,6 +509,9 @@ def _validate(cfg):
     if cfg["resume"] and cfg["no_resume"]:
         _fail("factory/run: --resume and --no-resume are mutually "
               "exclusive (pick one)")
+    if cfg["only"] and cfg["stages"]:
+        _fail("factory/run: --only and --stages are mutually exclusive "
+              "(pick one)")
     if (cfg["probe_top_n"] or 0) < 0:
         _fail("factory/run: --probe-top-n must be >= 0")
     try:

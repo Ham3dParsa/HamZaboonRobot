@@ -538,6 +538,17 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                                 latency_s=last_attempt_latency(
                                     attempt_log))
                             raise_for_auth(exc)
+                        if exc.code == 429:
+                            # Direct targets (provider None) re-raise raw
+                            # 429 with no rotation wrapper — treat as quota
+                            # (keep limited_all) so an all-429 chain still
+                            # STOPs loud via the RateLimited raise below.
+                            attempt_log.append(
+                                {"model": model, "attempt": attempt,
+                                 "latency_s": _time.perf_counter() - start,
+                                 "key_idx": eff_ring.idx,
+                                 "outcome": "retry", "http_status": 429})
+                            break  # ROTATE-exhausted: step down, as before
                         data = None
                     except Exception:
                         data = None

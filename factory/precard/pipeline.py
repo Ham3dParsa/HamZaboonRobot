@@ -71,11 +71,13 @@ LLM_LEGS = ("inflection_review", "sense_judge", "topic_vectors",
 # enrich stage runs on its required upstream's done state. Deterministic
 # stages (preprocess/inflection_review/anchor_rank) read the index and
 # datasets, never upstream progress, so they carry no requirement
-# (--only anchor_rank on a fresh dir keeps working).
+# (--only anchor_rank on a fresh dir keeps working). A tuple value
+# means ALL listed upstreams are required (topic_label reads both
+# sense progress and topic_vectors via vec_lookup).
 _REQUIRES_UPSTREAM = {
     "sense_judge": "anchor_rank",
     "topic_vectors": "sense_judge",
-    "topic_label": "sense_judge",
+    "topic_label": ("sense_judge", "topic_vectors"),
     "enrich": "sense_judge",
 }
 
@@ -196,17 +198,20 @@ def _refuse_empty_upstream(selected, states, flag):
     for stage in progress.STAGES:
         if stage not in selected or stage not in _REQUIRES_UPSTREAM:
             continue
-        upstream = _REQUIRES_UPSTREAM[stage]
-        if upstream in selected:
-            continue
-        if len(states.get(upstream, {}).get("done", {}) or {}) == 0:
-            return ("%s %s with empty upstream %s (no %s progress, and "
-                    "%s is not selected) — run the full pipeline first "
-                    "(drop %s), or re-run without --no-resume"
-                    % (flag, progress.display(stage),
-                       progress.display(upstream),
-                       progress.display(upstream),
-                       progress.display(upstream), flag))
+        required = _REQUIRES_UPSTREAM[stage]
+        if isinstance(required, str):
+            required = (required,)
+        for upstream in required:
+            if upstream in selected:
+                continue
+            if len(states.get(upstream, {}).get("done", {}) or {}) == 0:
+                return ("%s %s with empty upstream %s (no %s progress, and "
+                        "%s is not selected) — run the full pipeline first "
+                        "(drop %s), or re-run without --no-resume"
+                        % (flag, progress.display(stage),
+                           progress.display(upstream),
+                           progress.display(upstream),
+                           progress.display(upstream), flag))
     return None
 
 
