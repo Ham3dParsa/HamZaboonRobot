@@ -415,6 +415,19 @@ def test_no_color_and_sup_token_help(capsys):
     assert "process list" in out  # --sup-token warns argv is visible
 
 
+# --- reviewer fixes: usage errors exit 2 with a message ---
+
+def test_usage_errors_exit_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        RUN.expand_preset("nope")
+    assert exc.value.code == 2
+    assert "unknown preset" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        RUN.resolve_config(_ns(limit=-1), {})
+    assert exc.value.code == 2
+    assert "--limit" in capsys.readouterr().err
+
+
 # --- reviewer fixes: supervisor auth vs down + child reap ---
 
 def test_supervisor_auth_error_skips_spawn():

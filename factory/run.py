@@ -116,6 +116,17 @@ def _env_str(env_map, var):
     return _env_raw(env_map, var) or None
 
 
+def _fail(msg):
+    """Usage error: message to stderr, exit 2 (matches run() refusal).
+
+    Single owner of the exit-2 convention so ``expand_preset``,
+    ``_validate`` and the typed ``_env_*`` parsers agree: scripts can
+    distinguish usage errors (2) from pipeline failures.
+    """
+    print(msg, file=sys.stderr)
+    raise SystemExit(2)
+
+
 def _bad_env(var, raw, want):
     """Fail-fast on a set-but-unparseable env value (exit 2, names var).
 
@@ -123,9 +134,7 @@ def _bad_env(var, raw, want):
     (``FACTORY_DRY_RUN=tru`` ran a real run), so every typed parser
     below rejects garbage instead of returning None.
     """
-    print("factory/run: bad %s=%r (want %s)" % (var, raw, want),
-          file=sys.stderr)
-    raise SystemExit(2)
+    _fail("factory/run: bad %s=%r (want %s)" % (var, raw, want))
 
 
 def _env_bool(env_map, var):
@@ -203,9 +212,8 @@ def expand_preset(name):
     try:
         return dict(PRESETS[str(name or "").strip().lower()])
     except KeyError:
-        raise SystemExit(
-            "factory/run: unknown preset %r (want one of: %s)"
-            % (name, ", ".join(sorted(PRESETS))))
+        _fail("factory/run: unknown preset %r (want one of: %s)"
+              % (name, ", ".join(sorted(PRESETS))))
 
 
 def parse_args(argv=None):
@@ -388,23 +396,23 @@ def resolve_config(ns, env_map=None):
 def _validate(cfg):
     """Fail-fast on nonsense (exit 2, names not values)."""
     if cfg["egress_mode"] not in ("direct", "tunnel"):
-        raise SystemExit("factory/run: bad EGRESS_MODE %r "
-                         "(want direct|tunnel)" % cfg["egress_mode"])
+        _fail("factory/run: bad EGRESS_MODE %r "
+              "(want direct|tunnel)" % cfg["egress_mode"])
     if cfg["llm_provider"] not in ("zen", "avalai", "google"):
-        raise SystemExit("factory/run: bad provider %r"
-                         % cfg["llm_provider"])
+        _fail("factory/run: bad provider %r"
+              % cfg["llm_provider"])
     if (cfg["limit"] or 0) < 0:
-        raise SystemExit("factory/run: --limit must be >= 0")
+        _fail("factory/run: --limit must be >= 0")
     if cfg["sleep_secs"] < 0:
-        raise SystemExit("factory/run: --sleep-secs must be >= 0")
+        _fail("factory/run: --sleep-secs must be >= 0")
     if cfg["cooldown_secs"] <= 0:
-        raise SystemExit("factory/run: --cooldown-secs must be > 0")
+        _fail("factory/run: --cooldown-secs must be > 0")
     if not 1 <= cfg["sup_port"] <= 65535:
-        raise SystemExit("factory/run: --sup-port must be 1..65535")
+        _fail("factory/run: --sup-port must be 1..65535")
     if (cfg["max_429_strikes"] or 0) < 1:
-        raise SystemExit("factory/run: --max-429-strikes must be >= 1")
+        _fail("factory/run: --max-429-strikes must be >= 1")
     if (cfg["probe_top_n"] or 0) < 0:
-        raise SystemExit("factory/run: --probe-top-n must be >= 0")
+        _fail("factory/run: --probe-top-n must be >= 0")
 
 
 def _sup_http_health(url, token, timeout=HEALTH_TIMEOUT_S):
