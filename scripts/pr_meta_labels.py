@@ -1,6 +1,7 @@
 """PR meta labels: breaking-change, size/*, needs-tests.
 
-Reads the PR via `gh` API (no checkout needed) and enforces the exact label
+Reads the PR via `gh` API (PR data comes from the API; the workflow's
+checkout step provides this script file) and enforces the exact label
 state for the three computed dimensions (add missing, remove stale).
 Idempotent: re-running on an already-correct PR changes nothing.
 

@@ -56,7 +56,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `i18n` | Changes affecting Persian language, RTL, localization |
 | `UI/UX` | Changes to Telegram keyboard layouts, message formatting, user experience |
 | `risk` | High-risk change: DB schema migration, security-sensitive, concurrency-critical |
-| `security` | Touches secrets, keys, tunnels, or auth paths (`services/db/key_crypto.py`, `tools/egress/**/*`) — auto-applied |
+| `security` | Touches secrets, keys, tunnels, or auth paths (`services/db/key_crypto.py`, `tools/egress/**/*`, `.env.example`) — auto-applied |
 | `blocked` | PR blocked by an external dependency or decision |
 | `needs-verification` | PR needs focused verification/regression test before merge |
 | `tech-debt` | Technical debt reduction with no user-facing change |
