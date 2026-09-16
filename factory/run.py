@@ -43,9 +43,12 @@ from factory.precard.pipeline import (  # noqa: E402 (path bootstrap above)
 )
 from factory.precard.net import (  # noqa: E402
     AVALAI_PRECARD_MODEL,
+    CLEAN_CACHE_TTL_S,
     GOOGLE_PRECARD_MODEL,
     LEG_FALLBACKS,
     LEGS,
+    direct_probe_event,
+    format_cache_line,
 )
 
 # Code defaults whose owners live elsewhere (cited, not moved):
@@ -95,6 +98,8 @@ FLAG_ENVS = {
     "no_sup_spawn": "EGRESS_NO_SUP_SPAWN",
     "probe_top_n": "EGRESS_PROBE_TOP_N",
     "cache": "FACTORY_CACHE",
+    "clean_ttl": "EGRESS_CLEAN_TTL",
+    "direct_probe": "AVALAI_DIRECT_FIRST",
     "dry_run": "FACTORY_DRY_RUN",
     "yes": "FACTORY_YES",
     "quiet": "FACTORY_QUIET",
@@ -235,9 +240,10 @@ def parse_args(argv=None):
                  "API keys are never flags and never printed: LLM keys "
                  "come from factory/.env; --sup-token only carries the "
                  "loopback supervisor bearer and prints as set/unset. "
-                 "--cache/--cooldown-secs/--max-429-strikes/--yes are "
-                 "accepted and shown in the plan; PR-B/C/D wire their "
-                 "behavior (this phase only resolves them).")
+                  "--cache/--cooldown-secs/--max-429-strikes/--yes are "
+                  "accepted and shown in the plan; PR-C wires --cache/ "
+                  "--clean-ttl/--direct-probe behavior through the net "
+                  "clean-cache home (this phase resolves them).")
     ap.add_argument("--preset", default=None,
                     choices=tuple(sorted(PRESETS)),
                     help="run preset (default: zen)")
@@ -292,7 +298,22 @@ def parse_args(argv=None):
                     help="whitelist top-N (resolved + shown; PR-B owns "
                          "the probe call)")
     ap.add_argument("--cache", default=None,
-                    help="file-cache path (reserved for PR-C)")
+                    help="clean-cache path (default: beside the pool; "
+                         "empty/disabled skips the cache)")
+    ap.add_argument("--clean-ttl", type=float, default=None,
+                    help="clean-cache freshness seconds (default: 86400; "
+                         "env EGRESS_CLEAN_TTL)")
+    ap.add_argument("--direct-probe", dest="direct_probe",
+                    action="store_true", default=None,
+                    help="AvalAI leaseless first: one direct ping, no "
+                         "lease on success, lease fallback with "
+                         "telemetry on failure (negates "
+                         "--no-direct-probe)")
+    ap.add_argument("--no-direct-probe", dest="direct_probe",
+                    action="store_false", default=None,
+                    help="force the lease path even when "
+                         "AVALAI_DIRECT_FIRST is set (negates "
+                         "--direct-probe)")
     ap.add_argument("--dry-run", action="store_true", default=None,
                     help="print the plan, run the pipeline dry-run: no "
                          "network, no writes, supervisor untouched "
@@ -398,6 +419,11 @@ def resolve_config(ns, env_map=None):
          SUP_DEFAULT_PROBE_TOP_N)
     _set("cache", getattr(ns, "cache", None),
          _env_str(env, "FACTORY_CACHE"), None, "")
+    _set("clean_ttl", getattr(ns, "clean_ttl", None),
+         _env_float(env, "EGRESS_CLEAN_TTL"), None,
+         CLEAN_CACHE_TTL_S)
+    _set("direct_probe", getattr(ns, "direct_probe", None),
+         _env_bool(env, "AVALAI_DIRECT_FIRST"), None, False)
     _set("dry_run", getattr(ns, "dry_run", None),
          _env_bool(env, "FACTORY_DRY_RUN"), None, False)
     _set("yes", getattr(ns, "yes", None),
@@ -445,6 +471,8 @@ def _validate(cfg):
         _fail("factory/run: --max-429-strikes must be >= 1")
     if (cfg["probe_top_n"] or 0) < 0:
         _fail("factory/run: --probe-top-n must be >= 0")
+    if not (cfg["clean_ttl"] or 0) > 0:
+        _fail("factory/run: --clean-ttl must be > 0")
 
 
 def _sup_http_health(url, token, timeout=HEALTH_TIMEOUT_S):
@@ -613,7 +641,9 @@ def print_plan(cfg, sources):
             ("cooldown-secs", str(cfg["cooldown_secs"])),
             ("max-429-strikes", str(cfg["max_429_strikes"])),
             ("probe-top-n", str(cfg["probe_top_n"])),
-            ("cache", cfg["cache"] or "(pr-c wires behavior)"),
+            ("cache", cfg["cache"] or "(disabled: no clean-cache)"),
+            ("clean-ttl", str(cfg["clean_ttl"])),
+            ("direct-probe", str(bool(cfg["direct_probe"]))),
             ("dry-run", str(bool(cfg["dry_run"]))),
             ("quiet", str(bool(cfg["quiet"]))),
             ("json-log", str(bool(cfg["json_log"]))),
@@ -627,6 +657,17 @@ def print_plan(cfg, sources):
             dest = _DEST.get(key, key.replace("-", "_"))
         src = sources.get(dest, "?")
         print("  %-14s %s (%s)" % (key + ":", shown, src))
+
+
+def print_cache_line(hit, server_id="", provider=""):
+    """CACHE HIT/MISS console line (thin over the net home's text)."""
+    print(format_cache_line(hit, server_id, provider))
+
+
+def direct_probe_telemetry(ok, provider="avalai"):
+    """R8 telemetry event for the leaseless direct-first path (thin
+    over the net home: hit takes no lease, miss falls back to one)."""
+    return direct_probe_event(ok, provider)
 
 
 def print_models():

@@ -1049,3 +1049,212 @@ def test_p2_inflection_review_default_chain_from_table():
                          "uncertain": False}
     assert tried == [m1, m2]
     assert seen == [m1, m1, m2]
+
+
+# --- PR-C clean-cache + direct-first (R7/R8, hermetic) ---
+
+def _cache_entry(sid, provider="zen", age_s=0, ms=50, now=1000.0):
+    return {"server_id": sid, "provider": provider,
+            "last_ok_ts": now - age_s, "latency_ms": ms}
+
+
+def test_c3_cache_hit_picks_cached_not_first_avail():
+    """Fresh cached row wins behind one ping: s2 leased, s1 untouched."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+    calls = []
+
+    def _ping(server):
+        calls.append(server["id"])
+        return 10
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert calls == ["s2"]  # one real-ping gate, no full scan
+
+
+def test_c3_stale_entry_misses_without_ping():
+    """Expired rows are a MISS: no ping, classic first-avail fallback."""
+    cfg = _cfg()
+    cache = [_cache_entry("s1", age_s=90000, ms=5)]
+    calls = []
+
+    def _ping(server):  # pragma: no cover (must never run)
+        calls.append(server["id"])
+        return 5
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s1" and lease["cache_hit"] is False
+    assert calls == []
+
+
+def test_c3_cooling_cached_row_skipped_for_next_fresh():
+    """Cooling cached rows are skipped even when fresh (per-provider)."""
+    cfg = _cfg()
+    NET.cool(cfg, "s1", "zen")
+    cache = [_cache_entry("s1", ms=5), _cache_entry("s2", ms=50)]
+    calls = []
+
+    def _ping(server):
+        calls.append(server["id"])
+        return 50
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s2" and lease["cache_hit"] is True
+    assert calls == ["s2"]
+
+
+def test_c3_ping_dead_falls_back_to_full_probe():
+    """Ping-dead cached rows fall through to the first-avail pick."""
+    cfg = _cfg()
+    cache = [_cache_entry("s2", ms=10)]
+
+    def _ping(server):
+        return None
+
+    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+                          ping_fn=_ping, now=1000.0)
+    assert lease["server_id"] == "s1" and lease["cache_hit"] is False
+
+
+def test_c3_empty_probe_never_clobbers_cache(tmp_path):
+    """save refuses empty (0, touches nothing); load tolerates
+    missing/corrupt; only the four cache keys persist."""
+    import json
+    missing = tmp_path / "clean_cache.json"
+    assert NET.save_clean_cache(str(missing), []) == 0
+    assert not missing.exists()
+    assert NET.load_clean_cache(str(missing)) == []
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{not json", encoding="utf-8")
+    assert NET.load_clean_cache(str(corrupt)) == []
+    dirty = [{"server_id": "s1", "provider": "zen",
+              "last_ok_ts": 1000.0, "latency_ms": 12,
+              "link": "vless://SECRET@h:1", "key": "SECRET-KEY"}]
+    assert NET.save_clean_cache(str(missing), dirty) == 1
+    payload = json.loads(missing.read_text(encoding="utf-8"))
+    assert set(payload["entries"][0]) == {
+        "server_id", "provider", "last_ok_ts", "latency_ms"}
+    assert "SECRET" not in missing.read_text(encoding="utf-8")
+    assert NET.load_clean_cache(str(missing)) == [
+        {"server_id": "s1", "provider": "zen",
+         "last_ok_ts": 1000.0, "latency_ms": 12}]
+
+
+def test_c3_writeback_upserts_and_roundtrips(tmp_path):
+    """record_clean_success upserts (fresh ts, moves to end); the file
+    round-trips through the single writer."""
+    rows = NET.record_clean_success(
+        [_cache_entry("s1", ms=90)], "s2", "zen", 12, 2000.0)
+    assert rows[-1] == {"server_id": "s2", "provider": "zen",
+                        "last_ok_ts": 2000.0, "latency_ms": 12}
+    rows2 = NET.record_clean_success(rows, "s1", "zen", 7, 2000.0)
+    assert rows2[-1]["server_id"] == "s1"
+    assert len(rows2) == 2  # upsert, not duplicate
+    path = str(tmp_path / "clean_cache.json")
+    assert NET.save_clean_cache(path, rows2) == 2
+    assert [e["server_id"] for e in NET.load_clean_cache(path)] == [
+        "s2", "s1"]
+
+
+def test_c3_direct_ok_takes_zero_lease():
+    """R8: direct ping ok => leaseless (no lease minted) + telemetry."""
+    cfg = _cfg()
+    before = len(cfg._leases)
+    event = NET.direct_probe_event(True, "avalai")
+    assert event == {"event": "direct-probe", "provider": "avalai",
+                     "outcome": "direct-ok", "lease_taken": False}
+    assert len(cfg._leases) == before  # caller mints nothing on ok
+
+
+def test_c3_direct_fail_falls_back_to_lease_with_telemetry():
+    """R8: direct ping fail => lease fallback (direct lease) + event."""
+    cfg = _cfg()
+    event = NET.direct_probe_event(False, "avalai")
+    assert event["outcome"] == "lease-fallback"
+    assert event["lease_taken"] is True
+    lease = NET.lease_for(cfg, "avalai")
+    assert lease["mode"] == "direct" and lease["cache_hit"] is False
+
+
+def test_c3_cache_console_lines_and_run_printer(capsys):
+    """Single-owner HIT/MISS text; the run entry only prints it."""
+    from factory import run as RUN
+    assert "CACHE HIT" in NET.format_cache_line(True, "s1", "zen")
+    assert "s1" in NET.format_cache_line(True, "s1", "zen")
+    assert "CACHE MISS" in NET.format_cache_line(False, "", "zen")
+    RUN.print_cache_line(True, "s1", "zen")
+    RUN.print_cache_line(False, "", "zen")
+    out = capsys.readouterr().out
+    assert "CACHE HIT" in out and "CACHE MISS" in out
+    assert RUN.direct_probe_telemetry(True)["outcome"] == "direct-ok"
+    assert RUN.direct_probe_telemetry(
+        False)["lease_taken"] is True
+
+
+def test_c3_supervisor_reexports_cache_home():
+    """Supervisor holds zero cache logic: same objects + pool-side
+    path; the write-back hook never raises and never clobbers."""
+    import pathlib
+    assert SUP.load_clean_cache is NET.load_clean_cache
+    assert SUP.save_clean_cache is NET.save_clean_cache
+    assert SUP.clean_cache_candidates is NET.clean_cache_candidates
+    assert SUP.record_clean_success is NET.record_clean_success
+    assert SUP.direct_probe_event is NET.direct_probe_event
+    assert SUP.format_cache_line is NET.format_cache_line
+    assert SUP.CLEAN_CACHE_PATH.name == "clean_cache.json"
+    assert SUP.CLEAN_CACHE_PATH.parent == SUP.POOL_PATH.parent
+    assert NET.default_clean_cache_path(str(SUP.POOL_PATH)) == str(
+        SUP.CLEAN_CACHE_PATH)
+    assert pathlib.Path(
+        NET.default_clean_cache_path("/x/egress_pool.json")).name == \
+        "clean_cache.json"
+
+
+def test_c3_supervisor_writeback_hook(tmp_path):
+    """note_clean_success writes back; empty/failed upkeep never
+    raises and never creates a file."""
+    import json
+    path = tmp_path / "clean_cache.json"
+    SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+                           path=str(path))
+    assert json.loads(path.read_text(encoding="utf-8"))[
+        "entries"][-1]["server_id"] == "s1"
+    ghost = tmp_path / "ghost.json"
+    SUP.note_clean_success("", "zen", 12, now=2000.0,
+                           path=str(ghost))
+    assert not ghost.exists()
+
+
+def test_c3_run_flags_clean_ttl_and_direct_probe():
+    """R3: CLI > env > code for --clean-ttl/--direct-probe; bad ttl
+    exits 2; keys never become flags."""
+    from factory import run as RUN
+    assert "clean_ttl" in RUN.FLAG_ENVS
+    assert RUN.FLAG_ENVS["clean_ttl"] == "EGRESS_CLEAN_TTL"
+    assert RUN.FLAG_ENVS["direct_probe"] == "AVALAI_DIRECT_FIRST"
+    ns = RUN.parse_args([])
+    assert hasattr(ns, "clean_ttl") and hasattr(ns, "direct_probe")
+    cfg, sources = RUN.resolve_config(ns, {})
+    assert cfg["clean_ttl"] == NET.CLEAN_CACHE_TTL_S
+    assert cfg["direct_probe"] is False
+    cfg2, sources2 = RUN.resolve_config(
+        ns, {"EGRESS_CLEAN_TTL": "3600",
+             "AVALAI_DIRECT_FIRST": "1"})
+    assert cfg2["clean_ttl"] == 3600.0 and sources2["clean_ttl"] == "env"
+    assert cfg2["direct_probe"] is True
+    ns_cli = RUN.parse_args(["--clean-ttl", "60", "--direct-probe"])
+    cfg3, _ = RUN.resolve_config(ns_cli, {"EGRESS_CLEAN_TTL": "3600"})
+    assert cfg3["clean_ttl"] == 60.0
+    assert cfg3["direct_probe"] is True
+    import pytest as _pytest
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "0"})
+    with _pytest.raises(SystemExit):
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "abc"})
+    src = open(RUN.__file__, encoding="utf-8").read()
+    assert "AVALAI_API_KEY" not in src
+    assert "CLEAN_CACHE_TTL_S" in src  # code default cited, not moved

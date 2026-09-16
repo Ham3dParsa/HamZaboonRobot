@@ -43,6 +43,16 @@ maps keep every path testable with no network, no keys, and no W: drive.
   write_pool_file (the ONLY egress_pool.json writer: refuses empty,
   strips link credentials), supervisor_health (R4 healthy/unhealthy
   hook for later auto-spawn; reporting only, no lifecycle change).
+- R7 clean-server cache (phase 03): clean_cache.json beside the pool
+  ([{server_id, provider, last_ok_ts, latency_ms}]); lease_for tries
+  fresh (TTL, default 24h) + non-cooling rows first behind one
+  real-ping gate each, full probe only on miss; successes write back
+  via record_clean_success + save_clean_cache (refuses empty: an
+  empty probe clobbers neither pool nor cache). I/O stays with the
+  caller (run/supervisor); this module only gates + mints.
+- R8 direct-first AvalAI (phase 03): direct_probe_event gives the
+  leaseless-then-fallback telemetry shape; format_cache_line owns the
+  CACHE HIT/MISS console text (ids only, never keys/links).
 
 Stdlib + factory.precard.transport only (precard self-containment:
 no factory.archive / factory.pipeline / factory.lexicon imports).
@@ -110,6 +120,15 @@ __all__ = [
     "should_save_whitelist",
     "write_pool_file",
     "supervisor_health",
+    "CLEAN_CACHE_TTL_S",
+    "CLEAN_CACHE_FILENAME",
+    "default_clean_cache_path",
+    "load_clean_cache",
+    "save_clean_cache",
+    "clean_cache_candidates",
+    "record_clean_success",
+    "direct_probe_event",
+    "format_cache_line",
 ]
 
 # Canonical lease-target table (moved from tools/egress/supervisor.py).
@@ -400,43 +419,90 @@ def is_cool(cfg, server_id, provider=None, now=None):
             (server_id, norm_provider(provider)), 0) > at
 
 
-def lease_for(cfg, target):
+def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
+                ping_fn=None, now=None):
     """Pick a lease for a target. Shapes mirror the egress supervisor:
     direct targets mint a direct lease; tunnel targets take the first
-    non-cooling server; nothing usable parks with a message."""
+    non-cooling server; nothing usable parks with a message.
+
+    R7 cache-first (phase 03): when ``clean_cache`` (a list of
+    {server_id, provider, last_ok_ts, latency_ms} as read by
+    load_clean_cache) and ``ping_fn(server_dict)`` are both given,
+    fresh (TTL, default 24h) + non-cooling rows for this provider are
+    tried first, earliest-latency first, each behind exactly one
+    real-ping gate (truthy = reachable; falsy/raising = try the next
+    cached row). The first ping-ok row mints the lease with
+    ``cache_hit True``. Anything else (no cache, all stale/cooling/
+    missing/ping-dead) falls through to the classic first-avail pick
+    with ``cache_hit False`` — the caller runs its full probe only on
+    that miss, then writes successes back via record_clean_success +
+    save_clean_cache. ``now`` is injectable for hermetic tests. Every
+    result carries ``cache_hit`` (False on direct/park rows too).
+    """
     with cfg._lock:
-        now = cfg._clock()
+        at = cfg._clock() if now is None else now
         spec = target_spec(target)
         if spec is None:
             return {"error": "park",
                     "message": "unknown target %r (want one of: %s)"
-                               % (target, ", ".join(sorted(TARGETS)))}
+                               % (target, ", ".join(sorted(TARGETS))),
+                    "cache_hit": False}
         name = norm_target(target)
         if not spec["tunnel"]:
             lid = secrets.token_hex(8)
             cfg._leases[lid] = {"mode": "direct", "server": None,
-                                "since": now,
+                                "since": at,
                                 "provider": spec["provider"],
                                 "target": name}
             return {"lease_id": lid, "mode": "direct", "proxy_url": "",
                     "egress_ip": "direct",
-                    "provider": spec["provider"], "target": name}
+                    "provider": spec["provider"], "target": name,
+                    "cache_hit": False}
+        ttl = CLEAN_CACHE_TTL_S if clean_ttl is None else float(clean_ttl)
+        if clean_cache and ping_fn is not None:
+            by_id = {s["id"]: s for s in cfg.servers
+                     if isinstance(s, dict) and s.get("id")}
+            for entry in clean_cache_candidates(
+                    clean_cache, spec["provider"], at, ttl):
+                sid = entry.get("server_id") if isinstance(
+                    entry, dict) else None
+                if not sid or sid not in by_id:
+                    continue
+                if is_cool(cfg, sid, spec["provider"], now=at):
+                    continue
+                try:
+                    ok = ping_fn(by_id[sid])
+                except Exception:  # noqa: BLE001 (ping fail = next row)
+                    ok = False
+                if not ok:
+                    continue
+                lid = secrets.token_hex(8)
+                cfg._leases[lid] = {"mode": "tunnel", "server": sid,
+                                    "since": at,
+                                    "provider": spec["provider"],
+                                    "target": name}
+                return {"lease_id": lid, "mode": "tunnel",
+                        "server_id": sid,
+                        "provider": spec["provider"], "target": name,
+                        "cache_hit": True}
         avail = [s for s in cfg.servers
                  if s.get("id")
                  and not is_cool(cfg, s["id"], spec["provider"],
-                                 now=now)]
+                                 now=at)]
         if not avail:
             return {"error": "park",
                     "message": "no server available "
-                               "(all cooling or pool empty)"}
+                               "(all cooling or pool empty)",
+                    "cache_hit": False}
         picked = avail[0]
         lid = secrets.token_hex(8)
         cfg._leases[lid] = {"mode": "tunnel", "server": picked["id"],
-                            "since": now, "provider": spec["provider"],
+                            "since": at, "provider": spec["provider"],
                             "target": name}
         return {"lease_id": lid, "mode": "tunnel",
                 "server_id": picked["id"],
-                "provider": spec["provider"], "target": name}
+                "provider": spec["provider"], "target": name,
+                "cache_hit": False}
 
 
 def report_lease(cfg, lease_id, outcome, provider=None):
@@ -616,6 +682,176 @@ def supervisor_health(servers, leases):
         n_leases = 0
     return {"ok": True, "servers": n_servers, "leases": n_leases,
             "healthy": n_servers > 0}
+
+
+# --- R7 clean-server cache home (phase 03) ---
+
+# Default freshness for a cached clean server (24h; the run entry
+# resolves --clean-ttl/EGRESS_CLEAN_TTL over this, never beside it).
+CLEAN_CACHE_TTL_S = 86400.0
+
+# File beside the pool (tools/egress/clean_cache.json): rows are
+# {server_id, provider, last_ok_ts, latency_ms} only — ids and timing,
+# never links/keys (same secret-free rule as the pool writer).
+CLEAN_CACHE_FILENAME = "clean_cache.json"
+
+
+def default_clean_cache_path(pool_path):
+    """Cache path beside a pool path (same directory, fixed filename)."""
+    try:
+        parent = pathlib.Path(str(pool_path)).parent
+    except (TypeError, ValueError):
+        parent = pathlib.Path(".")
+    return str(parent / CLEAN_CACHE_FILENAME)
+
+
+def load_clean_cache(path):
+    """Read cached clean servers (tolerates missing/corrupt -> []).
+
+    Accepts {"entries": [...]} (the save shape) or a bare [...].
+    Malformed rows (not a dict, no server_id) are dropped; surviving
+    rows keep server_id/provider/last_ok_ts/latency_ms only. Pure
+    read: no network, no clock.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    rows = payload.get("entries") if isinstance(payload, dict) else None
+    if rows is None:
+        rows = payload if isinstance(payload, list) else []
+    clean = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("server_id"):
+            continue
+        entry = {"server_id": row["server_id"]}
+        entry["provider"] = norm_provider(row.get("provider"))
+        try:
+            entry["last_ok_ts"] = float(row.get("last_ok_ts", 0) or 0)
+        except (TypeError, ValueError):
+            entry["last_ok_ts"] = 0.0
+        try:
+            entry["latency_ms"] = (None if row.get("latency_ms") is None
+                                   else int(row["latency_ms"]))
+        except (TypeError, ValueError):
+            entry["latency_ms"] = None
+        clean.append(entry)
+    return clean
+
+
+def save_clean_cache(path, entries):
+    """The ONLY clean_cache.json writer. Refuses empty, strips secrets.
+
+    Returns the saved entry count, or 0 when ``entries`` holds no
+    server_id-bearing row — in which case the path is NOT touched (an
+    empty probe clobbers neither pool nor cache). Atomic tmp+replace
+    (a crash mid-write keeps the previous good file); failed writes
+    remove the temp file best-effort and raise OSError. Sync I/O.
+    """
+    live = [e for e in (entries or [])
+            if isinstance(e, dict) and e.get("server_id")]
+    if not live:
+        return 0
+    payload = {"saved_at": datetime.datetime.now(
+        datetime.timezone.utc).isoformat(),
+        "entries": [{"server_id": e["server_id"],
+                     "provider": norm_provider(e.get("provider")),
+                     "last_ok_ts": float(e.get("last_ok_ts", 0) or 0),
+                     "latency_ms": e.get("latency_ms")}
+                    for e in live]}
+    tmp_path = str(path) + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return len(live)
+
+
+def clean_cache_candidates(entries, provider, now, ttl=None):
+    """Fresh provider-matched cache rows, earliest-latency first.
+
+    Fresh = now - last_ok_ts <= ttl (default 24h); stale rows never
+    return (a stale entry is a MISS, re-probed only by the caller's
+    full scan). latency_ms None sorts last. Pure.
+    """
+    limit = CLEAN_CACHE_TTL_S if ttl is None else float(ttl)
+    want = norm_provider(provider)
+    fresh = []
+    for row in entries or []:
+        if not isinstance(row, dict) or not row.get("server_id"):
+            continue
+        if norm_provider(row.get("provider")) != want:
+            continue
+        try:
+            age = float(now) - float(row.get("last_ok_ts", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if age < 0 or age > limit:
+            continue
+        fresh.append(row)
+    fresh.sort(key=lambda r: (r.get("latency_ms") is None,
+                              r.get("latency_ms") or 0))
+    return fresh
+
+
+def record_clean_success(entries, server_id, provider, latency_ms,
+                         now):
+    """Upsert one success into cache rows (pure write-back helper).
+
+    Returns a NEW list (caller saves it): the (server_id, provider)
+    row moves to the end with fresh last_ok_ts/latency_ms; falsy
+    server_id is a no-op returning the input rows unchanged.
+    """
+    rows = [dict(e) for e in (entries or []) if isinstance(e, dict)]
+    if not server_id:
+        return rows
+    want = norm_provider(provider)
+    rows = [e for e in rows
+            if not (e.get("server_id") == server_id
+                    and norm_provider(e.get("provider")) == want)]
+    try:
+        at = float(now)
+    except (TypeError, ValueError):
+        at = 0.0
+    try:
+        ms = None if latency_ms is None else int(latency_ms)
+    except (TypeError, ValueError):
+        ms = None
+    rows.append({"server_id": server_id, "provider": want,
+                 "last_ok_ts": at, "latency_ms": ms})
+    return rows
+
+
+def direct_probe_event(ok, provider="avalai"):
+    """R8 telemetry shape for the leaseless direct-first path.
+
+    ok = the direct ping reached AvalAI with no lease; falsy = fall
+    back to a lease (the caller mints it, this only labels the event).
+    Secret-free, JSON-serializable. Pure.
+    """
+    hit = bool(ok)
+    return {"event": "direct-probe",
+            "provider": norm_provider(provider) or "avalai",
+            "outcome": "direct-ok" if hit else "lease-fallback",
+            "lease_taken": not hit}
+
+
+def format_cache_line(hit, server_id="", provider=""):
+    """CACHE HIT/MISS console text (single owner; ids only, no keys)."""
+    if hit:
+        return "CACHE HIT server=%s provider=%s (no full probe)" % (
+            server_id or "?", norm_provider(provider) or "?")
+    return "CACHE MISS provider=%s (full probe)" % (
+        norm_provider(provider) or "?")
 
 
 def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,

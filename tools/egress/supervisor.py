@@ -44,11 +44,18 @@ try:
     from factory.precard.net import (
         TARGETS,
         build_probe_rows,
+        clean_cache_candidates,
+        default_clean_cache_path,
+        direct_probe_event,
+        format_cache_line,
         known_provider,
+        load_clean_cache,
         norm_provider,
         norm_target,
         order_google_first,
         order_pool_by_rank,
+        record_clean_success,
+        save_clean_cache,
         should_save_whitelist,
         supervisor_health,
         target_spec,
@@ -61,11 +68,18 @@ except ImportError:  # top-level script run: repo root is not on sys.path
     from factory.precard.net import (
         TARGETS,
         build_probe_rows,
+        clean_cache_candidates,
+        default_clean_cache_path,
+        direct_probe_event,
+        format_cache_line,
         known_provider,
+        load_clean_cache,
         norm_provider,
         norm_target,
         order_google_first,
         order_pool_by_rank,
+        record_clean_success,
+        save_clean_cache,
         should_save_whitelist,
         supervisor_health,
         target_spec,
@@ -80,6 +94,8 @@ DEFAULT_PORT = 18789
 PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
+CLEAN_CACHE_PATH = (
+    pathlib.Path(__file__).resolve().parent / "clean_cache.json")
 COOLDOWN_S = 300
 
 
@@ -146,6 +162,27 @@ def _trim_leases_file():
             os.unlink(tmp)
         except OSError:
             pass
+
+
+def note_clean_success(server_id, provider, latency_ms, now=None,
+                       path=CLEAN_CACHE_PATH):
+    """Write-back one clean-server success (R7 minimal hook).
+
+    Thin over the net home (load -> record_clean_success -> save):
+    empty results never touch the file (save refuses empty, so an
+    empty probe clobbers neither pool nor cache). Best-effort, never
+    raises — cache upkeep must never fail a lease or startup.
+    ``path`` defaults to the pool-side clean_cache.json (hermetic
+    tests point it at tmp_path).
+    """
+    try:
+        at = time.time() if now is None else now
+        entries = load_clean_cache(path)
+        updated = record_clean_success(entries, server_id, provider,
+                                       latency_ms, at)
+        save_clean_cache(path, updated)
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
 
 
 def load_env():
