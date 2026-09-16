@@ -6,7 +6,7 @@ base_commit: 926a19b
 branch: docs/network-run-spec
 status: in-progress
 ---
-STATE: phase 2/6 — status: in-progress — focus: wave1 done (PR 710 + 711 merged); wave2 PR-A entry next
+STATE: phase 3/6 — status: in-progress — focus: wave1 done (PR 710 + 711 merged); wave2 PR-A entry merged (PR 713 squash 22ee58d); PR-B table next
 
 ## Locked rules
 - R1 thin entry `factory/run.py`; R2 presets avalai/google/zen; R3 `CLI>env>file>default` + `--list-models`; R4 auto-spawn supervisor with pid print + `--no-sup-spawn`.

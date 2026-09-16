@@ -4,9 +4,9 @@ description: Thin factory/run.py entry with presets and CLI/env config resolutio
 created: 2026-09-15
 base_commit: 926a19b
 branch: TBD (feat/network-run-entry)
-status: locked
+status: merged
 ---
-STATE: phase 0/6 — status: locked — focus: implement after PR-0
+STATE: phase 1/6 — status: merged — PR 713 squash 22ee58d (HEAD 96562e1, OpenCode APPROVED zero-blocking, Kilo merge, 7/7 CI pass)
 
 ## Scope
 - New `factory/run.py`: composes supervisor client + probes + `pipeline.main`. Presets avalai/google/zen. Flags: `--preset --llm-provider --stage-provider --precard-model --judge-model --stage-model --sample --out --progress-dir --limit --sleep-secs --cooldown-secs --max-429-strikes --egress-mode --sup-url --sup-token --sup-port --no-sup-spawn --probe-top-n --cache --dry-run --yes --quiet --json-log --no-color`, each with `FACTORY_*`/`EGRESS_*` env mirror. Precedence CLI>env>preset>code, printed in `--help`. Keys never flags.
