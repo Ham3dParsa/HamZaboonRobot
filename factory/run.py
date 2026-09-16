@@ -745,6 +745,14 @@ def maybe_direct_first(cfg, direct_probe_fn=None):
     direct-ok event; miss prints CACHE MISS with a lease-fallback
     event and the caller continues the normal (lease-taking) path.
     Probe failures fall back, never raise: unreachable IS the miss.
+
+    Probe-only framing: run() mints no per-run leases itself (leases
+    live in the supervisor tunnel path / external wrappers), so the
+    gate cannot bypass anything — it proves reachability and labels
+    it. ``lease_taken`` is mode-aware: outside tunnel mode no lease
+    path exists, so a miss continues direct and never mints a lease
+    (the generic True would be false there); tunnel-mode bypass of
+    downstream leases is deferred.
     """
     if not cfg.get("direct_probe") \
             or cfg.get("llm_provider") != "avalai":
@@ -755,6 +763,8 @@ def maybe_direct_first(cfg, direct_probe_fn=None):
     except Exception:  # noqa: BLE001 (probe failure = lease fallback)
         ok = False
     event = direct_probe_telemetry(ok, "avalai")
+    if cfg.get("egress_mode") != "tunnel":
+        event["lease_taken"] = False
     if ok:
         print_cache_line(True, "direct", "avalai")
     else:

@@ -1003,3 +1003,37 @@ def test_parse_subscription_dedupes_exact_links():
     rows = supervisor.parse_subscription(body)
     assert [(r["host"], r["port"]) for r in rows] == [("one.org", 443),
                                                      ("two.org", 443)]
+
+
+def test_pool_lease_cache_hit_reuses_hint_and_writes_back(
+        monkeypatch, tmp_path, capsys):
+    """R7 production hit path: a fresh cached row + reachable ping
+    mints the hint (not the classic first-avail), prints CACHE HIT,
+    and writes the measured latency back. Hermetic: tmp cache file +
+    fake tcp_ping (the module autouse fixture pins dead; this test
+    overrides it)."""
+    import time as _time
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "first", "port": 1, "id": "s-first",
+         "link": "vless://u@first:1"},
+        {"scheme": "vless", "host": "cached", "port": 2, "id": "s-cached",
+         "link": "vless://u@cached:2"},
+    ])
+    cache = tmp_path / "clean_cache.json"
+    cache.write_text(json.dumps({"saved_at": "t", "entries": [
+        {"server_id": "s-cached", "provider": "zen",
+         "last_ok_ts": _time.time() - 5, "latency_ms": 9}]}),
+        encoding="utf-8")
+    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH", str(cache))
+    monkeypatch.delenv("EGRESS_CLEAN_TTL", raising=False)
+    monkeypatch.setattr(
+        supervisor, "tcp_ping",
+        lambda *args, **kwargs: 4
+        if args and args[0] == "cached" else None)
+    lease = pool.lease("zen")
+    assert lease["server_id"] == "s-cached"
+    assert "CACHE HIT" in capsys.readouterr().out
+    entries = json.loads(cache.read_text(encoding="utf-8"))["entries"]
+    back = [e for e in entries if e["server_id"] == "s-cached"]
+    assert len(back) == 1 and back[0]["latency_ms"] == 4

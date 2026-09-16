@@ -1380,12 +1380,23 @@ def test_c3_save_cleans_tmp_and_raises_on_unserializable(tmp_path):
     assert not (tmp_path / "clean_cache.json.tmp").exists()
 
 
-def test_c3_writeback_propagates_programming_errors():
-    """W4: TypeError/AttributeError surface (only OSError/ValueError
-    stay best-effort)."""
+def test_c3_writeback_best_effort_types(tmp_path, monkeypatch):
+    """Unserializable payload (TypeError) is swallowed after tmp
+    cleanup — the lease stands. Real programming errors
+    (AttributeError) still surface."""
     import pytest as _pytest
-    with _pytest.raises(TypeError):
-        SUP.note_clean_success("s1", "zen", 12, now=2000.0, path=None)
+    path = tmp_path / "clean_cache.json"
+    SUP.note_clean_success(object(), "zen", 12, now=2000.0,
+                           path=str(path))
+    assert not path.exists()
+
+    def _boom(p, entries):
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(SUP, "save_clean_cache", _boom)
+    with _pytest.raises(AttributeError):
+        SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+                               path=str(path))
 
 
 # --- Phase-03 W1/W2 production wiring: supervisor Pool.lease is the
@@ -1449,7 +1460,8 @@ def test_c3_supervisor_lease_cache_hit_skips_scan(
 def test_c3_supervisor_lease_miss_takes_first_avail(
         tmp_path, monkeypatch, capsys):
     """W2: no cache file -> classic first-avail pick, CACHE MISS
-    line, and the minted server is written back (unknown latency)."""
+    line, and nothing is written back (lease is not success: the
+    minted server was never probe-verified)."""
     import json
     path = tmp_path / "clean_cache.json"
     assert not path.exists()
@@ -1464,9 +1476,7 @@ def test_c3_supervisor_lease_miss_takes_first_avail(
     assert lease["server_id"] == "s1"  # first-avail, no ping needed
     assert calls == []
     assert "CACHE MISS" in capsys.readouterr().out
-    saved = json.loads(path.read_text(encoding="utf-8"))["entries"]
-    assert [e["server_id"] for e in saved] == ["s1"]
-    assert saved[0]["latency_ms"] is None
+    assert not path.exists()
 
 
 def test_c3_supervisor_lease_cooled_mid_ping_falls_through(

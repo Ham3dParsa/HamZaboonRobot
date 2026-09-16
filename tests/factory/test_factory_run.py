@@ -614,8 +614,10 @@ def test_direct_probe_off_never_probes(capsys):
 
 
 def test_direct_probe_miss_falls_back_to_normal_path(capsys):
-    """Unreachable direct: CACHE MISS + lease-fallback print, the run
-    still continues (fallback, never a refusal)."""
+    """Unreachable direct in direct mode: CACHE MISS + lease-fallback
+    print, but lease_taken=False — no lease path exists outside
+    tunnel mode, so the run just continues direct (fallback, never
+    a refusal)."""
     seen = {}
 
     def _pipeline(argv):
@@ -630,8 +632,25 @@ def test_direct_probe_miss_falls_back_to_normal_path(capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "CACHE MISS" in out
-    assert "lease-fallback" in out and "lease_taken=True" in out
+    assert "lease-fallback" in out and "lease_taken=False" in out
     assert seen["argv"]
+
+
+def test_direct_probe_miss_tunnel_mode_claims_lease(capsys):
+    """Tunnel override + miss: a lease path exists, so the generic
+    lease-fallback/lease_taken=True claim stands."""
+    def _healthy(url, token):
+        return {"ok": True, "servers": 1, "leases": 0, "healthy": True}
+
+    code = RUN.run(["--preset", "avalai", "--egress-mode", "tunnel",
+                    "--direct-probe"],
+                   env_map={}, health_fn=_healthy, spawn_fn=_no_spawn,
+                   pipeline_main_fn=lambda argv: 0,
+                   sleep_fn=lambda s: None,
+                   direct_probe_fn=lambda: None)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "lease-fallback" in out and "lease_taken=True" in out
 
 
 def test_direct_probe_env_flag_enables_gate(capsys):
