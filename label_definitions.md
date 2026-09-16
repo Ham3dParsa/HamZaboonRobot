@@ -83,7 +83,7 @@ Each PR should receive **exactly one Type label** and **zero or more Domain labe
 | `size/M` | Total churn 100–499 lines |
 | `size/L` | Total churn 500–999 lines |
 | `size/XL` | Total churn 1000+ lines (exactly one size label per PR) |
-| `breaking-change` | Title has `!` before `:` (e.g. `feat(api)!:`) or body contains `BREAKING CHANGE` |
+| `breaking-change` | Title has `!` before `:` (e.g. `feat(api)!:`) or a line-anchored `BREAKING CHANGE:` footer in the body |
 | `needs-tests` | Production paths (`services/`, `handlers/`, `factory/`, `tools/`, `config/`, `scripts/`, `bot.py`) changed with no `tests/` change; removed automatically once tests are added |
 | `dependencies` | Applied by dependabot itself; no workflow needed |
 
