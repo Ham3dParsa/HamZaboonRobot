@@ -79,6 +79,7 @@ STRINGS = {
                     "(exists, overlaps noted) vs precard-level (row-level) · "
                     "every number names its unit"),
         "tab.review": "Review",
+        "tab.metrics": "Metrics",
         "tab.charts": "Charts",
         "kpi.kept": "Lemma kept rate",
         "kpi.fanout": "Mean precards",
@@ -205,6 +206,7 @@ STRINGS = {
         "summary": ("توزیع‌ها — ۹ گروه سنجه · سطح لِما (وجودی، با ذکر هم‌پوشانی‌ها) "
                     "در برابر سطح پیش‌کارت (ردیفی) · هر عدد واحد خود را مشخص می‌کند"),
         "tab.review": "بررسی",
+        "tab.metrics": "سنجه‌ها",
         "tab.charts": "نمودارها",
         "kpi.kept": "نرخ ماندگاری لماها",
         "kpi.fanout": "میانگین پیش‌کارت",
@@ -483,7 +485,7 @@ def _dist_drawer_fa(stats):
         + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g9.note")))
 
     return (
-        '<details class="dist-drawer" id="distDrawer">'
+        '<details class="dist-drawer" id="distDrawer" open>'
         "<summary>%s</summary>" % _esc(_tr("fa", "summary"))
         + '<div class="dist-grid">'
         + "".join('<section class="dist-group">%s</section>' % g
@@ -1737,8 +1739,6 @@ __CEFR_PILLS__
     </select>
   </div>
 
-__DIST_DRAWER__
-
   <div class="split-workspace">
     <aside class="sidebar" id="sidebarList"></aside>
     <main class="detail-pane" id="detailPane">
@@ -1748,6 +1748,10 @@ __DIST_DRAWER__
     </main>
   </div>
   </div>
+
+  <section id="metricsPane" hidden>
+__DIST_DRAWER__
+  </section>
 
   <section id="chartsPane" hidden>
 __CHARTS__
@@ -2165,12 +2169,17 @@ function toggleTheme() {
 }
 
 function switchView(view) {
+  const showReview = view === "review";
+  const showMetrics = view === "metrics";
   const showCharts = view === "charts";
+  document.getElementById("reviewPane").hidden = !showReview;
+  document.getElementById("metricsPane").hidden = !showMetrics;
   document.getElementById("chartsPane").hidden = !showCharts;
-  document.getElementById("reviewPane").hidden = showCharts;
-  document.getElementById("tabReview").classList.toggle("active", !showCharts);
+  document.getElementById("tabReview").classList.toggle("active", showReview);
+  document.getElementById("tabMetrics").classList.toggle("active", showMetrics);
   document.getElementById("tabCharts").classList.toggle("active", showCharts);
-  document.getElementById("tabReview").setAttribute("aria-selected", String(!showCharts));
+  document.getElementById("tabReview").setAttribute("aria-selected", String(showReview));
+  document.getElementById("tabMetrics").setAttribute("aria-selected", String(showMetrics));
   document.getElementById("tabCharts").setAttribute("aria-selected", String(showCharts));
 }
 
@@ -2686,7 +2695,7 @@ def _dist_drawer(stats):
         + '<p class="dist-note">row-level example_fallback.</p>')
 
     return (
-        '<details class="dist-drawer" id="distDrawer">'
+        '<details class="dist-drawer" id="distDrawer" open>'
         "<summary>Distributions "
         '<span class="dist-hint">nine metric groups \u00b7 lemma-level '
         "(exists, overlaps noted) vs precard-level (row-level) \u00b7 "
@@ -2718,10 +2727,40 @@ def _view_tabs(lang):
         '<div class="view-tabs" role="tablist">'
         '<button class="view-tab active" id="tabReview" role="tab" '
         'aria-selected="true" onclick="switchView(\'review\')">%s</button>'
+        '<button class="view-tab" id="tabMetrics" role="tab" '
+        'aria-selected="false" onclick="switchView(\'metrics\')">%s</button>'
         '<button class="view-tab" id="tabCharts" role="tab" '
         'aria-selected="false" onclick="switchView(\'charts\')">%s</button>'
         "</div>" % (_esc(_tr(lang, "tab.review")),
+                    _esc(_tr(lang, "tab.metrics")),
                     _esc(_tr(lang, "tab.charts"))))
+
+
+def _charts_legend(lang, key):
+    """Short unit legends for the charts tab.
+
+    Every legend is a verbatim substring of the STRINGS catalog (no new
+    prose); guarded by test_charts_legends_reuse_catalog_only.
+    """
+    legends = {
+        "en": {
+            "kept_share": "kept lemmas / all lemmas",
+            "fanout": "precards (kept-only rows)",
+            "mismatch": "evidenced precards",
+            "synthetic": "of all precards",
+            "fanout_dist": "precards bucket \u00b7 kept lemmas",
+            "row_level": "precards, row-level",
+        },
+        "fa": {
+            "kept_share": "لِماهای نگه‌داشته‌شده / همه لِماها",
+            "fanout": "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
+            "mismatch": "پیش‌کارت مدرک‌دار",
+            "synthetic": "از همه پیش‌کارتها",
+            "fanout_dist": "بازه پیش‌کارت \u00b7 لِماهای نگه‌داشته‌شده",
+            "row_level": "پیش‌کارتها، سطح ردیفی",
+        },
+    }
+    return legends[lang][key]
 
 
 def _render_charts(stats, lang="en"):
@@ -2747,23 +2786,15 @@ def _render_charts(stats, lang="en"):
 
     kpis = [
         ("kpiKept", _tr(lang, "kpi.kept"), "%d%s" % (rate, pct_sign),
-         _tr(lang, "g2.kv", K=kept, D=stats["lemmas_dropped"], R=rate)),
+         _charts_legend(lang, "kept_share")),
         ("kpiFanout", _tr(lang, "kpi.fanout"), "%s" % ppc["mean"],
-         _tr(lang, "g1.kv", a=ppc["mean"], b=ppc["median"],
-             c=ppc["p90"], N=kept)),
+         _charts_legend(lang, "fanout")),
         ("kpiMismatch", _tr(lang, "kpi.mismatch"),
          "%s%s" % (mismatch["evidenced_pct"], pct_sign),
-         _tr(lang, "g6.kv", P=mismatch["precards"],
-             PP=mismatch["precards_pct"], M=mismatch["lemmas"])
-         + " · " + _tr(lang, "g6.ev",
-                        E=mismatch["evidenced_precards"],
-                        EP=mismatch["evidenced_pct"],
-                        D=mismatch["evidenced_denominator"])),
+         _charts_legend(lang, "mismatch")),
         ("kpiSynthetic", _tr(lang, "kpi.synthetic"),
          "%s%s" % (synth["precards_pct"], pct_sign),
-         _tr(lang, "g5.kv", P=synth["precards"],
-             PP=synth["precards_pct"], M=synth["lemmas"],
-             MP=synth["lemmas_pct"])),
+         _charts_legend(lang, "synthetic")),
     ]
     kpi_html = (
         '<div class="kpi-strip">'
@@ -2799,8 +2830,7 @@ def _render_charts(stats, lang="en"):
         '<div class="kpi-sub">%s</div></div></div>'
         '<p class="charts-colhead">%s</p>%s</section>'
         % (head(2, "g2.h"), kept_share, rate, pct_sign,
-           _esc(_tr(lang, "g2.kv", K=kept,
-                    D=stats["lemmas_dropped"], R=rate)),
+           _esc(_charts_legend(lang, "kept_share")),
            " · ".join(g2_heads), pareto))
 
     levels = _ordered_levels(stats["cefr_lemma"], stats["cefr_precard"])
@@ -2826,11 +2856,8 @@ def _render_charts(stats, lang="en"):
                 _tr(lang, "g3.th").split(sep)]
     p2 = (
         '<section class="charts-panel">%s'
-        '<p class="charts-colhead">%s</p>%s'
-        '<p class="dist-note">%s</p></section>'
-        % (head(3, "g3.h"), " · ".join(g3_heads), dual,
-           _esc(_tr(lang, "g3.note",
-                    N=stats["cefr_lemma_overlap"]))))
+        '<p class="charts-colhead">%s</p>%s</section>'
+        % (head(3, "g3.h"), " · ".join(g3_heads), dual))
 
     n_rows = stats["precards_total"]
     s4_rows = "".join(
@@ -2869,21 +2896,15 @@ def _render_charts(stats, lang="en"):
     p3 = (
         '<section class="charts-panel">%s'
         '<p class="charts-colhead">%s</p>%s'
-        '<p class="dist-note">%s</p>'
         '<p class="charts-colhead">%s</p>%s'
-        '<p class="dist-note">%s</p>'
-        '<p class="charts-colhead">%s</p>%s'
-        '<p class="dist-note">%s</p></section>'
+        '<p class="charts-colhead">%s</p>%s</section>'
         % (head(8, "g8.h"), " · ".join(g8_heads),
            s4_rows if s4_rows else
            '<p class="dist-note">%s</p>' % _esc(_tr(lang, "empty.rows")),
-           _esc(_tr(lang, "g8.note")),
            " · ".join(g7_heads), method_grid,
-           _esc(_tr(lang, "g7.note")),
            " · ".join(g9_heads),
            source_rows if source_rows else
-           '<p class="dist-note">%s</p>' % _esc(_tr(lang, "empty.rows")),
-           _esc(_tr(lang, "g9.note"))))
+           '<p class="dist-note">%s</p>' % _esc(_tr(lang, "empty.rows"))))
 
     ranked = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),
                     key=lambda l: (-stats["topic_precard"].get(l, 0), l))
@@ -2899,12 +2920,9 @@ def _render_charts(stats, lang="en"):
     p4 = (
         '<section class="charts-panel">%s'
         '<p class="charts-colhead">%s</p>'
-        '<div class="charts-scroll">%s</div>'
-        '<p class="dist-note">%s</p></section>'
-        % (head(4, "g4.h"), _esc(_tr(lang, "g4.th")), topics,
-           _esc(_tr(lang, "g4.note",
-                    N=stats["topic_lemma_overlap"],
-                    P=stats["untagged_precards"]))))
+        '<div class="charts-scroll">%s</div></section>'
+        % (head(4, "g4.h"), _esc(_charts_legend(lang, "row_level")),
+           topics))
 
     if lang == "fa":
         buckets = [part.strip() for part in
@@ -2920,10 +2938,9 @@ def _render_charts(stats, lang="en"):
         for label, key in zip(bucket_labels, ("1", "2", "3", "4+")))
     p5 = (
         '<section class="charts-panel">%s%s'
-        '<p class="dist-kv">%s</p></section>'
+        '<p class="charts-colhead">%s</p></section>'
         % (head(1, "g1.h"), pillars,
-           _esc(_tr(lang, "g1.kv", a=ppc["mean"], b=ppc["median"],
-                    c=ppc["p90"], N=kept))))
+           _esc(_charts_legend(lang, "fanout_dist"))))
 
     return (kpi_html + '<div class="charts-grid">'
             + p1 + p2 + p3 + p4 + p5 + "</div>")
