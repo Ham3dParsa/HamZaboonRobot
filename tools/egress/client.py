@@ -19,7 +19,7 @@ def _call(path, payload):
         SUP_URL + path, data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + SUP_TOKEN})
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         return json.load(resp)
 
 

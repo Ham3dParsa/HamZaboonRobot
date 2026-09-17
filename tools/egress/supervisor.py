@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import concurrent.futures
 import hashlib
 import hmac
 import json
@@ -703,6 +704,31 @@ class TunnelOwner:
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
+            # Probe-batch (2026-09-17): never spawn xray on an unprobed
+            # server. Ping the first 8 in parallel (~2s wall), keep pool
+            # order, cool the dead for this provider so the next lease
+            # skips them. A fully dead pool parks fast here instead of
+            # burning the 25s spawn timeout per attempt behind a 15s
+            # client timeout (the pile-up that orphaned xray children).
+            cands = avail[:8]
+
+            def _live(server):
+                try:
+                    return bool(_server_tcp_ping(server))
+                except Exception:
+                    return False
+
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=5) as _ex:
+                _ok = dict(zip([s["id"] for s in cands],
+                               _ex.map(_live, cands)))
+            live_ids = {sid for sid, ok in _ok.items() if ok}
+            for sid in [s["id"] for s in cands if s["id"] not in live_ids]:
+                self._pool.cool(sid, provider, seconds=600)
+            avail = [s for s in avail if s["id"] in live_ids]
+            if not avail:
+                raise RuntimeError("no live server (probed %d, all dead)"
+                                   % len(cands))
             wanted = avail[0]
             if prefer is not None:
                 hinted = [s for s in avail if s.get("id") == prefer]
@@ -799,8 +825,15 @@ class Handler(BaseHTTPRequestHandler):
                         provider=data.get("provider"),
                         prefer=data.get("server_id"))
                 except (RuntimeError, ValueError, OSError) as exc:
-                    # Acquire failed: drop the minted lease (no orphan
-                    # records) and park with a message.
+                    # Acquire failed: cool this server so the next lease
+                    # moves on instead of retrying the same dead egress,
+                    # drop the minted lease (no orphan records) and park
+                    # with a message.
+                    try:
+                        POOL.cool(data.get("server_id", ""),
+                                  data.get("provider"), seconds=1800)
+                    except Exception:
+                        pass
                     POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
