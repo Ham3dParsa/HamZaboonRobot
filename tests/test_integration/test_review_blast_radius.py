@@ -265,10 +265,12 @@ class RiskyProbeGuardTest(unittest.TestCase):
         self.assertTrue(rbr.is_risky_module("services.session"))
         self.assertTrue(rbr.is_risky_module("services.session.store"))
         self.assertTrue(rbr.is_risky_module("services.session.__init__"))
+        # services.session.assembly reads via due_words_for_user transaction:
+        # risky by default (OC warning on PR #735).
+        self.assertTrue(rbr.is_risky_module("services.session.assembly"))
         # Known-pure: probed by default.
         self.assertFalse(rbr.is_risky_module("services.fsrs_core"))
         self.assertFalse(rbr.is_risky_module("services.utils.helpers"))
-        self.assertFalse(rbr.is_risky_module("services.session.assembly"))
         self.assertFalse(rbr.is_risky_module("services.session.grade_policy"))
         self.assertFalse(rbr.is_risky_module("services.session.summary"))
         self.assertFalse(rbr.is_risky_module("services.session.tier_registry"))
@@ -410,6 +412,18 @@ class RiskyProbeGuardTest(unittest.TestCase):
                              {"function", "input", "output"})
             self.assertEqual(row["input"], "skipped: risky-module")
             self.assertIn("--allow-risky", row["output"])
+
+    def test_db_reading_assembly_skipped_by_default(self):
+        # services.session.assembly reads via due_words_for_user transaction,
+        # so build_session_list must not probe the dev's real SQLite.
+        symbols = [
+            {"name": "build_session_list",
+             "file": "services/session/assembly.py", "kind": "def"},
+        ]
+        rows, _trunc = rbr.run_edge_probes(symbols)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["input"], "skipped: risky-module")
+        self.assertIn("--allow-risky", rows[0]["output"])
 
 
 class GraphifyMissingBlastRadiusTest(unittest.TestCase):

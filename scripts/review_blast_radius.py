@@ -42,8 +42,10 @@ PROBE_TIMEOUT_SEC = 5.0
 # Probe allowlist (R6): only known-pure modules are imported/probed by
 # default. Everything else is skipped unless --allow-risky is passed.
 # Matched on the dotted module name derived from the file relpath.
-# NOTE: services.session.store (save/load/clear hit the DB) and
-# services.scheduling (consume/release write settings) are NOT allowlisted.
+# NOTE: services.session.store (save/load/clear hit the DB),
+# services.scheduling (consume/release write settings), and
+# services.session.assembly (reads via due_words_for_user transaction)
+# are NOT allowlisted.
 SAFE_MODULE_PREFIXES = (
     "services.utils.",
     "config.catalog",
@@ -51,7 +53,6 @@ SAFE_MODULE_PREFIXES = (
 SAFE_MODULE_EXACT = frozenset({
     "services.fsrs_core",
     "config.catalog",
-    "services.session.assembly",
     "services.session.grade_policy",
     "services.session.summary",
     "services.session.tier_registry",
