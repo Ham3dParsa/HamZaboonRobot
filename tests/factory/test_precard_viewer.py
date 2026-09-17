@@ -570,3 +570,50 @@ def test_method_source_filter_wiring_and_units(tmp_path):
     assert "CEFR/topic/style/method/source filter never matches" in html
     assert "${method}" not in html
     assert "${source}" not in html
+
+
+def test_drop_suffix_stripped_at_reader_with_band_field(tmp_path):
+    """OC blocking W1: enriched lines ("w:X: reason [entry=B1]") must not
+    leak the suffix into viewer reason grouping — the reader strips it
+    and carries the band as a separate entry_band field. Legacy lines
+    keep entry_band None."""
+    fix = _mini_run(tmp_path)
+    fix["dropped"].write_text(
+        "=== preprocess drops ===\n"
+        "w:suffixed: r4-name-only [entry=B1]\n"
+        "w:legacy: g2-inflection-form\n"
+        "w:colonless [entry=A1]\n",
+        encoding="utf-8")
+    dropped = viewer._load_dropped(fix["dropped"], None)
+    assert dropped["w:suffixed"] == {
+        "reason": "r4-name-only", "entry_band": "B1"}
+    assert dropped["w:legacy"] == {
+        "reason": "g2-inflection-form", "entry_band": None}
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    stats = _stats_blob(html)
+    heads = dict(stats["drops_by_reason"])
+    assert heads.get("r4-name-only") == 1, stats["drops_by_reason"]
+    assert heads.get("g2-inflection-form") == 1, stats["drops_by_reason"]
+    assert not any("[entry=" in head for head, _ in
+                   stats["drops_by_reason"])
+    lemmas = _blob(html)
+    suf = [e for e in lemmas if e["key"] == "w:suffixed"][0]
+    assert suf["dropped"] is True
+    assert suf["drop_reason"] == "r4-name-only"
+    assert suf["entry_band"] == "B1"
+    leg = [e for e in lemmas if e["key"] == "w:legacy"][0]
+    assert leg["drop_reason"] == "g2-inflection-form"
+    assert leg["entry_band"] is None
+
+
+def test_colonless_reason_head_never_carries_suffix():
+    """W1 companion: a colon-less reason with a suffix must group under
+    its bare head, never the whole suffixed string."""
+    assert viewer._drop_reason("failed-no-entry [entry=B1]") == \
+        "failed-no-entry"
+    assert viewer._drop_band("failed-no-entry [entry=B1]") == "B1"
+    assert viewer._reason_head(
+        viewer._drop_reason("failed-no-entry [entry=B1]")) == \
+        "failed-no-entry"
