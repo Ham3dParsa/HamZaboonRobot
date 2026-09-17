@@ -19,8 +19,7 @@ def _idx():
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": [{"text": (
                                            "She eats a fresh red apple "
-                                           "every single morning "
-                                           "with her family")}]}
+                                           "every morning")}]}
                                       for g in glosses]}}]
     index = {"apple": rows(["a round fruit", "a tech company"], "/aɪpa/")}
 
@@ -61,7 +60,7 @@ def test_enrich_apple_baseline(tmp_path, monkeypatch):
             "A1", "wn-single")
         assert out["enrich_path"] == "partial"
         assert out["dataset_examples"] == [
-            "She eats a fresh red apple every single morning with her family"]
+            "She eats a fresh red apple every morning"]
         assert len(out["pre_card_id"]) == 16
     finally:
         vendored._CACHE.clear()
@@ -75,8 +74,7 @@ def _idx_revegetation():
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": [{"text": (
                                            "She eats a fresh red apple "
-                                           "every single morning "
-                                           "with her family")}]}
+                                           "every morning")}]}
                                       for g in glosses]}}]
     index = {"revegetation": rows(
         ["The act or process of revegetating"], "/aɪpa/")}

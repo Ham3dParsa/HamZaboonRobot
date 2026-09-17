@@ -20,8 +20,7 @@ from factory.precard.judge import fanout_picks, judge_validate_multi
 from factory.precard.pipeline import main, parse_args
 from factory.pipeline import card_pilot
 
-LONG_EXAMPLE = ("She eats a fresh red apple every single morning "
-                "with her family")
+LONG_EXAMPLE = "I will call for help every morning"
 
 
 def _idx(entries):
@@ -202,7 +201,7 @@ def test_r3_picked_sense_without_examples_falls_back_to_lemma():
     out = enrich_item(
         item, pick, index, read_entry, {}, phrase_entry=None)
     assert out["dataset_examples"] != []
-    assert any("apple" in e and "morning" in e
+    assert any("call" in e and "morning" in e
                for e in out["dataset_examples"])
     assert out.get("example_synthetic_needed") in (False, None)
 
