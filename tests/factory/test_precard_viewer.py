@@ -969,6 +969,137 @@ def test_evp_gloss_counts_as_evidenced():
     assert stats["mismatch"]["evidenced_precards"] == 1
 
 
+def _charts_section(html):
+    sec = html.find('<section id="chartsPane"')
+    assert sec >= 0, "charts pane section missing"
+    end = html.find("\n  </section>", sec)
+    assert end > sec
+    return html[sec:end]
+
+
+def _build_both(tmp_path, lang):
+    fix = _mini_run(tmp_path)
+    return viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"], lang=lang)
+
+
+def test_charts_tab_shell_ids_and_default_hidden(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert 'id="tabReview"' in html
+    assert 'id="tabCharts"' in html
+    assert 'id="reviewPane"' in html
+    assert 'id="reviewPane" hidden' not in html
+    assert '<section id="chartsPane" hidden' in html
+    assert ">Review<" in html and ">Charts<" in html
+    assert "function switchView(" in html
+    start = html.find("function switchView(")
+    assert "localStorage" not in html[start:start + 800]
+    assert 'aria-selected="true"' in html
+
+
+def test_charts_kpi_values_bound_to_mini_stats(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    for card in ("kpiKept", "kpiFanout", "kpiMismatch", "kpiSynthetic"):
+        assert ('id="%s"' % card) in charts
+    assert "Lemma kept rate" in charts
+    assert "Mean precards" in charts
+    assert "Evidenced mismatch" in charts
+    assert "Synthetic needed" in charts
+    assert ">70%<" in charts
+    assert ">1.43<" in charts
+    assert "409" not in charts
+    assert "337" not in charts
+    assert re.search(r"(?<![0-9.])67(?![0-9.])", charts) is None
+
+
+def test_charts_widths_math_exact_mini(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert 'stroke-dasharray="70.0 100"' in charts
+    for reason in ("anchor-drop", "pick-proper-noun", "sense-judge-drop"):
+        match = re.search(reason + r".*?width:([0-9.]+)%", charts, re.S)
+        assert match and match.group(1) == "100.0", reason
+    match = re.search(r"2 precards.*?width:([0-9.]+)%", charts, re.S)
+    assert match and match.group(1) == "75.0"
+    match = re.search(r"Food &amp; Drink.*?width:([0-9.]+)%", charts, re.S)
+    assert match and match.group(1) == "100.0"
+
+
+def test_charts_use_theme_vars_only(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "oklch" not in charts and "rgb(" not in charts
+    assert re.search(r"#[0-9a-fA-F]{3,8}", charts) is None
+    for style in re.findall(r'style="([^"]+)"', charts):
+        assert re.fullmatch(r"width:[0-9.]+%", style), style
+    start = html.find("/* Charts tab")
+    end = html.find(".viewer-banner {")
+    assert start > 0 and end > start
+    css = html[start:end]
+    assert "oklch" not in css and "rgb(" not in css
+    assert re.search(r"#[0-9a-fA-F]{3,8}", css) is None
+    assert "var(--accent)" in css
+
+
+def test_charts_catalog_additions_only(tmp_path):
+    assert set(viewer.STRINGS["fa"]) == set(viewer.STRINGS["en"])
+    for key in ("tab.review", "tab.charts", "kpi.kept", "kpi.fanout",
+                "kpi.mismatch", "kpi.synthetic"):
+        assert key in viewer.STRINGS["en"]
+        assert key in viewer.STRINGS["fa"]
+    assert viewer.STRINGS["fa"]["tab.review"] == "بررسی"
+    assert viewer.STRINGS["fa"]["tab.charts"] == "نمودارها"
+    assert viewer.STRINGS["fa"]["kpi.kept"] == "نرخ ماندگاری لماها"
+    assert viewer.STRINGS["fa"]["kpi.fanout"] == "میانگین پیش‌کارت"
+    assert viewer.STRINGS["fa"]["kpi.mismatch"] == "مغایرت مدرک‌دار"
+    assert viewer.STRINGS["fa"]["kpi.synthetic"] == "نیاز به مثال ساختگی"
+
+
+def test_fa_charts_chrome_uses_approved_strings(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    charts = _charts_section(fa_html)
+    for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
+                 "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
+                 "نیاز به مثال ساختگی", "گروه سنجه 2"):
+        assert text in fa_html, text
+    assert ">70٪<" in charts
+    assert ">1.43<" in charts
+    for literal in (">Review<", ">Charts<", "Lemma kept rate",
+                    "Mean precards", "Evidenced mismatch",
+                    "Synthetic needed"):
+        assert literal not in fa_html, literal
+    # Data values stay Latin; approved group prose keeps its own ۱+/۲+
+    # digits verbatim (never rewritten).
+    assert re.search(r"[0-9]", charts)
+
+
+@pytest.mark.parametrize("lang,units", [
+    ("en", ("kept lemmas / all lemmas", "row-level",
+             "lemma-level (exists)", "dropped lemmas")),
+    ("fa", ("لِماهای نگه‌داشته‌شده / همه لِماها", "سطح ردیفی",
+             "وجودی", "لِماهای حذف‌شده")),
+])
+def test_charts_label_units_both_langs(tmp_path, lang, units):
+    html = _build_both(tmp_path, lang)
+    charts = _charts_section(html)
+    for unit in units:
+        assert unit in charts, unit
+
+
 def test_unmapped_sense_renders_cefr_none_placeholder(tmp_path):
     """OC round 2 W2: unmapped rows render a cefr-none/— chip, never
     an empty `cefr-` class span."""
