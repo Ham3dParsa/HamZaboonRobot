@@ -1279,12 +1279,14 @@ def test_s0b_all_429_stops_for_resume(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = _write_resume_sample(tmp_path, ["cats"])
     # Two senses: the first is inflectional (s0b reviews it) while the
-    # second is independent (preprocess G2 keeps the item).
+    # second is a name row (R8 excludes it from the every-gloss test,
+    # so the item still reaches the transport — a real second sense
+    # would skip review via the precheck).
     index = {"cats": [{"pos": "noun",
                        "entry": {"pos": "noun", "sounds": [],
                                  "senses": [{"glosses": ["plural of cat"],
                                              "tags": [], "examples": []},
-                                            {"glosses": ["a small furry animal"],
+                                            {"glosses": ["A surname."],
                                              "tags": [], "examples": []}]}}]}
 
     def _always_429(api_key, model, *texts):

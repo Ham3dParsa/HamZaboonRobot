@@ -922,15 +922,16 @@ def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
 # ---------------- v9 R36: S0b inflection stage ----------------
 
 def _inflect_index():
-    # Mixed entries (stub top + one real sense) so items pass the G2
-    # all-form S0 gate and reach the S0b review under test. Pure-form
-    # entries die at S0 (see test_g2_*); S0b owns mixed tops.
+    # Entries that reach the S0b review under test: stub senses plus a
+    # name row (R8 reviews these — pure-form entries die at the S0 G2
+    # gate; entries with a real sense skip review via the R8 precheck).
+    # See test_g2_* for the S0 gate; S0b owns name-polluted stubs.
     def rows(*glosses):
         return [{"pos": "noun",
                  "entry": {"pos": "noun", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"cats": rows("plural of cat", "feline companions"),
+    return {"cats": rows("plural of cat", "A surname."),
             "went": rows("past of go", "to move along"),
             "apple": rows("a round fruit")}
 
@@ -948,12 +949,19 @@ def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     sample = write_sample(tmp_path, items)
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
 
+    _S0B_KEEP = {"w:cats": (False, "regular plural, use cat"),
+                 "w:went": (True, "irregular, own value")}
+
     def inflect(api_key, model, sys_text, user_text):
+        # R8: answer exactly the requested KEYs — the shared envelope
+        # validator rejects extra rows, and skipped lemmas are never
+        # in the prompt anymore.
+        keys = re.findall(r"^KEY (\S+)", user_text, re.M)
         return json.dumps({"results": [
-            {"key": "w:cats", "keep": False,
-             "reason": "regular plural, use cat"},
-            {"key": "w:went", "keep": True,
-             "reason": "irregular, own value"}]})
+            {"key": k, "keep": _S0B_KEEP.get(
+                k, (True, "test keep"))[0],
+             "reason": _S0B_KEEP.get(k, (True, "test keep"))[1]}
+            for k in keys]})
 
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
@@ -970,35 +978,33 @@ def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     assert s0b["done"]["w:cats"]["kept"] is False
     assert s0b["done"]["w:cats"]["reason"].startswith("inflection-drop")
     assert "w:cats" in s0b["failed"]
-    assert s0b["done"]["w:went"]["reason"] == "inflection-keep"
+    # R8: went carries a real sense ("to move along"), so the precheck
+    # keeps it without consulting the (mock) LLM verdict.
+    assert s0b["done"]["w:went"]["reason"] == "review-has-independent-sense"
     assert s0b["done"]["w:apple"]["reason"] == "not-inflection"
 
 
-def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
+def test_s0b_uncertain_keeps():
     """R36 fail-closed: review errors keep the item flagged
-    review-uncertain (never drop on uncertainty)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
-    items = [{"kind": "word", "text": "cats", "pos": "noun",
-              "pool_level": "A1"}]
-    sample = write_sample(tmp_path, items)
-    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    review-uncertain (never drop on uncertainty).
+    R8 note: pinned at review level, not pipeline level — any item
+    that reaches a blowing transport carries a name row (all-stub
+    non-name entries die at the S0 G2 gate first), and anchor drops
+    name-topped items downstream. The fail-closed contract itself is
+    unchanged and lives here."""
+    from factory.precard.judge import inflection_review
 
     def broken(api_key, model, sys_text, user_text):
         raise urllib.error.HTTPError("http://x", 500, "boom", {}, None)
 
-    rc = precard_main(
-        ["--sample", sample, "--out", out, "--progress-dir", prog],
-        _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _inflect_transport=broken,
-        _sleep_fn=lambda s: None, _index=_inflect_index(),
-        _read_entry=read_entry, _tatoeba={},
-        _zipf_fn=lambda t: 5.0)
-    assert rc == 0
-    assert [r["key"] for r in load_out(out)] == ["w:cats"]  # kept
-    s0b = json.loads(
-        (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
-    assert s0b["done"]["w:cats"] == {
-        "kept": True, "reason": "review-uncertain", "uncertain": True}
+    out = inflection_review(
+        [{"key": "w:cats", "text": "cats", "gloss": "plural of cat"}],
+        broken, "test-key", sleep_fn=lambda s: None, state={},
+        anchor_map={"w:cats": {"candidates": [
+            {"gloss": "plural of cat"}, {"gloss": "A surname."}]}})
+    assert out["w:cats"] == {
+        "keep": True, "reason": "review-error",
+        "model": "review-fallback", "uncertain": True}
 
 def test_s1_drops_vulgar_anchor():
     from factory.precard.anchor import anchor_rank_item
@@ -1034,8 +1040,8 @@ def _superlative_index():
                  "entry": {"pos": "adj", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"best": rows("superlative of good", "of the highest quality"),
-            "better": rows("comparative of good", "of higher quality"),
+    return {"best": rows("superlative of good", "A surname."),
+            "better": rows("comparative of good", "A surname."),
             "good": rows("having good qualities")}
 
 
@@ -1136,7 +1142,10 @@ def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
         (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:best"]["reason"] == "inflection-keep"
     assert s0b["done"]["w:best"].get("redirect_to", "") == ""
-    assert [r["key"] for r in load_out(out)] == ["w:best"]
+    # R8 note: anchor drops surname-topped items downstream
+    # (anchor-name-gloss, pre-existing, out of scope), so no rows
+    # survive — the s0b contract pinned here is keep + no redirect.
+    assert [r["key"] for r in load_out(out)] == []
 
 
 def test_telemetry_history_vendored_with_provenance(tmp_path, monkeypatch):

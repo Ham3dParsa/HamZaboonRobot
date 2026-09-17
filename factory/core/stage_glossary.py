@@ -124,6 +124,7 @@ REASON_SLUGS = (
     "superlative-redirect",
     "review-error",
     "review-uncertain",
+    "review-has-independent-sense",
     "not-inflection",
     "s0b-no-transport",
     "s1-fallback",
