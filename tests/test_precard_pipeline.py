@@ -1217,8 +1217,9 @@ def test_s3_tuple_usage_recorded():
     assert ok[0]["completion_tokens"] == 7
 
 
-def test_s4_fallback_path_counted(tmp_path):
-    """T1: S4 deterministic fallback carries topic_path + fallback telemetry."""
+def test_s4_unlabelled_path_counted(tmp_path):
+    """T1 (R3 locked): S4 LLM failure leaves the row UNLABELLED (never
+    Other); the chunk-level fallback telemetry record is unchanged."""
     from factory.precard.transport import KeyRing
     from factory.precard.topics import label_item
     state = {"done": {}, "failed": [], "backoffs": []}
@@ -1232,8 +1233,8 @@ def test_s4_fallback_path_counted(tmp_path):
         item, "plural of zzqx", "zzqx#0", None, "k", garbage,
         lambda s: None, state, str(tmp_path / _TOPUP_NEW_NAME), {},
         telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
-    assert assigned["label"] == "Other / Abstract"
-    assert assigned["topic_path"] == "fallback"
+    assert assigned["label"] is None
+    assert assigned["topic_path"] == "unlabelled"
     assert any(r.get("stage") == "s4" and r.get("outcome") == "fallback"
                for r in tele)
 
@@ -1312,7 +1313,7 @@ def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
         wrap("k1", "m", "u")
 
 def test_label_item_reraises_ratelimited():
-    """OC must-fix: label_item must not swallow RateLimited into fallback."""
+    """OC must-fix: label_item must not swallow RateLimited into unlabelled."""
     import urllib.error
     import pytest
     from factory.precard.topics import label_item
@@ -3079,8 +3080,7 @@ def test_label_batch_16_items_single_call():
     state = {"done": {}, "failed": [], "backoffs": []}
     out = label_batch(
         items, picks, None, "k", fake_transport, lambda s: None, state,
-        None, {}, ring=KeyRing(["k"]),
-        lookup=lambda t, g: None)
+        None, {}, ring=KeyRing(["k"]))
     assert len(calls) == 1
     for it in items:
         assert it["text"] in calls[0]
@@ -3093,7 +3093,7 @@ def test_label_batch_16_items_single_call():
 
 
 def test_label_batch_salvages_valid_rows():
-    """B1: one malformed row fails closed only its own item."""
+    """B1: one malformed row leaves only its own item unlabelled."""
     from factory.precard.accounting import item_key
     from factory.precard.topics import label_batch
     from factory.precard.transport import KeyRing
@@ -3121,12 +3121,11 @@ def test_label_batch_salvages_valid_rows():
     state = {"done": {}, "failed": [], "backoffs": []}
     out = label_batch(
         items, picks, None, "k", fake_transport, lambda s: None, state,
-        None, {}, ring=KeyRing(["k"]),
-        lookup=lambda t, g: None)
+        None, {}, ring=KeyRing(["k"]))
     assert out[item_key(items[0])]["topic_path"] == "llm"
     assert out[item_key(items[0])]["label"] == "Work & Careers"
-    assert out[item_key(items[1])]["topic_path"] == "fallback"
-    assert out[item_key(items[1])]["label"] == "Other / Abstract"
+    assert out[item_key(items[1])]["topic_path"] == "unlabelled"
+    assert out[item_key(items[1])]["label"] is None
 
 
 def test_label_batch_duplicate_lemma_text():
@@ -3162,8 +3161,7 @@ def test_label_batch_duplicate_lemma_text():
     state = {"done": {}, "failed": [], "backoffs": []}
     out = label_batch(
         items, picks, None, "k", fake_transport, lambda s: None, state,
-        None, {}, ring=KeyRing(["k"]),
-        lookup=lambda t, g: None)
+        None, {}, ring=KeyRing(["k"]))
     assert len(calls) == 1
     for it in items:
         row = out[item_key(it)]

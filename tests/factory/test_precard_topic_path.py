@@ -1,6 +1,7 @@
 """topic_path promotion (D-go-rev): s4 leg metadata rides top-level.
 
-_build_precard_row carries sub_label.topic_path (leg1/cache/llm/fallback)
+_build_precard_row carries sub_label.topic_path (cache/llm/unlabelled,
+plus the retired leg1/fallback values from older progress states)
 and sub_label.topic_guarded onto every emitted row — primaries and
 fanned-out secondaries alike. The v16b-exact fossil is gone: the default
 method tag is topics.TOPIC_METHOD ("live16").
@@ -9,7 +10,7 @@ method tag is topics.TOPIC_METHOD ("live16").
 from factory.precard import pipeline as new_pipeline
 from factory.precard.topics import TOPIC_METHOD, label_batch
 
-_VALID_PATHS = ("leg1", "cache", "llm", "fallback")
+_VALID_PATHS = ("leg1", "cache", "llm", "fallback", "unlabelled")
 
 
 def _row(sub_label):
@@ -55,27 +56,25 @@ def test_none_topic_path_fail_closed():
 
 
 def test_guarded_secondary_flag_survives_extra_fold():
-    """End-to-end s4 secondary path (reviewer finding): label_batch ->
-    extra -> pipeline promotion keeps topic_guarded on the guarded
-    secondary only. lookup=None + transport=None forces the fallback
-    leg; the "call"/"telephone" gloss trips the abstract re-anchor."""
+    """End-to-end s4 secondary path: label_batch -> extra -> pipeline
+    promotion. R3 locked: transport=None leaves every sense UNLABELLED
+    (never Other); the fold still collects one secondary per extra pick
+    and the pipeline promotion honors the folded row."""
     batch = [{"kind": "word", "text": "call"}]
     picks = {"w:call": {"picks": [
         {"sense_id": "call#0", "gloss": "to cry out"},
         {"sense_id": "call#2", "gloss": "to telephone someone"}]}}
     out = label_batch(batch, picks, None, "test-key", None,
-                      lambda s: None, {}, None, {},
-                      lookup=lambda text, gloss: None)
+                      lambda s: None, {}, None, {})
     primary = out["w:call"]
-    assert primary["topic_path"] == "fallback"
-    # "call" also matches the catch-all re-anchor rule ((), "Society"),
-    # so the primary is guarded too — the point here is the secondary.
-    assert primary["label"] == "Society"
-    assert primary["topic_guarded"] is True
+    assert primary["label"] is None
+    assert primary["topic_path"] == "unlabelled"
+    assert primary.get("topic_guarded", False) is False
     assert len(primary["extra"]) == 1
     secondary = primary["extra"][0]
-    assert secondary["topic_path"] == "fallback"
-    assert secondary["topic_guarded"] is True
-    # And the pipeline promotion honors the folded flag.
+    assert secondary["label"] is None
+    assert secondary["topic_path"] == "unlabelled"
+    # And the pipeline promotion honors the folded path.
     promoted = _row(secondary)
-    assert promoted["topic_guarded"] is True
+    assert promoted["topic_path"] == "unlabelled"
+    assert promoted["stage_calls"]["s4_path"] == "unlabelled"
