@@ -407,6 +407,52 @@ def _lemma_fallback_examples(entries, read_entry, seen):
     return out
 
 
+def is_circular_def(lemma, en_def):
+    """R4: True iff the definition defines the lemma with itself.
+
+    Revegetation case: ``revegetation = "The act or process of
+    revegetating"`` teaches nothing — the head nominalizes the lemma
+    stem instead of giving a genus-differentia ("a round fruit").
+    FLAG only, never drop (card line decides drop/rewrite later).
+
+    Narrow: the definition head must match ``The act/state/process
+    [or ...] of <word>`` or ``The state of being <word>`` (case-
+    insensitive), AND that head word must share a morphological stem
+    with the lemma (``_stem_match_5`` reuse). Bare-infinitive
+    definitions (``to accumulate``) never fire even when the verb
+    equals the lemma. Fail-open: empty lemma/definition, short
+    stems, or any uncertainty returns False. Deterministic,
+    stdlib-only.
+    """
+    text = (en_def or "").strip()
+    lem = (lemma or "").strip().lower()
+    if not text or not lem:
+        return False
+    hit = _CIRCULAR_BEING_RX.match(text)
+    head = hit.group(1).lower() if hit else None
+    if head is None:
+        hit = _CIRCULAR_HEAD_RX.match(text)
+        if hit is None:
+            return False
+        head = hit.group(1).lower()
+    if not head:
+        return False
+    lem_tokens = _ALPHA_TOKEN_RX.findall(lem)
+    if not lem_tokens:
+        return False
+    return any(_stem_match_5(head, tok) for tok in lem_tokens)
+
+
+_CIRCULAR_BEING_RX = re.compile(
+    r"the\s+state\s+of\s+being\s+([A-Za-z]+)", re.IGNORECASE)
+
+
+_CIRCULAR_HEAD_RX = re.compile(
+    r"the\s+(?:act|state|process)"
+    r"(?:\s+or\s+(?:act|state|process))*\s+of\s+([A-Za-z]+)",
+    re.IGNORECASE)
+
+
 def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    zipf_fn=None, phrase_entry=None):
     """Enrichment (s5) from the judge-chosen sense (card_pilot helpers).
@@ -439,6 +485,9 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     (stripped + uppercased, known CEFR levels only) with method
     "pool-fallback" — every precard row leaves with non-empty sense_cefr
     whenever pool_level carries a valid level.
+    R4: also returns circular_def (per-sense FLAG only, never drop) —
+    True when en_def defines the lemma with itself ("The act or
+    process of revegetating" for revegetation); see is_circular_def.
     """
     sid = (judge_pick or {}).get("sense_id", "")
     gloss = (judge_pick or {}).get("gloss", "")
@@ -448,6 +497,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
         sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
             item, lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
+                "circular_def": is_circular_def(lemma, gloss or ""),
                 "ipa": "", "ipa_src": _anchor_home.IPA_SRC_MODEL,
                 "dataset_examples": [], "example_fallback": "synthetic-needed",
                 "example_synthetic_needed": True,
@@ -529,6 +579,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
         item, lemma, id_pos, gloss or "")
     return {"sense_id": sid, "en_def": gloss or "",
+            "circular_def": is_circular_def(lemma, gloss or ""),
             "ipa": ipa,
             "ipa_src": _anchor_home.IPA_SRC_DATASET if ipa
             else _anchor_home.IPA_SRC_MODEL,
@@ -543,7 +594,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "sense_cefr": sense_cefr,
             "sense_cefr_method": sense_cefr_method,
             "lexical_type": lexical_type_for(kind, sense_tags,
-                                             phrase_entry),
+                                              phrase_entry),
             "register": register_for(sense_tags),
             "pre_card_id": compute_pre_card_id(lemma, id_pos,
                                                gloss or "")}
