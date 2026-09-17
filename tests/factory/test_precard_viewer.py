@@ -26,6 +26,7 @@ def _row(key, text, sense_id, **extra):
            "example_fallback": "sense", "example_synthetic_needed": False,
            "pos": ["noun"], "sense_cefr": "A1",
            "sense_cefr_method": "pool-fallback",
+           "register": "neutral", "lexical_type": "word",
            "pre_card_id": "id-%s" % sense_id, "fanout_n": 1,
            "stage_calls": {"s2": "m", "s4": "v16b-exact", "s5": "full"},
            "topic_vector": [{"label": "Food & Drink", "weight": 1.0}]}
@@ -532,8 +533,9 @@ def test_missing_cefr_renders_single_dash_row(tmp_path):
 
 
 def test_register_filter_wiring_and_units(tmp_path):
-    """Issue #729 item 4: one combined style select, kept-only counts,
-    any-sense match, labeled units. JS runs client-side; assert wiring."""
+    """Issue #729 item 4 + follow-up F1: one combined style select with
+    field-origin prefixes, kept-only counts, any-sense match, labeled
+    units. JS runs client-side; assert wiring."""
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
@@ -542,7 +544,29 @@ def test_register_filter_wiring_and_units(tmp_path):
     assert "each style counts kept-only lemmas" in html
     assert "All Styles (${RAW_LEMMAS.length})" in html
     assert "lemmaStyles" in html
-    assert 's.register === style || s.lexical_type === style' in html
+    assert "register:${s.register}" in html
+    assert "type:${s.lexical_type}" in html
+    assert 'field === "register" ? s.register === want' in html
     assert "kept lemmas)" in html
     assert "opt.textContent = `${v} (${styleCounts[v]} kept lemmas)`" in html
     assert "${style}" not in html
+
+
+def test_method_source_filter_wiring_and_units(tmp_path):
+    """Follow-up F2: method + source selects, kept-only counts,
+    any-sense match, labeled units. JS runs client-side; assert wiring."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert '<select id="methodFilter"' in html
+    assert '<select id="sourceFilter"' in html
+    assert "each method counts kept-only lemmas" in html
+    assert "each source counts kept-only lemmas" in html
+    assert "All Methods (${RAW_LEMMAS.length})" in html
+    assert "All Sources (${RAW_LEMMAS.length})" in html
+    assert "(s.sense_cefr_method || \"(unknown)\") === method" in html
+    assert "(s.example_fallback || \"(unknown)\") === source" in html
+    assert "CEFR/topic/style/method/source filter never matches" in html
+    assert "${method}" not in html
+    assert "${source}" not in html
