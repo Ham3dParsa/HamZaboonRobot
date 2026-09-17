@@ -882,6 +882,8 @@ def test_fa_twin_links_to_en_sibling_custom_out(tmp_path):
     fa_html = (fix["run_dir"] / "custom-viewer.fa.html").read_text(
         encoding="utf-8")
     assert 'href="custom-viewer.html"' in fa_html
+
+
 def test_drop_suffix_stripped_at_reader_with_band_field(tmp_path):
     """OC blocking W1: enriched lines ("w:X: reason [entry=B1]") must not
     leak the suffix into viewer reason grouping — the reader strips it
@@ -927,3 +929,32 @@ def test_colonless_reason_head_never_carries_suffix():
     assert viewer._reason_head(
         viewer._drop_reason("failed-no-entry [entry=B1]")) == \
         "failed-no-entry"
+
+
+def test_drawer_grid_scrolls_with_workspace_floor(tmp_path):
+    """T1 (plan-precard-viewer-responsive R1): drawer grid caps at 38vh
+    with internal scroll; workspace never collapses below 200px."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    grid = re.search(r"\.dist-grid \{(.*?)\}", html, re.S).group(1)
+    assert "max-height: 38vh" in grid
+    assert "overflow-y: auto" in grid
+    workspace = re.search(r"\.split-workspace \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 200px" in workspace
+
+
+def test_phone_stacking_media_query(tmp_path):
+    """T2 (plan-precard-viewer-responsive R2): phone-only (<=640px)
+    single-column stacking; kbd hints hidden."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "@media (max-width:640px)" in html
+    media = html[html.find("@media (max-width:640px)"):]
+    assert "grid-template-columns: 1fr" in media
+    assert re.search(
+        r"\.shortcut-hint,\s*\.kbd-key\s*\{[^}]*display:\s*none",
+        media)

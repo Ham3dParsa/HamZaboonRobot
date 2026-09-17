@@ -909,6 +909,9 @@ _HTML_TEMPLATE = """
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 12px;
   padding: 10px 0 6px 0;
+  max-height: 38vh;
+  overflow-y: auto;
+  min-height: 0;
 }
 .dist-group {
   background: var(--bg-page);
@@ -1141,6 +1144,7 @@ body {
   grid-template-columns: 320px 1fr;
   flex: 1;
   overflow: hidden;
+  min-height: 200px;
 }
 
 .sidebar {
@@ -1195,6 +1199,37 @@ body {
 .detail-content {
   max-width: 960px;
   margin: 0 auto;
+}
+
+/* Phone-only stacking + compaction (viewer-responsive T2): single column
+   (sidebar over detail), kbd hints hidden, search full-width. Shell stays
+   locked (body overflow hidden); panes keep their own internal scroll. */
+@media (max-width:640px) {
+  .split-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px,38vh) minmax(220px,1fr);
+  }
+  .sidebar {
+    max-height: 38vh;
+  }
+  .detail-pane {
+    min-height: 220px;
+    padding: 16px 16px 40px;
+  }
+  .shortcut-hint, .kbd-key {
+    display: none;
+  }
+  .search-input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .filter-bar {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .app-header {
+    padding: 10px 12px;
+  }
 }
 
 .word-hero {
