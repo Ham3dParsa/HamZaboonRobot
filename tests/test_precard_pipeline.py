@@ -3445,3 +3445,60 @@ def test_google_key_falls_back_to_egress_env(tmp_path, monkeypatch):
         str(egress), "GOOGLE_AI_API_KEY") == "egress-key"
     assert _read_egress_env_key(
         str(tmp_path / "missing.env"), "GOOGLE_AI_API_KEY") == ""
+
+
+def test_dropped_log_carries_entry_band(tmp_path, monkeypatch):
+    """#730: a dropped lemma's entry band (pool_level at sampling time)
+    lands in dropped.log as a " [entry=BAND]" suffix; kept rows are
+    untouched and legacy suffix-less lines still parse as band-less."""
+    from factory.precard.pipeline import parse_drop_entry_band
+    items = [{"kind": "word", "text": "Xyzztown", "pos": "noun",
+              "pool_level": "B1"},
+             {"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    index = {"xyzztown": [{"pos": "name",
+                           "entry": {"pos": "name", "sounds": [],
+                                     "senses": [{"glosses": ["A place."],
+                                                 "tags": [],
+                                                 "examples": []}]}}],
+             "apple": _word_rows("apple", ("a round fruit",))}
+    rows, _ = _run_s0_only(tmp_path, monkeypatch, items, index,
+                            _zipf_fn=lambda t: 5.0)
+    assert [r["key"] for r in rows] == ["w:apple"]  # kept row unaffected
+    drop_log = (tmp_path / "dropped.log").read_text(encoding="utf-8")
+    lines = [line for line in drop_log.splitlines()
+             if line.startswith("w:Xyzztown")]
+    assert lines, drop_log
+    assert lines[0] == "w:Xyzztown: r4-name-only [entry=B1]", lines
+    assert parse_drop_entry_band(lines[0]) == "B1"
+    # Backward compatible: pre-#730 lines carry no suffix -> None.
+    assert parse_drop_entry_band("w:ears: g2-inflection-form") is None
+    assert parse_drop_entry_band(
+        "w:margins: r20-zipf-low:1.40") is None
+
+
+def test_survival_per_band_backfills_v141_shape():
+    """#730 backfill: survival-per-band recomputes from entry bands +
+    the kept set. Fixture mirrors the verified v141 artifact shapes
+    (sample200.frozen.json: pool_level per lemma, exact 284<->284 key
+    join with prog/preprocess.json done; kept set from precard.jsonl).
+    Real v141 recomputation (read-only probe, dropped = entered - kept):
+    A1 42/48 = 87.5%, C2 22/48 = 45.8% (185 kept / 276 distinct)."""
+    from factory.precard.pipeline import survival_per_band
+    entry_bands = {"w:a1a": "A1", "w:a1b": "A1", "w:a1c": "A1",
+                   "w:c2a": "C2", "w:c2b": "C2",
+                   "w:xx": "?"}
+    kept = {"w:a1a", "w:a1b", "w:c2a", "w:kept-not-sampled"}
+    got = survival_per_band(entry_bands, kept)
+    assert got["A1"] == {"entered": 3, "kept": 2, "dropped": 1,
+                         "survival": 2 / 3}
+    assert got["C2"] == {"entered": 2, "kept": 1, "dropped": 1,
+                         "survival": 0.5}
+    assert got["?"] == {"entered": 1, "kept": 0, "dropped": 1,
+                        "survival": 0.0}
+    # Kept-also-in-dropped (s1-fallback overlap) counts as kept, never
+    # double-counted; unknown keys outside the sample never inflate entered.
+    assert sum(v["entered"] for v in got.values()) == 6
+    assert survival_per_band({}, set()) == {}
+    assert survival_per_band({"w:solo": "B1"}, set())["B1"] == {
+        "entered": 1, "kept": 0, "dropped": 1, "survival": 0.0}
