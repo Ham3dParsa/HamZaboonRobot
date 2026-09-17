@@ -2037,7 +2037,44 @@ def _load_rows(precard_path):
     return rows
 
 
+_ENTRY_SUFFIX_RE = re.compile(r"\s\[entry=([^\]]+)\]\s*$")
+
+
+def _split_entry_suffix(reason):
+    """Strip a trailing " [entry=BAND]" (pipeline #730); (reason, band|None)."""
+    text = str(reason or "")
+    match = _ENTRY_SUFFIX_RE.search(text)
+    if not match:
+        return text.strip(), None
+    band = match.group(1).strip() or None
+    return text[:match.start()].rstrip(), band
+
+
+def _drop_reason(value):
+    """Reason string from a dropped-map value (dict {reason, entry_band}
+    or legacy plain string; legacy strings are suffix-stripped too)."""
+    if isinstance(value, dict):
+        return value.get("reason") or ""
+    reason, _band = _split_entry_suffix(value)
+    return reason
+
+
+def _drop_band(value):
+    """Entry band from a dropped-map value (None for legacy lines)."""
+    if isinstance(value, dict):
+        return value.get("entry_band")
+    _reason, band = _split_entry_suffix(value)
+    return band
+
+
 def _load_dropped(dropped_path, run_log_path=None):
+    """Dropped map: key -> {"reason", "entry_band"}.
+
+    The " [entry=BAND]" suffix is stripped at the reader so reason
+    grouping (_reason_head) never sees it; the band rides along as a
+    separate field for the later viewer pass (lemmas_data entry_band).
+    Legacy suffix-less lines yield entry_band None.
+    """
     dropped = OrderedDict()
     if dropped_path:
         try:
@@ -2050,8 +2087,10 @@ def _load_dropped(dropped_path, run_log_path=None):
                 continue
             parts = line.split(":")
             if len(parts) >= 3:
+                reason, band = _split_entry_suffix(
+                    ":".join(parts[2:]).strip())
                 dropped.setdefault(parts[0] + ":" + parts[1],
-                                   ":".join(parts[2:]).strip())
+                                   {"reason": reason, "entry_band": band})
     if run_log_path:
         try:
             log_text = Path(run_log_path).read_text(encoding="utf-8")
@@ -2059,7 +2098,8 @@ def _load_dropped(dropped_path, run_log_path=None):
             log_text = ""
         for match in _PROPER_RE.finditer(log_text):
             dropped.setdefault("w:" + match.group(1),
-                               "pick-proper-noun/" + match.group(2))
+                               {"reason": "pick-proper-noun/" + match.group(2),
+                                "entry_band": None})
     return dropped
 
 
@@ -2134,7 +2174,7 @@ def _compute_stats(rows, dropped_map):
 
     drops = {}
     for key in dropped_keys:
-        head = _reason_head(dropped_map[key])
+        head = _reason_head(_drop_reason(dropped_map[key]))
         drops[head] = drops.get(head, 0) + 1
     drops_by_reason = sorted(drops.items(), key=lambda kv: (-kv[1], kv[0]))
 
@@ -2517,7 +2557,8 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
                 "key": key,
                 "pool_level": "\u2014",
                 "dropped": True,
-                "drop_reason": dropped_map[key],
+                "drop_reason": _drop_reason(dropped_map[key]),
+                "entry_band": _drop_band(dropped_map[key]),
                 "senses": [],
             })
 
