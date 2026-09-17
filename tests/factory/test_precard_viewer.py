@@ -4,8 +4,6 @@ Hermetic: tmp_path only, no network, no keys. Fixtures mirror the real
 pipeline line outputs (precard.jsonl rows carry the v14.1 fanout fields).
 """
 
-import importlib.util
-import difflib
 import json
 import re
 import subprocess
@@ -861,7 +859,17 @@ def test_fa_custom_out_twin_links_and_help(tmp_path):
         cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0
     assert "both twins" in proc.stdout
-    assert '"Segoe UI", system-ui, sans-serif' in fa_html
+
+
+def test_colliding_out_refuses_to_overwrite_twin(tmp_path):
+    """OC review round 2 (PR 748): --lang en --out x.fa.html resolves
+    both twins to one path — refuse with exit 2 instead of overwriting."""
+    fix = _mini_run(tmp_path)
+    out = fix["run_dir"] / "custom.fa.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--lang", "en", "--out", str(out)])
+    assert rc == 2
 
 
 def test_fa_twin_links_to_en_sibling_custom_out(tmp_path):

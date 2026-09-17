@@ -2610,6 +2610,10 @@ def main(argv=None):
     else:
         dest_en = Path(args.run_dir) / "precard-viewer.html"
         dest_fa = Path(args.run_dir) / "precard-viewer.fa.html"
+    if dest_en == dest_fa:
+        print("viewer --out collision: en and fa twins resolve to %s"
+              % dest_en, file=sys.stderr)
+        return 2
     if dest_fa.name != _fa_sibling(Path("precard-viewer.html")).name:
         page_en = page_en.replace(
             'href="precard-viewer.fa.html"',
