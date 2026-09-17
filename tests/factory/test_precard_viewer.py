@@ -854,6 +854,16 @@ def test_fa_custom_out_twin_links_and_help(tmp_path):
     en_html = en_twin.read_text(encoding="utf-8")
     assert 'href="%s"' % en_twin.name in fa_html
     assert 'href="%s"' % out.name in en_html
+
+
+def test_metrics_drawer_open_by_default(tmp_path):
+    """Tabs restructure: the relocated drawer must render open inside the
+    Metrics pane, otherwise the tab shows only its summary line."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert '<details class="dist-drawer" id="distDrawer" open>' in html
     proc = subprocess.run(
         [sys.executable, "-m", "factory.precard.viewer", "--help"],
         cwd=ROOT, capture_output=True, text=True, timeout=120)
@@ -969,6 +979,144 @@ def test_evp_gloss_counts_as_evidenced():
     assert stats["mismatch"]["evidenced_precards"] == 1
 
 
+def _charts_section(html):
+    sec = html.find('<section id="chartsPane"')
+    assert sec >= 0, "charts pane section missing"
+    end = html.find("\n  </section>", sec)
+    assert end > sec
+    return html[sec:end]
+
+
+def _build_both(tmp_path, lang):
+    fix = _mini_run(tmp_path)
+    return viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"], lang=lang)
+
+
+def test_charts_tab_shell_ids_and_default_hidden(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert 'id="tabReview"' in html
+    assert 'id="tabMetrics"' in html
+    assert 'id="tabCharts"' in html
+    assert (html.find('id="tabReview"')
+            < html.find('id="tabMetrics"')
+            < html.find('id="tabCharts"'))
+    assert 'id="reviewPane"' in html
+    assert 'id="reviewPane" hidden' not in html
+    assert '<section id="metricsPane" hidden' in html
+    assert '<section id="chartsPane" hidden' in html
+    assert ">Review<" in html and ">Metrics<" in html and ">Charts<" in html
+    assert "function switchView(" in html
+    start = html.find("function switchView(")
+    assert "localStorage" not in html[start:start + 1200]
+    assert html.count('aria-selected="true"') == 1
+
+
+def test_charts_kpi_values_bound_to_mini_stats(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    for card in ("kpiKept", "kpiFanout", "kpiMismatch", "kpiSynthetic"):
+        assert ('id="%s"' % card) in charts
+    assert "Lemma kept rate" in charts
+    assert "Mean precards" in charts
+    assert "Evidenced mismatch" in charts
+    assert "Synthetic needed" in charts
+    assert ">70%<" in charts
+    assert ">1.43<" in charts
+    assert "409" not in charts
+    assert "337" not in charts
+    assert re.search(r"(?<![0-9.])67(?![0-9.])", charts) is None
+
+
+def test_charts_widths_math_exact_mini(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert 'stroke-dasharray="70.0 100"' in charts
+    for reason in ("anchor-drop", "pick-proper-noun", "sense-judge-drop"):
+        match = re.search(reason + r".*?width:([0-9.]+)%", charts, re.S)
+        assert match and match.group(1) == "100.0", reason
+    match = re.search(r"2 precards.*?width:([0-9.]+)%", charts, re.S)
+    assert match and match.group(1) == "75.0"
+    match = re.search(r"Food &amp; Drink.*?width:([0-9.]+)%", charts, re.S)
+    assert match and match.group(1) == "100.0"
+
+
+def test_charts_use_theme_vars_only(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "oklch" not in charts and "rgb(" not in charts
+    assert re.search(r"#[0-9a-fA-F]{3,8}", charts) is None
+    for style in re.findall(r'style="([^"]+)"', charts):
+        assert re.fullmatch(r"width:[0-9.]+%", style), style
+    start = html.find("/* Charts tab")
+    end = html.find(".viewer-banner {")
+    assert start > 0 and end > start
+    css = html[start:end]
+    assert "oklch" not in css and "rgb(" not in css
+    assert re.search(r"#[0-9a-fA-F]{3,8}", css) is None
+    assert "var(--accent)" in css
+
+
+def test_charts_catalog_additions_only(tmp_path):
+    assert set(viewer.STRINGS["fa"]) == set(viewer.STRINGS["en"])
+    for key in ("tab.review", "tab.metrics", "tab.charts", "kpi.kept",
+                "kpi.fanout", "kpi.mismatch", "kpi.synthetic"):
+        assert key in viewer.STRINGS["en"]
+        assert key in viewer.STRINGS["fa"]
+    assert viewer.STRINGS["en"]["tab.metrics"] == "Metrics"
+    assert viewer.STRINGS["fa"]["tab.review"] == "بررسی"
+    assert viewer.STRINGS["fa"]["tab.metrics"] == "سنجه‌ها"
+    assert viewer.STRINGS["fa"]["tab.charts"] == "نمودارها"
+    assert viewer.STRINGS["fa"]["kpi.kept"] == "نرخ ماندگاری لماها"
+    assert viewer.STRINGS["fa"]["kpi.fanout"] == "میانگین پیش‌کارت"
+    assert viewer.STRINGS["fa"]["kpi.mismatch"] == "مغایرت مدرک‌دار"
+    assert viewer.STRINGS["fa"]["kpi.synthetic"] == "نیاز به مثال ساختگی"
+
+
+def test_fa_charts_chrome_uses_approved_strings(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    charts = _charts_section(fa_html)
+    for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
+                 "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
+                 "نیاز به مثال ساختگی", "گروه سنجه 2"):
+        assert text in fa_html, text
+    assert ">70٪<" in charts
+    assert ">1.43<" in charts
+    for literal in (">Review<", ">Charts<", "Lemma kept rate",
+                    "Mean precards", "Evidenced mismatch",
+                    "Synthetic needed"):
+        assert literal not in fa_html, literal
+    # Data values stay Latin; approved group prose keeps its own ۱+/۲+
+    # digits verbatim (never rewritten).
+    assert re.search(r"[0-9]", charts)
+
+
+@pytest.mark.parametrize("lang,units", [
+    ("en", ("kept lemmas / all lemmas", "row-level",
+             "lemma-level (exists)", "dropped lemmas")),
+    ("fa", ("لِماهای نگه‌داشته‌شده / همه لِماها", "سطح ردیفی",
+             "وجودی", "لِماهای حذف‌شده")),
+])
+def test_charts_label_units_both_langs(tmp_path, lang, units):
+    html = _build_both(tmp_path, lang)
+    charts = _charts_section(html)
+    for unit in units:
+        assert unit in charts, unit
+
+
 def test_unmapped_sense_renders_cefr_none_placeholder(tmp_path):
     """OC round 2 W2: unmapped rows render a cefr-none/— chip, never
     an empty `cefr-` class span."""
@@ -1036,3 +1184,110 @@ def test_fa_evidenced_note_matches_allowlist(tmp_path):
         lang="fa")
     assert "wn-single / wn-evp-gloss فقط" in html
     assert "از پول کپی" not in html
+
+
+def _pane_segment(html, start_id, stop_id):
+    start = html.find('id="%s"' % start_id)
+    assert start >= 0, start_id
+    stop = html.find('id="%s"' % stop_id, start + 1)
+    assert stop > start, stop_id
+    return html[start:stop]
+
+
+def test_metrics_tab_hosts_drawer_review_keeps_filters(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert html.count('id="distDrawer"') == 1
+    assert html.count('<div class="dist-grid">') == 1
+    review = _pane_segment(html, "reviewPane", "metricsPane")
+    assert 'class="filter-bar"' in review
+    assert 'class="split-workspace"' in review
+    assert 'id="distDrawer"' not in review
+    metrics = _pane_segment(html, "metricsPane", "chartsPane")
+    assert 'id="distDrawer"' in metrics
+    assert metrics.count('class="dist-group"') == 9
+    assert 'class="filter-bar"' not in metrics
+    assert 'class="split-workspace"' not in metrics
+
+
+def test_fa_tabs_three_labels_and_metrics_drawer(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    assert (fa_html.find("بررسی")
+            < fa_html.find("سنجه‌ها")
+            < fa_html.find("نمودارها"))
+    assert ">Metrics<" not in fa_html
+    review = _pane_segment(fa_html, "reviewPane", "metricsPane")
+    assert 'id="distDrawer"' not in review
+    metrics = _pane_segment(fa_html, "metricsPane", "chartsPane")
+    assert 'id="distDrawer"' in metrics
+    assert metrics.count('class="dist-group"') == 9
+
+
+def test_switch_view_handles_three_panes_stateless(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    start = html.find("function switchView(")
+    end = html.find("</script>", start)
+    body = html[start:end]
+    assert "localStorage" not in body
+    for pane in ("reviewPane", "metricsPane", "chartsPane"):
+        assert body.count('getElementById("%s")' % pane) == 1
+    for tab in ("tabReview", "tabMetrics", "tabCharts"):
+        assert body.count('getElementById("%s")' % tab) == 2
+
+
+def test_charts_deprosed_legends_not_prose_en(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    for prose in ("median", "p90", "evidenced-only",
+                  "lemma counts overlap", "stage_calls.s4_path",
+                  "example_fallback", "sense_cefr_method",
+                  "shown separately", "never overlap",
+                  "(same two columns as g3)"):
+        assert prose not in charts, prose
+    for legend in ("kept lemmas / all lemmas",
+                   "precards (kept-only rows)",
+                   "evidenced precards", "of all precards",
+                   "precards, row-level", "precards bucket",
+                   "dropped lemmas", "lemma-level (exists)"):
+        assert legend in charts, legend
+    for prose in ("lemma counts overlap", "evidenced-only",
+                  "stage_calls.s4_path"):
+        assert prose in html
+
+
+def test_charts_deprosed_legends_not_prose_fa(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    charts = _charts_section(fa_html)
+    for prose in ("میانه", "صدک نود", "هم‌پوشانی",
+                  "فقط مدرک‌دارها", "۲+ بازه"):
+        assert prose not in charts, prose
+    for legend in ("لِماهای نگه‌داشته‌شده / همه لِماها",
+                   "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
+                   "پیش‌کارت مدرک‌دار", "از همه پیش‌کارتها",
+                   "پیش‌کارتها، سطح ردیفی", "بازه پیش‌کارت"):
+        assert legend in charts, legend
+    assert "هم‌پوشانی" in fa_html
+
+
+@pytest.mark.parametrize("lang,legends", [
+    ("en", ("kept lemmas / all lemmas",
+             "precards (kept-only rows)",
+             "evidenced precards", "of all precards",
+             "precards, row-level", "precards bucket")),
+    ("fa", ("لِماهای نگه‌داشته‌شده / همه لِماها",
+             "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
+             "پیش‌کارت مدرک‌دار", "از همه پیش‌کارتها",
+             "پیش‌کارتها، سطح ردیفی", "بازه پیش‌کارت")),
+])
+def test_charts_legends_reuse_catalog_only(tmp_path, lang, legends):
+    catalog = json.dumps(viewer.STRINGS[lang], ensure_ascii=False)
+    for legend in legends:
+        assert legend in catalog, legend

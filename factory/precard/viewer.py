@@ -78,6 +78,13 @@ STRINGS = {
         "summary": ("Distributions — nine metric groups · lemma-level "
                     "(exists, overlaps noted) vs precard-level (row-level) · "
                     "every number names its unit"),
+        "tab.review": "Review",
+        "tab.metrics": "Metrics",
+        "tab.charts": "Charts",
+        "kpi.kept": "Lemma kept rate",
+        "kpi.fanout": "Mean precards",
+        "kpi.mismatch": "Evidenced mismatch",
+        "kpi.synthetic": "Synthetic needed",
         "g1.h": "precards per kept lemma",
         "g1.kv": ("mean {a} precards · median {b} · p90 {c} (over {N} "
                   "kept lemmas)"),
@@ -198,6 +205,13 @@ STRINGS = {
         "drops.none": "حذفی ثبت نشده",
         "summary": ("توزیع‌ها — ۹ گروه سنجه · سطح لِما (وجودی، با ذکر هم‌پوشانی‌ها) "
                     "در برابر سطح پیش‌کارت (ردیفی) · هر عدد واحد خود را مشخص می‌کند"),
+        "tab.review": "بررسی",
+        "tab.metrics": "سنجه‌ها",
+        "tab.charts": "نمودارها",
+        "kpi.kept": "نرخ ماندگاری لماها",
+        "kpi.fanout": "میانگین پیش‌کارت",
+        "kpi.mismatch": "مغایرت مدرک‌دار",
+        "kpi.synthetic": "نیاز به مثال ساختگی",
         "g1.h": "پیش‌کارت به‌ازای هر لمای نگه‌داشته‌شده",
         "g1.kv": ("میانگین {a} پیش‌کارت · میانه {b} · صدک نود {c} (روی {N} لمای "
                   "نگه‌داشته‌شده)"),
@@ -471,7 +485,7 @@ def _dist_drawer_fa(stats):
         + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g9.note")))
 
     return (
-        '<details class="dist-drawer" id="distDrawer">'
+        '<details class="dist-drawer" id="distDrawer" open>'
         "<summary>%s</summary>" % _esc(_tr("fa", "summary"))
         + '<div class="dist-grid">'
         + "".join('<section class="dist-group">%s</section>' % g
@@ -1448,6 +1462,204 @@ body {
   display: inline-block;
   margin-top: 12px;
 }
+/* Charts tab: KPI strip + server-rendered bars (theme vars only). */
+.view-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 24px 0 24px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.view-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  padding: 6px 14px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+}
+.view-tab.active {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.kpi-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 2px 0;
+}
+.kpi-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+.charts-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.charts-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.charts-panel-head h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.charts-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.charts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.charts-name {
+  min-width: 110px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+.charts-track {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.charts-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+.charts-fill.drop {
+  background: var(--drop-text);
+}
+.charts-fill.alt {
+  background: var(--cefr-b);
+}
+.charts-num {
+  min-width: 28px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.charts-colhead {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 6px 0 2px 0;
+}
+.charts-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.charts-donut {
+  width: 96px;
+  height: 96px;
+  transform: rotate(-90deg);
+}
+.charts-donut-bg {
+  fill: none;
+  stroke: var(--border-subtle);
+  stroke-width: 6;
+}
+.charts-donut-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+}
+.charts-donut-label {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.charts-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.charts-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.charts-panel th, .charts-panel td {
+  text-align: left;
+  padding: 2px 6px 2px 0;
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+.charts-panel th {
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.charts-panel td.num {
+  text-align: right;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+#chartsPane {
+  padding: 12px 24px 20px 24px;
+  background: var(--bg-page);
+}
+[dir="rtl"] .charts-panel { text-align: right; }
+[dir="rtl"] .charts-num { text-align: left; }
+[dir="rtl"] .charts-panel th, [dir="rtl"] .charts-panel td { text-align: right; }
+[dir="rtl"] .charts-panel td.num { text-align: left; }
 .viewer-banner {
   background: var(--warn-bg);
   border: 1px solid var(--warn-b);
@@ -1480,6 +1692,9 @@ __BANNERS__
 
 __HEADER_STRIP__
 
+__VIEW_TABS__
+
+  <div id="reviewPane">
   <div class="filter-bar">
     <input type="text" id="searchInput" class="search-input" placeholder="Search lemma or key... (press /)" oninput="applyFilters()">
 
@@ -1524,8 +1739,6 @@ __CEFR_PILLS__
     </select>
   </div>
 
-__DIST_DRAWER__
-
   <div class="split-workspace">
     <aside class="sidebar" id="sidebarList"></aside>
     <main class="detail-pane" id="detailPane">
@@ -1534,6 +1747,15 @@ __DIST_DRAWER__
       </div>
     </main>
   </div>
+  </div>
+
+  <section id="metricsPane" hidden>
+__DIST_DRAWER__
+  </section>
+
+  <section id="chartsPane" hidden>
+__CHARTS__
+  </section>
 
 </div>
 
@@ -1944,6 +2166,21 @@ function toggleTheme() {
   const next = current === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
   document.getElementById("themeIcon").textContent = next === "dark" ? "🌙" : "☀️";
+}
+
+function switchView(view) {
+  const showReview = view === "review";
+  const showMetrics = view === "metrics";
+  const showCharts = view === "charts";
+  document.getElementById("reviewPane").hidden = !showReview;
+  document.getElementById("metricsPane").hidden = !showMetrics;
+  document.getElementById("chartsPane").hidden = !showCharts;
+  document.getElementById("tabReview").classList.toggle("active", showReview);
+  document.getElementById("tabMetrics").classList.toggle("active", showMetrics);
+  document.getElementById("tabCharts").classList.toggle("active", showCharts);
+  document.getElementById("tabReview").setAttribute("aria-selected", String(showReview));
+  document.getElementById("tabMetrics").setAttribute("aria-selected", String(showMetrics));
+  document.getElementById("tabCharts").setAttribute("aria-selected", String(showCharts));
 }
 
 // Global Keyboard Navigation
@@ -2458,7 +2695,7 @@ def _dist_drawer(stats):
         + '<p class="dist-note">row-level example_fallback.</p>')
 
     return (
-        '<details class="dist-drawer" id="distDrawer">'
+        '<details class="dist-drawer" id="distDrawer" open>'
         "<summary>Distributions "
         '<span class="dist-hint">nine metric groups \u00b7 lemma-level '
         "(exists, overlaps noted) vs precard-level (row-level) \u00b7 "
@@ -2467,6 +2704,246 @@ def _dist_drawer(stats):
         + "".join('<section class="dist-group">%s</section>' % g
                    for g in (g1, g2, g3, g4, g5, g6, g7, g8, g9))
         + "</div></details>")
+
+
+def _charts_badge(lang, num):
+    if lang == "fa":
+        return "گروه سنجه %d" % num
+    return "metric group %d" % num
+
+
+def _bar_row(name, value, width, variant=""):
+    cls = "charts-fill" + (" " + variant if variant else "")
+    return (
+        '<div class="charts-row"><span class="charts-name">%s</span>'
+        '<div class="charts-track"><div class="%s" style="width:%s%%">'
+        "</div></div>"
+        '<span class="charts-num">%s</span></div>'
+        % (_esc(name), cls, width, _esc(value)))
+
+
+def _view_tabs(lang):
+    return (
+        '<div class="view-tabs" role="tablist">'
+        '<button class="view-tab active" id="tabReview" role="tab" '
+        'aria-selected="true" onclick="switchView(\'review\')">%s</button>'
+        '<button class="view-tab" id="tabMetrics" role="tab" '
+        'aria-selected="false" onclick="switchView(\'metrics\')">%s</button>'
+        '<button class="view-tab" id="tabCharts" role="tab" '
+        'aria-selected="false" onclick="switchView(\'charts\')">%s</button>'
+        "</div>" % (_esc(_tr(lang, "tab.review")),
+                    _esc(_tr(lang, "tab.metrics")),
+                    _esc(_tr(lang, "tab.charts"))))
+
+
+def _charts_legend(lang, key):
+    """Short unit legends for the charts tab.
+
+    Every legend is a verbatim substring of the STRINGS catalog (no new
+    prose); guarded by test_charts_legends_reuse_catalog_only.
+    """
+    legends = {
+        "en": {
+            "kept_share": "kept lemmas / all lemmas",
+            "fanout": "precards (kept-only rows)",
+            "mismatch": "evidenced precards",
+            "synthetic": "of all precards",
+            "fanout_dist": "precards bucket \u00b7 kept lemmas",
+            "row_level": "precards, row-level",
+        },
+        "fa": {
+            "kept_share": "لِماهای نگه‌داشته‌شده / همه لِماها",
+            "fanout": "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
+            "mismatch": "پیش‌کارت مدرک‌دار",
+            "synthetic": "از همه پیش‌کارتها",
+            "fanout_dist": "بازه پیش‌کارت \u00b7 لِماهای نگه‌داشته‌شده",
+            "row_level": "پیش‌کارتها، سطح ردیفی",
+        },
+    }
+    return legends[lang][key]
+
+
+def _render_charts(stats, lang="en"):
+    """KPI strip + five panels bound to the STATS dict (server-side).
+
+    Headings and unit notes reuse the STRINGS group catalog; badge
+    counts are mechanical. Widths are server-side percents (1 decimal).
+    """
+    sep = "؛" if lang == "fa" else ";"
+    pct_sign = "٪" if lang == "fa" else "%"
+    kept = stats["lemmas_kept"]
+    total = stats["lemmas_total"]
+    rate = stats["kept_rate_pct"]
+    ppc = stats["ppc"]
+    mismatch = stats["mismatch"]
+    synth = stats["synthetic"]
+
+    def head(num, key):
+        return ('<div class="charts-panel-head"><h3>%s</h3>'
+                '<span class="charts-badge">%s</span></div>'
+                % (_esc(_tr(lang, key)),
+                   _esc(_charts_badge(lang, num))))
+
+    kpis = [
+        ("kpiKept", _tr(lang, "kpi.kept"), "%d%s" % (rate, pct_sign),
+         _charts_legend(lang, "kept_share")),
+        ("kpiFanout", _tr(lang, "kpi.fanout"), "%s" % ppc["mean"],
+         _charts_legend(lang, "fanout")),
+        ("kpiMismatch", _tr(lang, "kpi.mismatch"),
+         "%s%s" % (mismatch["evidenced_pct"], pct_sign),
+         _charts_legend(lang, "mismatch")),
+        ("kpiSynthetic", _tr(lang, "kpi.synthetic"),
+         "%s%s" % (synth["precards_pct"], pct_sign),
+         _charts_legend(lang, "synthetic")),
+    ]
+    kpi_html = (
+        '<div class="kpi-strip">'
+        + "".join(
+            '<div class="kpi-card" id="%s">'
+            '<div class="kpi-label">%s</div>'
+            '<div class="kpi-value">%s</div>'
+            '<div class="kpi-sub">%s</div></div>'
+            % (cid, _esc(label), _esc(value), _esc(sub))
+            for cid, label, value, sub in kpis)
+        + "</div>")
+
+    kept_share = _pct(kept, total)
+    drops = stats["drops_by_reason"]
+    drop_max = max([count for _head, count in drops] + [0])
+    if drops:
+        pareto = "".join(
+            _bar_row(head, count, _pct(count, drop_max), "drop")
+            for head, count in drops)
+    else:
+        pareto = '<p class="dist-note">%s</p>' % _esc(_tr(lang, "drops.none"))
+    g2_heads = [_esc(part.strip()) for part in
+                _tr(lang, "g2.th").split(sep)]
+    p1 = (
+        '<section class="charts-panel">%s'
+        '<div class="charts-donut-wrap">'
+        '<svg class="charts-donut" viewBox="0 0 42 42" role="img">'
+        '<circle cx="21" cy="21" r="16" class="charts-donut-bg"></circle>'
+        '<circle cx="21" cy="21" r="16" class="charts-donut-fg" '
+        'pathLength="100" stroke-dasharray="%s 100"></circle>'
+        "</svg>"
+        '<div><div class="charts-donut-label">%d%s</div>'
+        '<div class="kpi-sub">%s</div></div></div>'
+        '<p class="charts-colhead">%s</p>%s</section>'
+        % (head(2, "g2.h"), kept_share, rate, pct_sign,
+           _esc(_charts_legend(lang, "kept_share")),
+           " · ".join(g2_heads), pareto))
+
+    levels = _ordered_levels(stats["cefr_lemma"], stats["cefr_precard"])
+    lemma_max = max([stats["cefr_lemma"].get(lvl, 0)
+                     for lvl in levels] + [0])
+    precard_max = max([stats["cefr_precard"].get(lvl, 0)
+                       for lvl in levels] + [0])
+    dual = "".join(
+        '<div class="charts-row"><span class="charts-name">%s</span>'
+        '<div class="charts-track"><div class="charts-fill" '
+        'style="width:%s%%"></div></div>'
+        '<span class="charts-num">%s</span>'
+        '<div class="charts-track"><div class="charts-fill alt" '
+        'style="width:%s%%"></div></div>'
+        '<span class="charts-num">%s</span></div>'
+        % (_esc(lvl),
+           _pct(stats["cefr_lemma"].get(lvl, 0), lemma_max),
+           stats["cefr_lemma"].get(lvl, 0),
+           _pct(stats["cefr_precard"].get(lvl, 0), precard_max),
+           stats["cefr_precard"].get(lvl, 0))
+        for lvl in levels)
+    g3_heads = [_esc(part.strip()) for part in
+                _tr(lang, "g3.th").split(sep)]
+    p2 = (
+        '<section class="charts-panel">%s'
+        '<p class="charts-colhead">%s</p>%s</section>'
+        % (head(3, "g3.h"), " · ".join(g3_heads), dual))
+
+    n_rows = stats["precards_total"]
+    s4_rows = "".join(
+        _bar_row(path, count, _pct(count, n_rows))
+        for path, count in stats["topic_path"].items())
+    g8_heads = [_esc(part.strip()) for part in
+                _tr(lang, "g8.th").split(sep)]
+    if lang == "fa":
+        method_rows = [
+            (method, "%d پیش‌کارت (%s٪)" % (
+                count, _pct(count, n_rows)))
+            for method, count in stats["cefr_method"].items()]
+        source_rows = "".join(
+            _bar_row(source, "%d پیش‌کارت (%s٪)" % (
+                count, _pct(count, n_rows)),
+                _pct(count, n_rows), "alt")
+            for source, count in stats["example_source"].items())
+    else:
+        method_rows = [
+            (method, "%d precards (%s%%)" % (
+                count, _pct(count, n_rows)))
+            for method, count in stats["cefr_method"].items()]
+        source_rows = "".join(
+            _bar_row(source, "%d precards (%s%%)" % (
+                count, _pct(count, n_rows)),
+                _pct(count, n_rows), "alt")
+            for source, count in stats["example_source"].items())
+    g7_heads = [_esc(part.strip()) for part in
+                _tr(lang, "g7.th").split(sep)]
+    g9_heads = [_esc(part.strip()) for part in
+                _tr(lang, "g9.th").split(sep)]
+    method_grid = (_dist_table(g7_heads, method_rows)
+                   if method_rows
+                   else '<p class="dist-note">%s</p>'
+                   % _esc(_tr(lang, "empty.rows")))
+    p3 = (
+        '<section class="charts-panel">%s'
+        '<p class="charts-colhead">%s</p>%s'
+        '<p class="charts-colhead">%s</p>%s'
+        '<p class="charts-colhead">%s</p>%s</section>'
+        % (head(8, "g8.h"), " · ".join(g8_heads),
+           s4_rows if s4_rows else
+           '<p class="dist-note">%s</p>' % _esc(_tr(lang, "empty.rows")),
+           " · ".join(g7_heads), method_grid,
+           " · ".join(g9_heads),
+           source_rows if source_rows else
+           '<p class="dist-note">%s</p>' % _esc(_tr(lang, "empty.rows"))))
+
+    ranked = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),
+                    key=lambda l: (-stats["topic_precard"].get(l, 0), l))
+    top = ranked[:10]
+    topic_max = max([stats["topic_precard"].get(l, 0) for l in top] + [0])
+    if top:
+        topics = "".join(
+            _bar_row(label, stats["topic_precard"].get(label, 0),
+                     _pct(stats["topic_precard"].get(label, 0), topic_max))
+            for label in top)
+    else:
+        topics = '<p class="dist-note">%s</p>' % _esc(_tr(lang, "g4.empty"))
+    p4 = (
+        '<section class="charts-panel">%s'
+        '<p class="charts-colhead">%s</p>'
+        '<div class="charts-scroll">%s</div></section>'
+        % (head(4, "g4.h"), _esc(_charts_legend(lang, "row_level")),
+           topics))
+
+    if lang == "fa":
+        buckets = [part.strip() for part in
+                   STRINGS["fa"]["g1.buckets"].split("؛")]
+        bucket_labels = [part.strip() for part in buckets[0].split("/")]
+    else:
+        bucket_labels = ["1 precard", "2 precards", "3 precards",
+                         "4+ precards"]
+    hist = ppc["hist"]
+    fanout_max = max([hist["1"], hist["2"], hist["3"], hist["4+"]] + [0])
+    pillars = "".join(
+        _bar_row(label, hist[key], _pct(hist[key], fanout_max))
+        for label, key in zip(bucket_labels, ("1", "2", "3", "4+")))
+    p5 = (
+        '<section class="charts-panel">%s%s'
+        '<p class="charts-colhead">%s</p></section>'
+        % (head(1, "g1.h"), pillars,
+           _esc(_charts_legend(lang, "fanout_dist"))))
+
+    return (kpi_html + '<div class="charts-grid">'
+            + p1 + p2 + p3 + p4 + p5 + "</div>")
 
 
 def _fa_sibling(path):
@@ -2575,6 +3052,8 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
     page = page.replace("__CEFR_PILLS__", _cefr_pills())
     page = page.replace("__BANNERS__", _banners(warnings))
     stats = _compute_stats(rows, dropped_map)
+    page = page.replace("__VIEW_TABS__", _view_tabs(lang))
+    page = page.replace("__CHARTS__", _render_charts(stats, lang))
     if lang == "fa":
         page = page.replace("__HEADER_STRIP__", _header_strip_fa(stats))
         page = page.replace("__DIST_DRAWER__", _dist_drawer_fa(stats))
