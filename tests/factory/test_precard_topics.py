@@ -71,7 +71,74 @@ def test_pseudo_records_cover_all_picks():
     assert sorted(sids) == ["call#0", "call#1"]
 
 
-def test_fallback_row_shape():
-    row = topics.label_fallback_result({"s#0": [{"label": "X"}]}, "s#0")
-    assert row["label"] == "Other / Abstract"
-    assert row["topic_path"] == "fallback"
+def test_unlabelled_row_shape():
+    """R3 locked: LLM failure leaves the row UNLABELLED (never Other)."""
+    row = topics.label_unlabelled_result({"s#0": [{"label": "X"}]}, "s#0")
+    assert row["label"] is None
+    assert row["topic_path"] == "unlabelled"
+    assert row["method"] == topics.TOPIC_METHOD
+    assert row["vector"] == [{"label": "X"}]
+    empty = topics.label_unlabelled_result(None, "s#9")
+    assert empty["label"] is None
+    assert empty["topic_path"] == "unlabelled"
+    assert empty["vector"] == []
+
+
+def test_r3_leg1_gone():
+    """R3 locked: no deterministic leg1 path (no import, no lookup)."""
+    import inspect
+    assert not hasattr(topics, "evp_fallback_label")
+    assert not hasattr(topics, "_label_leg1_lookup")
+    assert not hasattr(topics, "MIGRATE_DEFAULT")
+    assert not hasattr(topics, "label_fallback_result")
+    assert "lookup" not in inspect.signature(topics.label_batch).parameters
+
+
+def test_r3_llm_failure_yields_unlabelled():
+    """R3 locked: transport=None (or a failed LLM leg) never emits Other."""
+    batch = [{"kind": "word", "text": "apple", "pool_level": "A1"}]
+    picks = {"w:apple": {"sense_id": "apple#9", "gloss": "a thing"}}
+    out = topics.label_batch(
+        batch, picks, None, "k", None, lambda s: None, {}, "/none", {})
+    assert out["w:apple"]["label"] is None
+    assert out["w:apple"]["topic_path"] == "unlabelled"
+    assert out["w:apple"]["method"] == topics.TOPIC_METHOD
+
+
+def test_r3_s3_prompt_has_visual_rule():
+    """R3 locked: the s3 vectors prompt carries the visual/tangible rule."""
+    assert "pink" in topics.V15_USER_TMPL
+    assert "Arts & Culture" in topics.V15_USER_TMPL
+
+
+def test_r3_pink_like_resolves_via_llm():
+    """R3 locked: a pink-like sense resolves via the LLM path (transport)."""
+    import json
+    from factory.precard.transport import KeyRing
+
+    batch = [{"kind": "word", "text": "pink", "pool_level": "A1"}]
+    picks = {"w:pink": {"sense_id": "pink#0",
+                        "gloss": "a pale reddish color"}}
+
+    def fake_transport(api_key, model, user_text):
+        assert "pink" in user_text
+        return json.dumps({"results": [{
+            "lemma": "pink", "senses": [{
+                "sense_id": "pink#0", "topic_id": 8,
+                "topic_label": "Arts & Culture", "confidence": 0.9,
+                "vector": [
+                    {"topic_id": 8,
+                     "topic_label": "Arts & Culture",
+                     "weight": 0.60},
+                    {"topic_id": 1,
+                     "topic_label": "Daily Life & Home",
+                     "weight": 0.40}]}]}]})
+
+    out = topics.label_batch(
+        batch, picks, None, "k", fake_transport, lambda s: None,
+        {"done": {}, "failed": [], "backoffs": []}, None, {},
+        ring=KeyRing(["k"]))
+    row = out["w:pink"]
+    assert row["label"] == "Arts & Culture"
+    assert row["topic_path"] == "llm"
+    assert row["vector"][0]["label"] == "Arts & Culture"

@@ -26,7 +26,9 @@ LABELS = ["Daily Life & Home", "Food & Drink", "Health & Body",
 # Topic-label provenance tag (sole owner: this module). Renamed 2026-09-16
 # from the "v16b-exact" fossil (locked owner directive: the 1.4.1 line is
 # independent of pilot-line history). Stamped on every s4 row regardless
-# of leg — the leg itself rides on topic_path (leg1/cache/llm/fallback).
+# of leg — the leg itself rides on topic_path (cache/llm/unlabelled;
+# R3 locked: topic labeling is LLM-only, the deterministic leg1 path
+# and the Other/Abstract fallback emission are deleted).
 TOPIC_METHOD = "live16"
 
 _OTHER_ABSTRACT = "Other / Abstract"
@@ -159,14 +161,17 @@ def vectors_pseudo_records(batch, judge_map, anchor_map):
     return list(groups.values())
 
 
-def label_fallback_result(vector_lookup, sense_id):
-    """Fail-closed label row (Other / Abstract, dataset vector known)."""
+def label_unlabelled_result(vector_lookup, sense_id):
+    """R3 locked: LLM-failure row is UNLABELLED (never Other / Abstract).
+
+    label None + topic_path "unlabelled"; the dataset vector is kept
+    when known (display continuity), else the vector is empty.
+    Downstream assembly keeps the row (no crash on empty labels)."""
     vec = (vector_lookup or {}).get(sense_id)
-    return {"label": "Other / Abstract",
+    return {"label": None,
             "method": TOPIC_METHOD,
-            "vector": list(vec) if vec
-            else single_topic_vector("Other / Abstract"),
-            "topic_path": "fallback"}
+            "vector": list(vec) if vec else [],
+            "topic_path": "unlabelled"}
 
 
 # ---- T4b: batched legs (moved verbatim, imports rewired) ----
@@ -216,6 +221,13 @@ V15_USER_TMPL = (
     "The CURRENT label is usually the primary topic — keep it first with the largest weight UNLESS "
     "the gloss genuinely spans another topic (e.g. rock music = Society & Culture + Emotions & Relationships; "
     "a flat tire on a trip = Travel & Transportation + Daily Life & Home). "
+    "TIE-BREAK & DOMAIN MAPPING (apply strictly): "
+    "colors and visual themes (e.g. pink, reddish, bright) "
+    "-> Arts & Culture (0.60) + Daily Life & Home (0.40); do NOT leave color terms "
+    "as purely abstract. Other physical or sensory attributes (e.g. shallow, dirty, "
+    "smooth) belong to their natural domain (Nature & Environment, Daily Life & Home). "
+    "Functional, purely quantitative, or directional dimensions (e.g. low, high, once, few) "
+    "-> Other / Abstract (1.00). "
     "Use 2+ topics only where genuinely mixed; single-topic senses get one entry with weight 1.0. "
     f"Allowed labels with ids (use EXACT strings): {json.dumps(V15_ID2LABEL)}. "
     'Output: {"results": [{"lemma": "...", "vectors": [{"sense_id": "<exact sense id>", '
@@ -396,58 +408,7 @@ def topup_lemma_block(lemma, senses):
     return "\n".join(lines)
 
 
-## v16 deterministic leg (frozen from run_v16_topics).
-
-
-MIGRATE_DEFAULT = {
-    "Daily Life & Home": "Daily Life & Home",
-    "Food & Drink": "Food & Drink",
-    "Health & Body": "Health & Body",
-    "Work & Education": None,  # split: see MIGRATION rule
-    "Travel & Transportation": "Travel & Transportation",
-    "Society & Culture": None,  # split: see MIGRATION rule
-    "Nature & Environment": None,  # split: see MIGRATION rule
-    "Science & Technology": "Science & Technology",
-    "Business & Economy": "Business & Economy",
-    "Law & Politics": "Law & Politics",
-    "Sports & Leisure": "Sports & Leisure",
-    "Emotions & Relationships": "Emotions & Relationships",
-    "Other / Abstract": "Other / Abstract",
-}
-
-
-_EVP_BY_LEMMA = {}
-_evp = json.loads((pathlib.Path(__file__).resolve().parent.parent
-    / "packs" / "en" / "evp_sense.json").read_text(
-    encoding="utf-8"))["entries"]
-for _k, _v in _evp.items():
-    _lem = _k.split("|")[0].lower()
-    _EVP_BY_LEMMA.setdefault(_lem, []).append((_k, _v))
-
-
-def evp_fallback_label(lemma, gloss):
-    """Deterministic evp-domain single: entry of this lemma whose guideword occurs in gloss,
-    mapped to 16 labels; else None (= caller falls back to Other)."""
-    cands = _EVP_BY_LEMMA.get(lemma.lower(), [])
-    gl = (gloss or "").lower()
-    for _k, _v in cands:
-        gw = (_v.get("guideword") or "").lower().replace("_", " ")
-        dom = _v.get("domain", "Other / Abstract")
-        if dom == "Other / Abstract":
-            continue
-        # Word-boundary match: raw substring lets guideword "art" hit "heart".
-        if gw and re.search(r"\b" + re.escape(gw) + r"\b", gl):
-            new = MIGRATE_DEFAULT.get(dom)
-            if new:
-                return new
-    for _k, _v in cands:  # any non-Other domain entry, first hit
-        dom = _v.get("domain", "Other / Abstract")
-        if dom != "Other / Abstract":
-            new = MIGRATE_DEFAULT.get(dom)
-            if new:
-                return new
-    return None
-
+## s4 label batching (R3 locked: LLM-only; no deterministic leg).
 
 LABEL_BATCH = 16
 
@@ -734,7 +695,7 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
 def label_batch(batch, picks, vector_lookups, api_key, transport,
                 sleep_fn, state, progress_path, model_calls,
                 telemetry=None, tele_stage="s4", tele_batch=0,
-                 ring=None, models=None, lookup=None,
+                 ring=None, models=None,
                  provider="zen", key_var="",
                  file_label="factory/.env", tele_run_id="",
                   tele_model_actual=None, tele_attempts=False,
@@ -743,19 +704,20 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
 
     batch: sample items; picks: {key: {sense_id, gloss, picks?}};
     vector_lookups: {key: {sense_id: vector}} (S3 vectors, optional).
-    Leg 1 (deterministic v16, injectable `lookup` for hermetic tests)
-    and the file cache resolve per item with zero LLM; the remaining
-    items share one LLM call per LABEL_BATCH chunk. v14.1: judged
-    secondary picks resolve through the same legs and ride on the
-    primary row as "extra": [{sense_id, gloss, label, vector, method,
-    topic_path}] — one row per fanned-out sense, each with its own
-    topic vector. Returns {key: assign_topic-shaped row}. transport=None
-    skips the LLM leg (all remaining fall back, stated). RateLimited/
-    AuthError propagate (caller flushes + stops/aborts); anything else
-    fails closed per item to Other / Abstract. Deterministic/cache
-    resolutions record cost="none" (no call happened); ``counters``
-    (optional {"hit","miss"} dict) is bumped hit = no-LLM resolution,
-    miss = LLM consulted, feeding the bar v2 HIT/MISS counters.
+    R3 locked (LLM-only): the file cache resolves per item with zero
+    LLM; every other item shares one LLM call per LABEL_BATCH chunk.
+    v14.1: judged secondary picks resolve through the same legs and
+    ride on the primary row as "extra": [{sense_id, gloss, label,
+    vector, method, topic_path}] — one row per fanned-out sense, each
+    with its own topic vector. Returns {key: assign_topic-shaped row}.
+    transport=None skips the LLM leg (all remaining go unlabelled,
+    stated). RateLimited/AuthError propagate (caller flushes +
+    stops/aborts); anything else leaves the item UNLABELLED (label
+    None, topic_path "unlabelled" — never "Other / Abstract").
+    Cache resolutions record cost="none" (no call happened);
+    ``counters`` (optional {"hit","miss"} dict) is bumped hit =
+    no-LLM resolution, miss = LLM consulted, feeding the bar v2
+    HIT/MISS counters.
     """
     if ring is None:
         ring = KeyRing([api_key])
@@ -767,8 +729,6 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                     counters.get("hit" if hit else "miss", 0) + 1
         except Exception:
             pass
-    if lookup is None:
-        lookup = _label_leg1_lookup()
     cache = _label_read_cache(progress_path)
     prog_path = pathlib.Path(progress_path) if progress_path else None
     out = {}
@@ -802,29 +762,7 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
         key, text = entry["item_key"], entry["text"]
         gloss, sense_id = entry["gloss"], entry["sense_id"]
         vector_lookup = entry["vector_lookup"]
-        label = None
-        if lookup is not None:
-            try:
-                label = lookup(text, gloss or "")
-            except Exception:
-                label = None
-        if label:
-            vec = (vector_lookup or {}).get(sense_id)
-            if telemetry is not None:
-                record_call(telemetry, stage=tele_stage,
-                             batch_id=tele_batch, key_idx=0,
-                             model="deterministic", latency_s=0.0,
-                             outcome="ok", run_id=tele_run_id,
-                             provider="", model_actual="deterministic",
-                             cost=resolve_cost(made_call=False))
-            _bump(True)
-            entry["resolved"] = apply_topic_guard(
-                {"label": label,
-                 "method": TOPIC_METHOD,
-                 "vector": list(vec) if vec
-                 else single_topic_vector(label),
-                 "topic_path": "leg1"}, text, gloss)
-            continue
+        # R3 locked (LLM-only): no deterministic leg — cache or LLM.
         hit = _label_cache_hit(cache, text, gloss, sense_id,
                                vector_lookup)
         if hit is not None:
@@ -874,10 +812,10 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                         sense_id)] = {"label": got["label"],
                                       "vector": got["vector"]}
             else:
-                entry["resolved"] = apply_topic_guard(
-                    label_fallback_result(entry["vector_lookup"],
-                                           sense_id),
-                    entry["text"], entry["gloss"])
+                # R3 locked: LLM-leg failure leaves the row UNLABELLED
+                # (never Other / Abstract).
+                entry["resolved"] = label_unlabelled_result(
+                    entry["vector_lookup"], sense_id)
         # One atomic cache write per chunk (tmp + rename — a crash
         # mid-write never truncates the resume cache).
         if isinstance(cache, dict) and prog_path is not None and \
@@ -895,10 +833,9 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
     for entry in expanded:
         row = entry.get("resolved")
         if not isinstance(row, dict) or not row.get("label"):
-            row = apply_topic_guard(
-                label_fallback_result(entry["vector_lookup"],
-                                       entry["sense_id"]),
-                entry["text"], entry["gloss"])
+            # R3 locked: unlabelled (never a fallback Other label).
+            row = label_unlabelled_result(entry["vector_lookup"],
+                                          entry["sense_id"])
         if entry["primary"]:
             out[entry["item_key"]] = row
         else:
@@ -918,11 +855,6 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                                        "topic_guarded", False)),
                                    "topic_path": row.get("topic_path") or ""})
     return out
-
-
-def _label_leg1_lookup():
-    """Deterministic v16 lookup (vendored evp_fallback_label)."""
-    return evp_fallback_label
 
 
 def _label_read_cache(progress_path):
@@ -950,7 +882,11 @@ def _label_cache_hit(cache, text, gloss, sense_id, vector_lookup):
                 "vector": list(vec) if vec
                 else single_topic_vector(cached["label"]),
                 "topic_path": "cache"}
-    label = cached if isinstance(cached, str) else "Other / Abstract"
+    # R3 locked: the legacy bare-string/default cache shape must never
+    # emit Other / Abstract — a missing label goes unlabelled.
+    label = cached if isinstance(cached, str) and cached else None
+    if not label or label == _OTHER_ABSTRACT:
+        return label_unlabelled_result(vector_lookup, sense_id)
     vec = list((vector_lookup or {}).get(sense_id) or []) or \
         single_topic_vector(label)
     return {"label": label, "method": TOPIC_METHOD,
@@ -967,9 +903,9 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
     """Label topic (s4) for one item via the batched path (B1).
 
     Thin single-item wrapper over label_batch (no second code path):
-    same leg-1/cache/LLM/fallback semantics, same AuthError/RateLimited
-    propagation (caller flushes + stops/aborts), fail-closed to
-    Other / Abstract on anything else.
+    same cache/LLM/unlabelled semantics, same AuthError/RateLimited
+    propagation (caller flushes + stops/aborts), unlabelled
+    (label None, topic_path "unlabelled") on anything else.
     """
     if ring is None:
         ring = KeyRing([api_key])
@@ -990,18 +926,10 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
     except RateLimited:
         raise
     except Exception:
-        return {"label": "Other / Abstract",
-                "method": TOPIC_METHOD,
-                "vector": single_topic_vector(
-                    "Other / Abstract"),
-                "topic_path": "fallback"}
+        return label_unlabelled_result(vector_lookup, sense_id)
     got = out.get(key)
     if not isinstance(got, dict) or not got.get("label"):
-        return {"label": "Other / Abstract",
-                "method": TOPIC_METHOD,
-                "vector": single_topic_vector(
-                    "Other / Abstract"),
-                "topic_path": "fallback"}
+        return label_unlabelled_result(vector_lookup, sense_id)
     return got
 
 

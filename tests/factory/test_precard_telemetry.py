@@ -361,8 +361,8 @@ def test_preflight_abort_closes_json_log(tmp_path):
 
 def test_label_counters_one_bump_per_entry(tmp_path):
     """Reviewer-noise evidence: every label_batch entry is bumped exactly
-    once (leg-1/cache entries continue past the chunk loop, so no entry
-    is ever double-counted; transport=None fallback counts as hit)."""
+    once (cache entries continue past the chunk loop, so no entry
+    is ever double-counted; transport=None unlabelled counts as hit)."""
     from factory.precard.topics import label_batch
     from factory.precard.transport import KeyRing
     batch = [{"kind": "word", "text": "t1", "pos": "noun",
@@ -375,7 +375,6 @@ def test_label_counters_one_bump_per_entry(tmp_path):
     out = label_batch(batch, picks, {}, "", None, lambda s: None,
                       {"done": {}, "failed": [], "backoffs": []},
                       str(tmp_path / "cache.json"), {},
-                      lookup=lambda text, gloss: None,
                       ring=KeyRing(["k"]), counters=counters)
     assert len(out) == 2
     assert counters == {"hit": 2, "miss": 0, "cache": 0}

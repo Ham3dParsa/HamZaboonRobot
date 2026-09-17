@@ -78,21 +78,24 @@ def test_validators_agree_with_archive():
 
 
 def test_label_batch_basic_in_new_home():
+    """R3 locked: LLM-only — transport=None leaves rows UNLABELLED."""
     batch = [{"kind": "word", "text": "apple", "pool_level": "A1"}]
     picks = {"w:apple": {"sense_id": "apple#9", "gloss": "a thing"}}
     out = topics.label_batch(
         batch, picks, None, "k", None, lambda s: None, {}, "/none",
-        {}, lookup=lambda text, gloss: None)
-    assert out["w:apple"]["label"] == "Other / Abstract"
-    assert out["w:apple"]["topic_path"] == "fallback"
-    # The R5 guard rewires a fallback Other on a telephone gloss.
+        {})
+    assert out["w:apple"]["label"] is None
+    assert out["w:apple"]["topic_path"] == "unlabelled"
+    # The 5-lemma guard is a post-correction on LLM output only: with
+    # no LLM leg there is no label to re-anchor (stays unlabelled).
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     picks = {"w:call": {"sense_id": "call#0",
                         "gloss": "a telephone conversation"}}
     out = topics.label_batch(
         batch, picks, None, "k", None, lambda s: None, {}, "/none",
-        {}, lookup=lambda text, gloss: None)
-    assert out["w:call"]["label"] == "Science & Technology"
+        {})
+    assert out["w:call"]["label"] is None
+    assert out["w:call"]["topic_path"] == "unlabelled"
 
 
 def test_inflection_review_failure_keeps():
