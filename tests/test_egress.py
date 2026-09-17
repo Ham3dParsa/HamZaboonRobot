@@ -21,11 +21,16 @@ import pytest
 def _egress_clean_cache_isolated(monkeypatch, tmp_path):
     """R7: Pool.lease tunnel path reads/writes clean_cache.json and pings
     via tcp_ping — pin the file at tmp_path and the probe at dead so
-    this hermetic suite never touches the repo file or real DNS."""
+    this hermetic suite never touches the repo file or real DNS.
+    TunnelOwner.acquire() probes via _server_tcp_ping (not tcp_ping),
+    so per-test liveness overrides that seam; the default here is live
+    so spawn-focused tests never pay the probe path."""
     monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
                        str(tmp_path / "clean_cache.json"))
     monkeypatch.setattr(supervisor, "tcp_ping",
                         lambda *args, **kwargs: None)
+    monkeypatch.setattr(supervisor, "_server_tcp_ping",
+                        lambda *args, **kwargs: 4)
 
 
 def _sub_body():
@@ -1028,9 +1033,9 @@ def test_pool_lease_cache_hit_reuses_hint_and_writes_back(
     monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH", str(cache))
     monkeypatch.delenv("EGRESS_CLEAN_TTL", raising=False)
     monkeypatch.setattr(
-        supervisor, "tcp_ping",
-        lambda *args, **kwargs: 4
-        if args and args[0] == "cached" else None)
+        supervisor, "_server_tcp_ping",
+        lambda server, timeout=2.0: 4
+        if server.get("host") == "cached" else None)
     lease = pool.lease("zen")
     assert lease["server_id"] == "s-cached"
     assert "CACHE HIT" in capsys.readouterr().out
@@ -1068,9 +1073,9 @@ def test_http_lease_tunnel_server_matches_on_cache_hit(
     monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH", str(cache))
     monkeypatch.delenv("EGRESS_CLEAN_TTL", raising=False)
     monkeypatch.setattr(
-        sup, "tcp_ping",
-        lambda *args, **kwargs: 4
-        if args and args[0] == "cached" else None)
+        sup, "_server_tcp_ping",
+        lambda server, timeout=2.0: 4
+        if server.get("host") == "cached" else None)
     server = HTTPServer(("127.0.0.1", 0), Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1150,3 +1155,216 @@ def test_tunnel_owner_acquire_skips_malformed_servers(monkeypatch):
     _, _, sid = owner.acquire()
     assert sid == "s-good"
     owner.stop()
+
+
+# --- Probe-batch hermetic coverage (PR feat/egress-probe-batch) ---
+
+def _live_ping(server, timeout=2.0):
+    return 4
+
+
+def _dead_ping(server, timeout=2.0):
+    return None
+
+
+def test_probe_all_dead_parks_fast_without_spawn(monkeypatch):
+    """A fully dead pool parks here (no 25s spawn burn per attempt):
+    no xray start attempted, every probed server cooled."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(supervisor, "_server_tcp_ping", _dead_ping)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        with pytest.raises(RuntimeError, match="no live server"):
+            owner.acquire(provider="zen")
+    finally:
+        owner.stop()
+    assert _FakeTunnel.started == []
+    assert pool.is_cool("s1", "zen") and pool.is_cool("s2", "zen")
+
+
+def test_probe_dead_cooled_live_kept_in_order(monkeypatch):
+    """Dead probed servers cool (600s) while live ones keep pool order
+    — the first live server still wins the spawn."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(
+        supervisor, "_server_tcp_ping",
+        lambda server, timeout=2.0: None
+        if server["id"] == "s-dead" else 5)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "d", "port": 1, "id": "s-dead",
+         "link": "vless://u@d:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        _, _, sid = owner.acquire()
+    finally:
+        owner.stop()
+    assert sid == "s1"
+    assert _FakeTunnel.started == ["s1"]
+    assert pool.is_cool("s-dead", None)
+    assert not pool.is_cool("s1", None)
+    assert not pool.is_cool("s2", None)
+
+
+def test_probe_tail_survives_as_unprobed_fallback(monkeypatch):
+    """Servers past the first 8 are never probed and never cooled: a
+    dead head still leaves the healthy tail available."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(supervisor, "_server_tcp_ping", _dead_ping)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "h%d" % i, "port": 1,
+         "id": "s%d" % i, "link": "vless://u@h%d:1" % i}
+        for i in range(10)
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        _, _, sid = owner.acquire()
+    finally:
+        owner.stop()
+    assert sid == "s8"  # first unprobed tail server
+    assert _FakeTunnel.started == ["s8"]
+    assert all(pool.is_cool("s%d" % i, None) for i in range(8))
+    assert not pool.is_cool("s8", None)
+    assert not pool.is_cool("s9", None)
+
+
+def test_reuse_skips_probe_batch(monkeypatch):
+    """A live tunnel for the wanted server is reused with zero pings:
+    steady reuse pays no probe wall and a ping flake can never cool
+    the working tunnel."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    monkeypatch.setattr(supervisor, "_server_tcp_ping", _live_ping)
+    _FakeTunnel.started.clear()
+    _FakeTunnel.stopped.clear()
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        proxy, _, sid = owner.acquire()
+        assert (proxy, sid) == ("http://127.0.0.1:19999", "s1")
+        probed = []
+
+        def _flake(server, timeout=2.0):
+            probed.append(server["id"])
+            return None
+
+        monkeypatch.setattr(supervisor, "_server_tcp_ping", _flake)
+        proxy2, _, sid2 = owner.acquire()
+        assert (proxy2, sid2) == (proxy, "s1")
+        assert probed == []
+        assert _FakeTunnel.started == ["s1"]
+        assert not pool.is_cool("s1", None)
+    finally:
+        owner.stop()
+
+
+class _FailS2Tunnel(_FakeTunnel):
+    def start(self, timeout=25):
+        if self.server["id"] == "s2":
+            raise RuntimeError("xray port never opened (timeout)")
+        return super().start(timeout)
+
+
+def test_acquire_failure_surfaces_actual_server(monkeypatch):
+    """Spawn failure names the failed server (not the stale hint): the
+    hint asked for s1, the dead hint lost, s2 failed to spawn."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FailS2Tunnel)
+    monkeypatch.setattr(
+        supervisor, "_server_tcp_ping",
+        lambda server, timeout=2.0: None
+        if server["id"] == "s1" else 7)
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    owner = TunnelOwner(pool)
+    try:
+        with pytest.raises(RuntimeError) as exc_info:
+            owner.acquire(prefer="s1")
+    finally:
+        owner.stop()
+    assert exc_info.value.failed_server_id == "s2"
+    assert pool.is_cool("s1", None)  # probed dead
+    assert not pool.is_cool("s2", None)  # spawn failure cools nothing here
+
+
+def test_http_lease_failure_cools_actual_server(monkeypatch):
+    """End-to-end over HTTP: dead hint + failing spawn on the live
+    server parks the lease and cools the server that failed (s2),
+    not just the hint (s1)."""
+    import supervisor as sup
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FailS2Tunnel)
+    monkeypatch.setattr(
+        sup, "_server_tcp_ping",
+        lambda server, timeout=2.0: None
+        if server["id"] == "s1" else 7)
+    _FailS2Tunnel.started.clear()
+    _FailS2Tunnel.stopped.clear()
+    sup.TOKEN = "test-token"
+    sup.POOL.servers.clear()
+    sup.POOL.leases.clear()
+    sup.POOL.cooldown_until.clear()
+    sup.POOL.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+        req = _url.Request(
+            "http://127.0.0.1:%d/v1/lease" % port,
+            data=json.dumps({"target": "zen"}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer test-token"})
+        with _url.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+        assert body.get("error") == "park"
+        assert sup.POOL.is_cool("s2", "zen")
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TUNNELS.stop()
+        sup.TOKEN = ""

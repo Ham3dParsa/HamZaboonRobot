@@ -13,13 +13,13 @@ SUP_URL = os.environ.get("EGRESS_SUP_URL", "http://127.0.0.1:18789")
 SUP_TOKEN = os.environ.get("EGRESS_SUP_TOKEN", "")
 
 
-def _call(path, payload):
+def _call(path, payload, timeout=30):
     body = json.dumps(payload or {}).encode()
     req = urllib.request.Request(
         SUP_URL + path, data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + SUP_TOKEN})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.load(resp)
 
 
@@ -27,9 +27,12 @@ def lease(target="direct"):
     """Lease an egress. Returns dict with lease_id/mode/proxy_url.
 
     target is one of supervisor.TARGETS (direct/zen/google/openrouter/
-    avalai); "zen" keeps its historic tunnel meaning.
+    avalai); "zen" keeps its historic tunnel meaning. The lease path
+    may burn ~2s probe + 25s spawn + 15s egress check (~= 42s worst
+    case on the single-threaded supervisor), so it gets 60s; report
+    and health stay short.
     """
-    return _call("/v1/lease", {"target": target})
+    return _call("/v1/lease", {"target": target}, timeout=60)
 
 
 def report(lease_id, outcome, provider=None):

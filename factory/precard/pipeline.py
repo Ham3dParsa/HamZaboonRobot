@@ -626,12 +626,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         lease_id = os.environ.get("EGRESS_LEASE_ID", "")
         if not lease_id:
             return
+        tok = os.environ.get("EGRESS_SUP_TOKEN", "")
+        if not tok:
+            # No supervisor token: the supervisor would 401 the report
+            # anyway (and "Bearer " with an empty token is a malformed
+            # header) — skip the doomed loopback call silently.
+            return
         try:
             import json as _json
             import urllib.request as _url
             sup = os.environ.get("EGRESS_SUP_URL",
                                  "http://127.0.0.1:18789")
-            tok = os.environ.get("EGRESS_SUP_TOKEN", "")
             req = _url.Request(
                 sup + "/v1/report",
                 data=_json.dumps({"lease_id": lease_id,
