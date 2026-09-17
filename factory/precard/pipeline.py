@@ -392,13 +392,110 @@ def _reason_slug(reason):
     return str(reason or "").split(":")[0].strip() or "unknown"
 
 
-def _stage_summary(stage, states, out_path, quiet=False, counts=None):
+# Issue #730: the entry band is the lemma's pool_level at sampling time
+# (the sample item's pool_level, uppercased). Kept rows already carry it
+# (precard.jsonl pool_level); dropped lemmas carry no senses, so the band
+# is persisted per dropped key as a dropped.log suffix instead — a new
+# sample file beside the proof would duplicate the input and force the
+# viewer to join two files, while the suffix keeps key+reason+band on one
+# greppable line. Backward compatible: old lines without the suffix keep
+# parsing exactly as before (key = text before the second colon); the
+# reader below returns None for them.
+ENTRY_BAND_UNKNOWN = "?"
+
+
+def entry_band(item):
+    """Entry band of one sample item: pool_level at sampling time."""
+    try:
+        raw = (item or {}).get("pool_level", "")
+    except AttributeError:
+        raw = ""
+    return str(raw or "").strip().upper() or ENTRY_BAND_UNKNOWN
+
+
+def build_entry_bands(items):
+    """Snapshot {item_key: entry band} at sampling time (call before any
+    stage filters the item list, so dropped keys keep their band)."""
+    bands = {}
+    for item in items or []:
+        try:
+            bands[item_key(item)] = entry_band(item)
+        except Exception:
+            continue
+    return bands
+
+
+def format_drop_line(key, reason, entry_bands=None):
+    """One dropped.log detail line: legacy "key: reason" plus the
+    " [entry=BAND]" suffix when the key's entry band is known. A None
+    (or key-missing) map emits the legacy line unchanged."""
+    line = "%s: %s" % (key, reason)
+    band = None
+    if isinstance(entry_bands, dict):
+        band = entry_bands.get(key)
+    if band:
+        line += " [entry=%s]" % band
+    return line
+
+
+def parse_drop_entry_band(reason_or_line):
+    """Entry band from an enriched drop line/reason; None when the line
+    predates the suffix (old proofs still read — forward/backward
+    compatible)."""
+    match = re.search(r"\[entry=([^\]]+)\]\s*$",
+                      str(reason_or_line or ""))
+    if not match:
+        return None
+    return match.group(1).strip() or None
+
+
+def survival_per_band(entry_bands, kept_keys):
+    """Per-band survival from sampling-time entry bands: {band: {"entered",
+    "kept", "dropped", "survival"}} (survival None when entered == 0).
+
+    Dropped is entered - kept (fail-closed accounting semantics: a key
+    with >=1 precard row counts as kept even if it also appears in
+    dropped.log as an s1-fallback detail). Pure function, stdlib only.
+
+    v141 backfill verdict (#730): RECOMPUTABLE — sample200.frozen.json
+    carries pool_level for all 284 input keys and joins prog/
+    preprocess.json done keys exactly (284<->284); the kept set comes
+    from precard.jsonl (185 distinct keys). v141 artifacts themselves
+    are frozen (never rewritten); recompute via this helper.
+    """
+    kept = set(kept_keys or [])
+    per_band = {}
+    try:
+        pairs = list((entry_bands or {}).items())
+    except AttributeError:
+        pairs = []
+    for key, band in pairs:
+        slot = per_band.setdefault(str(band or ENTRY_BAND_UNKNOWN),
+                                   {"entered": 0, "kept": 0})
+        slot["entered"] += 1
+        if key in kept:
+            slot["kept"] += 1
+    out = {}
+    for band in sorted(per_band):
+        entered = per_band[band]["entered"]
+        kept_n = per_band[band]["kept"]
+        out[band] = {"entered": entered, "kept": kept_n,
+                     "dropped": entered - kept_n,
+                     "survival": (kept_n / entered if entered else None)}
+    return out
+
+
+def _stage_summary(stage, states, out_path, quiet=False, counts=None,
+                   entry_bands=None):
     """English stage box on stdout + full multilingual details to file.
 
     R11 split: the box is human/stdout (silent under --quiet); the
     multilingual drop details always land in dropped.log. ``counts``
     (optional {"hits","misses","cache"}) appends the bar v2 HIT/MISS
     segment to the box plus a CACHE line for file-cache hits.
+    ``entry_bands`` (optional {key: band} from build_entry_bands) appends
+    the " [entry=BAND]" suffix to drop lines (#730); None keeps the
+    legacy "key: reason" lines (old proofs stay readable).
     """
     from collections import Counter
     done = states.get(stage, {}).get("done", {}) or {}
@@ -433,7 +530,7 @@ def _stage_summary(stage, states, out_path, quiet=False, counts=None):
                 details.append("%s: s1-fallback" % key)
             continue
         slugs[_reason_slug(reason)] += 1
-        details.append("%s: %s" % (key, reason))
+        details.append(format_drop_line(key, reason, entry_bands))
     for key in failed:
         if key not in done:
             slugs["failed-no-entry"] += 1
@@ -570,6 +667,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     items = load_sample(args.sample)
     if args.limit:
         items = items[:args.limit]
+    # #730: entry-band snapshot at sampling time (before any stage
+    # filters the list, so dropped keys keep their pool_level band).
+    entry_bands = build_entry_bands(items)
 
     if args.dry_run:
         selected = _selected_stages(args)
@@ -864,7 +964,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     jlog.event("stage_end", stage="preprocess", ok=_pre_ok, fail=_pre_fail)
     tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
                                      run_id=run_id)
-    _stage_summary("preprocess", states, args.out, quiet=quiet)
+    _stage_summary("preprocess", states, args.out, quiet=quiet,
+                   entry_bands=entry_bands)
     for key, verdict in states["preprocess"]["done"].items():
         preprocess_info[key] = verdict
     dropped = {k for k, v in preprocess_info.items() if not v.get("kept")}
@@ -1346,7 +1447,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                      run_id=run_id)
         _stage_summary("inflection_review", states, args.out, quiet=quiet,
                        counts={"hits": s0b_bar["hits"],
-                               "misses": s0b_bar["misses"]})
+                               "misses": s0b_bar["misses"]},
+                       entry_bands=entry_bands)
         inflection_dropped = {k for k, v in states["inflection_review"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in inflection_dropped]
@@ -1563,7 +1665,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                    ok=_s1_ok, fail=_s1_fail)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
                                      run_id=run_id)
-        _stage_summary("anchor_rank", states, args.out, quiet=quiet)
+        _stage_summary("anchor_rank", states, args.out, quiet=quiet,
+                       entry_bands=entry_bands)
         if anchor_dropped:
             # Details live in dropped.log; console stays one short line.
             _say(_color("%s: kept=%d dropped=%d "
@@ -1674,7 +1777,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                      run_id=run_id)
         _stage_summary("sense_judge", states, args.out, quiet=quiet,
                        counts={"hits": s2_bar["hits"],
-                               "misses": s2_bar["misses"]})
+                               "misses": s2_bar["misses"]},
+                       entry_bands=entry_bands)
         # Post-judge proper-noun routing (idempotent pass over the s2 done
         # state — evaluated here, right after judge, so vectors+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
@@ -1819,7 +1923,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                      run_id=run_id)
         _stage_summary("topic_vectors", states, args.out, quiet=quiet,
                        counts={"hits": s3_bar["hits"],
-                               "misses": s3_bar["misses"]})
+                               "misses": s3_bar["misses"]},
+                       entry_bands=entry_bands)
         # label (label batched, B1: up to LABEL_BATCH items share one LLM
         # call). No fail-closed signal on this stage (exceptions
         # propagate, except auth which aborts), so fail is always 0.
@@ -1941,7 +2046,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _stage_summary("topic_label", states, args.out, quiet=quiet,
                        counts={"hits": s4_bar["hits"],
                                "misses": s4_bar["misses"],
-                               "cache": s4_bar["cache"]})
+                               "cache": s4_bar["cache"]},
+                       entry_bands=entry_bands)
         # enrich (deterministic enrichment, batch-flushed). Same as label: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("enrich")
@@ -1992,7 +2098,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         jlog.event("stage_end", stage="enrich", ok=_s5_ok, fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
                                      run_id=run_id)
-        _stage_summary("enrich", states, args.out, quiet=quiet)
+        _stage_summary("enrich", states, args.out, quiet=quiet,
+                       entry_bands=entry_bands)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         # v14.1 (R1): one row per judged pick — the lemma fans out into
         # N independent precard records (own pre_card_id, topic vector,
@@ -2096,7 +2203,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             with open(drop_log, "a", encoding="utf-8") as handle:
                 handle.write("=== accounting-no-verdict ===\n")
                 for key in unaccounted:
-                    handle.write("%s: accounting-no-verdict\n" % key)
+                    handle.write(format_drop_line(
+                        key, "accounting-no-verdict", entry_bands) + "\n")
         except OSError as exc:
             print("warning: dropped.log append failed (%s)" % exc,
                   file=sys.stderr)
