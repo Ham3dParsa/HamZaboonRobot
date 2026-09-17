@@ -16,7 +16,8 @@ from pathlib import Path
 from factory.precard import __version__ as _LINE_VERSION
 from factory.precard.accounting import item_key
 from factory.precard.cefr import CEFR_ORDER
-from factory.precard.pipeline import DEFAULT_OUT, DEFAULT_SAMPLE
+from factory.precard.pipeline import (
+    DEFAULT_OUT, DEFAULT_SAMPLE, parse_drop_entry_band)
 from factory.precard.progress import normalize_stage
 from factory.precard.topics import LABELS as _TOPIC_LABELS
 
@@ -1301,17 +1302,16 @@ def _load_rows(precard_path):
     return rows
 
 
-_ENTRY_SUFFIX_RE = re.compile(r"\s\[entry=([^\]]+)\]\s*$")
-
-
 def _split_entry_suffix(reason):
-    """Strip a trailing " [entry=BAND]" (pipeline #730); (reason, band|None)."""
+    """Strip a trailing " [entry=BAND]" via pipeline.parse_drop_entry_band
+    (single source, #730); (reason, band|None) with the band normalized
+    to uppercase so hand-written lowercase lines join the same bucket."""
     text = str(reason or "")
-    match = _ENTRY_SUFFIX_RE.search(text)
-    if not match:
+    band = parse_drop_entry_band(text)
+    if not band:
         return text.strip(), None
-    band = match.group(1).strip() or None
-    return text[:match.start()].rstrip(), band
+    band = band.strip().upper()
+    return text[:text.rfind("[entry=")].rstrip(), band
 
 
 def _drop_reason(value):
@@ -1319,6 +1319,7 @@ def _drop_reason(value):
     or legacy plain string; legacy strings are suffix-stripped too)."""
     if isinstance(value, dict):
         return value.get("reason") or ""
+    # String branch kept: tests pin _drop_reason/_drop_band with raw strings.
     reason, _band = _split_entry_suffix(value)
     return reason
 
@@ -1327,6 +1328,7 @@ def _drop_band(value):
     """Entry band from a dropped-map value (None for legacy lines)."""
     if isinstance(value, dict):
         return value.get("entry_band")
+    # String branch kept: tests pin _drop_reason/_drop_band with raw strings.
     _reason, band = _split_entry_suffix(value)
     return band
 
