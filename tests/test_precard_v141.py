@@ -127,7 +127,6 @@ def test_r1_gloss_duplicate_senses_collapse_to_one_card():
 
 def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
     import pathlib
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = tmp_path / "sample.json"
     sample.write_text(json.dumps(
         [{"kind": "word", "text": "call", "pool_level": "A1"}]),
@@ -137,7 +136,8 @@ def test_r1_pipeline_fans_out_two_rows_per_lemma(tmp_path, monkeypatch):
     rc = main(
         ["--sample", str(sample), "--out", out, "--progress-dir", prog],
         _judge_transport=_two_pick_judge, _topic_transport=None,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=index, _read_entry=read_entry, _tatoeba={})
     assert rc == 0
     with open(out, encoding="utf-8") as handle:

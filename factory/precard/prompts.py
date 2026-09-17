@@ -47,14 +47,3 @@ INFLECTION_REVIEW_SYS = (
     "most) -> Drop in favor of the base lemma. "
     "Return ONLY raw JSON, no markdown fences, no commentary. "
     "Reason MUST be strictly in concise English (max 12 words).")
-
-
-# Frozen from factory/archive/v14_v16/run_v14_phase3_judge.SYS
-# (provenance: precard line, 2026-09-15): the default Zen sense-judge
-# system prompt. Baked into the default judge transport (not passed by
-# callers) exactly as the archive call_responses did.
-JUDGE_SYS = (
-    "You are an expert English learner-dictionary editor for Persian learners. "
-    "Your goal is to select the sense of a word that has the highest communicative "
-    "and practical utility in everyday modern English. "
-    "Return ONLY raw JSON, no markdown fences, no commentary.")

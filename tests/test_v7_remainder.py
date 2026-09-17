@@ -169,14 +169,14 @@ def _run_only_s1(tmp_path, extra=()):
             "--only", "s1"] + list(extra)
     code = main(
         argv, _judge_transport=None, _topic_transport=None,
-        _assign_transport=None, _sleep_fn=lambda s: None, _index=index,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None, _index=index,
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0,
         _awl_set=set(), _type_map={}, _type_log_available=False)
     return code, out, prog, seen
 
 
 def test_r26_only_one_stage_runs(monkeypatch):
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         import pathlib
@@ -200,7 +200,6 @@ def test_r26_only_one_stage_runs(monkeypatch):
 
 
 def test_r26_rekey_forces_redo_and_resume_skips(monkeypatch):
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         import pathlib

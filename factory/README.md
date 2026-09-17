@@ -67,7 +67,9 @@ Persian drop details go to `dropped.log`, never the console.
 
 Thin entry over supervisor + home probe table + `precard.pipeline`
 (moves no logic, wiring only). Presets: `avalai` (direct, no VPN),
-`google` (tunnel, auto-spawns the supervisor), `zen` (default).
+`google` (tunnel, auto-spawns the supervisor). No default preset or
+provider — runs without `--preset avalai|google` / `--llm-provider
+avalai|google` stop fail-closed.
 Precedence everywhere: CLI flag > env var > preset > code default
 (see `python -m factory.run --help` for the full flag/env table).
 Every flag has a `FACTORY_*`/`EGRESS_*` env mirror; LLM API keys are
@@ -119,7 +121,7 @@ The egress supervisor CLI only calls them; cooldowns stay per-provider.
 | I want to... | Script | Keys needed | Command |
 |---|---|---|---|
 | Dry-run the line (no cost) | precard/ (`factory.precard`) | none | `python -m factory.precard --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
-| Full precard run (GLM judge via AvalAI) | precard/ (`factory.precard`) | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default, bare defaults run Zen) |
+| Full precard run (GLM judge via AvalAI) | precard/ (`factory.precard`) | AVALAI in factory/.env | same minus `--dry-run` (and `--limit` for full sample) plus `--llm-provider avalai` (covers all LLM legs; GLM is the AvalAI default; a run without `--llm-provider` stops fail-closed — the line has no default provider) |
 | Blind-compare 4 judges on the frozen 50 | pipeline/blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python -m factory.pipeline.blind50 --accept W:\hamzaban_data_factory\pilot\accept50.json --anchor W:\hamzaban_data_factory\pilot200glm\progress\anchor.json --glm-judge W:\hamzaban_data_factory\pilot200glm\progress\sense-judge.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
 | Check key + egress health (no secrets printed) | core/probe_keys.py | factory/.env; ZEN keys + egress IP only (no SUB ranking, no GOOGLE/OPENROUTER/AVALAI check) | `python -m factory.core.probe_keys` |
 | Rank SUB servers by latency | supervisor --probe | SUBs in tools/egress/.env | `python tools\egress\supervisor.py --probe --top-n 30` |
