@@ -1006,6 +1006,18 @@ _G5_PERTAIN_RX = re.compile(
     r"[Tt][Oo] ([Tt][Hh][Ee] [A-Z]|[A-Z])")
 
 
+# D-brand: brand-indicating gloss signals (locked 2026-09-17; the
+# Playboy #1 case). Narrow on purpose — the name-POS leg in
+# _is_brand_row carries the precision (a bare "company" mention like
+# "A company of soldiers" under noun POS never matches), and "company"
+# is DELIBERATELY not a signal: the s1 suite's "A tech company"
+# name-row fixture proves a bare-company gloss is a keep (Apple is a
+# real word — prefer missing a brand over killing a word). So the gloss
+# leg stays a plain word-boundary search like the G5 demonym leg.
+_BRAND_RX = re.compile(
+    r"\b(brand|magazine|product)\b", re.IGNORECASE)
+
+
 _NAME_GLOSS_RX = re.compile(
     r"^\s*(?:a|an|the)\s+"
     r"(?:(?:male|female|unisex|masculine|feminine)\s+)?"
@@ -1468,13 +1480,32 @@ def _is_name_row(sense):
         return False
 
 
+def _is_brand_row(sense):
+    """D-brand: True when a preprocess sense row is brand-classified.
+
+    Conjunction only: the row's entry POS is in PROPER_NOUN_POS AND
+    its gloss carries a brand signal (_BRAND_RX). Either signal alone
+    never marks the row — a collective "company" gloss under noun POS
+    ("A company of soldiers") keeps. Missing pos ("") or a blank
+    gloss is uncertainty, not a brand signal (fail-open to False).
+    """
+    try:
+        if str((sense or {}).get("pos") or "").strip().casefold() \
+                not in PROPER_NOUN_POS:
+            return False
+        return bool(_BRAND_RX.search((sense or {}).get("gloss") or ""))
+    except Exception:
+        return False
+
+
 def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                      type_log_available, entry_fn=None):
     """Preprocess verdict for one sample item (s0): {"kept", "reason", "type_pending"}.
 
     kept=False carries a drop reason (r4-name-only / r4-country-blocklist /
-    r20-zipf-low:<z> / applied-keep-false:<type> / g2..g7 input gates,
-    locked 2026-09-07, g7 added 2026-09-17).
+    r20-zipf-low:<z> / applied-keep-false:<type> / g2..g7 input gates +
+    brand-product, locked 2026-09-07, g7 added 2026-09-17, brand
+    added 2026-09-17).
     Order for words: R4 country blocklist (casefolded, ABSOLUTE for
     single tokens since F1 — no POS-aware exemption, china drops too),
     R4 proper-noun, G-gates (no zipf bypass — entry
@@ -1598,10 +1629,10 @@ def _preprocess_entry_view(item, index, read_entry):
 
 
 def _preprocess_input_gates(text, view):
-    """G2..G7 input gates. Returns (drop_reason|None, quarantine|None).
+    """G2..G7 + brand-product input gates. Returns (drop_reason|None, quarantine|None).
 
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
-    metadata checks, then G2/G5/G7 gloss scans (G7 last so every
+    metadata checks, then G2/G5/G7 gloss scans (brand last so every
     pre-existing slug keeps priority on overlap). Quarantine (G4 single-sense
     suspect like "led") keeps the item with a review flag.
     Normalization is enforced HERE (not trusted from the caller): poss
@@ -1667,6 +1698,15 @@ def _preprocess_input_gates(text, view):
     # _has_nonlatin_script, never non-ASCII, so café keeps).
     if glosses and any(_has_nonlatin_script(g) for g in glosses):
         return "g7-nonlatin", None
+    # D-brand (locked 2026-09-17; the Playboy #1 case): any
+    # brand-classified row (_is_brand_row: name-POS entry +
+    # brand/magazine/product gloss signal) drops the item as
+    # brand-product. Runs last so
+    # every pre-existing slug keeps priority on overlap; the drop is
+    # reversible via rekey (locked trade-off). Fail-open: blank
+    # pos/gloss rows never match, so uncertainty keeps.
+    if any(_is_brand_row(s) for s in senses):
+        return "brand-product", None
     return None, None
 
 

@@ -26,7 +26,16 @@ def test_prompt_keeps_hierarchy_and_tags():
         [{"kind": "word", "text": "would", "pool_level": "A1"}],
         {"w:would": {"candidates": [
             {"sense_id": "would#0", "gloss": "past of will",
-             "tags": []}]}})
+              "tags": []}]}})
+
+
+def test_prompt_requires_clearly_different_meanings():
+    """Q5 locked: the s2 judge prompt requires picked senses to be
+    clearly different meanings."""
+    batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
+    amap = _anchor(("call#0", "a telephone conversation"),
+                   ("call#1", "to shout loudly"))
+    assert "clearly different meanings" in judge.judge_prompt(batch, amap)
 
 
 def test_validate_multi_and_legacy_shapes():

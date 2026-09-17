@@ -108,6 +108,8 @@ def judge_prompt(batch, anchor_map):
              "4. For modal/auxiliary verbs (would, could, should), the "
              "grammatical main sense takes absolute precedence over any "
              "nominal or philosophical sense.",
+             "Picked senses must be clearly different meanings (never two "
+             "wordings of the same sense).",
               "",
               'Output: {"results": [{"key": "<item key>", '
               '"picks": ["<sense_id>", ... up to 4]}]}.',
