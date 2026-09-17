@@ -4,6 +4,741 @@ All notable changes to HamZaboon. Generated automatically from
 [Conventional Commits](https://www.conventionalcommits.org/) by
 [scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.
 
+### 2026-09-17
+#### Features
+- add blast-radius producer script, edge probes, and reviewer contract (#735) (`reviewer`)
+  — @Ham3dParsa [ffceeca](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ffceeca)
+- prefixed style labels plus method and source filters in viewer (#738) (`factory`)
+  — @Ham3dParsa [2f4149e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2f4149e)
+- precard viewer analytics v2, provenance and sourcing tables (#733) (`factory`)
+  — @Ham3dParsa [7eeeab8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7eeeab8)
+- add T0-v1 quota sampler with tag-policy CLI flags (#732) (`factory`)
+  — @Ham3dParsa [6b16ec6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6b16ec6)
+- promote s4 topic_path to precard rows, retire v16b-exact tag (#728) (`factory`)
+  — @Ham3dParsa [f8ccb4a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f8ccb4a)
+- precard viewer stats strip, distributions drawer, themed scrollbars (#727) (`factory`)
+  — @Ham3dParsa [d429fc3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d429fc3)
+
+#### Bug Fixes
+- probe-batch before xray spawn, cool dead egress, align client timeout (#739) (`egress`)
+  — @Ham3dParsa [896a21d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/896a21d)
+- probe-batch before xray spawn, cool dead egress, align client timeout (`egress`)
+  — @Ham3dParsa [2728ace](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2728ace)
+
+#### docs/beta locks record (#720)
+- docs/beta locks record (#720)
+  — @Ham3dParsa [c0852bc](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c0852bc)
+
+### 2026-09-16
+#### Features
+- add precard run viewer (R1-R6) (#718) (`factory`)
+  — @Ham3dParsa [7cb05d2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7cb05d2)
+- --resume plan, 4 refusals, flush-on-every-stop (R9) (#719) (`factory`)
+  — @Ham3dParsa [852f6a0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/852f6a0)
+- clean-server cache with TTL/ping/write-back plus AvalAI direct-first (R7/R8) (#717) (`factory`)
+  — @Ham3dParsa [eb94925](https://github.com/Ham3dParsa/HamZaboonRobot/commit/eb94925)
+- single LEG_FALLBACKS table in precard net with chain walk (R5/R6) (#716) (`factory`)
+  — @Ham3dParsa [f6d62d3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f6d62d3)
+- thin run.py entry with presets and CLI/env config (R1-R4) (#713) (`factory`)
+  — @Ham3dParsa [22ee58d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/22ee58d)
+- auto meta labels for size, breaking-change, needs-tests (#714) (`ci`)
+  — @Ham3dParsa [0e7f88f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0e7f88f)
+- phase-05 precard telemetry enrichment and split-stream logging (R10/R11) (#711) (`factory`)
+  — @Ham3dParsa [2bcfc4e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2bcfc4e)
+- move probe whitelist home to precard net with health hook (#710) (`factory`)
+  — @Ham3dParsa [c540d07](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c540d07)
+- narrow centered card gallery template + render script (#712) (`factory`)
+  — @Ham3dParsa [34d5111](https://github.com/Ham3dParsa/HamZaboonRobot/commit/34d5111)
+
+#### Documentation
+- harden independent review gate with fixed template (`reviewer`)
+  — @Ham3dParsa [692b2cb](https://github.com/Ham3dParsa/HamZaboonRobot/commit/692b2cb)
+- mark PR-C merged, PR-D resume next (`lexicon`)
+  — @Ham3dParsa [280c9c5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/280c9c5)
+- spec one-command factory runs in 6 phases over P0 net home (#708) (`lexicon`)
+  — @Ham3dParsa [4466383](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4466383)
+- slim template and enforce body-file plus unslop gate (#709) (`pr`)
+  — @Ham3dParsa [c12cd70](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c12cd70)
+
+#### Chores
+- bump openai from 3.7.0 to 3.11.0 (#684) (`deps`)
+  — @dependabot[bot] [09be75f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/09be75f)
+- update ruff requirement from <1,>=0.16.5 to >=0.16.6,<1 (#683) (`deps-dev`)
+  — @dependabot[bot] [337f6f6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/337f6f6)
+
+### 2026-09-15
+#### Features
+- add precard net core with single-owned KeyRing and TARGETS (#702) (`factory`)
+  — @Ham3dParsa [2c89841](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2c89841)
+
+#### Bug Fixes
+- harden labeler triggers and migrate config to v5 schema (#703) (`ci`)
+  — @Ham3dParsa [926a19b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/926a19b)
+- repair labeler action, widen paths, adopt type/domain taxonomy (#698) (`labeler`)
+  — @Ham3dParsa [5848d8a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5848d8a)
+
+#### Documentation
+- persist locked network plan and identity follow-ups (#701) (`lexicon`)
+  — @Ham3dParsa [b8d415c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b8d415c)
+- add detached-run skill for long background jobs (#699) (`skills`)
+  — @Ham3dParsa [17f9833](https://github.com/Ham3dParsa/HamZaboonRobot/commit/17f9833)
+
+#### fix/precard v141 fanout (#697)
+- fix/precard v141 fanout (#697)
+  — @Ham3dParsa [7305047](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7305047)
+
+### 2026-09-14
+#### Features
+- descriptive stage names and locked s0b/s2/s4 prompt fixes (#690) (`factory`)
+  — @Ham3dParsa [1bd9afb](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1bd9afb)
+
+#### Bug Fixes
+- keep persist-failure message unwrapped in card repair (OP-005) (#694) (`ai`)
+  — @Ham3dParsa [b335a0f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b335a0f)
+- idempotent restore with preserved maintenance flag (OP-001..003) (#692) (`backup`)
+  — @Ham3dParsa [b98cf5a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b98cf5a)
+- sink NULL added_at rows last in pre-exposure order (OP-004) (#693) (`db`)
+  — @Ham3dParsa [896e227](https://github.com/Ham3dParsa/HamZaboonRobot/commit/896e227)
+
+#### Other
+- extract generation leaf from llm_services facade (REF5-T7) (#691) (`ai`)
+  — @Ham3dParsa [5bce532](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5bce532)
+- split admin_ai into wizard->list->create->fallback->custom leaves with facade (REF2-T4) (#679) (`admin`)
+  — @Ham3dParsa [093925c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/093925c)
+- split catalog into catalog_* leaves with facade re-exports (REF2-T6) (#686) (`config`)
+  — @Ham3dParsa [056d6c4](https://github.com/Ham3dParsa/HamZaboonRobot/commit/056d6c4)
+- extract tier order registry over due queue (REF4-T5) (#685) (`session`)
+  — @Ham3dParsa [ab4040a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ab4040a)
+
+### 2026-09-13
+#### Features
+- streamline help panel flow, refine copy tone, and remove redundant menu message (#688) (`help`)
+  — @Ham3dParsa [1994d99](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1994d99)
+- opt-in supervisor lease/report for blind50 (C4c) (#642) (`factory`)
+  — @Ham3dParsa [5087349](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5087349)
+- rename precard progress files to domain names with resume shim (#643) (`factory`)
+  — @Ham3dParsa [d6fc06e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d6fc06e)
+- Google-direct leg for all precard LLM stages (#677) (`factory`)
+  — @Ham3dParsa [f07eed5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f07eed5)
+
+#### Bug Fixes
+- human stage logs, LLM-stage progress bars, lazy RAM caches (#689) (`factory`)
+  — @Ham3dParsa [81ff44f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/81ff44f)
+
+#### Refactoring
+- domain voice in run log and drop log (#676) (`factory`)
+  — @Ham3dParsa [b13ddaf](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b13ddaf)
+
+#### Documentation
+- sync stale study-button label in docstrings (`help`)
+  — @Ham3dParsa [cbf954b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/cbf954b)
+- verdict lines + collapsible rejected history for contract-showcase (#644) (`skills`)
+  — @Ham3dParsa [7dd126f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7dd126f)
+- mark aspirational items as planned — not implemented (#681) (`state`)
+  — @Ham3dParsa [d967a7e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d967a7e)
+- document due-stats TEXT-compare divergence (REF6-T3) (#682) (`audit`)
+  — @Ham3dParsa [fc10107](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fc10107)
+- map Boolean-tap streak debt (REF6-T2) (#680) (`audit`)
+  — @Ham3dParsa [1485ebe](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1485ebe)
+
+#### Other
+- extract query_results, legacy_aux, backup leaves from db facade (REF2-T5) (#687) (`db`)
+  — @Ham3dParsa [0da2440](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0da2440)
+- thin advance + gather lifecycle over store (REF4-T4) (#678) (`session`)
+  — @Ham3dParsa [af8e6d5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/af8e6d5)
+- extract fallback router leaf with llm_services aliases (REF5-T6) (#675) (`ai`)
+  — @Ham3dParsa [4db5808](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4db5808)
+- split helpers into pure-awaiting-llm-retry leaves with facade (REF2-T3) (#673) (`utils`)
+  — @Ham3dParsa [ec121bd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ec121bd)
+
+### 2026-09-12
+#### Features
+- kaikki->WordNet sense-CEFR bridge with precard wiring (#668) (`lexicon`)
+  — @Ham3dParsa [7be3aa8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7be3aa8)
+- XRAY_ENABLED flag to run without proxy (#648) (`deploy`)
+  — @Ham3dParsa [d8928bb](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d8928bb)
+- form-of-driven anchor fixes (#647) (`factory`)
+  — @Ham3dParsa [9942034](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9942034)
+
+#### Bug Fixes
+- purge crontab when XRAY_ENABLED=0 and silence keepalive loop (`deploy`)
+  — @Ham3dParsa [43defa6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/43defa6)
+- drop lemma-min, never-null pool fallback for sense CEFR (#674) (`lexicon`)
+  — @Ham3dParsa [4fe113f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4fe113f)
+
+#### Performance
+- bound pre-exposure fetch with limit, pass remaining from session (#662) (`db`)
+  — @Ham3dParsa [04ef14e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/04ef14e)
+- chunk in-queries to 500 with row_number window per ref3-t2 (#653) (`db`)
+  — @Ham3dParsa [b569d39](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b569d39)
+- add saved_words pre-exposure index for REF3-T1 (#651) (`db`)
+  — @Ham3dParsa [d4df061](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d4df061)
+
+#### Refactoring
+- lazily resolve preset defaults to cut redundant queries (#657) (`db`)
+  — @Ham3dParsa [54142dd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/54142dd)
+- domain voice in help and comments (#655) (`factory`)
+  — @Ham3dParsa [5cf060c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5cf060c)
+- namespace layout into pipeline/lexicon/core/archive (#649) (`factory`)
+  — @Ham3dParsa [29eecc1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/29eecc1)
+
+#### Documentation
+- add REF1-T3 raw broadcast audit report (#661) (`audit`)
+  — @Ham3dParsa [e29024b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e29024b)
+
+#### Other
+- extract TTLCache and cost_resolver leaves with read-cache facade (REF5-T5) (#672) (`ai`)
+  — @Ham3dParsa [d16df3a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d16df3a)
+- extract session store codec with save/load/clear (#671) (`session`)
+  — @Ham3dParsa [2968fcc](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2968fcc)
+- split jalali and card leaves from formatting facade (REF2-T2) (#670) (`format`)
+  — @Ham3dParsa [4a1a98e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4a1a98e)
+- register group-2 prefixes, thin callback_router (REF1-T5) (#669) (`routing`)
+  — @Ham3dParsa [4ffc493](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4ffc493)
+- extract sync limiter leaf with llm_services aliases (#667) (`ai`)
+  — @Ham3dParsa [a38953e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a38953e)
+- add grade_service activity facade with parity tests (#666) (`grade`)
+  — @Ham3dParsa [eb937ad](https://github.com/Ham3dParsa/HamZaboonRobot/commit/eb937ad)
+- split escape/digits/html leaves into formatting_escape (REF2-T1) (#665) (`format`)
+  — @Ham3dParsa [ba1bb56](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ba1bb56)
+- register group-1 prefixes, thin callback_router (#664) (`routing`)
+  — @Ham3dParsa [dafab8f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/dafab8f)
+- extract streak date math to pure services/streak (#663) (`db`)
+  — @Ham3dParsa [0b078c1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0b078c1)
+- extract telemetry leaf with ai aliases (#660) (`ai`)
+  — @Ham3dParsa [f546e18](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f546e18)
+- add quota_service kind facade with parity tests (#659) (`quota`)
+  — @Ham3dParsa [14cacaf](https://github.com/Ham3dParsa/HamZaboonRobot/commit/14cacaf)
+- add format_card_message factory; migrate query card to send_pretty.send (#658) (`format`)
+  — @Ham3dParsa [e5f0ffd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e5f0ffd)
+- extract card_validation leaf with ai aliases (#654) (`ai`)
+  — @Ham3dParsa [011406e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/011406e)
+- extract json_codec leaf with ai alias (#652) (`ai`)
+  — @Ham3dParsa [7d8d2dd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7d8d2dd)
+- retarget archive/tts imports to send_pretty owner (#650) (`transport`)
+  — @Ham3dParsa [2a243ef](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2a243ef)
+
+#### changing requirements so that deploy on server woudn't install unnecessary libraries.
+- changing requirements so that deploy on server woudn't install unnecessary libraries.
+  — @Ham3dParsa [360e595](https://github.com/Ham3dParsa/HamZaboonRobot/commit/360e595)
+
+### 2026-09-11
+#### Features
+- batch s4 label leg to 16 items per llm call (#645) (`factory`)
+  — @Ham3dParsa [714cde6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/714cde6)
+- quality gates F1-F4 (country blocklist, name reroute, slang register, stub veto) (#646) (`factory`)
+  — @Ham3dParsa [03164a6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/03164a6)
+- namespace teeth for pinned live files (#641) (`factory`)
+  — @Ham3dParsa [9aa1454](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9aa1454)
+- stage glossary as sole naming owner (v13 T1) (#629) (`factory`)
+  — @Ham3dParsa [a9148b2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a9148b2)
+
+#### Bug Fixes
+- per-source subscription refresh with comma split (#638) (`egress`)
+  — @Ham3dParsa [0208355](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0208355)
+- sync country-blocklist slug into glossary (#637) (`factory`)
+  — @Ham3dParsa [921f31b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/921f31b)
+- pad probe progress rewrites (#635) (`tools`)
+  — @Ham3dParsa [3dcee5e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3dcee5e)
+- country blocklist with common-noun exemption (#606) (#631) (`factory`)
+  — @Ham3dParsa [8f29c07](https://github.com/Ham3dParsa/HamZaboonRobot/commit/8f29c07)
+
+#### Refactoring
+- share conn-level deletes across session helpers (#640) (`db`)
+  — @Ham3dParsa [27c661b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/27c661b)
+- consistency follow-ups on stale invalidate (#636) (`session`)
+  — @Ham3dParsa [3d0f6e1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3d0f6e1)
+- single async gate for session validity (#630) (`session`)
+  — @Ham3dParsa [67ad60e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/67ad60e)
+
+#### Documentation
+- runbook, env map, egress guide (#639) (`factory`)
+  — @Ham3dParsa [f242b32](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f242b32)
+
+### 2026-09-10
+#### Features
+- TARGETS table + per-provider cooldowns (C4b) (#634) (`tools`)
+  — @Ham3dParsa [5947d68](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5947d68)
+- shared classify() error-action table in llm_json (C4a) (#633) (`factory`)
+  — @Ham3dParsa [6b73779](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6b73779)
+- add lexical_type, register and pre_card_id row fields (#632) (`precard`)
+  — @Ham3dParsa [fb9a45c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fb9a45c)
+- theme catalog with fire_temple + star + users.theme_id (#616) (`themes`)
+  — @Ham3dParsa [641cbda](https://github.com/Ham3dParsa/HamZaboonRobot/commit/641cbda)
+- probe-google whitelist for sanctioned egress (#624) (`tools`)
+  — @Ham3dParsa [175eb77](https://github.com/Ham3dParsa/HamZaboonRobot/commit/175eb77)
+- progress voice for blind50 runs (#627) (`factory`)
+  — @Ham3dParsa [bf747e0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/bf747e0)
+
+#### Bug Fixes
+- invalidate stale cross-day study sessions lazily (#626) (`session`)
+  — @Ham3dParsa [a6be742](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a6be742)
+- never overwrite whitelist with empty probe (#612) (`tools`)
+  — @Ham3dParsa [1758fc7](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1758fc7)
+
+#### Refactoring
+- domain names for stage symbols, stable ids on disk (#625) (`factory`)
+  — @Ham3dParsa [01dd6e5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/01dd6e5)
+
+### 2026-09-08
+#### Refactoring
+- v13 stage labels on console, stable ids on disk (#615) (`factory`)
+  — @Ham3dParsa [aea9a48](https://github.com/Ham3dParsa/HamZaboonRobot/commit/aea9a48)
+
+#### Testing
+- job-object capped runs for tiny and safe boxes (#609) (`load-sim`)
+  — @Ham3dParsa [6c69f04](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6c69f04)
+
+#### Chores
+- bump openai from 3.5.0 to 3.7.0 (#594) (`deps`)
+  — @dependabot[bot] [1869626](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1869626)
+- update ruff requirement from <1,>=0.16.4 to >=0.16.5,<1 (#593) (`deps`)
+  — @dependabot[bot] [efd3041](https://github.com/Ham3dParsa/HamZaboonRobot/commit/efd3041)
+
+### 2026-09-07
+#### Features
+- blind 4-way S2 judge runner for accept50 (#614) (`factory`)
+  — @Ham3dParsa [a2e505e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a2e505e)
+- ansi log colors, short summaries, probe error body (#610) (`factory`)
+  — @Ham3dParsa [793d1d2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/793d1d2)
+- multi-sub sources plus probe ranking (#608) (`tools`)
+  — @Ham3dParsa [2e45a3c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2e45a3c)
+- s0 input gates G2-G6 with quarantine (#601) (`factory`)
+  — @Ham3dParsa [db90b54](https://github.com/Ham3dParsa/HamZaboonRobot/commit/db90b54)
+- AvalAI judge provider for S2 (glm-5.3-flash, effort-low) (#597) (`factory`)
+  — @Ham3dParsa [e728614](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e728614)
+
+#### Bug Fixes
+- demote kaikki meta-gloss buckets below real senses (#613) (`factory`)
+  — @Ham3dParsa [2ba344b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2ba344b)
+- tighten G3/G5 false positives (#604) (`factory`)
+  — @Ham3dParsa [d818749](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d818749)
+- xray boot-start, live config gate, leastPing balancer (#599) (`deploy`)
+  — @Ham3dParsa [1072e29](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1072e29)
+
+#### Performance
+- synchronous NORMAL for 0.15 CPU, 7x faster commits (#600) (`db`)
+  — @Ham3dParsa [ee0eda1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ee0eda1)
+
+#### Testing
+- arrival v2 plus 60-day harness with timeline and peak probe (#603) (`load-sim`)
+  — @Ham3dParsa [ab8163d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ab8163d)
+- percentile set plus cpu and ram capacity verdicts (#602) (`load-sim`)
+  — @Ham3dParsa [7f96a05](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7f96a05)
+
+### 2026-09-06
+#### Features
+- tabular Rich report, tiers 75/50, PAGE_SIZE 8, review ordinal (#598) (`session`)
+  — @Ham3dParsa [6f3b685](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6f3b685)
+- add contract-showcase for owner-readable decision docs (#595) (`skills`)
+  — @Ham3dParsa [a4ef0ec](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a4ef0ec)
+- card-gen pilot runner + gallery (20 cards) (#564) (`factory`)
+  — @Ham3dParsa [da06c1b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/da06c1b)
+
+#### Bug Fixes
+- graceful custom-test errors plus step-1 skip (#592) (`admin-ai`)
+  — @Ham3dParsa [7c2f019](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7c2f019)
+
+#### Documentation
+- sync pending phases 06/07 to complete (already shipped in #444) (#555) (`presets`)
+  — @Ham3dParsa [a5c2cdf](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a5c2cdf)
+
+#### feat/lexicon proper route (#596)
+- feat/lexicon proper route (#596)
+  — @Ham3dParsa [8aa278b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/8aa278b)
+
+#### Update opencode.yml
+- Update opencode.yml
+  — @Ham3dParsa [698ca95](https://github.com/Ham3dParsa/HamZaboonRobot/commit/698ca95)
+
+### 2026-09-05
+#### Features
+- jittered Telegram retry seam with RetryAfter cap 10s — Issue #579 (#580) (`retry`)
+  — @Ham3dParsa [159bc6a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/159bc6a)
+- nightly purges with 90d rollups plus midnight session sweep (#569) (`retention`)
+  — @Ham3dParsa [a8c730b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a8c730b)
+- color SRS grades, study delete-confirm and display toggles (#574) (`ui`)
+  — @Ham3dParsa [e6d67b8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e6d67b8)
+- color admin buttons by meaning (danger/success/primary) (#572) (`admin`)
+  — @Ham3dParsa [808b0a2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/808b0a2)
+
+#### Bug Fixes
+- prevent AI waste on repeat queries and refund quota on word dedup (#586) (`word-query`)
+  — @Ham3dParsa [1232624](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1232624)
+- raise SQLite busy timeout 10s→25s with BEGIN IMMEDIATE (#577) (`db`)
+  — @Ham3dParsa [908428f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/908428f)
+- batch per-grade writes, off-loop study path, review_events index (#567) (`srs`)
+  — @Ham3dParsa [6335c92](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6335c92)
+- strip colors from SRS grade buttons to avoid grading bias (#576) (`ui`)
+  — @Ham3dParsa [94fca51](https://github.com/Ham3dParsa/HamZaboonRobot/commit/94fca51)
+- pass per-preset card_count in custom-test wizard (#575) (`admin-ai`)
+  — @Ham3dParsa [a8c8a4d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a8c8a4d)
+- correct pronounce button typo شیدن to شنیدن (#571) (`ui`)
+  — @Ham3dParsa [170e1ce](https://github.com/Ham3dParsa/HamZaboonRobot/commit/170e1ce)
+- reorder main-menu and SRS grade buttons (#570) (`ui`)
+  — @Ham3dParsa [0f57926](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0f57926)
+- plan picker current/new, stale prompt rotation, preset name charset (#568) (`admin`)
+  — @Ham3dParsa [2866328](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2866328)
+
+#### Documentation
+- mandate graphify blast-radius check with fail-closed freshness gate (#573) (`agents`)
+  — @Ham3dParsa [085acfd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/085acfd)
+
+#### fix/retry followup (#587)
+- fix/retry followup (#587)
+  — @Ham3dParsa [d202c9d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d202c9d)
+
+### 2026-09-04
+#### Features
+- EN phrase pool collector + LLM CEFR judge (F4 pilot 500) (#562) (`factory`)
+  — @Ham3dParsa [6cfc0a8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6cfc0a8)
+- AWL coverage + vowel-gate allowlist + regen pool (#560) (`factory`)
+  — @Ham3dParsa [724ba77](https://github.com/Ham3dParsa/HamZaboonRobot/commit/724ba77)
+- R5 shape filter + regenerated 10k pool (#557) (`factory`)
+  — @Ham3dParsa [e3f6dad](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e3f6dad)
+
+#### Bug Fixes
+- real plan picker + distinct cancel/close emojis (#554) (`admin`)
+  — @Ham3dParsa [3bc2b42](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3bc2b42)
+- zero hardcoded AI presets, retire dead migrations (`presets`)
+  — @Ham3dParsa [fad40e7](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fad40e7)
+
+#### Refactoring
+- move send retry-slot seam to send_pretty, delete dead wrappers (#558) (`retry`)
+  — @Ham3dParsa [52302c5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/52302c5)
+- single per-key lock plus dead config delegate removal (#556) (`tts`)
+  — @Ham3dParsa [b8ae3ea](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b8ae3ea)
+- move filesystem backup policy to service, own error lifecycle (#559) (`archive`)
+  — @Ham3dParsa [c797df3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c797df3)
+
+#### Testing
+- add 5k batched replay with resource probes (#565) (`load-sim`)
+  — @Ham3dParsa [2061ee0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2061ee0)
+- add 100-user synthetic harness with locked gates (#561) (`load-sim`)
+  — @Ham3dParsa [b65495b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b65495b)
+
+#### Chores
+- remove dead DEFAULT_AI_* empty defaults; record deferred preset follow-ups (#552) (`config`)
+  — @Ham3dParsa [b57196c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b57196c)
+
+#### feat/preset panel ux (#566)
+- feat/preset panel ux (#566)
+  — @Ham3dParsa [c705aff](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c705aff)
+
+#### feat/preset save preview (#563)
+- feat/preset save preview (#563)
+  — @Ham3dParsa [1b4bb00](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1b4bb00)
+
+#### research/lexicon 5k (#553)
+- research/lexicon 5k (#553)
+  — @Ham3dParsa [ec8a208](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ec8a208)
+
+#### fix/preset draft indicator (#551)
+- fix/preset draft indicator (#551)
+  — @Ham3dParsa [e25ba34](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e25ba34)
+
+### 2026-09-03
+#### Features
+- v14-v16b lexicon pipeline with registry and reports (#545) (`factory`)
+  — @Ham3dParsa [6ad2fb6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6ad2fb6)
+- Muse via Responses and preset polish (`ai`)
+  — @Ham3dParsa [bcdd560](https://github.com/Ham3dParsa/HamZaboonRobot/commit/bcdd560)
+- deep service owns lock+cache+channel+fallback (#539) (`tts`)
+  — @Ham3dParsa [67928a2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/67928a2)
+- add cloudioa entrypoint and diva upload hygiene (#538) (`deploy`)
+  — @Ham3dParsa [6136772](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6136772)
+- bump OC review to muse-spark-1.3-contributor-free (#537) (`review`)
+  — @Ham3dParsa [3dda8c5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3dda8c5)
+
+#### Bug Fixes
+- xray keepalive for crash recovery between refreshes (#546) (`deploy`)
+  — @Ham3dParsa [97ea6d6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/97ea6d6)
+- bigger responses probe and visible test errors (`ai`)
+  — @Ham3dParsa [c58cc1c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c58cc1c)
+- wizard reasoning and test navigation polish (`admin`)
+  — @Ham3dParsa [4696fe3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4696fe3)
+- sh-compatible pre-start, xray-only supervisor, diva auto-deploy (#540) (`deploy`)
+  — @Ham3dParsa [bc59701](https://github.com/Ham3dParsa/HamZaboonRobot/commit/bc59701)
+
+#### Refactoring
+- extract archive backup seam to admin_backup sub-router (#543) (`admin`)
+  — @Ham3dParsa [4c65df1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4c65df1)
+- unify telegram send retry via _send_media_with_retry (#533) (`helpers`)
+  — @Ham3dParsa [af7adae](https://github.com/Ham3dParsa/HamZaboonRobot/commit/af7adae)
+
+#### ops/server root (#548)
+- ops/server root (#548)
+  — @Ham3dParsa [360572a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/360572a)
+
+#### fix/preset create test jump (#541)
+- fix/preset create test jump (#541)
+  — @Ham3dParsa [1e02b11](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1e02b11)
+
+### 2026-09-02
+#### Features
+- persistent Xray for Chabokan Python hosting (#534) (#535) (`ops`)
+  — @Ham3dParsa [31913e9](https://github.com/Ham3dParsa/HamZaboonRobot/commit/31913e9)
+- persistent Xray for Chabokan Python hosting (#534) (`ops`)
+  — @Ham3dParsa [316e04f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/316e04f)
+- jalali grouped /reports with day drill-down and per-session hints (#524) (`reports`)
+  — @Ham3dParsa [6278891](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6278891)
+- hierarchical back + close for all admin menus (#531) (`admin`)
+  — @Ham3dParsa [e477a02](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e477a02)
+
+#### Bug Fixes
+- polish per-user-lock — split srs buckets, per-action limits, conftest logging (#536) (`scheduling`)
+  — @Ham3dParsa [0ead542](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0ead542)
+- remove outer tts lock to avoid deadlock with pronounce (#532) (`voice`)
+  — @Ham3dParsa [7887e6a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7887e6a)
+- harden TTS logging and crash paths (#voice-logging) (#530) (`voice`)
+  — @Ham3dParsa [c8b8ca2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c8b8ca2)
+- archive logging gaps — exc_info, structured fields, fallback and persist traces (#529) (`logging`)
+  — @Ham3dParsa [973e0f2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/973e0f2)
+- harden TTS logging and crash paths (#voice-logging) (#528) (`voice`)
+  — @Ham3dParsa [f3ad791](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f3ad791)
+- P0 fallback/feedback hardening (#527) (`archive`)
+  — @Ham3dParsa [351451b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/351451b)
+- remove filename kwarg, add InputFile retry parity, TTS timeout, split Forbidden handling (#526) (`voice`)
+  — @Ham3dParsa [c7e972d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c7e972d)
+- per-user spam guard for costly flows (#27) (#525) (`scheduling`)
+  — @Ham3dParsa [fc05c98](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fc05c98)
+- polish LLM cost hub - buttons, dedicated Requests table, unslop (#518) (`cost`)
+  — @Ham3dParsa [dea0541](https://github.com/Ham3dParsa/HamZaboonRobot/commit/dea0541)
+
+#### Documentation
+- mark #27 per-user-lock complete #525 fc05c98 (`plan`)
+  — @Ham3dParsa [ff95da2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ff95da2)
+
+### 2026-09-01
+#### Features
+- unified backup&restore with archive group (#519) (`archive`)
+  — @Ham3dParsa [3ec1732](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3ec1732)
+- channel cache with file_id reuse, filename/caption helpers (#520) (`tts`)
+  — @Ham3dParsa [06aa886](https://github.com/Ham3dParsa/HamZaboonRobot/commit/06aa886)
+- 2x2 main menu with admin-first and help polish (#521) (`ui`)
+  — @Ham3dParsa [9015c37](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9015c37)
+- split LLM cost wall into hub with overview/breakdown/recent, pill, badge, paging (#517) (`cost`)
+  — @Ham3dParsa [68a6b7e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/68a6b7e)
+- risk double-confirm, Jalali dates, rich table polish, detailed stats (#514) (`admin`)
+  — @Ham3dParsa [e5e9d6d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e5e9d6d)
+- enable Rich Messages by default (fallback to MDV2 on 404) (#509) (`rich`)
+  — @Ham3dParsa [26e43a9](https://github.com/Ham3dParsa/HamZaboonRobot/commit/26e43a9)
+- checklist output for human+agent readability (#504) (`review`)
+  — @Ham3dParsa [7d9a3fd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7d9a3fd)
+- route AI calls via AI_PROXY_URL for geoblock bypass (#506) (`ai`)
+  — @Ham3dParsa [2023cf5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2023cf5)
+- polish panel, preview+format, full_name and rich profile table (#499) (`admin`)
+  — @Ham3dParsa [928cf5e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/928cf5e)
+- split LLM costs into input/output/total with Preset×Kind breakdown (#500) (`cost`)
+  — @Ham3dParsa [3f84210](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3f84210)
+- word-based dedup for custom word queries with alias and cap (#501) (`cache`)
+  — @Ham3dParsa [bae361d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/bae361d)
+
+#### Bug Fixes
+- casual friendly tone and structured bullets for help sections (#523) (`help`)
+  — @Ham3dParsa [9e5184a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9e5184a)
+- import BTN_HELP for help button handler (#522) (`bot`)
+  — @Ham3dParsa [abec861](https://github.com/Ham3dParsa/HamZaboonRobot/commit/abec861)
+- legend keyboard, ram gate doc, health block, tests (PR #511 comments) (#513) (`cost`)
+  — @Ham3dParsa [9a6d68d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9a6d68d)
+- hardcode RICH_ENABLED=True, sync docs (#510) (`rich`)
+  — @Ham3dParsa [35ab75a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/35ab75a)
+- robust AI_PROXY handling - timeout, socks, validation (#507) (`ai`)
+  — @Ham3dParsa [da54c53](https://github.com/Ham3dParsa/HamZaboonRobot/commit/da54c53)
+- rich profile via send_pretty Message table (RICH) (#508) (`admin`)
+  — @Ham3dParsa [60c284c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/60c284c)
+- align cost report tests with RichMessage triple format (#505) (`tests`)
+  — @Ham3dParsa [05d4764](https://github.com/Ham3dParsa/HamZaboonRobot/commit/05d4764)
+
+#### Documentation
+- mark archive-group MERGED (`plan`)
+  — @Ham3dParsa [ad348e5](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ad348e5)
+
+#### Continuous Integration
+- revert debug pipefail
+  — @Ham3dParsa [d365c34](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d365c34)
+
+#### Chores
+- extend kilo-ci-loop to Kilo + OpenCode with token-efficient delta (#503) (`skills`)
+  — @Ham3dParsa [1d90113](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1d90113)
+
+#### feat/admin awaiting polish (#516)
+- feat/admin awaiting polish (#516)
+  — @Ham3dParsa [f38c6eb](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f38c6eb)
+
+#### docs/tighten review gate (#515)
+- docs/tighten review gate (#515)
+  — @Ham3dParsa [c61a33b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c61a33b)
+
+#### fix/cost buttons (#511)
+- fix/cost buttons (#511)
+  — @Ham3dParsa [91a5a50](https://github.com/Ham3dParsa/HamZaboonRobot/commit/91a5a50)
+
+### 2026-08-31
+#### Features
+- add OpenCode PR review with Muse Spark 1.2 free (#502) (`review`)
+  — @Ham3dParsa [c54bc4c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c54bc4c)
+- stats enrichment and user management (issue #496) (#498) (`admin`)
+  — @Ham3dParsa [850e3b3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/850e3b3)
+
+### 2026-08-30
+#### Documentation
+- resync Waves 1-2 + streak template to main@a3971ed (2026-08-30) (#494) (`audits`)
+  — @Ham3dParsa [78cf47f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/78cf47f)
+
+#### Chores
+- update ruff requirement from <1,>=0.16.3 to >=0.16.4,<1 (#493) (`deps`)
+  — @dependabot[bot] [1cada88](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1cada88)
+- bump openai from 3.3.1 to 3.5.0 (#492) (`deps`)
+  — @dependabot[bot] [70dc75f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/70dc75f)
+- bump cryptography from 50.0.0 to 50.0.1 (#491) (`deps`)
+  — @dependabot[bot] [33549ae](https://github.com/Ham3dParsa/HamZaboonRobot/commit/33549ae)
+
+### 2026-08-24
+#### Features
+- user per-field display toggles + confirm, preserve working state (#483) (`toggles`)
+  — @Ham3dParsa [89ebda8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/89ebda8)
+
+#### Refactoring
+- migrate 11 reply_text sites onto send_pretty seam (RT-ADMIN #418) (#485) (`admin`)
+  — @Ham3dParsa [3201c24](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3201c24)
+- migrate 6 reply_text sites onto send_pretty seam (RT-PLANS #419) (#484) (`admin_plans`)
+  — @Ham3dParsa [6577513](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6577513)
+- migrate 21 reply_text sites onto send_pretty seam (RT-ADMINAI #417) (#482) (`admin_ai`)
+  — @Ham3dParsa [93c2a8a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/93c2a8a)
+- migrate 4 reply_text sites onto send_pretty seam (RT-COST #420) (#480) (`admin_cost`)
+  — @Ham3dParsa [d786521](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d786521)
+
+#### Documentation
+- kilo SUGGESTIONs evaluated not blanket-ignored (`skill`)
+  — @Ham3dParsa [a3971ed](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a3971ed)
+- compress kilo-ci-loop per writing-for-agents, keep loop/script precise (`skill`)
+  — @Ham3dParsa [0827a77](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0827a77)
+- kilo-ci-loop triage for non-blocking SUGGESTIONs (`skill`)
+  — @Ham3dParsa [b4bf526](https://github.com/Ham3dParsa/HamZaboonRobot/commit/b4bf526)
+- kilo-ci-loop references reusable script (`skill`)
+  — @Ham3dParsa [8726f28](https://github.com/Ham3dParsa/HamZaboonRobot/commit/8726f28)
+- mark #21 god-modules complete #486 702947e + kilo-ci-loop script (`tickets`)
+  — @Ham3dParsa [c67d36f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c67d36f)
+- prune completed - keep only active/incomplete (verified FREEZE #450, RT #482/#485/#484/#480 via 3-wave audit; Session A untouched) (#488) (`tickets`)
+  — @Ham3dParsa [2c313d1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2c313d1)
+- mark SRS staged reveal P3 complete (#338 via #483/#406) (#487) (`tickets`)
+  — @Ham3dParsa [86e6d37](https://github.com/Ham3dParsa/HamZaboonRobot/commit/86e6d37)
+- mark #22 complete 834076f (#481) — update tickets/index STATE (`plan`)
+  — @Ham3dParsa [0e3d998](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0e3d998)
+
+#### refactor/split keyboards (#486)
+- refactor/split keyboards (#486)
+  — @Ham3dParsa [702947e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/702947e)
+
+#### refactor/utils pure (#481)
+- refactor/utils pure (#481)
+  — @Ham3dParsa [834076f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/834076f)
+
+### 2026-08-23
+#### Bug Fixes
+- wrap hot-path DB calls off event loop and raise busy timeout to 10s (#477) (`db`)
+  — @Ham3dParsa [a17e23e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a17e23e)
+- make report purge atomic with save and list/load (#463) (`db`)
+  — @Ham3dParsa [5dbbc2e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5dbbc2e)
+- make session slot consume/release atomic via transaction() (#459) (`scheduling`)
+  — @Ham3dParsa [6a61028](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6a61028)
+- tts race per-key lock, cost GROUP BY, pragma quoted ident, restore 100M guard, llm owner gate, preset re alias (#460) (`security-ai`)
+  — @Ham3dParsa [893b9c0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/893b9c0)
+- p-unblocked batch R1,R2,R3,R4,R6,R7,R8 (#462) (`handlers`)
+  — @Ham3dParsa [e4aba6a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e4aba6a)
+- make grammar-tip quota atomic and never burn on failure (#458) (`db`)
+  — @Ham3dParsa [de56e7c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/de56e7c)
+- restore id-token write permission required by opencode action (#457) (`ci`)
+  — @Ham3dParsa [d60ee8b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d60ee8b)
+
+#### Performance
+- add composite index for due reviews to avoid full scan (#464) (`db`)
+  — @Ham3dParsa [81ea01f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/81ea01f)
+
+#### Refactoring
+- single-source plan limits + derive allowlist from ROUTES (#18,#20) (#475) (`config,routing`)
+  — @Ham3dParsa [c9886bc](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c9886bc)
+- single-source card types, preset alias and field registry (R1,R3,R4,R11,R23) (#461) (`config`)
+  — @Ham3dParsa [a5a9737](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a5a9737)
+- extract daily batch logic to unwired legacy_batch module (#465) (`scheduling`)
+  — @Ham3dParsa [795d659](https://github.com/Ham3dParsa/HamZaboonRobot/commit/795d659)
+
+#### Documentation
+- mark Session P complete via #462+#477 (`tickets`)
+  — @Ham3dParsa [870fd7e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/870fd7e)
+- mark #24 complete 99471e0 (#478) — update tickets/index STATE (`plan`)
+  — @Ham3dParsa [28caf2a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/28caf2a)
+- mark #18+#20 complete c9886bc (#475) — update tickets/index STATE (`plan`)
+  — @Ham3dParsa [f821f3d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f821f3d)
+- mark Session Q 6+1 complete (#476) (`tickets`)
+  — @Ham3dParsa [635fc08](https://github.com/Ham3dParsa/HamZaboonRobot/commit/635fc08)
+- mark SCAL-P-UNBLOCKED complete via PR #462 (#473) (`tickets`)
+  — @Ham3dParsa [fcd44d8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fcd44d8)
+- lock contract #18+#20 plan-limits + allowlist (A all) worktree a-02 (`plan`)
+  — @Ham3dParsa [e37c95c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e37c95c)
+- flag Session F complete — 4 fast-track tickets merged #455 (`plans`)
+  — @Ham3dParsa [06e034c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/06e034c)
+- restore scalability-audit plan after clean (S #4,9,13,14,33,37 via #460) (`plans`)
+  — @Ham3dParsa [7fe86f4](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7fe86f4)
+- extract kilo-ci-loop and disclose behind pointers (#454) (`skills`)
+  — @Ham3dParsa [3ea8e8d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3ea8e8d)
+
+#### Continuous Integration
+- add opencode GitHub Actions workflow for remote agent runs (#456)
+  — @Ham3dParsa [53247e0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/53247e0)
+
+#### Chores
+- allow multi-file pytest in subagents (`agents`)
+  — @Ham3dParsa [c0790fe](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c0790fe)
+- bump openai from 3.0.0 to 3.3.1 (#472) (`deps`)
+  — @dependabot[bot] [072f065](https://github.com/Ham3dParsa/HamZaboonRobot/commit/072f065)
+- retire optional_daily_limit and auto-delivery window columns (#466) (`db`)
+  — @Ham3dParsa [7b50746](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7b50746)
+- extend subagent allowlists with safe validation guards (#474) (`agents`)
+  — @Ham3dParsa [01b62c6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/01b62c6)
+- update ruff requirement from <1,>=0.16.2 to >=0.16.3,<1 (#471) (`deps`)
+  — @dependabot[bot] [859666e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/859666e)
+- bump python-dotenv from 1.2.2 to 1.2.3 (#470) (`deps`)
+  — @dependabot[bot] [66528d6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/66528d6)
+- update jdatetime requirement from <6,>=5.0 to >=6.1.0,<7 (#469) (`deps`)
+  — @dependabot[bot] [fde67c1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/fde67c1)
+- update psutil requirement from <8,>=7.0.0 to >=7.2.2,<8 (#468) (`deps`)
+  — @dependabot[bot] [7c06656](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7c06656)
+
+#### chore/retire grammar tip (#478)
+- chore/retire grammar tip (#478)
+  — @Ham3dParsa [99471e0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/99471e0)
+
+#### UI/changed the message in study handling when user has no sessions
+- UI/changed the message in study handling when user has no sessions
+  — @Ham3dParsa [baabbf2](https://github.com/Ham3dParsa/HamZaboonRobot/commit/baabbf2)
+
+#### docs/fast audit cleanup2 (#455)
+- docs/fast audit cleanup2 (#455)
+  — @Ham3dParsa [ab7160a](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ab7160a)
+
+### 2026-08-22
+#### Bug Fixes
+- freeze staged prompt and revealed state against resume exploit (#450) (`session`)
+  — @Ham3dParsa [0a9c597](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0a9c597)
+- guard notify_callback when update has no callback query (#448) (`user`)
+  — @Ham3dParsa [957c5dd](https://github.com/Ham3dParsa/HamZaboonRobot/commit/957c5dd)
+
+#### Refactoring
+- centralize ai_presets columns and route settings writes via seam (#447) (`db`)
+  — @Ham3dParsa [db48b45](https://github.com/Ham3dParsa/HamZaboonRobot/commit/db48b45)
+
+#### Documentation
+- mark freeze-prompt-reveal complete and sync remaining-work (`plans`)
+  — @Ham3dParsa [7fba1da](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7fba1da)
+- refresh PROJECT_STATE content to current codebase (#453)
+  — @Ham3dParsa [64591b0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/64591b0)
+- refresh PROJECT_STATE date and keep under 100 lines (#452)
+  — @Ham3dParsa [330ad69](https://github.com/Ham3dParsa/HamZaboonRobot/commit/330ad69)
+- sync README/ROADMAP/AGENTS with pull-based study sessions (#451)
+  — @Ham3dParsa [782d803](https://github.com/Ham3dParsa/HamZaboonRobot/commit/782d803)
+
 ### 2026-08-21
 #### Features
 - add underline/strike/marked/tg_spoiler and rich shim docs (#443) (`send-pretty`)
@@ -28,6 +763,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [ac0152d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ac0152d)
 
 #### Documentation
+- record #446 RT-LEARNER merge (#449) (`changelog,plans`)
+  — @Ham3dParsa [dbb8e08](https://github.com/Ham3dParsa/HamZaboonRobot/commit/dbb8e08)
 - record #439 plan write-time guard merge (#440) (`changelog,plans`)
   — @Ham3dParsa [c7e9483](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c7e9483)
 - resync TICKETS.md and theme indexes with merged state (#438) (`plans`)
