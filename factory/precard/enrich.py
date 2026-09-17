@@ -531,7 +531,7 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 
 
-def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
+def _sense_cefr_or_unmapped(lemma, pos, gloss):
     """Bridge sense-CEFR with the never-None unmapped fallback.
 
     Returns (sense_cefr, method): the bridge value when non-empty, else
@@ -684,8 +684,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     kind = item.get("kind") or "word"
     lemma = (item.get("text") or "").strip()
     if not sid:
-        sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
-            item, lemma, item.get("pos") or "", gloss or "")
+        sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
+            lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "circular_def": is_circular_def(lemma, gloss or ""),
                 "ipa": "", "ipa_src": _anchor_home.IPA_SRC_MODEL,
@@ -781,8 +781,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    N_EXAMPLES else "partial")
     sense_tags = _anchor_home._sense_tag_set(sense)
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
-    sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
-        item, lemma, id_pos, gloss or "")
+    sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
+        lemma, id_pos, gloss or "")
     return {"sense_id": sid, "en_def": gloss or "",
             "circular_def": is_circular_def(lemma, gloss or ""),
             "ipa": ipa,
