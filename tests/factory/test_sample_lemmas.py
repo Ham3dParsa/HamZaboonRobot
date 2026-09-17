@@ -776,6 +776,48 @@ def test_validity_verdict_de_like_drops():
         "drop:validity"
 
 
+def test_validity_verdict_live_de_entry_drops():
+    # Verbatim live Kaikki "de" entry (5 senses across 5 POS rows,
+    # kaikki-en-words.jsonl): the OpenCode blocking warning proved the
+    # de_like fixture above misses the intj vocable gloss (no vocable
+    # tag) and the prep French-nobility gloss, so this test pins the
+    # exact live glosses/tags instead of the analogues.
+    live_de_senses = [
+        {"glosses": ["The name of the Cyrillic script letter Д / д."],
+         "tags": None},
+        {"glosses": ["Alternative form of dee (“to do”)."],
+         "tags": ["Northumbria", "alt-of", "alternative"]},
+        {"glosses": ["Pronunciation spelling of the."],
+         "tags": ["Caribbean", "Jamaica", "alt-of",
+                  "pronunciation-spelling"]},
+        {"glosses": ["A meaningless unstressed syllable used when "
+                     "singing a tune or indicating a rhythm."],
+         "tags": None},
+        {"glosses": ["Used in the titles of French nobility; of."],
+         "tags": ["historical"]},
+    ]
+    for sense in live_de_senses:
+        assert is_junk_sense(sense) is True, sense
+    assert validity_verdict({"word": "de", "senses": live_de_senses}) == \
+        "drop:validity"
+
+
+def test_validity_verdict_narrow_gloss_classes_keep_real_words():
+    # Narrowness pins for the two live-de gloss classes: a real
+    # aristocracy word must NOT match the foreign-title class (no
+    # French mentioned) and a real interjection must NOT match the
+    # vocable-gloss class (no meaningless-syllable/rhythm gloss).
+    aristocrat = {"glosses": ["A member of the nobility"], "tags": []}
+    ouch = {"glosses": ["Expressing sudden pain"],
+            "tags": ["interjection"]}
+    assert is_junk_sense(aristocrat) is False
+    assert is_junk_sense(ouch) is False
+    assert validity_verdict({"word": "aristocrat",
+                             "senses": [aristocrat]}) == "keep"
+    assert validity_verdict({"word": "ouch",
+                             "senses": [ouch]}) == "keep"
+
+
 def test_validity_verdict_each_junk_class_drops_solo():
     solo_junk = [
         _sense("Dialectal variant.", tags=["alt-of"]),

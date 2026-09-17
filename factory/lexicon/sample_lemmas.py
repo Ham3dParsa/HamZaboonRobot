@@ -367,13 +367,33 @@ VALIDITY_JUNK_TAGS = {
 # (mirrors anchor._is_formof_sense semantics; bare participle/past tags
 # alone are NOT stub signals).
 VALIDITY_FORMOF_TAG = "form-of"
-# letter-name-pattern class: the ONE gloss pattern the sieve may key on
+# letter-name-pattern class: the gloss patterns the sieve may key on
 # (narrow by design — "Name of the letter ..." / Cyrillic-letter names
 # like the "de" Cyrillic-letter sense; real words never gloss this way).
 VALIDITY_LETTER_NAME_RX = re.compile(
     r"\bname of the\b.{0,40}\bletter\b"
     r"|\bcyrillic\b.{0,40}\bletter\b"
     r"|\bletter\b.{0,40}\bcyrillic\b",
+    re.IGNORECASE,
+)
+# vocable-gloss class: singing syllables with no lexical meaning (the
+# live "de" intj sense carries NO vocable tag, so the tag class alone
+# misses it). Narrow: real interjections ("expressing sudden pain")
+# never gloss this way.
+VALIDITY_VOCABLE_GLOSS_RX = re.compile(
+    r"\bmeaningless\b.{0,30}\bsyllable\b"
+    r"|\bunstressed syllable\b"
+    r"|\bindicating a rhythm\b",
+    re.IGNORECASE,
+)
+# foreign-title class: non-English function-word senses smuggled into
+# the English dump (the live "de" prep sense: French nobility title).
+# Narrow: requires French + nobility/title together — real aristocracy
+# words ("aristocrat", "duke") never mention French.
+VALIDITY_FOREIGN_TITLE_RX = re.compile(
+    r"\bfrench\b.{0,40}\bnobility\b"
+    r"|\bnobility\b.{0,40}\bfrench\b"
+    r"|\btitles?\s+of\s+(the\s+)?french\b",
     re.IGNORECASE,
 )
 # Reason slug for all-junk entries (matches shape_verdict "drop:<reason>").
@@ -435,6 +455,10 @@ def is_junk_sense(sense: object) -> bool:
     except (AttributeError, TypeError):
         return False
     if gloss and VALIDITY_LETTER_NAME_RX.search(gloss):
+        return True
+    if gloss and VALIDITY_VOCABLE_GLOSS_RX.search(gloss):
+        return True
+    if gloss and VALIDITY_FOREIGN_TITLE_RX.search(gloss):
         return True
     return False
 
