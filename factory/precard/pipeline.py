@@ -1187,6 +1187,25 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if item_key(i) not in states["inflection_review"]["done"]]
             s0b_bar["hits"] += len(batch) - len(todo)
             review = []
+            # R8 wiring: every-gloss pre-check needs the sense list.
+            # Reuses the memoized s0 entry views (no second Kaikki pass);
+            # candidates carry gloss+pos (the R2 view threads entry POS
+            # per sense, so the name-row POS leg is live); fail-open —
+            # lemmas without a view review via LLM unchanged.
+            s0b_anchor_map = {}
+            for item in todo:
+                key = item_key(item)
+                try:
+                    view = _cached_view(item.get("text", ""))
+                except Exception:
+                    view = None
+                if isinstance(view, dict):
+                    s0b_anchor_map[key] = {
+                        "candidates": [
+                            {"gloss": (s or {}).get("gloss", ""),
+                             "pos": (s or {}).get("pos", "")}
+                            for s in (view.get("senses") or [])
+                            if isinstance(s, dict)]}
             for item in todo:
                 key = item_key(item)
                 try:
@@ -1223,7 +1242,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             providers["inflection_review"]),
                         file_label=_leg_file_label(
                             providers["inflection_review"]),
-                        rings=provider_rings)
+                        rings=provider_rings,
+                        anchor_map=s0b_anchor_map)
                 except AuthError as exc:
                     _abort("inflection_review", exc)
                     raise
@@ -1275,11 +1295,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         if key not in states["inflection_review"]["failed"]:
                             states["inflection_review"]["failed"].append(key)
                     else:
+                        # R8: the precheck verdict carries its own slug
+                        # (review-has-independent-sense) — preserve it so
+                        # progress/dropped.log show WHY the item skipped
+                        # review instead of the generic inflection-keep.
+                        _reason = verdict.get("reason") or ""
                         states["inflection_review"]["done"][key] = {
                             "kept": True,
-                            "reason": ("review-uncertain"
-                                       if verdict.get("uncertain")
-                                       else "inflection-keep"),
+                            "reason": (
+                                _reason
+                                if _reason ==
+                                "review-has-independent-sense"
+                                else ("review-uncertain"
+                                      if verdict.get("uncertain")
+                                      else "inflection-keep")),
                             "uncertain": bool(
                                 verdict.get("uncertain"))}
                 pace_fn(SLEEP)

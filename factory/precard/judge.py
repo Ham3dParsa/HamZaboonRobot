@@ -19,6 +19,7 @@ import re
 
 from factory.precard.accounting import item_key
 from factory.precard import anchor as _anchor_home
+from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
 # P2 (R5): JUDGE_MODELS lives in factory.precard.net (single owner);
 # this leg holds zero model lists and reads chains through it.
@@ -282,6 +283,37 @@ def _is_veto_stub_gloss(gloss):
                 or is_superlative_gloss(gloss))
 
 
+def _review_has_independent_sense(key, anchor_map):
+    """R8 every-gloss pre-check: True iff the lemma keeps without review.
+
+    Mirrors the G2 every-gloss shape (R2) at review level: name rows
+    (anchor._is_name_row, single owner — imported, never mirrored) are
+    excluded from the test, stub rows use the SAME S0b verdict-path
+    predicates (_is_veto_stub_gloss — the "of"-requiring pair, so a real
+    gloss merely mentioning a form never counts as a stub). Blank
+    glosses are skipped (empties fail open to review, never count as
+    independent). Any independent non-name sense → True. Fail-open: a
+    missing map, an unknown key, empty candidates, or any error →
+    False (caller runs the LLM review unchanged).
+    """
+    try:
+        cands = ((anchor_map or {}).get(key) or {}).get("candidates", [])
+        if not cands:
+            return False
+        for cand in cands:
+            gloss = (cand or {}).get("gloss") or ""
+            if not gloss.strip():
+                continue
+            if _is_name_row(cand):
+                continue
+            if _is_veto_stub_gloss(gloss):
+                continue
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def apply_inflection_veto(out, batch, anchor_map):
     """F4: veto every stub pick in a judge_batch result dict, in place."""
     for item in batch:
@@ -408,7 +440,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                        tele_model_actual=None, tele_attempts=False,
                        models=None, tried=None, sleep_fn=None, state=None,
                        ring=None, key_var="", file_label="factory/.env",
-                       rings=None):
+                       rings=None, anchor_map=None):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
@@ -426,6 +458,16 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     record per batch (None-tolerated, cost-unknown flagged, real
     perf_counter latency, real key idx, run_id-joined; per-try
     attempt rows only when ``tele_attempts`` is on).
+    R8: deterministic every-gloss pre-check (no model call). When
+    ``anchor_map`` is given ({key: {"candidates": [{sense_id, gloss,
+    ...}]}} — the same shape judge_batch reads), a lemma with >=1
+    non-stub non-name candidate sense keeps immediately (reason
+    review-has-independent-sense, model review-precheck, uncertain
+    False) and never enters a prompt batch — the "listed" case (verb
+    stub + real adjective sense) no longer dies with its stub, and the
+    skipped call is saved. anchor_map=None (or a key missing/empty
+    there) fails open to the LLM review, so existing callers are
+    behavior-unchanged.
     """
     import time as _time
     if model_calls is None:
@@ -453,9 +495,21 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     def _adapted(key, model, text, _t=transport):
         return _t(key, model, INFLECTION_REVIEW_SYS, text)
     out = {}
+    # R8: deterministic pre-check first — skipped lemmas keep without a
+    # verdict and never enter a prompt batch (no transport call, no
+    # telemetry row, no tried entry). Everything else reviews as before.
+    pending = []
+    for entry in items or []:
+        key = (entry or {}).get("key", "")
+        if key and _review_has_independent_sense(key, anchor_map):
+            out[key] = {"keep": True,
+                        "reason": "review-has-independent-sense",
+                        "model": "review-precheck", "uncertain": False}
+        else:
+            pending.append(entry)
     for batch_no, base in enumerate(
-            range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
-        batch = items[base:base + INFLECTION_REVIEW_BATCH]
+            range(0, len(pending), INFLECTION_REVIEW_BATCH), start=1):
+        batch = pending[base:base + INFLECTION_REVIEW_BATCH]
         want = [e["key"] for e in batch]
         prompt = _inflection_review_prompt(batch)
         settled = False

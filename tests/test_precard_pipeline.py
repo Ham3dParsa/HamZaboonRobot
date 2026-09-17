@@ -922,15 +922,21 @@ def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
 # ---------------- v9 R36: S0b inflection stage ----------------
 
 def _inflect_index():
-    # Mixed entries (stub top + one real sense) so items pass the G2
-    # all-form S0 gate and reach the S0b review under test. Pure-form
-    # entries die at S0 (see test_g2_*); S0b owns mixed tops.
+    # Entries that reach the S0b review under test: stub senses plus a
+    # name row plus a gloseless (blank-gloss) sense. Post-#741 the S0 G2
+    # gate skips name rows in its all-form test, so a pure stub+name
+    # entry dies at S0 and never reaches S0b; the blank sense (real
+    # prod shape — gloseless Kaikki senses emit "") breaks the G2
+    # all-form test while the R8 precheck skips it, so the item still
+    # reaches the transport. Entries with a real sense skip review via
+    # the R8 precheck (see test_g2_* for the S0 gate; S0b owns
+    # stub+blank entries).
     def rows(*glosses):
         return [{"pos": "noun",
                  "entry": {"pos": "noun", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"cats": rows("plural of cat", "feline companions"),
+    return {"cats": rows("plural of cat", "A surname.", ""),
             "went": rows("past of go", "to move along"),
             "apple": rows("a round fruit")}
 
@@ -948,12 +954,19 @@ def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     sample = write_sample(tmp_path, items)
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
 
+    _S0B_KEEP = {"w:cats": (False, "regular plural, use cat"),
+                 "w:went": (True, "irregular, own value")}
+
     def inflect(api_key, model, sys_text, user_text):
+        # R8: answer exactly the requested KEYs — the shared envelope
+        # validator rejects extra rows, and skipped lemmas are never
+        # in the prompt anymore.
+        keys = re.findall(r"^KEY (\S+)", user_text, re.M)
         return json.dumps({"results": [
-            {"key": "w:cats", "keep": False,
-             "reason": "regular plural, use cat"},
-            {"key": "w:went", "keep": True,
-             "reason": "irregular, own value"}]})
+            {"key": k, "keep": _S0B_KEEP.get(
+                k, (True, "test keep"))[0],
+             "reason": _S0B_KEEP.get(k, (True, "test keep"))[1]}
+            for k in keys]})
 
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
@@ -970,20 +983,55 @@ def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     assert s0b["done"]["w:cats"]["kept"] is False
     assert s0b["done"]["w:cats"]["reason"].startswith("inflection-drop")
     assert "w:cats" in s0b["failed"]
-    assert s0b["done"]["w:went"]["reason"] == "inflection-keep"
+    # R8: went carries a real sense ("to move along"), so the precheck
+    # keeps it without consulting the (mock) LLM verdict.
+    assert s0b["done"]["w:went"]["reason"] == "review-has-independent-sense"
     assert s0b["done"]["w:apple"]["reason"] == "not-inflection"
 
 
-def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
+def test_s0b_uncertain_keeps():
     """R36 fail-closed: review errors keep the item flagged
-    review-uncertain (never drop on uncertainty)."""
+    review-uncertain (never drop on uncertainty).
+    R8 note: pinned at review level, not pipeline level — any item
+    that reaches a blowing transport carries a name row (all-stub
+    non-name entries die at the S0 G2 gate first), and anchor drops
+    name-topped items downstream. The fail-closed contract itself is
+    unchanged and lives here."""
+    from factory.precard.judge import inflection_review
+
+    def broken(api_key, model, sys_text, user_text):
+        raise urllib.error.HTTPError("http://x", 500, "boom", {}, None)
+
+    out = inflection_review(
+        [{"key": "w:cats", "text": "cats", "gloss": "plural of cat"}],
+        broken, "test-key", sleep_fn=lambda s: None, state={},
+        anchor_map={"w:cats": {"candidates": [
+            {"gloss": "plural of cat"}, {"gloss": "A surname."}]}})
+    assert out["w:cats"] == {
+        "keep": True, "reason": "review-error",
+        "model": "review-fallback", "uncertain": True}
+
+
+def test_s0b_uncertain_pipeline_keeps(tmp_path, monkeypatch):
+    """R36 fail-closed at pipeline level: a blowing s0b transport keeps
+    the item flagged review-uncertain (never drop on uncertainty).
+
+    Companion to test_s0b_uncertain_keeps (review level): the cats
+    fixture (stub + name row + blank, same convention as
+    _inflect_index/_superlative_index) passes the S0 G2 gate via the
+    blank and reaches the transport under R8 (no independent sense),
+    so the pipeline maps the transport failure onto the s0b done entry.
+    Asserts s0b-done only — downstream anchor behavior is out of scope.
+    """
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"}]
     sample = write_sample(tmp_path, items)
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    calls = []
 
     def broken(api_key, model, sys_text, user_text):
+        calls.append(user_text)
         raise urllib.error.HTTPError("http://x", 500, "boom", {}, None)
 
     rc = precard_main(
@@ -994,7 +1042,7 @@ def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
         _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
-    assert [r["key"] for r in load_out(out)] == ["w:cats"]  # kept
+    assert calls  # R8 did not precheck-skip: the transport was consulted
     s0b = json.loads(
         (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:cats"] == {
@@ -1027,15 +1075,35 @@ def test_coherence_stem_overlap():
 # ---------------- v12 R44: superlative redirect (S0b verdict variant) ---
 
 def _superlative_index():
-    # Mixed entries (stub top + one real sense) so items pass the G2
-    # all-form S0 gate and reach the S0b review under test.
+    # Mixed entries (stub top + name row + blank gloseless sense) so
+    # items pass the post-#741 S0 G2 gate (name rows skipped there, the
+    # blank breaks the all-form test) and reach the S0b review under
+    # test (R8 precheck skips both, transport decides).
     def rows(*glosses):
         return [{"pos": "adj",
                  "entry": {"pos": "adj", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"best": rows("superlative of good", "of the highest quality"),
-            "better": rows("comparative of good", "of higher quality"),
+    return {"best": rows("superlative of good", "A surname.", ""),
+            "better": rows("comparative of good", "A surname.", ""),
+            "good": rows("having good qualities")}
+
+
+def _idiomatic_superlative_index():
+    # Keep-verdict survival fixture: stub + blank gloseless sense, NO
+    # name row. The blank breaks the S0 G2 all-form test while the R8
+    # precheck skips it, so the item reaches the transport (unlike a
+    # real-sense fixture, which the precheck keeps without review); the
+    # anchor window then crowns the stub top (no name row to divert the
+    # pick), so a keep verdict survives end to end. A name-row variant
+    # cannot survive: the window crowns the name and S1 drops it as
+    # anchor-name-gloss (see prior shape of the test below).
+    def rows(*glosses):
+        return [{"pos": "adj",
+                 "entry": {"pos": "adj", "sounds": [],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+    return {"best": rows("superlative of good", ""),
             "good": rows("having good qualities")}
 
 
@@ -1114,12 +1182,15 @@ def test_s0b_superlative_base_missing_from_index_is_not_inflection():
 
 def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
     """R44 mocked: an established idiomatic keep verdict stays kept
-    (inflection-keep, no redirect)."""
+    (inflection-keep, no redirect) AND survives downstream — the kept
+    lemma still becomes a row."""
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, _super_items()[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    calls = []
 
     def inflect(api_key, model, sys_text, user_text):
+        calls.append(user_text)
         return json.dumps({"results": [
             {"key": "w:best", "keep": True,
              "reason": "idiom: do one's best"}]})
@@ -1128,15 +1199,20 @@ def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
         _assign_transport=None, _inflect_transport=inflect,
-        _sleep_fn=lambda s: None, _index=_superlative_index(),
+        _sleep_fn=lambda s: None, _index=_idiomatic_superlative_index(),
         _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
+    assert calls  # reached the LLM review (no R8 precheck skip)
     s0b = json.loads(
         (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:best"]["reason"] == "inflection-keep"
     assert s0b["done"]["w:best"].get("redirect_to", "") == ""
-    assert [r["key"] for r in load_out(out)] == ["w:best"]
+    # Keep-verdict survival: the stub pick stands (all-stub window, the
+    # veto reroutes nothing) and the row is emitted for the kept lemma.
+    rows = {r["key"]: r for r in load_out(out)}
+    assert list(rows) == ["w:best"]
+    assert rows["w:best"]["sense_id"] == "best#0"
 
 
 def test_telemetry_history_vendored_with_provenance(tmp_path, monkeypatch):
