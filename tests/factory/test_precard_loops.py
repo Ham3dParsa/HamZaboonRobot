@@ -210,6 +210,49 @@ def test_r8_mixed_stubs_plus_real_keeps():
     assert calls == []
 
 
+def test_r8_pos_carrying_name_row_excluded_pipeline_shape():
+    # Pipeline-built shape {gloss, pos} (no sense_id): a proper-noun
+    # sense with a non-name-pattern gloss is still a name row via the
+    # POS leg (live in prod now that the projection threads per-sense
+    # pos) — stub + pos-name only still reviews via LLM.
+    items = [{"key": "w:deutsch", "text": "deutsch",
+              "gloss": "plural of deutsch"}]
+    amap = {"w:deutsch": {"candidates": [
+        {"gloss": "plural of deutsch", "pos": "noun"},
+        {"gloss": "the German language", "pos": "propn"}]}}
+    calls = []
+    out = judge.inflection_review(
+        items, _r8_review_transport(calls), "k",
+        sleep_fn=lambda s: None, state={}, anchor_map=amap)
+    assert out["w:deutsch"]["model"] != "review-precheck"
+    assert len(calls) == 1
+    # Same map plus one real non-name sense -> precheck keeps, no call.
+    amap["w:deutsch"]["candidates"].append(
+        {"gloss": "a living organism growing in soil", "pos": "noun"})
+    calls2 = []
+    out = judge.inflection_review(
+        items, _r8_review_transport(calls2), "k",
+        sleep_fn=lambda s: None, state={}, anchor_map=amap)
+    assert out["w:deutsch"]["reason"] == "review-has-independent-sense"
+    assert calls2 == []
+
+
+def test_r8_blank_gloss_fails_open_to_review():
+    # A blank gloss never counts as independent — stub + empty still
+    # reviews via LLM (empties fail open, never skip review).
+    items = [{"key": "w:listed", "text": "listed",
+              "gloss": "past of list"}]
+    amap = {"w:listed": {"candidates": [
+        {"sense_id": "listed#0", "gloss": "past of list"},
+        {"sense_id": "listed#1", "gloss": ""}]}}
+    calls = []
+    out = judge.inflection_review(
+        items, _r8_review_transport(calls), "k",
+        sleep_fn=lambda s: None, state={}, anchor_map=amap)
+    assert out["w:listed"]["model"] != "review-precheck"
+    assert len(calls) == 1
+
+
 def test_r8_fail_open_without_map():
     # No map (or unknown key / empty candidates): current behavior —
     # the item reviews via LLM.

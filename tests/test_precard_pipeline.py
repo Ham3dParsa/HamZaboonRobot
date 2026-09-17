@@ -923,15 +923,20 @@ def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
 
 def _inflect_index():
     # Entries that reach the S0b review under test: stub senses plus a
-    # name row (R8 reviews these — pure-form entries die at the S0 G2
-    # gate; entries with a real sense skip review via the R8 precheck).
-    # See test_g2_* for the S0 gate; S0b owns name-polluted stubs.
+    # name row plus a gloseless (blank-gloss) sense. Post-#741 the S0 G2
+    # gate skips name rows in its all-form test, so a pure stub+name
+    # entry dies at S0 and never reaches S0b; the blank sense (real
+    # prod shape — gloseless Kaikki senses emit "") breaks the G2
+    # all-form test while the R8 precheck skips it, so the item still
+    # reaches the transport. Entries with a real sense skip review via
+    # the R8 precheck (see test_g2_* for the S0 gate; S0b owns
+    # stub+blank entries).
     def rows(*glosses):
         return [{"pos": "noun",
                  "entry": {"pos": "noun", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"cats": rows("plural of cat", "A surname."),
+    return {"cats": rows("plural of cat", "A surname.", ""),
             "went": rows("past of go", "to move along"),
             "apple": rows("a round fruit")}
 
@@ -1033,15 +1038,17 @@ def test_coherence_stem_overlap():
 # ---------------- v12 R44: superlative redirect (S0b verdict variant) ---
 
 def _superlative_index():
-    # Mixed entries (stub top + one real sense) so items pass the G2
-    # all-form S0 gate and reach the S0b review under test.
+    # Mixed entries (stub top + name row + blank gloseless sense) so
+    # items pass the post-#741 S0 G2 gate (name rows skipped there, the
+    # blank breaks the all-form test) and reach the S0b review under
+    # test (R8 precheck skips both, transport decides).
     def rows(*glosses):
         return [{"pos": "adj",
                  "entry": {"pos": "adj", "sounds": [],
                            "senses": [{"glosses": [g], "tags": [],
                                        "examples": []} for g in glosses]}}]
-    return {"best": rows("superlative of good", "A surname."),
-            "better": rows("comparative of good", "A surname."),
+    return {"best": rows("superlative of good", "A surname.", ""),
+            "better": rows("comparative of good", "A surname.", ""),
             "good": rows("having good qualities")}
 
 

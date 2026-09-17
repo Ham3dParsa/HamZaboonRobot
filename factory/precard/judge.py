@@ -19,6 +19,7 @@ import re
 
 from factory.precard.accounting import item_key
 from factory.precard import anchor as _anchor_home
+from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
 # P2 (R5): JUDGE_MODELS lives in factory.precard.net (single owner);
 # this leg holds zero model lists and reads chains through it.
@@ -282,46 +283,30 @@ def _is_veto_stub_gloss(gloss):
                 or is_superlative_gloss(gloss))
 
 
-def _is_r8_name_candidate(cand):
-    """R8 name-row check: R2 _is_name_row mirror (provenance: anchor.py).
-
-    anchor.py owns both name signals (PROPER_NOUN_POS + the
-    _is_name_gloss pattern); this reads them through the already-imported
-    anchor module (no new import, no second registry). The entry-POS leg
-    keys off cand["pos"] when a caller supplies it — bare anchor
-    candidates ({sense_id, gloss, tags}) carry no POS, and a missing pos
-    is uncertainty, not a name signal (fail-open to False, exactly as
-    R2). Any lookup error fails open to False (caller reviews via LLM).
-    """
-    try:
-        pos = str((cand or {}).get("pos") or "").strip().casefold()
-        if pos and pos in _anchor_home.PROPER_NOUN_POS:
-            return True
-        return bool(_anchor_home._is_name_gloss(
-            (cand or {}).get("gloss") or ""))
-    except Exception:
-        return False
-
-
 def _review_has_independent_sense(key, anchor_map):
     """R8 every-gloss pre-check: True iff the lemma keeps without review.
 
-    Mirrors the G2 every-gloss shape (R2) at review level: name rows are
+    Mirrors the G2 every-gloss shape (R2) at review level: name rows
+    (anchor._is_name_row, single owner — imported, never mirrored) are
     excluded from the test, stub rows use the SAME S0b verdict-path
     predicates (_is_veto_stub_gloss — the "of"-requiring pair, so a real
-    gloss merely mentioning a form never counts as a stub). Any
-    independent non-name sense → True. Fail-open: a missing map, an
-    unknown key, empty candidates, or any error → False (caller runs the
-    LLM review unchanged).
+    gloss merely mentioning a form never counts as a stub). Blank
+    glosses are skipped (empties fail open to review, never count as
+    independent). Any independent non-name sense → True. Fail-open: a
+    missing map, an unknown key, empty candidates, or any error →
+    False (caller runs the LLM review unchanged).
     """
     try:
         cands = ((anchor_map or {}).get(key) or {}).get("candidates", [])
         if not cands:
             return False
         for cand in cands:
-            if _is_r8_name_candidate(cand):
+            gloss = (cand or {}).get("gloss") or ""
+            if not gloss.strip():
                 continue
-            if _is_veto_stub_gloss((cand or {}).get("gloss", "")):
+            if _is_name_row(cand):
+                continue
+            if _is_veto_stub_gloss(gloss):
                 continue
             return True
         return False

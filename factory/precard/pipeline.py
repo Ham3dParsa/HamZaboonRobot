@@ -1189,7 +1189,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             review = []
             # R8 wiring: every-gloss pre-check needs the sense list.
             # Reuses the memoized s0 entry views (no second Kaikki pass);
-            # fail-open — lemmas without a view review via LLM unchanged.
+            # candidates carry gloss+pos (the R2 view threads entry POS
+            # per sense, so the name-row POS leg is live); fail-open —
+            # lemmas without a view review via LLM unchanged.
             s0b_anchor_map = {}
             for item in todo:
                 key = item_key(item)
@@ -1200,7 +1202,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 if isinstance(view, dict):
                     s0b_anchor_map[key] = {
                         "candidates": [
-                            {"gloss": (s or {}).get("gloss", "")}
+                            {"gloss": (s or {}).get("gloss", ""),
+                             "pos": (s or {}).get("pos", "")}
                             for s in (view.get("senses") or [])
                             if isinstance(s, dict)]}
             for item in todo:
