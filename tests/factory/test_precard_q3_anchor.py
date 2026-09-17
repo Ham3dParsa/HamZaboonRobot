@@ -110,6 +110,11 @@ def test_q3_short_headword_inflections_anchor():
         "The old wastebasket stood in the corner today", "taste") is False
     assert E.example_has_headword(
         "She cut the pineapple for the party today", "apple") is False
+    # OC round: coincidental 3-prefixes in longer words must not
+    # anchor (card/care share only "car").
+    assert E._short_stem_match_3("card", "care") is False
+    assert E._short_stem_match_3("apply", "apple") is False
+    assert E._short_stem_match_3("tasty", "taste") is False
 
 
 def test_q3_hyphenated_headword_anchors_on_part():

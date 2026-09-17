@@ -180,6 +180,10 @@ def _singular_short(token):
 def _short_stem_match_3(a, b):
     """Len>=3 fallback for short-headword inflections (Q3 anchor).
 
+    Gated to the gap it was built for: only consulted when
+    min(len(a), len(b)) < 5 (heads _stem_match_5 skips). Long heads
+    stay at the locked need-5 threshold — apply/apple, tasty/taste
+    and card/care must NOT match here.
     _stem_match_5 skips every stem <5, so dogs/dog, gouty/gout and
     running/run can never match there. This fallback requires both
     sides len>=3 and accepts singularized equality (dogs/dog) or a
@@ -188,18 +192,25 @@ def _short_stem_match_3(a, b):
     apple/pineapple: prefix 0) still rejects. Case-sensitive —
     callers lowercase first.
     """
+    if min(len(a), len(b)) >= 5:
+        return False
     if len(a) < 3 or len(b) < 3:
         return False
     if a == b:
         return True
     if _singular_short(a) == b or a == _singular_short(b):
         return True
+    # Coincidental 3-prefixes are common in longer words (card/care),
+    # so pairs with min length >= 4 need a 4-prefix; min-3 pairs
+    # (running/run) keep the 3-prefix bar. Suffix-only overlap
+    # (taste/wastebasket, apple/pineapple: prefix 0) still rejects.
     n = 0
     for ca, cb in zip(a, b):
         if ca != cb:
             break
         n += 1
-    return n >= max(3, (min(len(a), len(b)) + 1) // 2)
+    need = 4 if min(len(a), len(b)) >= 4 else 3
+    return n >= need
 
 
 def headword_leak_tokens(text, kind):
