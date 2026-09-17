@@ -253,19 +253,25 @@ class RiskyProbeGuardTest(unittest.TestCase):
     """R6: allowlist skip + per-call timeout are recorded as data."""
 
     def test_is_risky_module_allowlist(self):
-        # Non-pure surface: skipped by default.
+        # Non-pure surface: skipped by default (incl. DB/state writers that
+        # the old wildcard/prefix used to admit).
         self.assertTrue(rbr.is_risky_module("handlers.x"))
         self.assertTrue(rbr.is_risky_module("services.db.words"))
         self.assertTrue(rbr.is_risky_module("services.ai.generation"))
         self.assertTrue(rbr.is_risky_module("services.ai.fallback_router"))
         self.assertTrue(rbr.is_risky_module("bot"))
         self.assertTrue(rbr.is_risky_module("scripts.review_blast_radius"))
+        self.assertTrue(rbr.is_risky_module("services.scheduling"))
+        self.assertTrue(rbr.is_risky_module("services.session"))
+        self.assertTrue(rbr.is_risky_module("services.session.store"))
+        self.assertTrue(rbr.is_risky_module("services.session.__init__"))
         # Known-pure: probed by default.
         self.assertFalse(rbr.is_risky_module("services.fsrs_core"))
-        self.assertFalse(rbr.is_risky_module("services.scheduling"))
         self.assertFalse(rbr.is_risky_module("services.utils.helpers"))
-        self.assertFalse(rbr.is_risky_module("services.session"))
-        self.assertFalse(rbr.is_risky_module("services.session.store"))
+        self.assertFalse(rbr.is_risky_module("services.session.assembly"))
+        self.assertFalse(rbr.is_risky_module("services.session.grade_policy"))
+        self.assertFalse(rbr.is_risky_module("services.session.summary"))
+        self.assertFalse(rbr.is_risky_module("services.session.tier_registry"))
         self.assertFalse(rbr.is_risky_module("config.catalog"))
         self.assertFalse(rbr.is_risky_module("config.catalog_languages"))
         self.assertFalse(rbr.is_risky_module("tests.fake_pure"))
@@ -342,6 +348,68 @@ class RiskyProbeGuardTest(unittest.TestCase):
         out = rbr.probe_call(_hang, (None,), {}, timeout=0.2)
         self.assertTrue(out.startswith("timeout:"),
                         f"expected timeout data, got: {out}")
+
+    def test_writer_names_skipped_even_in_allowlisted_modules(self):
+        import sys
+        import types
+
+        mod = types.ModuleType("tests.fake_pure_writers_rbr")
+
+        def save_session(x=None):
+            return {"ok": True}
+
+        def consume_session_slot(x=None):
+            return {"ok": True}
+
+        def pure_fn(x=None):
+            return {"ok": True}
+
+        mod.save_session = save_session
+        mod.consume_session_slot = consume_session_slot
+        mod.pure_fn = pure_fn
+        sys.modules["tests.fake_pure_writers_rbr"] = mod
+        try:
+            symbols = [
+                {"name": "save_session",
+                 "file": "tests/fake_pure_writers_rbr.py", "kind": "def"},
+                {"name": "consume_session_slot",
+                 "file": "tests/fake_pure_writers_rbr.py", "kind": "def"},
+                {"name": "pure_fn",
+                 "file": "tests/fake_pure_writers_rbr.py", "kind": "def"},
+            ]
+            rows, _trunc = rbr.run_edge_probes(symbols)
+        finally:
+            del sys.modules["tests.fake_pure_writers_rbr"]
+        by_fn = {}
+        for row in rows:
+            self.assertEqual(set(row.keys()),
+                             {"function", "input", "output"})
+            by_fn.setdefault(row["function"], []).append(row)
+        for risky in ("tests.fake_pure_writers_rbr.save_session",
+                      "tests.fake_pure_writers_rbr.consume_session_slot"):
+            self.assertIn(risky, by_fn)
+            for row in by_fn[risky]:
+                self.assertEqual(row["input"], "skipped: risky-module")
+                self.assertIn("--allow-risky", row["output"])
+        probed = by_fn.get("tests.fake_pure_writers_rbr.pure_fn", [])
+        self.assertTrue(probed, "pure function must still probe")
+        for row in probed:
+            self.assertNotEqual(row["input"], "skipped: risky-module")
+
+    def test_db_writer_modules_skipped_by_default(self):
+        symbols = [
+            {"name": "save_session",
+             "file": "services/session/store.py", "kind": "def"},
+            {"name": "consume_session_slot",
+             "file": "services/scheduling.py", "kind": "def"},
+        ]
+        rows, _trunc = rbr.run_edge_probes(symbols)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(set(row.keys()),
+                             {"function", "input", "output"})
+            self.assertEqual(row["input"], "skipped: risky-module")
+            self.assertIn("--allow-risky", row["output"])
 
 
 class GraphifyMissingBlastRadiusTest(unittest.TestCase):

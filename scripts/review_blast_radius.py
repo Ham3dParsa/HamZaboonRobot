@@ -42,17 +42,34 @@ PROBE_TIMEOUT_SEC = 5.0
 # Probe allowlist (R6): only known-pure modules are imported/probed by
 # default. Everything else is skipped unless --allow-risky is passed.
 # Matched on the dotted module name derived from the file relpath.
+# NOTE: services.session.store (save/load/clear hit the DB) and
+# services.scheduling (consume/release write settings) are NOT allowlisted.
 SAFE_MODULE_PREFIXES = (
     "services.utils.",
-    "services.session.",
     "config.catalog",
 )
 SAFE_MODULE_EXACT = frozenset({
     "services.fsrs_core",
-    "services.scheduling",
-    "services.session",
     "config.catalog",
+    "services.session.assembly",
+    "services.session.grade_policy",
+    "services.session.summary",
+    "services.session.tier_registry",
 })
+# Function-level denylist backstop: writer-shaped names are never probed by
+# default, even inside an allowlisted module.
+RISKY_FUNCTION_PREFIXES = (
+    "save_",
+    "clear_",
+    "consume_",
+    "release_",
+    "record_",
+    "try_acquire_",
+    "purge_",
+    "delete_",
+    "update_",
+    "insert_",
+)
 # Tests-local and synthetic helpers (exercised hermetically, no I/O).
 SAFE_TEST_PREFIXES = ("tests.", "test_")
 SAFE_BARE_PREFIXES = ("test_", "tmp_", "sampler", "probe")
@@ -669,12 +686,24 @@ def is_risky_module(mod: str) -> bool:
     """True if *mod* must be skipped by edge probes unless --allow-risky.
 
     Allowlist semantics (R6): only known-pure modules probe by default --
-    services/utils.*, services.fsrs_core, services.scheduling,
-    services/session.*, config catalog modules, and tests-local/synthetic
-    helpers. Everything else (handlers/, services/db/, services/ai/,
+    services/utils.*, services.fsrs_core, services/session pure leaves
+    (assembly, grade_policy, summary, tier_registry), config catalog
+    modules, and tests-local/synthetic helpers. Everything else (handlers/,
+    services/db/, services/ai/, services.scheduling, services/session.store,
     bot.py, scripts/, ...) is skipped.
     """
     return not _is_allowlisted_probe_module(mod)
+
+
+def is_risky_function(name: str) -> bool:
+    """True if *name* is writer-shaped (denylist backstop, R6).
+
+    Matches the bare function name against RISKY_FUNCTION_PREFIXES, so
+    DB/state writers (save_/clear_/consume_/release_/...) are skipped even
+    when they live inside an otherwise allowlisted module.
+    """
+    bare = name.split(".")[-1]
+    return bare.startswith(RISKY_FUNCTION_PREFIXES)
 
 
 def _invoke_once(fn, args: tuple, kwargs: dict):
@@ -854,6 +883,14 @@ def run_edge_probes(
             if probed >= MAX_PROBE_FUNCTIONS:
                 truncated = True
                 break
+            if is_risky_function(name) and not allow_risky:
+                rows.append({
+                    "function": f"{mod}.{name}",
+                    "input": "skipped: risky-module",
+                    "output": f"skipped: risky function ({mod}.{name}) "
+                              "requires --allow-risky",
+                })
+                continue
             fn = getattr(module, name, None)
             if not callable(fn) or inspect.isclass(fn):
                 continue
