@@ -3631,6 +3631,10 @@ def test_q4_stale_pool_fallback_reenriches_to_unmapped_on_resume(
         index = {"dvd": _word_rows("dvd", ("a disc",))}
         common = dict(_judge_transport=fake_judge,
                       _topic_transport=fake_topics, _assign_transport=None,
+                      # Caller-skipped s0b leg: needs no provider key and
+                      # is exempt from the explicit-provider gate; "dvd"
+                      # is not inflectional either way.
+                      _inflect_transport=None,
                       _sleep_fn=lambda s: None, _index=index,
                       _read_entry=read_entry, _tatoeba={},
                       _zipf_fn=lambda t: 5.0)
