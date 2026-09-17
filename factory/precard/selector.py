@@ -1,4 +1,4 @@
-"""Quota sampler T0-v1: stratified row budgets from the T1 mix (pure, stdlib).
+"""Quota selector T0-v1: stratified row budgets from the T1 mix (pure, stdlib).
 
 Pipeline position: AFTER deterministic filters, BEFORE card building.
 Input = candidate precard-row dicts (any mapping with at least a level);
@@ -13,7 +13,7 @@ Provenance (measured 2026-09-16 on the v141 284-sample run):
   B2 2.29 / C1 2.68 / C2 2.0.
 ALL numbers are PROVISIONAL — recalibrate after the first trial run.
 
-Tag policy (locked owner directive 2026-09-16): the sampler core never
+Tag policy (locked owner directive 2026-09-16): the selector core never
 hardcodes a product decision about slang/colloquial/vulgar. Profiles
 (`media` default / `clean`) set defaults; explicit --include-*/--exclude-*
 flags always win. Dataset truth comes from anchor sets (imported, never
@@ -194,7 +194,7 @@ def parse_mix(text):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="T0-v1 quota sampler: stratified row budgets.")
+        description="T0-v1 quota selector: stratified row budgets.")
     parser.add_argument("--rows", required=True,
                         help="input candidate rows (.jsonl)")
     parser.add_argument("--out", required=True,
