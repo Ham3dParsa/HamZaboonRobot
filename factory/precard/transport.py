@@ -5,8 +5,9 @@ KeyRing/RateLimited/write_progress from factory/lexicon/phrase_judge;
 telemetry recorders from factory/core/telemetry; RunLogger +
 _unwrap_transport_result from factory/pipeline/card_pilot; rotation,
 consts, and AvalAI/Google transports from factory/pipeline/
-precard_pipeline; the three Zen leg transports (+ their SYS texts, one
-shared ZEN_BASE) from the v14/v15/v16b archive scripts.
+precard_pipeline. D-retire PR-A removed the retired-provider leg
+transports: every run leg now uses the AvalAI/Google transports
+(+ remap adapters) below.
 AuthError/extract_json/raise_for_auth are IMPORTED from
 factory/core/llm_json (single class shared with phrase_judge and
 card_pilot, so a transport-raised auth abort is caught by every
@@ -32,7 +33,6 @@ from factory.core.llm_json import (
 # AuthError/extract_json/raise_for_auth are re-exported here so the
 # existing ``from factory.precard.transport import ...`` seams in
 # topics/judge/pipeline/net keep working on the single llm_json class.
-from factory.precard.prompts import JUDGE_SYS
 
 
 # P2 (R5): the precard/avalai/google consts live in factory.precard.net
@@ -104,11 +104,11 @@ def _google_payload(user_text):
 
 
 def _google_remap_transport(default_model):
-    """Adapter letting Zen-model loops run unchanged on Google direct.
+    """Adapter letting precard loops run unchanged on Google direct.
 
     Same shape as the AvalAI remap: substitutes the leg model for any
     requested name; extra leading texts are prepended. Telemetry keeps
-    the requested (Zen) name — runs are told apart by progress dirs.
+    the requested name — runs are told apart by progress dirs.
     """
     def wrap(api_key, model, *texts):
         text = "\n\n".join(t for t in texts if t)
@@ -140,13 +140,13 @@ def _google_chat_transport(api_key, model, user_text):
 
 
 def _avalai_remap_transport(default_model):
-    """Adapter letting Zen-model loops run unchanged on AvalAI.
+    """Adapter letting precard loops run unchanged on AvalAI.
 
     S0b/S3/S4 loops live in card_pilot (shared with card-gen — untouched
-    by design) and request Zen model names. This wraps
+    by design) and request model names per leg. This wraps
     _avalai_chat_transport, substituting the precard model for any
     requested name; extra leading texts (the inflect sys prompt) are
-    prepended. Telemetry keeps the requested (Zen) name — runs are told
+    prepended. Telemetry keeps the requested name — runs are told
     apart by their progress dirs, not by these labels.
     Cost bound (#4 review): a fully-failing item repeats the SAME paid
     model through the loop (S4 up to 5 models x 2 attempts, S0b 2 x 2);
@@ -252,7 +252,7 @@ class RunLogger:
 
 
 def _rotating_llm_transport(transport, sleep_fn, state, ring,
-                             provider="zen", key_var="",
+                             provider="avalai", key_var="",
                              file_label="factory/.env"):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
@@ -325,7 +325,7 @@ def _http_error_body(exc):
     return str(raw or "")
 
 
-def _action_for_http_error(exc, provider="zen"):
+def _action_for_http_error(exc, provider="avalai"):
     """classify() action for one HTTPError (table lives in llm_json)."""
     try:
         code = getattr(exc, "code", None)
@@ -365,7 +365,7 @@ def _tele_tokens(usage):
 
 
 def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
-                        label, provider="zen", key_var="",
+                        label, provider="avalai", key_var="",
                         file_label="factory/.env"):
     """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
@@ -504,7 +504,7 @@ class KeyRing:
         if not self.keys:
             raise ValueError(
                 "KeyRing needs at least one non-empty key "
-                "(set OPENCODE_ZEN_API_KEY in factory/.env)")
+                "(set the provider key in factory/.env)")
         self.idx = 0
         self.used = 0
 
@@ -522,60 +522,6 @@ class KeyRing:
             self.used = 0
             return False
         return True
-
-
-CALL_TIMEOUT = 180
-
-# Shared Zen base (identical in all three archive leg scripts; verified).
-ZEN_BASE = "https://opencode.ai/zen/v1"
-
-
-## Generic Zen direct transport (frozen from factory/pipeline/card_pilot.call_responses; S0b default leg).
-def zen_direct_transport(api_key, model, system, user, timeout=CALL_TIMEOUT):
-    body = json.dumps({"model": model, "input": [
-        {"role": "system", "content": system}, {"role": "user", "content": user}],
-        "reasoning": {"effort": "minimal"},
-        "max_output_tokens": 2000}).encode()
-    req = urllib.request.Request(
-        ZEN_BASE + "/responses", data=body,
-        headers={"Authorization": "Bearer %s" % api_key,
-                 "Content-Type": "application/json",
-                 "User-Agent": "HamZaban-factory/1.0 (card pilot)",
-                 "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.load(resp)
-    parts = []
-    for out_item in data.get("output", []):
-        for chunk in out_item.get("content", []):
-            if chunk.get("type") == "output_text":
-                parts.append(chunk.get("text", ""))
-    return "".join(parts)
-
-
-# Frozen from factory/archive/v14_v16/run_v14_phase3_judge.call_responses
-# (provenance: precard line, 2026-09-15): the default Zen sense-judge
-# transport on the shared 3-arg (api_key, model, user_text) seam.
-# pipeline.main falls back to it when no judge transport is injected.
-def zen_judge_transport(api_key, model, user_text, timeout=180):
-    body = json.dumps({"model": model, "input": [
-        {"role": "system", "content": JUDGE_SYS},
-        {"role": "user", "content": user_text}],
-        "reasoning": {"effort": "minimal"},
-        "max_output_tokens": 4000}).encode()
-    req = urllib.request.Request(
-        ZEN_BASE + "/responses", data=body,
-        headers={"Authorization": "Bearer %s" % api_key,
-                 "Content-Type": "application/json",
-                 "User-Agent": "HamZaban-factory/1.0 (research lexicon judge)",
-                 "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.load(resp)
-    parts = []
-    for item in data.get("output", []):
-        for chunk in item.get("content", []):
-            if chunk.get("type") == "output_text":
-                parts.append(chunk.get("text", ""))
-    return "".join(parts)
 
 
 TELEMETRY_HISTORY_TAIL = 20000

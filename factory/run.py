@@ -70,10 +70,9 @@ SPAWN_TIMEOUT_S = 20.0
 SPAWN_REAP_TIMEOUT_S = 5.0
 
 # R2 presets: avalai is domestic-direct (no VPN, no supervisor);
-# google rides the tunnel (supervisor auto-spawn); zen is the default.
+# google rides the tunnel (supervisor auto-spawn). There is no default
+# preset: the run line requires an explicit provider (fail-closed).
 PRESETS = {
-    "zen": {"llm_provider": "zen", "egress_mode": "direct",
-            "precard_model": ""},
     "avalai": {"llm_provider": "avalai", "egress_mode": "direct",
                "precard_model": AVALAI_PRECARD_MODEL},
     "google": {"llm_provider": "google", "egress_mode": "tunnel",
@@ -239,9 +238,12 @@ def parse_args(argv=None):
                "Env mirrors: " + ", ".join(
                    "--%s=%s" % (d.replace("_", "-"), v)
                    for d, v in sorted(FLAG_ENVS.items()))
-               + ". Presets: avalai (direct, no VPN) / google (tunnel, "
-                 "auto-spawns the supervisor) / zen (default). "
-                 "API keys are never flags and never printed: LLM keys "
+                + ". Presets: avalai (direct, no VPN) / google (tunnel, "
+                  "auto-spawns the supervisor). No default preset or "
+                  "provider: pass --preset avalai|google or "
+                  "--llm-provider avalai|google (per-leg --stage-provider "
+                  "overrides). "
+                  "API keys are never flags and never printed: LLM keys "
                  "come from factory/.env; --sup-token only carries the "
                  "loopback supervisor bearer and prints as set/unset. "
                   "--cache/--cooldown-secs/--max-429-strikes/--yes are "
@@ -250,10 +252,12 @@ def parse_args(argv=None):
                   "clean-cache home (this phase resolves them).")
     ap.add_argument("--preset", default=None,
                     choices=tuple(sorted(PRESETS)),
-                    help="run preset (default: zen)")
+                    help="run preset (avalai|google; no default — an "
+                         "explicit provider is required)")
     ap.add_argument("--llm-provider", default=None,
-                    choices=("zen", "avalai", "google"),
-                    help="ALL precard LLM legs (overrides the preset)")
+                    choices=("avalai", "google"),
+                    help="ALL precard LLM legs (overrides the preset; "
+                         "REQUIRED when no preset gives one)")
     ap.add_argument("--stage-provider", action="append", default=None,
                     metavar="STAGE=PROVIDER",
                     help="per-leg provider override, repeatable "
@@ -261,7 +265,7 @@ def parse_args(argv=None):
                          "FACTORY_STAGE_PROVIDER)")
     ap.add_argument("--precard-model", default=None,
                     help="model for all precard legs (default: preset "
-                         "default; ignored on the zen path)")
+                         "default)")
     ap.add_argument("--judge-model", default=None,
                     help="judge model id (default: provider default)")
     ap.add_argument("--stage-model", action="append", default=None,
@@ -391,8 +395,11 @@ def resolve_config(ns, env_map=None):
     env = os.environ if env_map is None else env_map
     preset_name, _ = _pick(getattr(ns, "preset", None),
                             _env_str(env, "FACTORY_PRESET"),
-                            None, "zen")
-    preset = expand_preset(preset_name)
+                            None, None)
+    # No default preset: an explicit provider is required (fail-closed
+    # below). A named preset only fills in what flags/env leave unset.
+    preset = expand_preset(preset_name) if preset_name else {
+        "llm_provider": None, "egress_mode": None, "precard_model": None}
     cfg, sources = {}, {}
 
     def _set(key, cli, env_val, preset_val, default):
@@ -401,10 +408,10 @@ def resolve_config(ns, env_map=None):
         sources[key] = source
 
     _set("preset", getattr(ns, "preset", None),
-         _env_str(env, "FACTORY_PRESET"), None, "zen")
+         _env_str(env, "FACTORY_PRESET"), None, "(none)")
     _set("llm_provider", getattr(ns, "llm_provider", None),
          _env_str(env, "FACTORY_LLM_PROVIDER"),
-         preset["llm_provider"], "zen")
+         preset["llm_provider"], None)
     _set("stage_provider", getattr(ns, "stage_provider", None),
          _env_list(env, "FACTORY_STAGE_PROVIDER"), None, [])
     _set("precard_model", getattr(ns, "precard_model", None),
@@ -493,9 +500,11 @@ def _validate(cfg):
     if cfg["egress_mode"] not in ("direct", "tunnel"):
         _fail("factory/run: bad EGRESS_MODE %r "
               "(want direct|tunnel)" % cfg["egress_mode"])
-    if cfg["llm_provider"] not in ("zen", "avalai", "google"):
-        _fail("factory/run: bad provider %r"
-              % cfg["llm_provider"])
+    if cfg["llm_provider"] not in ("avalai", "google"):
+        _fail("factory/run: explicit provider required (pass --preset "
+              "avalai|google or --llm-provider avalai|google; per-leg "
+              "--stage-provider STAGE=avalai|google overrides single "
+              "legs) — the run line has no default provider")
     if (cfg["limit"] or 0) < 0:
         _fail("factory/run: --limit must be >= 0")
     if cfg["sleep_secs"] < 0:
@@ -775,6 +784,10 @@ def _load_supervisor_tcp_ping():
             mod = plain  # adopt: no second exec, identity preserved
             sys.modules["egress_supervisor"] = mod
         else:
+            # Supervisor-shared seam (out of scope): the egress
+            # supervisor attaches its live probes to the shared
+            # net.TARGETS table, so the cold-exec snapshot covers the
+            # "zen" row too and restores it afterwards.
             prev = (NET_TARGETS["zen"].get("probe"),
                     NET_TARGETS["google"].get("probe"))
             spec = importlib.util.spec_from_file_location(
@@ -861,15 +874,14 @@ def print_models():
     """--list-models: known precard models + cost labels.
 
     No network, no writes. Every entry comes from the net table
-    (R3/R5): (provider, leg) -> model (cost). Costs are "free" (zen
-    chain) or "paid" (avalai/google legs).
+    (R3/R5): (provider, leg) -> model (cost). Run legs are "paid"
+    (avalai/google legs).
     """
     print("precard models:")
     print("  avalai default: %s (paid)" % AVALAI_PRECARD_MODEL)
     print("  google default: %s (paid)" % GOOGLE_PRECARD_MODEL)
-    print("  zen: chain models (free)")
     for leg in LEGS:
-        for provider in ("zen", "avalai", "google"):
+        for provider in ("avalai", "google"):
             entries = LEG_FALLBACKS.get((provider, leg), ())
             if not entries:
                 continue

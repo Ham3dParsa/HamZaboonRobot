@@ -17,9 +17,10 @@ maps keep every path testable with no network, no keys, and no W: drive.
   lease/report shapes as the egress supervisor (proxy attach stays in
   the supervisor/tunnel layer).
 - LEG_FALLBACKS: single owner of every precard model chain
-  (R5: JUDGE_MODELS + the AvalAI/Google precard consts moved in; the
+  (R5: the AvalAI/Google precard consts live here; the
   legs hold zero lists). Rows are ((model, cost), ...) in step-down
-  order with per-entry cost labels ("free"/"paid").
+  order with per-entry cost labels ("paid": D-zen-retire PR-A
+  retired the free chain, so every run leg is paid).
 - call_leg: one single-model LLM attempt with KeyRing rotation.
   Rotation and abort meaning come from
   factory.core.llm_json.classify via the transport wrapper (this
@@ -29,10 +30,10 @@ maps keep every path testable with no network, no keys, and no W: drive.
   RESOURCE_EXHAUSTED) raises ProviderCooldown after exactly one
   attempt with no rotation. The model step-down walk lives in the
   leg batch loops (judge/topics), which read their chains through
-  leg_chain/leg_entries; switch_plan gives those loops the ordered
-  R6 provider list (a free leg cooled on its own provider continues
-  on the next provider's chain with that provider's own ring, paid
-  legs stop for a resume). Progress flushing and telemetry
+   leg_chain/leg_entries; switch_plan gives those loops the ordered
+   R6 provider list (no free provider remains on the run line after
+   D-zen-retire PR-A, so every leg stops for a resume on
+   ProviderCooldown). Progress flushing and telemetry
   otherwise stay with the caller, as they do for every other
   transport caller today.
 - P1 whitelist home (moved verbatim from tools/egress/supervisor.py;
@@ -92,7 +93,6 @@ __all__ = [
     "FREE_PROVIDERS",
     "PAID_PROVIDERS",
     "SWITCH_ORDER",
-    "JUDGE_MODELS",
     "AVALAI_PRECARD_MODEL",
     "AVALAI_CHAT_URL",
     "GOOGLE_PRECARD_MODEL",
@@ -136,6 +136,10 @@ __all__ = [
 # tunnel False = direct mode (no server); True = needs a server pick.
 # probe stays None here (hermetic core); the supervisor attaches its
 # live zen/google probe functions to this same dict on import.
+# NOTE (D-zen-retire PR-A): the precard run line no longer selects zen
+# (pipeline/run require avalai|google), but the "zen" row STAYS: the
+# egress supervisor (tools/egress/supervisor.py, out of scope) attaches
+# its live zen probe to TARGETS["zen"] and serves zen tunnel leases.
 TARGETS = {
     "direct": {"provider": None, "tunnel": False, "probe": None},
     "zen": {"provider": "zen", "tunnel": True, "probe": None},
@@ -148,8 +152,9 @@ TARGETS = {
 
 # Provider -> key variables in resolution order (primary first).
 # Single owner of the provider/var pairing for the precard line.
+# NOTE (D-zen-retire PR-A): no zen entry — the run line never resolves
+# a zen key (pipeline/run require avalai|google fail-closed).
 PROVIDER_KEY_VARS = {
-    "zen": ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2"),
     "google": ("GOOGLE_AI_API_KEY",),
     "openrouter": ("OPENROUTER_API_KEY",),
     "avalai": ("AVALAI_API_KEY",),
@@ -157,16 +162,9 @@ PROVIDER_KEY_VARS = {
 
 # --- P2 LEG_FALLBACKS home (R5): single owner of every precard model
 # chain (moved here; the legs hold zero lists and read through
-# leg_chain/LEG_FALLBACKS). Values moved verbatim: JUDGE_MODELS from
-# judge.py (frozen copy from run_v14_phase3_judge); the AvalAI/Google
-# precard consts from transport.py. ---
-
-# Zen free-model chain (frozen order: cost steps down, never up).
-JUDGE_MODELS = ["muse-spark-1.3-contributor-free",
-                "muse-spark-1.2-contributor-free",
-                "ling-3.0-flash-fin-free", "mimo-v2.5-free",
-                "nemotron-3.5-lightning-free"]
-
+# leg_chain/LEG_FALLBACKS). Avalai/Google precard consts only
+# (D-zen-retire PR-A: the zen free-model chain is retired from the
+# run line, so no zen rows remain).
 AVALAI_PRECARD_MODEL = "glm-5.3-flash"
 
 AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
@@ -182,33 +180,27 @@ GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/v1beta/"
 LEGS = ("inflection_review", "sense_judge", "topic_vectors",
         "topic_label")
 
-# R6 cost tiers: zen serves the free chain; avalai/google legs are paid
-# (google direct exposes no usage counters, so its spend is
-# cost-unknown, never a silent zero). Paid legs never auto-switch:
-# ProviderCooldown stops for a resume; free legs may switch provider.
-FREE_PROVIDERS = frozenset({"zen"})
+# R6 cost tiers (D-zen-retire PR-A): every precard run leg is paid
+# (avalai/google legs; google direct exposes no usage counters, so
+# its spend is cost-unknown, never a silent zero). No free provider
+# remains on the run line, so no leg auto-switches: ProviderCooldown
+# stops for a resume. (The egress supervisor's zen tunnel target is a
+# separate seam and keeps its own TARGETS row above.)
+FREE_PROVIDERS = frozenset()
 PAID_PROVIDERS = frozenset({"avalai", "google"})
 
-# Provider switch order for free-leg COOLDOWN_SWITCH (R6): the leg's own
-# provider first, then the rest in this order.
-SWITCH_ORDER = ("zen", "google", "avalai")
-
-
-def _zen_chain(n):
-    """First n JUDGE_MODELS as (model, "free") fallback entries."""
-    return tuple((model, "free") for model in JUDGE_MODELS[:n])
+# Provider switch order for free-leg COOLDOWN_SWITCH (R6). No free
+# provider remains on the run line (may_auto_switch is always False),
+# so this order is never walked by precard legs; it stays as the
+# paid-provider enumeration for readers.
+SWITCH_ORDER = ("avalai", "google")
 
 
 # LEG_FALLBACKS[(provider, leg)] = ((model, cost), ...) in step-down
-# order. Zen judge/inflection legs keep their historic Muse-only pair;
-# zen vectors/label legs keep the full five; avalai/google legs are
-# single paid defaults (the remap transports substitute the actual
-# model, telemetry keeps the requested name).
+# order. Avalai/google legs are single paid defaults (the remap
+# transports substitute the actual model, telemetry keeps the
+# requested name).
 LEG_FALLBACKS = {
-    ("zen", "inflection_review"): _zen_chain(2),
-    ("zen", "sense_judge"): _zen_chain(2),
-    ("zen", "topic_vectors"): _zen_chain(5),
-    ("zen", "topic_label"): _zen_chain(5),
     ("avalai", "inflection_review"): ((AVALAI_PRECARD_MODEL, "paid"),),
     ("avalai", "sense_judge"): ((AVALAI_PRECARD_MODEL, "paid"),),
     ("avalai", "topic_vectors"): ((AVALAI_PRECARD_MODEL, "paid"),),
@@ -234,8 +226,10 @@ def leg_chain(provider, leg):
 def may_auto_switch(provider):
     """True iff a leg on provider may auto-switch on COOLDOWN_SWITCH.
 
-    R6 gate: free legs only. Paid legs stop (flush + resume) — the
-    caller treats ProviderCooldown as stop+resume either way.
+    R6 gate: free legs only. D-zen-retire PR-A retired the only free
+    provider, so this is False for every run provider. Paid legs stop
+    (flush + resume) — the caller treats ProviderCooldown as
+    stop+resume either way.
     """
     return norm_provider(provider) in FREE_PROVIDERS
 
@@ -246,9 +240,10 @@ def switch_plan(provider, step):
     A free leg tries its own provider first, then the rest of
     SWITCH_ORDER that own this step's chain; paid (or unknown)
     providers try only themselves (a cooldown stops for a resume).
-    Legs additionally keep only providers they hold a ring for, so
-    a switched attempt always presents that provider's own key —
-    never another provider's.
+    D-zen-retire PR-A: every run provider is paid, so run legs always
+    try only themselves. Legs additionally keep only providers they
+    hold a ring for, so a switched attempt always presents that
+    provider's own key — never another provider's.
     """
     base = norm_provider(provider)
     if step not in LEGS:
@@ -264,16 +259,17 @@ def target_for(provider):
     """TARGETS target whose provider matches (leg-loop routing seam).
 
     Lets the leg batch loops route every model attempt through
-    call_leg with their real provider ("zen"/"avalai"/"google" are
-    all TARGETS keys); unknown providers fall back to "zen" (same
-    default the rotation wrapper already uses for classify).
+    call_leg with their real provider ("avalai"/"google" are the run
+    targets; "zen" stays a TARGETS key for the egress supervisor
+    tunnel seam, out of scope). Unknown providers fall back to
+    "avalai" (direct: no server pick, fail-closed downstream).
     """
     want = norm_provider(provider)
     for name, spec in TARGETS.items():
         if spec.get("provider") is not None \
                 and norm_provider(spec["provider"]) == want:
             return name
-    return "zen"
+    return "avalai"
 
 _USE_DEFAULT = object()
 
@@ -928,7 +924,7 @@ def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
     """One single-model LLM attempt with KeyRing rotation. Returns
     (text, usage-or-None).
 
-    leg selects the provider through TARGETS (e.g. "zen"); keys default
+    leg selects the provider through TARGETS (e.g. "avalai"); keys default
     to the config's key values for that provider. An explicit ``ring``
     is used as-is (the leg batch loops keep their cross-batch ring, so
     routing them through here changes no rotation state); otherwise a
@@ -979,5 +975,5 @@ def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
     return _call_with_rotation(
         transport, owned_ring, model, prompt, sleep,
         state, label or ("%s/%s" % (model, norm_target(leg))),
-        provider=provider or "zen", key_var=var,
+        provider=provider or "avalai", key_var=var,
         file_label=file_label)

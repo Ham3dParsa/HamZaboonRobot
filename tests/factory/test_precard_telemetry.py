@@ -120,8 +120,10 @@ def test_run_id_joins_all_four_sinks(tmp_path):
         (parent / "provider_map.json").read_text(encoding="utf-8"))
     run_id = prov["run_id"]
     assert run_id and "-pid" in run_id
-    # Legs stay top-level (existing readers keep working).
-    assert prov["sense_judge"]["provider"] == "zen"
+    # Legs stay top-level (existing readers keep working). All legs
+    # are caller-injected here, so no flag resolved a provider (None =
+    # caller-owned transport).
+    assert prov["sense_judge"]["provider"] is None
     head = (parent / "run.log").read_text(encoding="utf-8").splitlines()
     assert head and head[0].startswith("run %s started=" % run_id)
     recs = [json.loads(line) for line in
@@ -167,7 +169,7 @@ def test_terminal_record_real_latency_and_key(tmp_path):
     out = judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
                       telemetry=store, tele_stage="sense_judge",
                       tele_batch=1, ring=KeyRing(["k1", "k2"]),
-                      models=["zen-name"], provider="zen",
+                      models=["req-name"], provider="avalai",
                       tele_run_id="r1", tele_attempts=False)
     assert out["w:apple"]["sense_id"] == "apple#0"
     assert calls == ["k1", "k2"]
@@ -176,9 +178,9 @@ def test_terminal_record_real_latency_and_key(tmp_path):
     assert rec["kind"] == "terminal"
     assert rec["latency_s"] > 0
     assert rec["key_idx"] == 1
-    assert rec["provider"] == "zen"
-    assert rec["model"] == "zen-name"
-    assert rec["model_actual"] == "zen-name"
+    assert rec["provider"] == "avalai"
+    assert rec["model"] == "req-name"
+    assert rec["model_actual"] == "req-name"
     assert (rec["prompt_tokens"], rec["completion_tokens"]) == (5, 7)
     assert rec["cost"] is None
     assert rec["run_id"] == "r1"
@@ -198,11 +200,11 @@ def test_model_actual_vs_requested_on_remap_leg():
     judge_batch(batch, anchor, "k", fake, lambda s: None, {},
                 telemetry=store, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k"]),
-                models=["zen-name"], provider="avalai",
+                models=["req-name"], provider="avalai",
                 tele_run_id="r1", tele_model_actual="glm-5.3-flash")
     assert len(store) == 1
     rec = store[0]
-    assert rec["model"] == "zen-name"
+    assert rec["model"] == "req-name"
     assert rec["model_actual"] == "glm-5.3-flash"
     # Google-style None usage on a paid leg: unknown, never silent zero.
     assert rec["cost"] == "unknown"
@@ -214,7 +216,7 @@ def test_google_none_usage_cost_unknown_never_zero():
     store = core_tele.new_store()
     core_tele.record_call(
         store, stage="sense_judge", batch_id=1, key_idx=0,
-        model="zen-name", model_actual="gemini-3.5-flash-lite",
+        model="req-name", model_actual="gemini-3.5-flash-lite",
         provider="google", latency_s=0.4, outcome="ok",
         run_id="r1",
         cost=core_tele.resolve_cost(made_call=True))
@@ -244,7 +246,7 @@ def test_attempt_rows_behind_flag_default_off():
     judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
                 telemetry=plain, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k1", "k2"]),
-                models=["m"], provider="zen", tele_run_id="r1")
+                models=["m"], provider="avalai", tele_run_id="r1")
     assert plain and all(r["kind"] == "terminal" for r in plain)
 
     fake.seen = []
@@ -252,7 +254,7 @@ def test_attempt_rows_behind_flag_default_off():
     judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
                 telemetry=flagged, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k1", "k2"]),
-                models=["m"], provider="zen", tele_run_id="r1",
+                models=["m"], provider="avalai", tele_run_id="r1",
                 tele_attempts=True)
     attempts = [r for r in flagged if r["kind"] == "attempt"]
     assert len(attempts) >= 2  # rotated + settled tries
@@ -293,7 +295,6 @@ def test_quota_stop_emits_abort_event_and_closes_json_log(
     """Reviewer must-fix: a quota STOP records an abort event and the
     json-log stream is closed by the finally (readable, complete)."""
     import pytest
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     from factory.precard import pipeline as pipe
     items = [{"kind": "word", "text": "apple", "pos": "noun",
               "pool_level": "A1"}]
@@ -417,7 +418,7 @@ def test_error_row_stamps_last_attempt_latency():
         judge_batch(batch, anchor, "k1", always_429, lambda s: None, {},
                     telemetry=store, tele_stage="sense_judge",
                     tele_batch=1, ring=KeyRing(["k1", "k2"]),
-                    models=["m"], provider="zen", tele_run_id="r1")
+                    models=["m"], provider="avalai", tele_run_id="r1")
     errors = [r for r in store if r.get("outcome") == "error"]
     assert errors and errors[0]["latency_s"] > 0
 
@@ -530,7 +531,6 @@ def test_auth_abort_flushes_stage_telemetry(tmp_path, monkeypatch):
     """Reviewer must-fix: an auth abort flushes in-memory stage rows
     (like quota-STOP) instead of losing them."""
     import pytest
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     from factory.precard import pipeline as pipe
     from factory.precard.transport import AuthError
     items = [{"kind": "word", "text": "apple", "pos": "noun",

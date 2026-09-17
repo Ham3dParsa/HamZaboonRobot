@@ -717,6 +717,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # Machine event stream starts with the real run (dry-run above
     # returns before any file is written).
     jlog = _JsonLog(args.out, run_id, bool(args.json_log))
+    # Created later (after progress load); _preflight_exit closes it
+    # when set so a stillborn run never leaves run.log locked (Windows
+    # tmp cleanup) — pre-existing key-error exits leaked it too.
+    run_logger = None
 
     def _warn(message):
         print(message, file=sys.stderr)
@@ -785,6 +789,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             message = "preflight abort"
         jlog.event("abort", stage="preflight", error=message)
         jlog.close()
+        try:
+            if run_logger is not None:
+                run_logger.close()
+        except Exception:
+            pass
         raise SystemExit(message)
 
     progress_dir = pathlib.Path(args.progress_dir)
@@ -990,20 +999,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                            len(items), len(dropped)),
                     "cyan"))
 
-    need_llm = (_judge_transport is _USE_DEFAULT
-                or _topic_transport is _USE_DEFAULT
-                or _assign_transport is _USE_DEFAULT
-                or _inflect_transport is _USE_DEFAULT)
-    # Provider intent before any key loading (review: full-AvalAI runs
-    # must not demand an unused Zen key). None = caller-owned/skipped leg
-    # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
-    # Per-leg overrides (--stage-provider/--stage-model) participate in
-    # every decision below, so a mixed line (e.g. judge zen + rest
-    # avalai) wires correctly. Precedence per leg: --stage-* win, then
-    # --judge-*, then master --llm-provider/--precard-model, then Zen.
+    # Provider intent before any key loading (paid-only legs each need
+    # their own key; a caller-owned/skipped leg needs none). None =
+    # caller-owned/skipped leg (transport injected or None: no key,
+    # no provider needed), _USE_DEFAULT = resolved from the flags
+    # below (fail-closed when uncovered). Per-leg overrides
+    # (--stage-provider/--stage-model) participate in every decision
+    # below. Precedence per leg: --stage-* win, then --judge-*, then
+    # master --llm-provider/--precard-model. There is no default
+    # provider: every _USE_DEFAULT leg must resolve to avalai|google.
     try:
         stage_prov = _parse_stage_map(args.stage_provider,
-                                      ("zen", "avalai", "google"))
+                                      ("avalai", "google"))
         stage_model = _parse_stage_map(args.stage_model)
     except SystemExit as exc:
         _preflight_exit(exc.code)
@@ -1027,7 +1034,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     def _leg_file_label(provider):
         """Env-file label for a leg's auth errors (never a value).
 
-        Zen/AvalAI keys load from factory/.env; a Google key that came
+        AvalAI keys load from factory/.env; a Google key that came
         from the owner-layout egress fallback names tools/egress/.env
         so the operator re-checks the file actually searched.
         """
@@ -1050,11 +1057,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                  "topic_vectors": _topic_transport, "topic_label": _assign_transport}
     providers = {leg: _leg_provider(leg) for leg in LLM_LEGS}
     models = {leg: _leg_model(leg) for leg in LLM_LEGS}
+    # Fail-closed provider gate (no default provider): every leg the
+    # caller left on the pipeline default must resolve to avalai|google
+    # via --llm-provider (or --judge-provider for sense_judge, or
+    # per-leg --stage-provider). Caller-owned legs (injected transport
+    # or None) are exempt — they run no provider transport.
+    for _leg in LLM_LEGS:
+        if _injected[_leg] is _USE_DEFAULT \
+                and providers[_leg] not in ("avalai", "google"):
+            _extra = (" (or --judge-provider avalai|google)"
+                      if _leg == "sense_judge" else "")
+            _preflight_exit(
+                "no provider for %s: pass --llm-provider avalai|google%s "
+                "(or per-leg --stage-provider %s=avalai|google) — "
+                "the run line has no default provider" % (
+                    _leg, _extra, _leg))
 
     def _leg_avalai(leg):
         # None = caller-skipped leg (fallback path, transport never
-        # called): needs no key — same rule as the zen leg below. Only
-        # _USE_DEFAULT legs run on the provider and need its key.
+        # called): needs no key. Only _USE_DEFAULT legs run on the
+        # provider and need its key.
         return providers[leg] == "avalai" \
             and _injected[leg] is _USE_DEFAULT
 
@@ -1064,8 +1086,6 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         return providers[leg] == "google" \
             and _injected[leg] is _USE_DEFAULT
 
-    full_avalai = all(_leg_avalai(leg) for leg in LLM_LEGS) and any(
-        _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
     judge_avalai = _judge_transport is _USE_DEFAULT \
         and providers["sense_judge"] == "avalai"
     judge_google = _judge_transport is _USE_DEFAULT \
@@ -1081,44 +1101,31 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     for leg in LLM_LEGS:
         provider_map[leg] = {
             "provider": providers[leg],
-            "model": (models[leg]
-                      if providers[leg] in ("avalai", "google")
-                      else "zen-chain"),
+            "model": models[leg],
             "chain": [{"model": item_model, "cost": item_cost}
                       for item_model, item_cost in
                       LEG_FALLBACKS.get((providers[leg], leg), ())],
             "tried": []}
     api_key = "injected"
-    api_key_2 = ""
-    zen_needed = any(providers[leg] == "zen"
-                     and _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
     avalai_needed = any(_leg_avalai(leg) for leg in LLM_LEGS)
     google_needed = any(_leg_google(leg) for leg in LLM_LEGS)
-    if need_llm and zen_needed and not full_avalai:
-        env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
-        api_key = env["OPENCODE_ZEN_API_KEY"]
-        api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
-        if not api_key:
-            _preflight_exit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    if full_avalai or not zen_needed:
-        # No Zen anywhere (or Zen unused): skip the Zen ring.
-        ring = None
+    # No shared default ring: every default leg carries its own
+    # provider ring (leg_ring / judge_ring below); injected legs run
+    # on caller-owned transports.
+    ring = None
+    if _judge_transport is _USE_DEFAULT:
+        # Post-gate the default judge leg is always avalai|google, so
+        # one of the branches below wires it; anything else is a bug.
+        judge_transport = None
     else:
-        try:
-            ring = KeyRing([api_key, api_key_2])
-        except ValueError as exc:
-            _preflight_exit("no Zen keys: %s" % exc)
-    judge_transport = (transport.zen_judge_transport
-                       if _judge_transport is _USE_DEFAULT
-                       else _judge_transport)
+        judge_transport = _judge_transport
     judge_models = None
     # AvalAI wiring per leg. judge gets its own key/ring pair (F1 scoping);
     # inflection/vectors/label share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
     google_key_from_egress = False
-    # full_avalai/judge_avalai/judge_google computed above.
-    precard_model = args.precard_model or AVALAI_PRECARD_MODEL
+    # judge_avalai/judge_google computed above.
     if avalai_needed:
         try:
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
@@ -1175,13 +1182,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_ring = google_ring
             judge_transport = _google_chat_transport
             judge_models = [models["sense_judge"]]
-    if full_avalai:
-        api_key, ring = avalai_key, KeyRing([avalai_key])
-    # R6 switch rings: every loaded provider ring by provider name, so
-    # a free leg cooled on its own provider can continue on the next
-    # switch_plan provider with THAT provider's key (never another
-    # provider's). Providers without a loaded ring are simply not
-    # attempted (the leg stops for a resume, as before).
+    if _judge_transport is _USE_DEFAULT and judge_transport is None:
+        # Unreachable post-gate (default judge is always avalai|google
+        # and wired above); fail closed instead of running unconfigured.
+        _preflight_exit("no transport for sense_judge: pass "
+                        "--llm-provider avalai|google (or --judge-provider "
+                        "avalai|google, or --stage-provider "
+                        "sense_judge=avalai|google)")
+    # R6 switch rings: every loaded provider ring by provider name.
+    # Every run provider is paid, so a cooled leg stops for a resume;
+    # providers without a loaded ring are simply not attempted.
     provider_rings = {}
     for _leg in LLM_LEGS:
         _rg = leg_ring.get(_leg, ring)
@@ -1194,7 +1204,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     vectors_models_override = [models["topic_vectors"]] if _leg_avalai("topic_vectors") or \
         _leg_google("topic_vectors") else None
     # Per-leg remaps (uniform for full and mixed modes, per-leg models).
-    # A leg keeps its remap when avalai/google, else Zen below.
+    # Post-gate every default leg is avalai|google, so the loop below
+    # always claims it; caller-injected legs keep their transport.
     for leg in ("inflection_review", "topic_vectors", "topic_label"):
         if _leg_avalai(leg):
             _remap_leg = _avalai_remap_transport(models[leg])
@@ -1213,20 +1224,27 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if (args.judge_model or args.precard_model or args.stage_model) \
             and _judge_transport is _USE_DEFAULT \
             and not _any_avalai_leg and not _any_google_leg:
-        _warn("warning: model flags apply only with "
-              "an avalai/google provider; ignored on the zen path")
-    # Defaults for legs the remap loop above did not claim: a leg keeps
-    # its remap when avalai, else falls back to the Zen default.
+        _warn("warning: model flags apply only to flag-resolved legs; "
+              "ignored for caller-injected transports")
+    # Defaults for legs the remap loop above did not claim: post-gate
+    # that is only caller-injected legs (kept as-is); a default leg
+    # left unwired is a bug — fail closed.
     if _topic_transport is _USE_DEFAULT and topic_transport is None:
-        topic_transport = transport.zen_vectors_transport
+        _preflight_exit("no transport for topic_vectors: pass "
+                        "--llm-provider avalai|google (or --stage-provider "
+                        "topic_vectors=avalai|google)")
     elif _topic_transport is not _USE_DEFAULT:
         topic_transport = _topic_transport
     if _assign_transport is _USE_DEFAULT and assign_transport is None:
-        assign_transport = transport.zen_label_transport
+        _preflight_exit("no transport for topic_label: pass "
+                        "--llm-provider avalai|google (or --stage-provider "
+                        "topic_label=avalai|google)")
     elif _assign_transport is not _USE_DEFAULT:
         assign_transport = _assign_transport
     if _inflect_transport is _USE_DEFAULT and inflect_transport is None:
-        inflect_transport = transport.zen_direct_transport
+        _preflight_exit("no transport for inflection_review: pass "
+                        "--llm-provider avalai|google (or --stage-provider "
+                        "inflection_review=avalai|google)")
     elif _inflect_transport is not _USE_DEFAULT:
         inflect_transport = _inflect_transport
 
@@ -1243,10 +1261,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # Provider manifest: exact stage -> provider + actual model for cost
     # attribution (console + run.log + provider_map.json beside --out).
     def _leg_actual(leg):
-        """Really-hit model for a leg (None on zen: requested == actual)."""
-        if providers[leg] in ("avalai", "google"):
-            return models[leg]
-        return None
+        """Really-hit model for a leg (always the resolved leg model)."""
+        return models[leg]
 
     def _leg_ring_idx(leg):
         """Real keyring index for a leg's key (0 when ringless)."""
@@ -1344,7 +1360,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         telemetry=tele_store, tele_stage="inflection_review",
                         tele_key_idx=_leg_ring_idx("inflection_review"),
                         tele_run_id=run_id,
-                        tele_provider=providers["inflection_review"],
+                        tele_provider=(providers["inflection_review"]
+                                       or "avalai"),
                         tele_model_actual=_leg_actual("inflection_review"),
                         tele_attempts=args.tele_attempts,
                         tried=s0b_tried,
@@ -1373,8 +1390,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                batch=batch_no, error=str(exc))
                     jlog.close()
                     hint = ("wait for quota reset then re-run"
-                            if (full_avalai
-                                or _leg_avalai("inflection_review")
+                            if (_leg_avalai("inflection_review")
                                 or _leg_google("inflection_review"))
                             else "switch VPN server then re-run")
                     raise SystemExit(_color(
@@ -1717,7 +1733,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         judge_transport, sleep_fn, states["sense_judge"],
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=judge_ring or ring, models=judge_models,
-                        provider=providers["sense_judge"],
+                        provider=(providers["sense_judge"] or "avalai"),
                         key_var=_provider_key_var(
                             providers["sense_judge"]),
                         file_label=_leg_file_label(
@@ -1741,9 +1757,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     # run_done: end the json-log stream here, closed.
                     jlog.close()
                     hint = ("wait for quota reset then re-run"
-                            if (full_avalai or judge_avalai
-                                or providers["sense_judge"] == "google"
-                                or judge_google)
+                            if (judge_avalai or judge_google)
                             else "switch VPN server then re-run")
                     raise SystemExit(_color(
                         "STOP s2 at batch %d: %s — progress flushed, "
@@ -1852,7 +1866,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=leg_ring.get("topic_vectors", ring),
                         models=vectors_models_override,
-                        provider=providers["topic_vectors"],
+                        provider=(providers["topic_vectors"] or "avalai"),
                         key_var=_provider_key_var(
                             providers["topic_vectors"]),
                         file_label=_leg_file_label(
@@ -1877,7 +1891,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         "STOP s3 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc,
                                 "wait for quota reset then re-run"
-                                if (full_avalai or _leg_google("topic_vectors")) else
+                                if (_leg_avalai("topic_vectors")
+                                    or _leg_google("topic_vectors")) else
                                 "switch VPN server then re-run"),
                         "red", stream=sys.stderr))
                 for item in todo:
@@ -2001,7 +2016,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         states["topic_label"], str(label_topup_cache), label_calls,
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=leg_ring.get("topic_label", ring),
-                        provider=providers["topic_label"],
+                        provider=(providers["topic_label"] or "avalai"),
                         key_var=_provider_key_var(
                             providers["topic_label"]),
                         file_label=_leg_file_label(
@@ -2030,7 +2045,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         "%s"
                         % (batch_no, exc,
                            "wait for quota reset then re-run"
-                            if (full_avalai or _leg_google("topic_label")) else
+                            if (_leg_avalai("topic_label")
+                                or _leg_google("topic_label")) else
                             "switch VPN server then re-run"),
                         "red", stream=sys.stderr))
                 for item in todo:
@@ -2301,33 +2317,37 @@ def parse_args(argv=None):
     ap.add_argument("--awl-families", default=DEFAULT_AWL_FAMILIES,
                     help="AWL families JSON (missing file = no academic tags "
                     "from AWL, never fails)")
-    ap.add_argument("--judge-provider", default="zen",
-                    choices=("zen", "avalai", "google"),
-                    help="judge transport: zen (default, free chain), "
-                    "avalai (paid chain — locked 2026-09-06; "
-                    "requires AVALAI_API_KEY) or google (Gemini direct, "
-                    "free tier; requires GOOGLE_AI_API_KEY). DEPRECATED "
-                    "alias: use --llm-provider (covers all precard legs).")
-    ap.add_argument("--llm-provider", default="zen",
-                    choices=("zen", "avalai", "google"),
-                    help="ALL precard LLM legs (inflection/judge/vectors/label): zen (default), "
-                    "avalai (paid chain, no Persian needed — locked "
+    ap.add_argument("--judge-provider", default=None,
+                    choices=("avalai", "google"),
+                    help="judge transport: avalai (paid chain — locked "
                     "2026-09-06; requires AVALAI_API_KEY) or google "
-                    "(Gemini direct free tier; requires GOOGLE_AI_API_KEY)")
+                    "(Gemini direct, free tier; requires "
+                    "GOOGLE_AI_API_KEY). DEPRECATED "
+                    "alias: use --llm-provider (covers all precard legs).")
+    ap.add_argument("--llm-provider", default=None,
+                    choices=("avalai", "google"),
+                    help="ALL precard LLM legs "
+                    "(inflection/judge/vectors/label) — REQUIRED, no "
+                    "default: avalai (paid chain, no Persian needed — "
+                    "locked 2026-09-06; requires AVALAI_API_KEY) or "
+                    "google (Gemini direct free tier; requires "
+                    "GOOGLE_AI_API_KEY). A run without --llm-provider "
+                    "(or per-leg --stage-provider cover) stops "
+                    "fail-closed.")
     ap.add_argument("--precard-model", default="",
                     help="Model for all precard legs (default "
                     "glm-5.3-flash on avalai, gemini-3.5-flash-lite on "
                     "google; e.g. deepseek-v4-flash for the "
-                    "comparison run). Ignored on the zen path.")
+                    "comparison run).")
     ap.add_argument("--judge-model", default="",
                     help="judge model id (default: provider default — "
-                    "Zen chain models for zen, glm-5.3-flash for avalai, "
+                    "glm-5.3-flash for avalai, "
                     "gemini-3.5-flash-lite for google)")
     ap.add_argument("--stage-provider", action="append", default=[],
                     metavar="STAGE=PROVIDER",
                     help="per-leg provider override, repeatable "
                      "(e.g. --stage-provider sense_judge=avalai --stage-provider "
-                     "topic_label=zen). Legs: inflection_review, sense_judge, topic_vectors, topic_label "
+                     "topic_label=google). Legs: inflection_review, sense_judge, topic_vectors, topic_label "
                      "(s-ids and legacy names also work). Wins over "
                     "--llm-provider for that leg.")
     ap.add_argument("--stage-model", action="append", default=[],

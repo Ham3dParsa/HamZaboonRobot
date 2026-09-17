@@ -94,7 +94,6 @@ def write_sample(tmp_path, items=ITEMS):
 def run_pipeline(tmp_path, monkeypatch, judge=fake_judge,
                  topics=fake_topics, extra=(), items=ITEMS,
                  zipf_fn=None, awl_set=None, type_map=None):
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, items)
     out = str(tmp_path / "precard.jsonl")
     prog = str(tmp_path / "prog")
@@ -110,7 +109,8 @@ def run_pipeline(tmp_path, monkeypatch, judge=fake_judge,
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          *extra],
         _judge_transport=judge, _topic_transport=topics,
-        _assign_transport=None, _sleep_fn=sleeps.append,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=sleeps.append,
         _index=make_index(), _read_entry=read_entry, _tatoeba={},
         **kwargs)
     return rc, out, prog, sleeps
@@ -184,13 +184,13 @@ def _word_rows(word, glosses=("a thing",), ipa="/x/"):
 
 def _run_s0_only(tmp_path, monkeypatch, items, index, **kwargs):
     """Run the pipeline with LLM legs stubbed; return (rows, s0_state)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, items)
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=index, _read_entry=read_entry, _tatoeba={}, **kwargs)
     assert rc == 0
     rows = load_out(out)
@@ -362,7 +362,8 @@ def test_stage_skip_on_resume(tmp_path, monkeypatch):
         ["--sample", sample, "--out", out2, "--progress-dir", prog],
         _judge_transport=lambda *a: (calls.append("judge"), "{}")[1],
         _topic_transport=lambda *a: (calls.append("topic"), "{}")[1],
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index={}, _read_entry=read_entry, _tatoeba={})
     assert rc == 0
     assert calls == []  # no LLM transport touched on full resume
@@ -378,7 +379,6 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
     """S2 429 on key1 rotates to key2 (5s pause) and retries the SAME call."""
     import pytest
     from factory.precard.transport import KeyRing
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     prog_state = {"done": {}, "failed": [], "backoffs": []}
     sleeps = []
@@ -417,7 +417,6 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
 def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
     """All-keys-429 STOPS (SystemExit, VPN message) — no 6-min wait."""
     import pytest
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog, sleeps = (str(tmp_path / "precard.jsonl"),
                          str(tmp_path / "prog"), [])
@@ -429,7 +428,8 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
         precard_main(
             ["--sample", sample, "--out", out, "--progress-dir", prog],
             _judge_transport=always_429, _topic_transport=fake_topics,
-            _assign_transport=None, _sleep_fn=sleeps.append,
+            _assign_transport=None, _inflect_transport=None,
+            _sleep_fn=sleeps.append,
             _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
     assert sum(sleeps) < 60.0  # 5s rotation pause, never 60+300
@@ -446,7 +446,6 @@ def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
     from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
@@ -514,7 +513,6 @@ def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
     """After an all-keys-429 STOP, re-running with good transports resumes
     to a full precard (progress format unchanged, done work kept)."""
     import pytest
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
 
@@ -525,13 +523,15 @@ def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
         precard_main(
             ["--sample", sample, "--out", out, "--progress-dir", prog],
             _judge_transport=always_429, _topic_transport=fake_topics,
-            _assign_transport=None, _sleep_fn=lambda s: None,
+            _assign_transport=None, _inflect_transport=None,
+            _sleep_fn=lambda s: None,
             _index=make_index(), _read_entry=read_entry, _tatoeba={})
     # Resume with healthy transports completes the run.
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert rc == 0
     rows = load_out(out)
@@ -555,7 +555,8 @@ def _run_with_counters(tmp_path, prog):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", str(prog)],
         _judge_transport=judge, _topic_transport=topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert rc == 0
     return load_out(out), calls
@@ -568,7 +569,6 @@ def test_resume_old_only_progress_names(tmp_path, monkeypatch):
     never written again (byte-identical after the run)."""
     import shutil
     from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     # Old-only dir: every new domain file renamed back to its old name.
@@ -597,7 +597,6 @@ def test_resume_oldest_sx_names_for_renamed_stages(tmp_path, monkeypatch):
     import shutil
     from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
     from factory.precard.progress import normalize_stage, STAGES
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     oldest = {}
@@ -624,7 +623,6 @@ def test_resume_pre_tags_s1_entries_rerank(tmp_path, monkeypatch):
     """R4: s1 entries saved before the tags backfill re-rank on resume so
     the sense-judge prompt renders [tags] on resumed runs too."""
     import json as _json
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     s1_path = tmp_path / "prog" / STAGE_FILES["s1"]
@@ -692,7 +690,6 @@ def test_backfill_attaches_tags_selective_resume():
 def test_resume_mixed_progress_names(tmp_path, monkeypatch):
     """T2: a mixed dir (old s0/s1/s2 + new rest) resumes; new names win."""
     import shutil
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     mixed_dir = tmp_path / "prog_mixed"
@@ -743,7 +740,6 @@ def test_label_topup_cache_old_name_seeds_new(tmp_path):
 
 
 def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
 
@@ -753,7 +749,8 @@ def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=garbage, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert rc == 0
     rows = load_out(out)
@@ -764,7 +761,6 @@ def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
 
 
 def test_dry_run_writes_nothing(tmp_path, monkeypatch):
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path)
     out = str(tmp_path / "nope" / "precard.jsonl")
     prog = str(tmp_path / "nope" / "prog")
@@ -793,6 +789,10 @@ def _mock_rec(item):
 
 def test_from_precard_bypasses_anchor(tmp_path, monkeypatch):
     """card_pilot --from-precard skips sampling/anchor/topic/enrichment."""
+    # card_pilot (factory/pipeline, out of scope) still requires its
+    # research key at startup: keep the fake env (never called — all
+    # heavy seams above are stubbed to raise if touched).
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     for name in ("anchor_item_en", "pick_anchor_sense_full",
                  "score_senses", "assign_topic",
                  "resolve_dataset_examples"):
@@ -800,7 +800,6 @@ def test_from_precard_bypasses_anchor(tmp_path, monkeypatch):
             card_pilot, name,
             (lambda n: (lambda *a, **k: (_ for _ in ()).throw(
                 AssertionError("%s must be skipped" % n))))(name))
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     monkeypatch.setattr(card_pilot, "CALL_SLEEP", 0)
     monkeypatch.setattr(card_pilot, "generate_card",
                         lambda item, api_key, **kw: _mock_rec(item))
@@ -944,7 +943,6 @@ def _inflect_index():
 def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     """R36: explicit keep-false drops (inflection-drop), keep passes;
     non-inflection items skip review; own progress key inflection.json."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"},
              {"kind": "word", "text": "went", "pos": "noun",
@@ -1023,7 +1021,6 @@ def test_s0b_uncertain_pipeline_keeps(tmp_path, monkeypatch):
     so the pipeline maps the transport failure onto the s0b done entry.
     Asserts s0b-done only — downstream anchor behavior is out of scope.
     """
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"}]
     sample = write_sample(tmp_path, items)
@@ -1117,7 +1114,6 @@ def _super_items():
 def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
     """R44 mocked: plain superlative/comparative keep-false verdicts
     redirect (kept, reason superlative-redirect, redirect_to base)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, _super_items())
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
 
@@ -1184,7 +1180,6 @@ def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
     """R44 mocked: an established idiomatic keep verdict stays kept
     (inflection-keep, no redirect) AND survives downstream — the kept
     lemma still becomes a row."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, _super_items()[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
     calls = []
@@ -1340,7 +1335,6 @@ def test_precard_output_atomic_no_partial(tmp_path, monkeypatch):
     """OC must-fix: crash mid-write must not truncate precard.jsonl."""
     import json
     from factory.precard.pipeline import main as precard_main
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = tmp_path / "sample.json"
     sample.write_text(json.dumps(
         [{"kind": "word", "text": "apple", "pool_level": "A1"},
@@ -1365,7 +1359,8 @@ def test_precard_output_atomic_no_partial(tmp_path, monkeypatch):
             ["--sample", str(sample), "--out", str(out),
              "--progress-dir", str(tmp_path / "prog")],
             _judge_transport=None, _topic_transport=None,
-            _assign_transport=None, _sleep_fn=lambda s: None,
+            _assign_transport=None, _inflect_transport=None,
+            _sleep_fn=lambda s: None,
             _index={}, _read_entry=lambda row: (_ for _ in ()).throw(
                 RuntimeError("unreachable")),
             _tatoeba={}, _zipf_fn=lambda t: 5.0)
@@ -1476,7 +1471,7 @@ def test_avalai_transport_http_error_propagates(monkeypatch):
 
 
 def test_s2_models_override_used():
-    """AvalAI chain: explicit models list replaces the Zen chain."""
+    """AvalAI chain: explicit models list replaces the table chain."""
     from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.judge import judge_batch
@@ -1497,12 +1492,14 @@ def test_s2_models_override_used():
     assert seen == ["glm-5.3-flash"]
 
 
-def test_judge_provider_defaults_zen():
-    """Default provider stays zen (zero behavior change without the flag)."""
+def test_no_default_provider_stops_fail_closed():
+    """No default provider: bare flags leave legs unresolved (None), and
+    the run stops fail-closed naming --llm-provider (see
+    test_run_requires_explicit_provider below for the gate)."""
     from factory.precard.pipeline import parse_args
     args = parse_args(["--sample", "s"])
-    assert args.judge_provider == "zen"
-    assert args.llm_provider == "zen"
+    assert args.judge_provider is None
+    assert args.llm_provider is None
     assert args.judge_model == ""
     assert args.precard_model == ""
     assert parse_args(["--sample", "s", "--judge-provider",
@@ -1514,10 +1511,36 @@ def test_judge_provider_defaults_zen():
         "deepseek-v4-flash"
 
 
+def test_run_requires_explicit_provider(tmp_path):
+    """Fail-closed gate: every default leg without --llm-provider (or
+    per-leg --stage-provider cover) aborts naming the flag."""
+    import pytest
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    with pytest.raises(SystemExit) as exc:
+        precard_main(
+            ["--sample", sample, "--out", out, "--progress-dir", prog,
+             "--stages", "s0,s1,s2"],
+            _topic_transport=None, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=make_index(),
+            _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert "--llm-provider" in str(exc.value)
+    # Per-leg cover satisfies the gate for the covered leg only: s2
+    # alone still leaves the other default legs uncovered.
+    with pytest.raises(SystemExit) as exc2:
+        precard_main(
+            ["--sample", sample, "--out", out, "--progress-dir", prog,
+             "--stages", "s0,s1,s2",
+             "--stage-provider", "sense_judge=avalai"],
+            _topic_transport=None, _assign_transport=None,
+            _sleep_fn=lambda s: None, _index=make_index(),
+            _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert "--llm-provider" in str(exc2.value)
+
+
 def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
-    """F1: --judge-provider avalai routes only the S2 call; Zen key/ring
-    keep feeding every other stage (here: s1 deterministic, s2 recorded)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    """F1: --judge-provider avalai routes only the S2 call; every other
+    stage stays deterministic (here: s1 deterministic, s2 recorded)."""
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
@@ -1531,8 +1554,10 @@ def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
                         rec_judge)
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog,
-         "--stages", "s0,s1,s2", "--judge-provider", "avalai"],
-        _topic_transport=None, _assign_transport=None,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai",
+         "--judge-provider", "avalai"],
+        _inflect_transport=None, _topic_transport=None,
+        _assign_transport=None,
         _sleep_fn=lambda s: None, _index=make_index(),
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -1546,7 +1571,6 @@ def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
 def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
     """#5: --llm-provider avalai routes the S2 call to --precard-model
     end to end (flag -> override connection, not just the unit)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
@@ -1562,7 +1586,8 @@ def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0,s1,s2", "--llm-provider", "avalai",
          "--precard-model", "deepseek-v4-flash"],
-        _topic_transport=None, _assign_transport=None,
+        _inflect_transport=None, _topic_transport=None,
+        _assign_transport=None,
         _sleep_fn=lambda s: None, _index=make_index(),
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -1589,7 +1614,8 @@ def test_full_llm_provider_google_wires_lite(tmp_path, monkeypatch):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0,s1,s2", "--llm-provider", "google"],
-        _topic_transport=None, _assign_transport=None,
+        _inflect_transport=None, _topic_transport=None,
+        _assign_transport=None,
         _sleep_fn=lambda s: None, _index=make_index(),
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -1599,17 +1625,15 @@ def test_full_llm_provider_google_wires_lite(tmp_path, monkeypatch):
     assert s2["done"]["w:apple"]["model"] == "gemini-3.5-flash-lite"
 
 
-def test_full_avalai_needs_no_zen_key(tmp_path, monkeypatch):
-    """Review: --llm-provider avalai must not demand the unused Zen key.
+def test_full_avalai_needs_only_its_key(tmp_path, monkeypatch):
+    """Review: --llm-provider avalai loads only the AvalAI key.
 
     All transports at default (true full-line mode) + a strict loader
-    with no factory/.env file fallback, so the test proves the Zen path
-    is never touched — not that a local .env rescued it.
+    with no factory/.env file fallback, so the test proves only the
+    selected provider's key is ever demanded.
     """
     import os as _os
     from factory.core import env_loader
-    monkeypatch.delenv("OPENCODE_ZEN_API_KEY", raising=False)
-    monkeypatch.delenv("OPENCODE_ZEN_API_KEY_2", raising=False)
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
 
     def strict_loader(required=()):
@@ -1642,8 +1666,8 @@ def test_full_avalai_needs_no_zen_key(tmp_path, monkeypatch):
 
 
 def test_avalai_remap_substitutes_model():
-    """Full-line mode: Zen loop names are replaced by the precard model;
-    extra sys text is prepended, never dropped."""
+    """Full-line mode: requested loop names are replaced by the precard
+    model; extra sys text is prepended, never dropped."""
     from factory.precard import transport as precard_transport
     seen = {}
 
@@ -1657,7 +1681,7 @@ def test_avalai_remap_substitutes_model():
     with mock.patch.object(precard_transport, "_avalai_chat_transport",
                            side_effect=rec):
         wrap = precard_transport._avalai_remap_transport("glm-5.3-flash")
-        wrap("k-av", "some-zen-model", "SYS", "USER")
+        wrap("k-av", "some-requested-model", "SYS", "USER")
     assert seen["key"] == "k-av"
     assert seen["model"] == "glm-5.3-flash"
     assert seen["text"] == "SYS\n\nUSER"
@@ -1665,7 +1689,7 @@ def test_avalai_remap_substitutes_model():
 
 def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
     """Full-line mode: S3 vector batch calls the precard model (override),
-    not the Zen V15 chain."""
+    not the net-table fallback chain."""
     from factory.precard.transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
@@ -2076,7 +2100,6 @@ def test_g2_pure_form_drops_end_to_end(tmp_path, monkeypatch):
     """Coverage: pure-form entries die at S0 (g2) via the real main
     wiring (fixture index + fixture read_entry), never reaching S0b."""
     from factory.precard.anchor import _preprocess_entry_view  # noqa: F401 (seam ref)
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"}]
 
@@ -2093,7 +2116,8 @@ def test_g2_pure_form_drops_end_to_end(tmp_path, monkeypatch):
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0"],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=index, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -2107,7 +2131,6 @@ def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
                                                 capsys):
     """Coverage: quarantine flag appears in the S0 box + dropped.log;
     the item itself stays live."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "led", "pos": "noun",
               "pool_level": "A2"}]
 
@@ -2124,7 +2147,8 @@ def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0"],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -2140,7 +2164,6 @@ def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
 
 def test_quarantine_reaches_precard_row(tmp_path, monkeypatch):
     """Emission: quarantine flag lands on the precard row + stage_calls."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "led", "pos": "noun",
               "pool_level": "A2"}]
 
@@ -2156,7 +2179,8 @@ def test_quarantine_reaches_precard_row(tmp_path, monkeypatch):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -2277,14 +2301,14 @@ def test_color_plain_when_piped(monkeypatch, capsys):
 def test_parse_stage_map_validates():
     import pytest
     from factory.precard.pipeline import _parse_stage_map, LLM_LEGS
-    assert _parse_stage_map(["s2=avalai", "s4=zen"]) == {
-        "sense_judge": "avalai", "topic_label": "zen"}
-    assert _parse_stage_map(["judge=avalai", "label=zen"]) == {
-        "sense_judge": "avalai", "topic_label": "zen"}
+    assert _parse_stage_map(["s2=avalai", "s4=google"]) == {
+        "sense_judge": "avalai", "topic_label": "google"}
+    assert _parse_stage_map(["judge=avalai", "label=google"]) == {
+        "sense_judge": "avalai", "topic_label": "google"}
     assert _parse_stage_map(["sense_judge=avalai"]) == {
         "sense_judge": "avalai"}
     with pytest.raises(SystemExit):
-        _parse_stage_map(["anchor=zen"])
+        _parse_stage_map(["anchor=avalai"])
     assert _parse_stage_map([]) == {}
     assert _parse_stage_map(None) == {}
     assert set(LLM_LEGS) == {"inflection_review", "sense_judge",
@@ -2294,14 +2318,16 @@ def test_parse_stage_map_validates():
     with pytest.raises(SystemExit):
         _parse_stage_map(["s2"])
     with pytest.raises(SystemExit):
-        _parse_stage_map(["s2=bogus"], ("zen", "avalai"))
+        _parse_stage_map(["s2=bogus"], ("avalai", "google"))
     with pytest.raises(SystemExit):
-        _parse_stage_map(["s2="], ("zen", "avalai"))
+        _parse_stage_map(["s2="], ("avalai", "google"))
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["s2=zen"], ("avalai", "google"))
 
 
-def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
-    """Mixed providers: s2 stays Zen (default chain), s0b/s3/s4 go GLM."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+def test_mixed_line_s2_google_rest_avalai(tmp_path, monkeypatch):
+    """Mixed providers: s2 goes Google (injected fake), s0b/s3/s4 go GLM."""
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "google-key")
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
@@ -2316,13 +2342,13 @@ def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0,s1,s2", "--llm-provider", "avalai",
-         "--stage-provider", "s2=zen"],
+         "--stage-provider", "s2=google"],
         _judge_transport=fake_judge, _topic_transport=None,
         _assign_transport=None,
         _sleep_fn=lambda s: None, _index=make_index(),
         _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
     assert rc == 0
-    # s2 ran on the injected (Zen-stand-in) chain, never AvalAI...
+    # s2 ran on the injected fake (never AvalAI)...
     assert seen == []
     import json as _json
     import pathlib as _pl
@@ -2333,14 +2359,14 @@ def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
     prov = _json.loads(
         (_pl.Path(out).parent / "provider_map.json").read_text(
             encoding="utf-8"))
-    assert prov["sense_judge"]["provider"] == "zen"
+    assert prov["sense_judge"]["provider"] == "google"
     assert prov["topic_vectors"]["provider"] == "avalai"
     assert prov["topic_vectors"]["model"] == "glm-5.3-flash"
 
 
 def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
-    """Kilo: mixed mode must route S3 calls to AvalAI, not Zen default."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    """Kilo: mixed mode must route S3 calls to AvalAI, not the fallback."""
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", "google-key")
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
@@ -2357,7 +2383,8 @@ def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
                         rec_topic)
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog,
-         "--stages", "s0,s1,s2,s3", "--stage-provider", "s3=avalai",
+         "--stages", "s0,s1,s2,s3", "--llm-provider", "google",
+         "--stage-provider", "s3=avalai",
          "--stage-model", "s3=deepseek-v4-flash"],
         _judge_transport=fake_judge, _assign_transport=None,
         _sleep_fn=lambda s: None, _index=make_index(),
@@ -2584,7 +2611,6 @@ def test_s4_validate_accepts_color_split_vector():
 def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
     """v13 identity: dropped.log section headers carry domain names;
     the console label stays human-readable."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "led", "pos": "noun",
               "pool_level": "A2"}]
 
@@ -2601,7 +2627,8 @@ def test_dropped_log_headers_use_domain_names(tmp_path, monkeypatch):
         ["--sample", sample, "--out", out, "--progress-dir", prog,
          "--stages", "s0"],
         _judge_transport=fake_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -2864,7 +2891,6 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     """C3 review: pre-C3 s5 progress entries (no pre_card_id) re-enrich
     deterministically on resume instead of emitting default rows. F3:
     the slang-tagged simp re-enriches to informal (register floor)."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "simp", "pos": "noun",
               "pool_level": "B1"}]
     sample = write_sample(tmp_path, items)
@@ -2873,6 +2899,7 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     argv = ["--sample", sample, "--out", out, "--progress-dir", prog]
     common = dict(_judge_transport=fake_judge,
                   _topic_transport=fake_topics, _assign_transport=None,
+                  _inflect_transport=None,
                   _sleep_fn=lambda s: None, _index=index,
                   _read_entry=read_entry, _tatoeba={},
                   _zipf_fn=lambda t: 5.0)
@@ -3235,7 +3262,6 @@ def test_f4_veto_falls_back_to_anchor_top_non_stub():
 def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
     """F4 end-to-end: the judge picking forcing#1 (present participle of
     force) resolves to the real forcing#0 sense in the precard row."""
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "forcing", "pos": "noun",
               "pool_level": "B1"}]
     index = {"forcing": _name_rows("the act of compelling",
@@ -3250,7 +3276,8 @@ def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
         _judge_transport=stub_judge, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=lambda s: None,
+        _assign_transport=None, _inflect_transport=None,
+        _sleep_fn=lambda s: None,
         _index=index, _read_entry=read_entry, _tatoeba={},
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
@@ -3443,7 +3470,7 @@ def test_google_transport_http_error_propagates(monkeypatch):
 
 
 def test_google_remap_substitutes_model(monkeypatch):
-    """Google leg: remap swaps the requested Zen name for the leg model."""
+    """Google leg: remap swaps the requested name for the leg model."""
     seen = {}
 
     def fake_google(api_key, model, user_text):
@@ -3455,7 +3482,7 @@ def test_google_remap_substitutes_model(monkeypatch):
                         fake_google)
     wrap = precard_transport._google_remap_transport(
         "gemini-3.1-flash-lite")
-    wrap("k", "zen-model-name", "sys", "user")
+    wrap("k", "requested-model-name", "sys", "user")
     assert seen["model"] == "gemini-3.1-flash-lite"
 
 
@@ -3463,7 +3490,7 @@ def test_parse_stage_map_accepts_google():
     from factory.precard.pipeline import _parse_stage_map
     assert _parse_stage_map(["judge=google"]) == {"sense_judge": "google"}
     assert _parse_stage_map(["judge=google"],
-                            ("zen", "avalai", "google")) == {
+                            ("avalai", "google")) == {
                                 "sense_judge": "google"}
 
 

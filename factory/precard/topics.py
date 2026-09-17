@@ -431,7 +431,7 @@ def _label_prompt(entries):
 
 def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                            model_calls, telemetry, tele_stage, tele_batch,
-                           ring, models, provider="zen", key_var="",
+                           ring, models, provider="avalai", key_var="",
                            file_label="factory/.env", tele_run_id="",
                            tele_model_actual=None, tele_attempts=False,
                            tried=None, rings=None):
@@ -456,19 +456,19 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                          provider="", model_actual="deterministic",
                          cost=resolve_cost(made_call=False))
         return None
-    # P2: default chain from the net table (zen topic-label five);
-    # explicit models (e.g. avalai/google single-model legs) win.
+    # P2: default chain from the net table (avalai single paid model);
+    # explicit models (e.g. google single-model legs) win.
     base_models = list(models) if models else None
     if ring is None:
         ring = KeyRing([api_key])
     best = {}
     best_model = "deterministic"
     attempt_rows = []
-    # R6 provider loop (same rule as the other legs): free legs may
-    # continue on the next switch_plan provider after a cooldown
-    # (that provider's own ring); providers without a ring are not
+    # R6 provider loop (same rule as the other legs): every run
+    # provider is paid, so the leg tries only its base provider (a
+    # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "zen"
+    base_provider = _net.norm_provider(provider) or "avalai"
     ordered = [p for p in _net.switch_plan(provider, "topic_label")
                if p == base_provider
                or (rings is not None and p in rings)]
@@ -700,7 +700,7 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 sleep_fn, state, progress_path, model_calls,
                 telemetry=None, tele_stage="s4", tele_batch=0,
                  ring=None, models=None,
-                 provider="zen", key_var="",
+                 provider="avalai", key_var="",
                  file_label="factory/.env", tele_run_id="",
                   tele_model_actual=None, tele_attempts=False,
                  counters=None, tried=None, rings=None):
@@ -900,7 +900,7 @@ def _label_cache_hit(cache, text, gloss, sense_id, vector_lookup):
 def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                    sleep_fn, state, progress_path, model_calls,
                    telemetry=None, tele_stage="s4", tele_batch=0,
-                   ring=None, provider="zen", key_var="",
+                   ring=None, provider="avalai", key_var="",
                    file_label="factory/.env", tele_run_id="",
                    tele_model_actual=None, tele_attempts=False,
                    counters=None, rings=None):
@@ -958,7 +958,7 @@ def _needs_fanout_relabel(s4_entry, s2_entry):
 
 def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
-                    ring=None, models=None, provider="zen", key_var="",
+                    ring=None, models=None, provider="avalai", key_var="",
                     file_label="factory/.env", tele_run_id="",
                     tele_model_actual=None, tele_attempts=False,
                     tried=None, rings=None):
@@ -970,17 +970,16 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     429 rotates the KeyRing (brief pause, same-call retry; a
     ROTATE-exhausted model steps down to the next chain model and only
     a fully-exhausted chain raises RateLimited so the runner flushes
-    and STOPS); a free leg cooled at project level continues on the
-    next switch_plan provider's chain with that provider's own ring
-    (R6).
+    and STOPS); a cooled leg (ProviderCooldown) stops for a resume
+    (R6: every run provider is paid).
     R27: one telemetry record per batch (ok / fallback / error); tuple
     (text, usage) transports surface token counts (None-tolerated,
     cost-unknown flagged). Terminal records carry the REAL perf_counter
     latency and REAL ring.idx, model vs model_actual, provider, run_id;
     per-try attempt rows only when ``tele_attempts`` is on.
     """
-    # P2: default chain from the net table (zen vectors five);
-    # explicit models (e.g. avalai/google single-model legs) win.
+    # P2: default chain from the net table (avalai single paid model);
+    # explicit models (e.g. google single-model legs) win.
     base_models = list(models) if models else None
     pseudos = vectors_pseudo_records(batch, judge_map, anchor_map)
     out = {}
@@ -990,11 +989,11 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
-    # R6 provider loop (same rule as the other legs): free legs may
-    # continue on the next switch_plan provider after a cooldown
-    # (that provider's own ring); providers without a ring are not
+    # R6 provider loop (same rule as the other legs): every run
+    # provider is paid, so the leg tries only its base provider (a
+    # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "zen"
+    base_provider = _net.norm_provider(provider) or "avalai"
     ordered = [p for p in _net.switch_plan(provider, "topic_vectors")
                if p == base_provider
                or (rings is not None and p in rings)]

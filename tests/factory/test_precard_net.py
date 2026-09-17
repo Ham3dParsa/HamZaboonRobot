@@ -118,27 +118,28 @@ def test_lease_direct_and_unknown_target():
 
 def test_lease_tunnel_picks_first_and_cools_on_429():
     cfg = _cfg()
-    first = NET.lease_for(cfg, "zen")
+    first = NET.lease_for(cfg, "google")
     assert (first["mode"], first["server_id"],
-            first["provider"]) == ("tunnel", "s1", "zen")
+            first["provider"]) == ("tunnel", "s1", "google")
     assert NET.report_lease(cfg, first["lease_id"],
                             "http429") == {"action": "switch"}
-    second = NET.lease_for(cfg, "zen")
-    assert second["server_id"] == "s2"  # s1 cooling for zen
-    # A google lease still takes s1: cooldowns are per (server, provider).
-    google = NET.lease_for(cfg, "google")
-    assert google["server_id"] == "s1"
+    second = NET.lease_for(cfg, "google")
+    assert second["server_id"] == "s2"  # s1 cooling for google
+    # An openrouter lease still takes s1: cooldowns are per (server,
+    # provider).
+    other = NET.lease_for(cfg, "openrouter")
+    assert other["server_id"] == "s1"
     # Cooling expires with the fake clock.
     cfg._now[0] += 301.0
-    assert NET.lease_for(cfg, "zen")["server_id"] == "s1"
+    assert NET.lease_for(cfg, "google")["server_id"] == "s1"
 
 
 def test_lease_parks_when_everything_cools():
     cfg = _cfg()
-    for target in ("zen", "zen"):
+    for target in ("google", "google"):
         lease = NET.lease_for(cfg, target)
         NET.report_lease(cfg, lease["lease_id"], "http429")
-    parked = NET.lease_for(cfg, "zen")
+    parked = NET.lease_for(cfg, "google")
     assert parked["error"] == "park"
 
 
@@ -146,7 +147,7 @@ def test_report_unknown_lease_auth_and_junk_provider():
     cfg = _cfg()
     assert NET.report_lease(cfg, "nope", "ok") == {
         "action": "unknown-lease"}
-    lease = NET.lease_for(cfg, "zen")
+    lease = NET.lease_for(cfg, "google")
     # Junk provider strings never mint cooldown keys.
     assert NET.report_lease(cfg, lease["lease_id"], "http429",
                             provider="junk-string") == {"action": "keep"}
@@ -162,7 +163,7 @@ def test_report_unknown_lease_auth_and_junk_provider():
 # --- call_leg rotation / stops ---
 
 def test_call_leg_rotates_on_429_to_next_key():
-    cfg = _cfg(keys={"zen": ["k1-sentinel", "k2-sentinel"]})
+    cfg = _cfg(keys={"avalai": ["k1-sentinel", "k2-sentinel"]})
     seen = []
     sleeps = []
 
@@ -172,7 +173,7 @@ def test_call_leg_rotates_on_429_to_next_key():
             raise _http(429)
         return "done"
 
-    out = NET.call_leg(cfg, "zen", "prompt", transport=fake,
+    out = NET.call_leg(cfg, "avalai", "prompt", transport=fake,
                        model="m", sleep_fn=sleeps.append, state={})
     assert out == ("done", None)
     assert seen == ["k1-sentinel", "k2-sentinel"]
@@ -180,7 +181,7 @@ def test_call_leg_rotates_on_429_to_next_key():
 
 
 def test_call_leg_all_keys_429_raises_after_every_key():
-    cfg = _cfg(keys={"zen": ["k1", "k2"]})
+    cfg = _cfg(keys={"avalai": ["k1", "k2"]})
     seen = []
 
     def fake(api_key, model, text):
@@ -188,13 +189,13 @@ def test_call_leg_all_keys_429_raises_after_every_key():
         raise _http(429)
 
     with pytest.raises(T.RateLimited):
-        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m",
+        NET.call_leg(cfg, "avalai", "prompt", transport=fake, model="m",
                      sleep_fn=lambda s: None, state={})
     assert seen == ["k1", "k2"]
 
 
 def test_call_leg_401_stops_after_one_attempt_naming_var_and_file():
-    cfg = _cfg(keys={"zen": ["zz-secret-1", "zz-secret-2"]})
+    cfg = _cfg(keys={"avalai": ["zz-secret-1", "zz-secret-2"]})
     seen = []
 
     def fake(api_key, model, text):
@@ -202,11 +203,11 @@ def test_call_leg_401_stops_after_one_attempt_naming_var_and_file():
         raise _http(401)
 
     with pytest.raises(T.AuthError) as exc:
-        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m",
+        NET.call_leg(cfg, "avalai", "prompt", transport=fake, model="m",
                      sleep_fn=lambda s: None, state={})
     assert seen == ["zz-secret-1"]  # no further attempts
     msg = str(exc.value)
-    assert "401" in msg and "OPENCODE_ZEN_API_KEY" in msg
+    assert "401" in msg and "AVALAI_API_KEY" in msg
     assert "factory/.env" in msg
     assert "zz-secret-1" not in msg and "zz-secret-2" not in msg
 
@@ -220,8 +221,8 @@ def test_call_leg_missing_keys_stops_loud_without_calling():
         return "x"
 
     with pytest.raises(NET.MissingKeyError) as exc:
-        NET.call_leg(cfg, "zen", "prompt", transport=fake, model="m")
-    assert seen == [] and "OPENCODE_ZEN_API_KEY" in str(exc.value)
+        NET.call_leg(cfg, "avalai", "prompt", transport=fake, model="m")
+    assert seen == [] and "AVALAI_API_KEY" in str(exc.value)
 
 
 def test_call_leg_unknown_leg_is_programmer_error():
@@ -472,10 +473,10 @@ def test_abort_auth_names_threaded_file_label_never_values():
     assert "factory/.env" in str(exc2.value)
 
 
-def test_provider_kwarg_decides_google_cooldown_vs_zen_rotate():
+def test_provider_kwarg_decides_google_cooldown_vs_default_rotate():
     """The same Google project-quota body raises ProviderCooldown with
     provider="google" (no same-project rotation) but rotates to
-    RateLimited on the zen default — i.e. the wired provider, not the
+    RateLimited on the default — i.e. the wired provider, not the
     default, decides the taxonomy outcome at each production site."""
     body = b"RESOURCE_EXHAUSTED: quota exceeded"
 
@@ -496,7 +497,7 @@ def test_provider_kwarg_decides_google_cooldown_vs_zen_rotate():
     with pytest.raises(T.RateLimited):
         T._call_with_rotation(fake2, T.KeyRing(["k1", "k2"]), "m", "t",
                               lambda s: None, {}, "lbl")
-    assert seen == ["k1", "k2"]  # zen default rotates, never cools down
+    assert seen == ["k1", "k2"]  # default rotates, never cools down
 
 
 def test_judge_batch_threads_provider_to_classify():
@@ -543,15 +544,15 @@ def test_file_label_threads_to_auth_errors():
     assert "GOOGLE_AI_API_KEY" in msg
     assert "tools/egress/.env" in msg
     assert "zz-secret-9" not in msg
-    cfg = _cfg(keys={"zen": ["zz-secret-1"]})
+    cfg = _cfg(keys={"avalai": ["zz-secret-1"]})
     with pytest.raises(LJ.AuthError) as exc2:
-        NET.call_leg(cfg, "zen", "prompt", transport=fake401, model="m",
+        NET.call_leg(cfg, "avalai", "prompt", transport=fake401, model="m",
                      sleep_fn=lambda s: None, state={},
                      file_label="custom.env")
     assert "custom.env" in str(exc2.value)
     assert "zz-secret-1" not in str(exc2.value)
     with pytest.raises(NET.MissingKeyError) as exc3:
-        NET.call_leg(_cfg(), "zen", "prompt",
+        NET.call_leg(_cfg(), "avalai", "prompt",
                      transport=lambda *a: "x", model="m",
                      file_label="custom.env")
     assert "custom.env" in str(exc3.value)
@@ -671,16 +672,16 @@ def test_p1_supervisor_health_healthy_flag():
 
 def test_p1_cooldown_parity_per_provider():
     """Retire parity: supervisor Pool and NetConfig isolate providers
-    identically (zen-429 never cools google on the same server)."""
+    identically (an avalai-429 never cools google on the same server)."""
     cfg = _cfg()
-    NET.cool(cfg, "s1", "zen")
-    assert NET.is_cool(cfg, "s1", "zen") is True
+    NET.cool(cfg, "s1", "avalai")
+    assert NET.is_cool(cfg, "s1", "avalai") is True
     assert NET.is_cool(cfg, "s1", "google") is False
     pool = SUP.Pool()
-    pool.cool("s1", "zen", seconds=60)
-    assert pool.is_cool("s1", "zen") is True
+    pool.cool("s1", "avalai", seconds=60)
+    assert pool.is_cool("s1", "avalai") is True
     assert pool.is_cool("s1", "google") is False
-    assert pool.is_cool("s1", "zen", now=10 ** 12) is False
+    assert pool.is_cool("s1", "avalai", now=10 ** 12) is False
 
 
 def test_p1_build_probe_rows_skips_malformed():
@@ -754,33 +755,13 @@ def test_p2_table_keys_shape_and_costs():
             "topic_label")
     assert set(NET.LEG_FALLBACKS) == {
         (provider, leg)
-        for provider in ("zen", "avalai", "google") for leg in legs}
+        for provider in ("avalai", "google") for leg in legs}
     for (provider, leg), entries in NET.LEG_FALLBACKS.items():
         assert entries, "empty chain for %r" % ((provider, leg),)
         for entry_model, cost in entries:
             assert isinstance(entry_model, str) and entry_model
-            assert cost in ("free", "paid"), cost
-    # Frozen literals (not derived from the module): the zen
-    # judge/inflection legs keep the historic Muse-only pair while
-    # vectors/label keep the full five. A silent reorder/rename of
-    # JUDGE_MODELS must fail here, not slide through.
-    frozen_pair = ["muse-spark-1.3-contributor-free",
-                   "muse-spark-1.2-contributor-free"]
-    frozen_five = frozen_pair + ["ling-3.0-flash-fin-free",
-                                 "mimo-v2.5-free",
-                                 "nemotron-3.5-lightning-free"]
-    assert NET.JUDGE_MODELS == frozen_five
-    assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "sense_judge")]] == frozen_pair
-    assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "inflection_review")]] == frozen_pair
-    assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "topic_vectors")]] == frozen_five
-    assert [m for m, _ in NET.LEG_FALLBACKS[
-        ("zen", "topic_label")]] == frozen_five
-    assert all(cost == "free" for _, cost in NET.LEG_FALLBACKS[
-        ("zen", "sense_judge")])
-    # AvalAI/Google legs are single paid defaults.
+            assert cost == "paid", cost
+    # Run legs are single paid defaults (no free chain remains).
     assert NET.LEG_FALLBACKS[("avalai", "sense_judge")] == (
         (T.AVALAI_PRECARD_MODEL, "paid"),)
     assert NET.LEG_FALLBACKS[("google", "sense_judge")] == (
@@ -793,17 +774,17 @@ def test_p2_table_keys_shape_and_costs():
 
 
 def test_p2_consts_moved_single_owner_legs_hold_zero_lists():
-    """JUDGE_MODELS + precard/avalai/google consts live in net; the
-    legs import them (same objects, no twin defs, no list literals)."""
+    """Precard/avalai/google consts live in net; the legs import them
+    (same objects, no twin defs, no list literals). No free-model chain
+    remains on the run line."""
     import ast
     import pathlib
-    from factory.precard import judge as J
-    assert J.JUDGE_MODELS is NET.JUDGE_MODELS
+    assert not hasattr(NET, "JUDGE_MODELS")
     assert T.AVALAI_PRECARD_MODEL is NET.AVALAI_PRECARD_MODEL
     assert T.AVALAI_CHAT_URL is NET.AVALAI_CHAT_URL
     assert T.GOOGLE_PRECARD_MODEL is NET.GOOGLE_PRECARD_MODEL
     assert T.GOOGLE_MODELS_URL is NET.GOOGLE_MODELS_URL
-    moved = {"JUDGE_MODELS", "V15_MODELS", "TOPUP_MODELS",
+    moved = {"V15_MODELS", "TOPUP_MODELS",
              "INFLECTION_REVIEW_MODELS", "AVALAI_PRECARD_MODEL",
              "AVALAI_CHAT_URL", "GOOGLE_PRECARD_MODEL",
              "GOOGLE_MODELS_URL"}
@@ -827,41 +808,38 @@ def test_p2_consts_moved_single_owner_legs_hold_zero_lists():
 
 
 def test_p2_switch_policy_and_target_routing():
-    assert NET.may_auto_switch("zen") is True
     assert NET.may_auto_switch("avalai") is False
     assert NET.may_auto_switch("google") is False
-    assert NET.target_for("zen") == "zen"
+    assert NET.may_auto_switch("openrouter") is False
     assert NET.target_for("avalai") == "avalai"
     assert NET.target_for("google") == "google"
-    assert NET.target_for("bogus") == "zen"
+    assert NET.target_for("openrouter") == "openrouter"
+    assert NET.target_for("bogus") == "avalai"
 
 
 def test_p2_switch_plan_order_and_paid_stop():
-    """R6 provider order lives in one helper: free legs try self then
-    the rest of SWITCH_ORDER that own the step; paid legs try only
-    themselves (a cooldown stops for a resume)."""
-    assert NET.switch_plan("zen", "sense_judge") == [
-        "zen", "google", "avalai"]
+    """R6 provider order lives in one helper: every run provider is
+    paid, so every leg tries only itself (a cooldown stops for a
+    resume)."""
+    assert NET.switch_plan("avalai", "sense_judge") == ["avalai"]
     assert NET.switch_plan("google", "sense_judge") == ["google"]
     assert NET.switch_plan("avalai", "topic_label") == ["avalai"]
-    assert NET.switch_plan("zen", "topic_vectors") == [
-        "zen", "google", "avalai"]
+    assert NET.switch_plan("google", "topic_vectors") == ["google"]
+    assert NET.switch_plan("openrouter", "sense_judge") == ["openrouter"]
 
 
 def test_p2_switch_plan_unknown_step_is_programmer_error():
-    cfg = _cfg(keys={"zen": ["k1"]})
+    cfg = _cfg(keys={"avalai": ["k1"]})
     with pytest.raises(ValueError):
-        NET.switch_plan("zen", "bogus")
+        NET.switch_plan("avalai", "bogus")
 
 
-def test_p2_leg_free_cooldown_switches_provider_with_own_keys():
-    """R6 in the production path (finding A+B): a free leg cooled on
-    zen continues on google's chain, and the google attempt presents
-    GOOGLE's key — never zen's. z2 is skipped (same-project rotation
-    is forbidden on a cooldown)."""
+def test_p2_leg_cooled_paid_leg_stops_with_own_key():
+    """R6 in the production path: a paid leg cooled at project level
+    stops after one attempt for a resume — no provider switch, and the
+    attempt presents the leg's own key."""
     from factory.precard import judge as J
-    z1 = NET.JUDGE_MODELS[0]
-    gmodel = T.GOOGLE_PRECARD_MODEL
+    amodel = T.AVALAI_PRECARD_MODEL
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     amap = {"w:call": {"candidates": [
         {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
@@ -869,25 +847,14 @@ def test_p2_leg_free_cooldown_switches_provider_with_own_keys():
 
     def fake(api_key, model, text):
         seen.append((api_key, model))
-        if model in NET.leg_chain("zen", "sense_judge"):
-            raise T.ProviderCooldown("project blocked")
-        return ('{"results": [{"key": "w:call", '
-                '"picks": ["call#0"]}]}'), None
+        raise T.ProviderCooldown("project blocked")
 
-    zen_ring = T.KeyRing(["zk1", "zk2"])
-    tele, tried = [], []
-    out = J.judge_batch(batch, amap, "zk1", fake, lambda s: None, {},
-                        telemetry=tele, tele_batch=1, provider="zen",
-                        ring=zen_ring,
-                        rings={"zen": zen_ring,
-                               "google": T.KeyRing(["gk1"])},
-                        tried=tried)
-    assert out["w:call"]["sense_id"] == "call#0"
-    assert out["w:call"]["model"] == gmodel
-    assert seen == [("zk1", z1), ("gk1", gmodel)]
-    assert tried == [z1, gmodel]
-    assert [(r["model"], r["provider"], r["outcome"]) for r in tele] == [
-        (z1, "zen", "error"), (gmodel, "google", "ok")]
+    with pytest.raises(T.ProviderCooldown):
+        J.judge_batch(batch, amap, "ak1", fake, lambda s: None, {},
+                      provider="avalai",
+                      ring=T.KeyRing(["ak1"]),
+                      rings={"avalai": T.KeyRing(["ak1"])})
+    assert seen == [("ak1", amodel)]  # one attempt, own key, no switch
 
 
 def test_p2_leg_paid_cooldown_stops_no_switch():
@@ -916,7 +883,7 @@ def test_p2_inflection_review_429_rotates_keys():
     429 rotates to the next key on the SAME model (the old raw
     transport call never rotated)."""
     from factory.precard import judge as J
-    m1 = NET.JUDGE_MODELS[0]
+    m1 = T.AVALAI_PRECARD_MODEL
     items = [{"key": "k1", "text": "w", "gloss": "g"}]
     seen = []
     calls = {"n": 0}
@@ -937,11 +904,12 @@ def test_p2_inflection_review_429_rotates_keys():
     assert seen == [("k1", m1), ("k2", m1)]
 
 
-def test_p2_judge_batch_steps_down_on_429():
-    """Leg level: model-1 429 (all keys) settles on model 2; tried
-    records both; telemetry keeps the per-model error + ok rows."""
+def test_p2_judge_batch_single_model_exhaustion_raises():
+    """Leg level: the single-model paid chain 429s on every key, so the
+    leg raises RateLimited (flush+resume) with the tried model recorded;
+    telemetry keeps the terminal error row."""
     from factory.precard import judge as J
-    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    m1 = T.AVALAI_PRECARD_MODEL
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     amap = {"w:call": {"candidates": [
         {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
@@ -949,19 +917,16 @@ def test_p2_judge_batch_steps_down_on_429():
 
     def fake(api_key, model, text):
         seen.append((api_key, model))
-        if model == m1:
-            raise _http(429)
-        return ('{"results": [{"key": "w:call", '
-                '"picks": ["call#0"]}]}'), None
+        raise _http(429)
 
     tele, tried = [], []
-    out = J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
-                        telemetry=tele, tele_batch=1,
-                        ring=T.KeyRing(["k1", "k2"]), tried=tried)
-    assert out["w:call"]["sense_id"] == "call#0"
-    assert out["w:call"]["model"] == m2
-    assert tried == [m1, m2]
-    assert [r["model"] for r in tele] == [m1, m2]
+    with pytest.raises(T.RateLimited):
+        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+                      telemetry=tele, tele_batch=1,
+                      ring=T.KeyRing(["k1", "k2"]), tried=tried)
+    assert tried == [m1]
+    assert seen == [("k1", m1), ("k2", m1)]
+    assert [r["model"] for r in tele] == [m1]
 
 
 def test_p2_judge_batch_401_single_attempt():
@@ -1001,10 +966,11 @@ def test_p2_judge_batch_chain_exhaustion_raises():
     assert out["w:call"]["model"] == "s1-fallback"
 
 
-def test_p2_vectors_batch_steps_down_on_429():
-    """Vectors leg: model-1 429 settles on model 2 with tried recorded."""
+def test_p2_vectors_batch_single_model_exhaustion():
+    """Vectors leg: the single-model paid chain 429s on its key, so the
+    leg raises RateLimited with the tried model recorded."""
     from factory.precard import topics as TOP
-    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    m1 = T.AVALAI_PRECARD_MODEL
     lab = TOP.V15_ID2LABEL[1]
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     jmap = {"w:call": {"sense_id": "call#0", "gloss": "a call"}}
@@ -1014,46 +980,41 @@ def test_p2_vectors_batch_steps_down_on_429():
 
     def fake(api_key, model, text):
         seen.append((api_key, model))
-        if model == m1:
-            raise _http(429)
-        return ('{"results": [{"lemma": "call", "vectors": ['
-                '{"sense_id": "call#0", "vector": [{"topic_id": 1, '
-                '"topic_label": "%s", "weight": 1.0}]}]}]}' % lab), None
+        raise _http(429)
 
     tried = []
-    out = TOP.vectors_batch(batch, jmap, amap, "k", fake,
-                            lambda s: None, {}, ring=T.KeyRing(
-                                ["k1", "k2"]), tried=tried)
-    assert out["call#0"]["model"] == m2
-    assert tried == [m1, m2]
+    with pytest.raises(T.RateLimited):
+        TOP.vectors_batch(batch, jmap, amap, "k", fake,
+                          lambda s: None, {}, ring=T.KeyRing(["k1"]),
+                          tried=tried)
+    assert tried == [m1]
+    assert seen == [("k1", m1)]
 
 
 def test_p2_inflection_review_default_chain_from_table():
-    """Inflection leg defaults to the table pair: garbage on model 1
-    steps down to model 2 (2 attempts each); tried records both."""
+    """Inflection leg defaults to the table chain: garbage on the single
+    paid model retries once, then fails closed to review-uncertain
+    (tried records the model, both attempts hit it)."""
     from factory.precard import judge as J
-    m1, m2 = NET.JUDGE_MODELS[0], NET.JUDGE_MODELS[1]
+    m1 = T.AVALAI_PRECARD_MODEL
     items = [{"key": "k1", "text": "w", "gloss": "g"}]
     seen = []
 
     def fake(api_key, model, *texts):
         seen.append(model)
-        if model == m1:
-            return "not json", None
-        return ('{"results": [{"key": "k1", "keep": true, '
-                '"reason": "ok"}]}'), None
+        return "not json", None
 
     tried = []
     out = J.inflection_review(items, fake, "k", tried=tried)
-    assert out["k1"] == {"keep": True, "reason": "ok", "model": m2,
-                         "uncertain": False}
-    assert tried == [m1, m2]
-    assert seen == [m1, m1, m2]
+    assert out["k1"] == {"keep": True, "reason": "review-error",
+                         "model": "review-fallback", "uncertain": True}
+    assert tried == [m1]
+    assert seen == [m1, m1]
 
 
 # --- PR-C clean-cache + direct-first (R7/R8, hermetic) ---
 
-def _cache_entry(sid, provider="zen", age_s=0, ms=50, now=1000.0):
+def _cache_entry(sid, provider="google", age_s=0, ms=50, now=1000.0):
     return {"server_id": sid, "provider": provider,
             "last_ok_ts": now - age_s, "latency_ms": ms}
 
@@ -1068,7 +1029,7 @@ def test_c3_cache_hit_picks_cached_not_first_avail():
         calls.append(server["id"])
         return 10
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert lease["server_id"] == "s2" and lease["cache_hit"] is True
     assert calls == ["s2"]  # one real-ping gate, no full scan
@@ -1084,7 +1045,7 @@ def test_c3_stale_entry_misses_without_ping():
         calls.append(server["id"])
         return 5
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert lease["server_id"] == "s1" and lease["cache_hit"] is False
     assert calls == []
@@ -1093,7 +1054,7 @@ def test_c3_stale_entry_misses_without_ping():
 def test_c3_cooling_cached_row_skipped_for_next_fresh():
     """Cooling cached rows are skipped even when fresh (per-provider)."""
     cfg = _cfg()
-    NET.cool(cfg, "s1", "zen")
+    NET.cool(cfg, "s1", "google")
     cache = [_cache_entry("s1", ms=5), _cache_entry("s2", ms=50)]
     calls = []
 
@@ -1101,7 +1062,7 @@ def test_c3_cooling_cached_row_skipped_for_next_fresh():
         calls.append(server["id"])
         return 50
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert lease["server_id"] == "s2" and lease["cache_hit"] is True
     assert calls == ["s2"]
@@ -1115,7 +1076,7 @@ def test_c3_ping_dead_falls_back_to_full_probe():
     def _ping(server):
         return None
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert lease["server_id"] == "s1" and lease["cache_hit"] is False
 
@@ -1131,7 +1092,7 @@ def test_c3_empty_probe_never_clobbers_cache(tmp_path):
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{not json", encoding="utf-8")
     assert NET.load_clean_cache(str(corrupt)) == []
-    dirty = [{"server_id": "s1", "provider": "zen",
+    dirty = [{"server_id": "s1", "provider": "google",
               "last_ok_ts": 1000.0, "latency_ms": 12,
               "link": "vless://SECRET@h:1", "key": "SECRET-KEY"}]
     assert NET.save_clean_cache(str(missing), dirty) == 1
@@ -1140,7 +1101,7 @@ def test_c3_empty_probe_never_clobbers_cache(tmp_path):
         "server_id", "provider", "last_ok_ts", "latency_ms"}
     assert "SECRET" not in missing.read_text(encoding="utf-8")
     assert NET.load_clean_cache(str(missing)) == [
-        {"server_id": "s1", "provider": "zen",
+        {"server_id": "s1", "provider": "google",
          "last_ok_ts": 1000.0, "latency_ms": 12}]
 
 
@@ -1148,10 +1109,10 @@ def test_c3_writeback_upserts_and_roundtrips(tmp_path):
     """record_clean_success upserts (fresh ts, moves to end); the file
     round-trips through the single writer."""
     rows = NET.record_clean_success(
-        [_cache_entry("s1", ms=90)], "s2", "zen", 12, 2000.0)
-    assert rows[-1] == {"server_id": "s2", "provider": "zen",
+        [_cache_entry("s1", ms=90)], "s2", "google", 12, 2000.0)
+    assert rows[-1] == {"server_id": "s2", "provider": "google",
                         "last_ok_ts": 2000.0, "latency_ms": 12}
-    rows2 = NET.record_clean_success(rows, "s1", "zen", 7, 2000.0)
+    rows2 = NET.record_clean_success(rows, "s1", "google", 7, 2000.0)
     assert rows2[-1]["server_id"] == "s1"
     assert len(rows2) == 2  # upsert, not duplicate
     path = str(tmp_path / "clean_cache.json")
@@ -1183,11 +1144,11 @@ def test_c3_direct_fail_falls_back_to_lease_with_telemetry():
 def test_c3_cache_console_lines_and_run_printer(capsys):
     """Single-owner HIT/MISS text; the run entry only prints it."""
     from factory import run as RUN
-    assert "CACHE HIT" in NET.format_cache_line(True, "s1", "zen")
-    assert "s1" in NET.format_cache_line(True, "s1", "zen")
-    assert "CACHE MISS" in NET.format_cache_line(False, "", "zen")
-    RUN.print_cache_line(True, "s1", "zen")
-    RUN.print_cache_line(False, "", "zen")
+    assert "CACHE HIT" in NET.format_cache_line(True, "s1", "google")
+    assert "s1" in NET.format_cache_line(True, "s1", "google")
+    assert "CACHE MISS" in NET.format_cache_line(False, "", "google")
+    RUN.print_cache_line(True, "s1", "google")
+    RUN.print_cache_line(False, "", "google")
     out = capsys.readouterr().out
     assert "CACHE HIT" in out and "CACHE MISS" in out
     assert RUN.direct_probe_telemetry(True)["outcome"] == "direct-ok"
@@ -1219,12 +1180,12 @@ def test_c3_supervisor_writeback_hook(tmp_path):
     raises and never creates a file (programming errors propagate)."""
     import json
     path = tmp_path / "clean_cache.json"
-    SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+    SUP.note_clean_success("s1", "google", 12, now=2000.0,
                            path=str(path))
     assert json.loads(path.read_text(encoding="utf-8"))[
         "entries"][-1]["server_id"] == "s1"
     ghost = tmp_path / "ghost.json"
-    SUP.note_clean_success("", "zen", 12, now=2000.0,
+    SUP.note_clean_success("", "google", 12, now=2000.0,
                            path=str(ghost))
     assert not ghost.exists()
 
@@ -1238,23 +1199,27 @@ def test_c3_run_flags_clean_ttl_and_direct_probe():
     assert RUN.FLAG_ENVS["direct_probe"] == "AVALAI_DIRECT_FIRST"
     ns = RUN.parse_args([])
     assert hasattr(ns, "clean_ttl") and hasattr(ns, "direct_probe")
-    cfg, sources = RUN.resolve_config(ns, {})
+    cfg, sources = RUN.resolve_config(ns, {"FACTORY_LLM_PROVIDER": "avalai"})
     assert cfg["clean_ttl"] == NET.CLEAN_CACHE_TTL_S
     assert cfg["direct_probe"] is False
     cfg2, sources2 = RUN.resolve_config(
         ns, {"EGRESS_CLEAN_TTL": "3600",
-             "AVALAI_DIRECT_FIRST": "1"})
+             "AVALAI_DIRECT_FIRST": "1",
+             "FACTORY_LLM_PROVIDER": "avalai"})
     assert cfg2["clean_ttl"] == 3600.0 and sources2["clean_ttl"] == "env"
     assert cfg2["direct_probe"] is True
     ns_cli = RUN.parse_args(["--clean-ttl", "60", "--direct-probe"])
-    cfg3, _ = RUN.resolve_config(ns_cli, {"EGRESS_CLEAN_TTL": "3600"})
+    cfg3, _ = RUN.resolve_config(ns_cli, {"EGRESS_CLEAN_TTL": "3600",
+                                          "FACTORY_LLM_PROVIDER": "avalai"})
     assert cfg3["clean_ttl"] == 60.0
     assert cfg3["direct_probe"] is True
     import pytest as _pytest
     with _pytest.raises(SystemExit):
-        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "0"})
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "0",
+                                "FACTORY_LLM_PROVIDER": "avalai"})
     with _pytest.raises(SystemExit):
-        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "abc"})
+        RUN.resolve_config(ns, {"EGRESS_CLEAN_TTL": "abc",
+                                "FACTORY_LLM_PROVIDER": "avalai"})
     src = open(RUN.__file__, encoding="utf-8").read()
     assert "AVALAI_API_KEY" not in src
     assert "CLEAN_CACHE_TTL_S" in src  # code default cited, not moved
@@ -1284,7 +1249,7 @@ def test_c3_ping_runs_outside_pool_lock():
         worker.join(timeout=5.0)
         return 10
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert entered.is_set()
     assert lease["server_id"] == "s2" and lease["cache_hit"] is True
@@ -1302,7 +1267,7 @@ def test_c3_ping_gets_snapshot_not_live_pool_row():
         server["host"] = "MUTATED"
         return 10
 
-    lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+    lease = NET.lease_for(cfg, "google", clean_cache=cache,
                           ping_fn=_ping, now=1000.0)
     assert lease["server_id"] == "s2" and lease["cache_hit"] is True
     assert seen[0] is not cfg.servers[1]
@@ -1316,7 +1281,7 @@ def test_c3_nonfinite_ttl_falls_back_to_default():
     cache = [_cache_entry("s2", ms=10)]
     for bad in ("inf", float("inf"), float("nan"), "nan",
                 "garbage", 0, -5, object()):
-        lease = NET.lease_for(cfg, "zen", clean_cache=cache,
+        lease = NET.lease_for(cfg, "google", clean_cache=cache,
                               clean_ttl=bad,
                               ping_fn=lambda s: 10, now=1000.0)
         assert lease["server_id"] == "s2" \
@@ -1326,16 +1291,16 @@ def test_c3_nonfinite_ttl_falls_back_to_default():
 def test_c3_nan_last_ok_row_is_stale():
     """W2: a NaN last_ok_ts row is stale (never fresh via NaN math)."""
     rows = NET.clean_cache_candidates(
-        [{"server_id": "s1", "provider": "zen",
+        [{"server_id": "s1", "provider": "google",
           "last_ok_ts": float("nan"), "latency_ms": 5}],
-        "zen", 1000.0, 86400.0)
+        "google", 1000.0, 86400.0)
     assert rows == []
 
 
 def test_c3_inf_ttl_uses_default_window():
     """W2: an inf TTL falls back to the default (fresh rows return)."""
     rows = NET.clean_cache_candidates(
-        [_cache_entry("s1", age_s=1000)], "zen", 1000.0, float("inf"))
+        [_cache_entry("s1", age_s=1000)], "google", 1000.0, float("inf"))
     assert [r["server_id"] for r in rows] == ["s1"]
 
 
@@ -1356,11 +1321,11 @@ def test_c3_save_normalizes_latency_like_load(tmp_path):
     """W3: the writer emits int/None latency (mirror load); junk
     latency becomes None instead of a non-serializable payload."""
     path = str(tmp_path / "clean_cache.json")
-    rows = [{"server_id": "s1", "provider": "zen",
+    rows = [{"server_id": "s1", "provider": "google",
              "last_ok_ts": 1000.0, "latency_ms": "12"},
-            {"server_id": "s2", "provider": "zen",
+            {"server_id": "s2", "provider": "google",
              "last_ok_ts": 1000.0, "latency_ms": object()},
-            {"server_id": "s3", "provider": "zen",
+            {"server_id": "s3", "provider": "google",
              "last_ok_ts": float("nan"), "latency_ms": 12.9}]
     assert NET.save_clean_cache(path, rows) == 3
     loaded = NET.load_clean_cache(path)
@@ -1372,7 +1337,7 @@ def test_c3_save_cleans_tmp_and_raises_on_unserializable(tmp_path):
     """W3: a failed write removes path.tmp and still raises."""
     import pytest as _pytest
     path = tmp_path / "clean_cache.json"
-    rows = [{"server_id": {"unserializable", 1}, "provider": "zen",
+    rows = [{"server_id": {"unserializable", 1}, "provider": "google",
              "last_ok_ts": 1000.0, "latency_ms": 5}]
     with _pytest.raises(TypeError):
         NET.save_clean_cache(str(path), rows)
@@ -1386,7 +1351,7 @@ def test_c3_writeback_best_effort_types(tmp_path, monkeypatch):
     (AttributeError) still surface."""
     import pytest as _pytest
     path = tmp_path / "clean_cache.json"
-    SUP.note_clean_success(object(), "zen", 12, now=2000.0,
+    SUP.note_clean_success(object(), "google", 12, now=2000.0,
                            path=str(path))
     assert not path.exists()
 
@@ -1395,7 +1360,7 @@ def test_c3_writeback_best_effort_types(tmp_path, monkeypatch):
 
     monkeypatch.setattr(SUP, "save_clean_cache", _boom)
     with _pytest.raises(AttributeError):
-        SUP.note_clean_success("s1", "zen", 12, now=2000.0,
+        SUP.note_clean_success("s1", "google", 12, now=2000.0,
                                path=str(path))
 
 
@@ -1427,7 +1392,7 @@ def _c4_cache_file(tmp_path, monkeypatch, rows):
     return path
 
 
-def _c4_fresh_row(server_id, provider="zen", age_s=10, ms=7):
+def _c4_fresh_row(server_id, provider="google", age_s=10, ms=7):
     import time as _time
     return {"server_id": server_id, "provider": provider,
             "last_ok_ts": _time.time() - age_s, "latency_ms": ms}
@@ -1447,7 +1412,7 @@ def test_c3_supervisor_lease_cache_hit_skips_scan(
         lambda h, p, timeout=5.0: seen.append((h, p)) or (
             42 if h == "h2" else None))
     pool = _c4_link_pool()
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["mode"] == "tunnel" and lease["server_id"] == "s2"
     assert ("h2", 2) in seen and ("h1", 1) not in seen
     out = capsys.readouterr().out
@@ -1472,7 +1437,7 @@ def test_c3_supervisor_lease_miss_takes_first_avail(
         SUP, "tcp_ping",
         lambda h, p, timeout=5.0: calls.append((h, p)) or 99)
     pool = _c4_link_pool()
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["server_id"] == "s1"  # first-avail, no ping needed
     assert calls == []
     assert "CACHE MISS" in capsys.readouterr().out
@@ -1498,7 +1463,7 @@ def test_c3_supervisor_lease_ping_budget_capped(
         return None
 
     monkeypatch.setattr(SUP, "tcp_ping", _dead)
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["server_id"] == "s1"  # classic first-avail
     assert [h for h, _, _ in probed] == ["h1", "h2", "h3"]
     assert {t for _, _, t in probed} == {SUP.LEASE_PING_TIMEOUT_S}
@@ -1521,7 +1486,7 @@ def test_c3_supervisor_lease_survives_writeback_crash(
 
     monkeypatch.setattr(SUP, "note_clean_success", _boom)
     pool = _c4_link_pool()
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["server_id"] == "s2"  # hit stands despite crashed upkeep
     assert "CACHE HIT" in capsys.readouterr().out
 
@@ -1536,11 +1501,11 @@ def test_c3_supervisor_lease_cooled_mid_ping_falls_through(
     pool = _c4_link_pool()
 
     def _ping(h, p, timeout=5.0):
-        pool.cool("s2", "zen")  # cooled mid-ping by a reporter
+        pool.cool("s2", "google")  # cooled mid-ping by a reporter
         return 30
 
     monkeypatch.setattr(SUP, "tcp_ping", _ping)
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["server_id"] == "s1"
     assert "CACHE MISS" in capsys.readouterr().out
 
@@ -1558,7 +1523,7 @@ def test_c3_supervisor_lease_audit_shape_unchanged(
     monkeypatch.setattr(SUP, "tcp_ping",
                         lambda h, p, timeout=5.0: None)
     pool = _c4_link_pool()
-    lease = pool.lease("zen")
+    lease = pool.lease("google")
     assert lease["server_id"] == "s1"
     lines = (tmp_path / "leases.jsonl").read_text(
         encoding="utf-8").splitlines()

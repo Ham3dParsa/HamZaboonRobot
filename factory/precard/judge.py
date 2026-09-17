@@ -6,11 +6,10 @@ package) and two names went public (judge_prompt, apply_inflection_veto).
 Vendored with it: LEVEL_N + validate_picks (frozen copy from
 factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
 superlative stub predicates (frozen copy from factory/pipeline/card_pilot).
-JUDGE_MODELS is NOT vendored here: it lives in factory.precard.net
-(P2 single owner) and is imported. Model attempts route through
-net.call_leg (single-model + KeyRing rotation); each leg walks its
-net-table chain (steps down only on ROTATE-exhausted) and free legs
-switch provider on COOLDOWN_SWITCH via net.switch_plan (R6).
+Model attempts route through net.call_leg (single-model + KeyRing
+rotation); each leg walks its net-table chain (steps down only on
+ROTATE-exhausted) and stops for a resume on COOLDOWN_SWITCH via
+net.switch_plan (R6: every run provider is paid).
 """
 
 from __future__ import annotations
@@ -21,15 +20,12 @@ from factory.precard.accounting import item_key
 from factory.precard import anchor as _anchor_home
 from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
-# P2 (R5): JUDGE_MODELS lives in factory.precard.net (single owner);
-# this leg holds zero model lists and reads chains through it.
-from factory.precard.net import JUDGE_MODELS
 from factory.precard import net as _net
 
 # Model attempts route through net.call_leg (single-model + KeyRing
 # rotation). Each leg walks its net-table chain (steps down only on
-# ROTATE-exhausted) and free legs switch provider on COOLDOWN_SWITCH
-# via net.switch_plan, always with that provider's own ring (R6).
+# ROTATE-exhausted) and stops for a resume on COOLDOWN_SWITCH
+# via net.switch_plan (R6: every run provider is paid).
 
 MAX_FANOUT = 4
 
@@ -453,9 +449,8 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     Hermetic with an injected transport. Every attempt routes through
     net.call_leg (single-model + KeyRing rotation, so a 429 rotates
     to the next key on the same model); a ROTATE-exhausted model
-    steps down to the next chain model, and a free leg cooled at
-    project level continues on the next switch_plan provider's chain
-    with that provider's own ring (R6). Tuple (text, usage)
+    steps down to the next chain model, and a cooled leg stops for a
+    resume (R6: every run provider is paid). Tuple (text, usage)
     transports surface token counts into one terminal telemetry
     record per batch (None-tolerated, cost-unknown flagged, real
     perf_counter latency, real key idx, run_id-joined; per-try
@@ -478,14 +473,14 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         state = {}
     if ring is None:
         ring = KeyRing([api_key])
-    # P2: default chain from the net table (zen inflection pair);
-    # explicit models (e.g. avalai/google single-model legs) win.
+    # P2: default chain from the net table (avalai single paid model);
+    # explicit models (e.g. google single-model legs) win.
     base_models = list(models) if models else None
-    # R6 provider loop (same rule as the other legs): free legs may
-    # continue on the next switch_plan provider after a cooldown
-    # (that provider's own ring); providers without a ring are not
+    # R6 provider loop (same rule as the other legs): every run
+    # provider is paid, so the leg tries only its base provider (a
+    # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(tele_provider or "zen") or "zen"
+    base_provider = _net.norm_provider(tele_provider or "avalai") or "avalai"
     ordered = [p for p in _net.switch_plan(base_provider,
                                            "inflection_review")
                if p == base_provider
@@ -711,22 +706,20 @@ def inflection_review(items, transport, api_key="", model_calls=None,
 
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
-                   ring=None, models=None, provider="zen", key_var="",
+                   ring=None, models=None, provider="avalai", key_var="",
                    file_label="factory/.env", tele_run_id="",
                    tele_model_actual=None, tele_attempts=False,
                    tried=None, rings=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model, picks}}.
 
-    Default chain comes from the net table (zen sense-judge pair); an
-    explicit `models` list (e.g. AvalAI glm-5.3-flash via
-    --judge-provider avalai) replaces it. 2 attempts per model, 401/403
+    Default chain comes from the net table (avalai single paid model); an
+    explicit `models` list (e.g. google gemini-3.5-flash-lite via
+    --llm-provider google) replaces it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     a ROTATE-exhausted model steps down to the next chain model and
     only a fully-exhausted chain raises RateLimited so the runner
-    flushes and STOPS); a free leg cooled at project level
-    (ProviderCooldown) continues on the next switch_plan provider's
-    chain with that provider's own ring, while paid legs (and the
-    last provider) raise for a resume (R6),
+    flushes and STOPS); a cooled leg (ProviderCooldown) stops for a
+    resume (R6: every run provider is paid),
     anything else fail-closed to the S1 top pick per item. v14.1: the
     judge returns 1-4 ordered picks per item (judge_validate_multi —
     legacy single "pick" rows still validate as one pick); the ordered
@@ -744,20 +737,19 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     attempt rows only when ``tele_attempts`` is on (default off, so
     attempt-row volume is unchanged by default).
     """
-    # P2: default chain from the net table (zen sense-judge pair);
-    # explicit models (e.g. avalai/google single-model legs) win.
+    # P2: default chain from the net table (avalai single paid model);
+    # explicit models (e.g. google single-model legs) win.
     base_models = list(models) if models else None
     prompt = judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []
-    # R6 provider loop: free legs may continue on the next
-    # switch_plan provider after a cooldown (that provider's own
-    # ring — never another provider's key); providers without a
-    # ring are not attempted (the leg stops for a resume, as
-    # before). Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "zen"
+    # R6 provider loop: every run provider is paid, so the leg tries
+    # only its base provider (a cooldown stops for a resume).
+    # Providers without a ring are not attempted.
+    # Explicit models only ever run on the base provider.
+    base_provider = _net.norm_provider(provider) or "avalai"
     ordered = [p for p in _net.switch_plan(provider, "sense_judge")
                if p == base_provider
                or (rings is not None and p in rings)]
