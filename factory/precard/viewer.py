@@ -756,7 +756,7 @@ __CEFR_PILLS__
     </select>
 
     <select id="statusFilter" class="select-filter" onchange="applyFilters()"
-      title="Dropped lemmas carry no senses: Dropped Only combined with a CEFR, topic, or style filter matches nothing">
+      title="Dropped lemmas carry no senses: Dropped Only combined with a CEFR, topic, style, method, or source filter matches nothing">
       <option value="ALL">All Statuses</option>
       <option value="KEPT">Kept Only</option>
       <option value="DROPPED">Dropped Only</option>
@@ -766,6 +766,16 @@ __CEFR_PILLS__
     <select id="registerFilter" class="select-filter" onchange="applyFilters()"
       title="All Styles counts all lemmas (kept + dropped); each style counts kept-only lemmas with any sense carrying it">
       <option value="ALL">All Styles</option>
+    </select>
+
+    <select id="methodFilter" class="select-filter" onchange="applyFilters()"
+      title="All Methods counts all lemmas (kept + dropped); each method counts kept-only lemmas with any sense using it">
+      <option value="ALL">All Methods</option>
+    </select>
+
+    <select id="sourceFilter" class="select-filter" onchange="applyFilters()"
+      title="All Sources counts all lemmas (kept + dropped); each source counts kept-only lemmas with any sense from it">
+      <option value="ALL">All Sources</option>
     </select>
 
     <select id="sortOrder" class="select-filter" onchange="applyFilters()" style="margin-left:auto;"
@@ -811,6 +821,8 @@ function escapeHtml(value) {
 function initTopicsAndPillCounts() {
   const topicCounts = {};
   const styleCounts = {};
+  const methodCounts = {};
+  const sourceCounts = {};
   const cefrCounts = { "ALL": 0, "A1": 0, "A2": 0, "B1": 0, "B2": 0, "C1": 0, "C2": 0 };
 
   RAW_LEMMAS.forEach(l => {
@@ -820,12 +832,16 @@ function initTopicsAndPillCounts() {
       const lemmaCefrs = new Set();
       const lemmaTopics = new Set();
       const lemmaStyles = new Set();
+      const lemmaMethods = new Set();
+      const lemmaSources = new Set();
       l.senses.forEach(s => {
         if (s.sense_cefr) lemmaCefrs.add(s.sense_cefr);
         if (s.pool_level) lemmaCefrs.add(s.pool_level);
         (s.topic_vector || []).forEach(t => lemmaTopics.add(t.label));
-        if (s.register) lemmaStyles.add(s.register);
-        if (s.lexical_type && s.lexical_type !== "word") lemmaStyles.add(s.lexical_type);
+        if (s.register) lemmaStyles.add(`register:${s.register}`);
+        if (s.lexical_type && s.lexical_type !== "word") lemmaStyles.add(`type:${s.lexical_type}`);
+        lemmaMethods.add(s.sense_cefr_method || "(unknown)");
+        lemmaSources.add(s.example_fallback || "(unknown)");
       });
       lemmaCefrs.forEach(c => {
         if (cefrCounts[c] !== undefined) cefrCounts[c]++;
@@ -835,6 +851,12 @@ function initTopicsAndPillCounts() {
       });
       lemmaStyles.forEach(v => {
         styleCounts[v] = (styleCounts[v] || 0) + 1;
+      });
+      lemmaMethods.forEach(v => {
+        methodCounts[v] = (methodCounts[v] || 0) + 1;
+      });
+      lemmaSources.forEach(v => {
+        sourceCounts[v] = (sourceCounts[v] || 0) + 1;
       });
     }
   });
@@ -865,7 +887,9 @@ function initTopicsAndPillCounts() {
     sel.appendChild(opt);
   });
 
-  // Populate Styles dropdown with kept-only lemma counts (exists semantics)
+  // Populate Styles dropdown with kept-only lemma counts (exists semantics).
+  // Keys carry their field origin (register:informal vs type:colloquial)
+  // so one combined select stays unambiguous.
   const styleSel = document.getElementById("registerFilter");
   styleSel.innerHTML = `<option value="ALL">All Styles (${RAW_LEMMAS.length})</option>`;
   Object.keys(styleCounts).sort().forEach(v => {
@@ -874,6 +898,26 @@ function initTopicsAndPillCounts() {
     opt.textContent = `${v} (${styleCounts[v]} kept lemmas)`;
     opt.title = `${v}: ${styleCounts[v]} kept-only lemmas with any sense carrying it`;
     styleSel.appendChild(opt);
+  });
+
+  // Populate Method + Source dropdowns (kept-only, exists semantics)
+  const methodSel = document.getElementById("methodFilter");
+  methodSel.innerHTML = `<option value="ALL">All Methods (${RAW_LEMMAS.length})</option>`;
+  Object.keys(methodCounts).sort().forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = `${v} (${methodCounts[v]} kept lemmas)`;
+    opt.title = `${v}: ${methodCounts[v]} kept-only lemmas with any sense using it`;
+    methodSel.appendChild(opt);
+  });
+  const sourceSel = document.getElementById("sourceFilter");
+  sourceSel.innerHTML = `<option value="ALL">All Sources (${RAW_LEMMAS.length})</option>`;
+  Object.keys(sourceCounts).sort().forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = `${v} (${sourceCounts[v]} kept lemmas)`;
+    opt.title = `${v}: ${sourceCounts[v]} kept-only lemmas with any sense from it`;
+    sourceSel.appendChild(opt);
   });
 }
 
@@ -906,6 +950,8 @@ function applyFilters() {
   const topic = document.getElementById("topicFilter").value;
   const status = document.getElementById("statusFilter").value;
   const style = document.getElementById("registerFilter").value;
+  const method = document.getElementById("methodFilter").value;
+  const source = document.getElementById("sourceFilter").value;
   const sort = document.getElementById("sortOrder").value;
 
   filteredList = RAW_LEMMAS.filter(item => {
@@ -930,8 +976,21 @@ function applyFilters() {
     }
     if (style !== "ALL") {
       if (item.dropped) return false;
-      const hasStyle = item.senses.some(s => s.register === style || s.lexical_type === style);
+      const cut = style.indexOf(":");
+      const field = style.slice(0, cut);
+      const want = style.slice(cut + 1);
+      const hasStyle = item.senses.some(s => field === "register" ? s.register === want : s.lexical_type === want);
       if (!hasStyle) return false;
+    }
+    if (method !== "ALL") {
+      if (item.dropped) return false;
+      const hasMethod = item.senses.some(s => (s.sense_cefr_method || "(unknown)") === method);
+      if (!hasMethod) return false;
+    }
+    if (source !== "ALL") {
+      if (item.dropped) return false;
+      const hasSource = item.senses.some(s => (s.example_fallback || "(unknown)") === source);
+      if (!hasSource) return false;
     }
     return true;
   });
@@ -951,9 +1010,9 @@ function applyFilters() {
     selectLemma(0);
   } else {
     let hint = "Try adjusting your filters or search query.";
-    if (status === "DROPPED" && (currentCefrFilter !== "ALL" || topic !== "ALL" || style !== "ALL")) {
-      hint = `Dropped lemmas carry no senses, so a CEFR/topic/style filter never matches them. `
-        + `Clear CEFR/topic/style to browse all ${STATS.lemmas_dropped} dropped lemmas.`;
+    if (status === "DROPPED" && (currentCefrFilter !== "ALL" || topic !== "ALL" || style !== "ALL" || method !== "ALL" || source !== "ALL")) {
+      hint = `Dropped lemmas carry no senses, so a CEFR/topic/style/method/source filter never matches them. `
+        + `Clear them to browse all ${STATS.lemmas_dropped} dropped lemmas.`;
     }
     document.getElementById("detailContent").innerHTML = `
       <div style="text-align:center; padding: 80px; color:var(--text-muted)">
