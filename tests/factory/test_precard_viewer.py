@@ -603,39 +603,18 @@ def test_default_lang_is_en(tmp_path):
         fix["run_dir"], lang="en", **kwargs)
 
 
-def test_en_build_differs_from_origin_main_only_by_toggle_link(tmp_path):
-    """Test-sync (intentional, round 2 item 1): the EN twin now carries a
-    toggle link to its FA sibling, so it is no longer byte-identical to
-    origin/main. The diff must contain ONLY that one added toggle line."""
-    fix = _mini_run(tmp_path)
-    proc = subprocess.run(
-        ["git", "show", "origin/main:factory/precard/viewer.py"],
-        cwd=ROOT, capture_output=True, text=True, timeout=120)
-    assert proc.returncode == 0
-    origin_path = tmp_path / "origin_viewer_golden.py"
-    origin_path.write_text(proc.stdout, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location(
-        "origin_viewer_golden", str(origin_path))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["origin_viewer_golden"] = mod
-    spec.loader.exec_module(mod)
-    want = mod.build_html(fix["run_dir"], precard=fix["precard"],
-                          sample=fix["sample"], dropped=fix["dropped"],
-                          run_log=fix["run_log"])
-    got = viewer.build_html(fix["run_dir"], precard=fix["precard"],
-                            sample=fix["sample"], dropped=fix["dropped"],
-                            run_log=fix["run_log"], lang="en")
-    diff = list(difflib.unified_diff(want.splitlines(), got.splitlines(),
-                                     lineterm=""))
-    added = [ln[1:] for ln in diff
-             if ln.startswith("+") and not ln.startswith("+++")]
-    removed = [ln[1:] for ln in diff
-               if ln.startswith("-") and not ln.startswith("---")]
-    assert removed == []
-    assert len(added) == 1
-    assert "precard-viewer.fa.html" in added[0]
-    assert "theme-toggle-btn" in added[0]
-    assert ">FA</a>" in added[0]
+def test_inject_en_toggle_inserts_single_line():
+    """Hermetic replacement for the origin/main golden test (CI checkouts
+    lack the origin/main ref): the EN toggle injection adds exactly one
+    line and changes nothing else."""
+    page = ("<header>\n"
+            "      </button>\n    </div>\n  </header>\n"
+            "<p>body</p>")
+    got = viewer._inject_en_toggle(page, "precard-viewer.fa.html")
+    assert got.count(">FA</a>") == 1
+    assert "precard-viewer.fa.html" in got
+    assert got.replace(viewer._en_toggle("precard-viewer.fa.html"),
+                       "") == page
 
 
 def test_en_twin_links_to_fa_sibling_default(tmp_path):
@@ -832,7 +811,9 @@ def test_v141_shape_fa_header_numbers(tmp_path):
     assert "نرخ ماندگاری" in fa_html
 
 
-def test_fa_prose_uses_vazirmatn_with_sans_fallback(tmp_path):
+def test_fa_prose_uses_offline_sans_stack(tmp_path):
+    """OC review round 1 (PR 748): no remote fonts (offline contract) —
+    FA prose uses the system sans stack."""
     fix = _mini_run(tmp_path)
     en_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                                 sample=fix["sample"], dropped=fix["dropped"],
@@ -840,10 +821,47 @@ def test_fa_prose_uses_vazirmatn_with_sans_fallback(tmp_path):
     fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                                 sample=fix["sample"], dropped=fix["dropped"],
                                 run_log=fix["run_log"], lang="fa")
-    assert "fonts.googleapis.com/css2?family=Vazirmatn" not in en_html
-    assert "fonts.googleapis.com/css2?family=Vazirmatn" in fa_html
+    assert "fonts.googleapis.com" not in en_html
+    assert "fonts.googleapis.com" not in fa_html
     assert '[dir="rtl"] .dist-group table' in fa_html
     assert '[dir="rtl"] .header-strip' in fa_html
+    assert '"Segoe UI", system-ui, sans-serif' in fa_html
+
+
+def test_main_fails_closed_on_broken_template(tmp_path, monkeypatch):
+    """OC review round 1 (PR 748): a missing chrome anchor must exit
+    non-zero with a message, not an unhandled traceback."""
+    fix = _mini_run(tmp_path)
+    monkeypatch.setattr(
+        viewer, "_HTML_TEMPLATE",
+        viewer._HTML_TEMPLATE.replace(
+            "      </button>\n    </div>\n  </header>", "GONE"))
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"])])
+    assert rc != 0
+
+
+def test_fa_custom_out_twin_links_and_help(tmp_path):
+    """OC review round 1 (PR 748): --lang fa --out writes both twins with
+    cross-pointing escaped hrefs; --help documents twin behavior."""
+    fix = _mini_run(tmp_path)
+    out = fix["run_dir"] / "custom-fa.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--lang", "fa", "--out", str(out)])
+    assert rc == 0
+    fa_html = out.read_text(encoding="utf-8")
+    en_twin = out.parent / viewer._en_sibling(out).name
+    assert en_twin.exists()
+    en_html = en_twin.read_text(encoding="utf-8")
+    assert 'href="%s"' % en_twin.name in fa_html
+    assert 'href="%s"' % out.name in en_html
+    proc = subprocess.run(
+        [sys.executable, "-m", "factory.precard.viewer", "--help"],
+        cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0
+    assert "both twins" in proc.stdout
+    assert '"Segoe UI", system-ui, sans-serif' in fa_html
 
 
 def test_fa_twin_links_to_en_sibling_custom_out(tmp_path):

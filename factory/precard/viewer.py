@@ -10,6 +10,7 @@ import html
 import json
 import math
 import re
+import sys
 from collections import OrderedDict
 from pathlib import Path
 
@@ -290,7 +291,7 @@ _RTL_CSS = """
 [dir="rtl"] .telemetry-box { flex-direction: row; }
 [dir="rtl"] .filter-bar { flex-direction: row; }
 [dir="rtl"] {
-  --font-sans: "Vazirmatn", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Segoe UI", system-ui, sans-serif;
 }
 [dir="rtl"] .header-strip,
 [dir="rtl"] .dist-drawer > summary,
@@ -481,13 +482,6 @@ def _dist_drawer_fa(stats):
 def _apply_fa_chrome(page):
     page = _sub_once(page, '<html lang="en" data-theme="dark">',
                      '<html lang="fa" dir="rtl" data-theme="dark">')
-    page = _sub_once(
-        page, '<meta name="viewport" '
-        'content="width=device-width, initial-scale=1.0">',
-        '<meta name="viewport" '
-        'content="width=device-width, initial-scale=1.0">\n'
-        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2'
-        '?family=Vazirmatn:wght@400;500;600;700;800&display=swap">')
     page = _sub_once(page, "  padding: 6px 24px;\n}\n</style>",
                      "  padding: 6px 24px;\n}" + _RTL_CSS + "</style>")
     page = _sub_once(page, "<h1>Precard Studio",
@@ -2585,7 +2579,9 @@ def main(argv=None):
     ap.add_argument("--run-log", default=None,
                     help="run log path (default <run-dir>/run.log)")
     ap.add_argument("--out", default=None,
-                    help="viewer path (default <run-dir>/precard-viewer.html)")
+                    help="viewer path for the selected language "
+                    "(both twins are always written; default "
+                    "<run-dir>/precard-viewer.html)")
     ap.add_argument("--limit", type=int, default=0,
                     help="max sample lemmas (0 = all)")
     ap.add_argument("--title", default=None,
@@ -2593,12 +2589,16 @@ def main(argv=None):
     ap.add_argument("--lang", default="en", choices=list(_LANGS),
                     help="viewer language: en or fa (default en)")
     args = ap.parse_args(argv)
-    page_en, stats = _build(args.run_dir, args.precard, args.sample,
-                            args.dropped, args.run_log, args.limit,
-                            args.title, "en")
-    page_fa, _fa_stats = _build(args.run_dir, args.precard, args.sample,
+    try:
+        page_en, stats = _build(args.run_dir, args.precard, args.sample,
                                 args.dropped, args.run_log, args.limit,
-                                args.title, "fa")
+                                args.title, "en")
+        page_fa, _fa_stats = _build(args.run_dir, args.precard, args.sample,
+                                    args.dropped, args.run_log, args.limit,
+                                    args.title, "fa")
+    except AssertionError as exc:
+        print("viewer build failed: %s" % exc, file=sys.stderr)
+        return 1
     if args.out:
         given = Path(args.out)
         if args.lang == "fa":
@@ -2613,11 +2613,11 @@ def main(argv=None):
     if dest_fa.name != _fa_sibling(Path("precard-viewer.html")).name:
         page_en = page_en.replace(
             'href="precard-viewer.fa.html"',
-            'href="%s"' % dest_fa.name, 1)
+            'href="%s"' % html.escape(dest_fa.name, quote=True), 1)
     if dest_en.name != "precard-viewer.html":
         page_fa = page_fa.replace(
             'href="precard-viewer.html"',
-            'href="%s"' % dest_en.name, 1)
+            'href="%s"' % html.escape(dest_en.name, quote=True), 1)
     dest_en.parent.mkdir(parents=True, exist_ok=True)
     dest_en.write_text(page_en, encoding="utf-8")
     dest_fa.parent.mkdir(parents=True, exist_ok=True)
