@@ -45,7 +45,7 @@ PROPER_NOUN_POS = {"name", "propn"}
 VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
                "ethnic-slur", "slur"}
 
-# Dataset truth for dead-register senses (single source; the sampler
+# Dataset truth for dead-register senses (single source; the selector
 # imports this, never redefines it).
 OBSOLETE_TAGS = {"obsolete", "archaic", "dated", "historical"}
 
