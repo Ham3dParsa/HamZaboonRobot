@@ -3608,3 +3608,53 @@ def test_survival_per_band_backfills_v141_shape():
     assert survival_per_band({}, set()) == {}
     assert survival_per_band({"w:solo": "B1"}, set())["B1"] == {
         "entered": 1, "kept": 0, "dropped": 1, "survival": 0.0}
+
+
+def test_q4_stale_pool_fallback_reenriches_to_unmapped_on_resume(
+        tmp_path, monkeypatch):
+    """OC round 2 W4: a stale pool-fallback enrich row re-enriches to
+    ("", "unmapped") on resume (deterministic, zero LLM cost)."""
+    from factory.precard import cefr as vendored
+
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    monkeypatch.setattr(vendored, "DEFAULT_TSV",
+                        str(tmp_path / "no-such.tsv"))
+    monkeypatch.setattr(vendored, "DEFAULT_EVP",
+                        str(tmp_path / "no-evp.json"))
+    vendored._CACHE.clear()
+    vendored._CAND_CACHE.clear()
+    try:
+        items = [{"kind": "word", "text": "dvd", "pos": "noun",
+                  "pool_level": "A1"}]
+        sample = write_sample(tmp_path, items)
+        out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+        index = {"dvd": _word_rows("dvd", ("a disc",))}
+        common = dict(_judge_transport=fake_judge,
+                      _topic_transport=fake_topics, _assign_transport=None,
+                      # Caller-skipped s0b leg: needs no provider key and
+                      # is exempt from the explicit-provider gate; "dvd"
+                      # is not inflectional either way.
+                      _inflect_transport=None,
+                      _sleep_fn=lambda s: None, _index=index,
+                      _read_entry=read_entry, _tatoeba={},
+                      _zipf_fn=lambda t: 5.0)
+        argv = ["--sample", sample, "--out", out,
+                "--progress-dir", prog]
+        assert precard_main(argv, **common) == 0
+        rows = load_out(out)
+        assert (rows[0]["sense_cefr"],
+                rows[0]["sense_cefr_method"]) == ("", "unmapped")
+        # Simulate a pre-Q4 resume state: stale pool-fallback copy.
+        s5_path = pathlib.Path(prog) / STAGE_FILES["s5"]
+        state = json.loads(s5_path.read_text(encoding="utf-8"))
+        for entry in state["done"].values():
+            entry["sense_cefr"] = "A1"
+            entry["sense_cefr_method"] = "pool-fallback"
+        s5_path.write_text(json.dumps(state), encoding="utf-8")
+        assert precard_main(argv, **common) == 0  # resume
+        rows = load_out(out)
+        assert (rows[0]["sense_cefr"],
+                rows[0]["sense_cefr_method"]) == ("", "unmapped")
+    finally:
+        vendored._CACHE.clear()
+        vendored._CAND_CACHE.clear()

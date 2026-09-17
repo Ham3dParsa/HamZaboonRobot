@@ -14,13 +14,13 @@ Covers (plain asserts, hermetic — inline TSV fixture in tmp dirs, no W:, no ne
   (g) missing TSV file fails closed (empty map, skipped count, no raise);
   (h) malformed TSV lines are skipped + counted, good rows still load;
   (i) underscore sensekeys ("credit_card%1") map to the spaced lemma;
-  (j) enrich_item wiring: precard row carries additive sense_cefr +
-      sense_cefr_method (mapped single for a fixture lemma, pool-fallback
-      copy of pool_level for junk).
+   (j) enrich_item wiring: precard row carries additive sense_cefr +
+       sense_cefr_method (mapped single for a fixture lemma, ""/"unmapped"
+       for junk — pool_level never copied, preserved alongside).
 
-Locked contract (owner lock 2026-09-12): cascade
+Locked contract (owner lock 2026-09-12, Q4(a)): cascade
 single -> EVP-intersection -> unmapped (min-branch removed); enrich
-never-null rule copies pool_level with "pool-fallback"; stdlib only; no
+never-None rule returns ("", "unmapped") on bridge miss; stdlib only; no
 schema change; no new reason literals (N5).
 """
 
@@ -72,7 +72,7 @@ def test_pos_filtering_no_cross_pos_leak(bridge):
 def test_satellite_adj_joins_adj_bucket(bridge):
     # better adj sees 3 rows (A2/B1/C1 incl. the %5 satellite); no EVP hit
     # on this gloss, so multi-candidate ambiguity stays unmapped (no
-    # min-level fabrication — enrich copies pool_level via pool-fallback).
+    # min-level fabrication — enrich maps this to ("", "unmapped")).
     assert B.sense_cefr_for("better", "adj", "comparative gloss", bridge) == (
         None, "unmapped")
 
@@ -173,7 +173,6 @@ def test_hostile_in_memory_maps_never_raise(bridge):
 
 
 def test_non_string_evp_file_values_skipped(tmp_path):
-    import json
     path = tmp_path / "evp_sense.json"
     path.write_text(json.dumps({"entries": {
         "good|adj|quality": {"guideword": "quality", "cefr": "B1"},
@@ -227,8 +226,10 @@ def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
         out2 = enrich_item(
             junk, {"sense_id": "", "gloss": ""}, {}, lambda row: {},
             {}, phrase_entry=None)
-        assert out2["sense_cefr"] == "A1"
-        assert out2["sense_cefr_method"] == "pool-fallback"
+        assert out2["sense_cefr"] == ""
+        assert out2["sense_cefr"] is not None
+        assert out2["sense_cefr_method"] == "unmapped"
+        assert junk["pool_level"] == "A1"
     finally:
         vendored._CACHE.clear()
         vendored._CAND_CACHE.clear()
@@ -236,9 +237,10 @@ def test_enrich_item_carries_additive_bridge_fields(tmp_path, monkeypatch):
 
 def test_pool_fallback_normalized_validated_never_raises(
         tmp_path, monkeypatch):
-    # pool-fallback copies only normalized, known CEFR levels; unknown or
-    # non-string pool_level keeps the bridge (None, "unmapped") verdict
-    # and never raises (fail-closed on hostile items).
+    # Q4(a): bridge miss returns ("", "unmapped") for every pool_level —
+    # pool_level is never copied into sense_cefr; sense_cefr is never
+    # None; the input pool_level is preserved alongside; hostile items
+    # never raise (fail-closed).
     tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
     tsv.write_text("".join(TSV_ROWS), encoding="utf-8")
     monkeypatch.setattr(B, "DEFAULT_TSV", str(tsv))
@@ -251,16 +253,20 @@ def test_pool_fallback_normalized_validated_never_raises(
         def enrich(pool_level):
             item = {"kind": "word", "text": "dvd", "pos": "noun",
                     "pool_level": pool_level}
-            return enrich_item(
+            out = enrich_item(
                 item, pick, {}, lambda row: {}, {})
+            assert item["pool_level"] == pool_level
+            return out
 
         out = enrich(" a1 ")
-        assert out["sense_cefr"] == "A1"
-        assert out["sense_cefr_method"] == "pool-fallback"
+        assert out["sense_cefr"] == ""
+        assert out["sense_cefr"] is not None
+        assert out["sense_cefr_method"] == "unmapped"
         for bad in ("XX", "", "   ", 123, ["A1"], {"lvl": "A1"},
-                    None):
+                    None, "A1", "B2"):
             out = enrich(bad)
-            assert out["sense_cefr"] is None
+            assert out["sense_cefr"] == ""
+            assert out["sense_cefr"] is not None
             assert out["sense_cefr_method"] == "unmapped"
     finally:
         B.clear_cache()

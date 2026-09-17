@@ -2090,10 +2090,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 # re-enrich deterministically (no LLM) instead of skipping.
                 # Same for pre-bridge entries (no sense_cefr_method) and
                 # pre-fan-out entries (judged secondaries, no "extra").
+                # Q4: stale pool-fallback rows predate the unmapped rule —
+                # re-enrich deterministically (zero LLM cost).
                 if not isinstance(done, dict) \
                         or "pre_card_id" not in done \
                         or "sense_cefr_method" not in done \
                         or "example_fallback" not in done \
+                        or done.get("sense_cefr_method") == "pool-fallback" \
                         or _needs_fanout_reenrich(
                             done, states["sense_judge"]["done"].get(key)):
                     phrase_entry = None

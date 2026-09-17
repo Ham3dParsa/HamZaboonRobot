@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from factory.precard import anchor as _anchor_home
-from factory.precard.cefr import CEFR_ORDER, METHOD_POOL_FALLBACK
+from factory.precard.cefr import METHOD_UNMAPPED
 from factory.precard.cefr import sense_cefr_for
 from factory.precard.ids import compute_pre_card_id
 
@@ -531,24 +531,19 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 
 
-def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
-    """Bridge sense-CEFR with the never-null pool fallback.
+def _sense_cefr_or_unmapped(lemma, pos, gloss):
+    """Bridge sense-CEFR with the never-None unmapped fallback.
 
     Returns (sense_cefr, method): the bridge value when non-empty, else
-    the item pool_level (stripped + uppercased) with method
-    "pool-fallback" — but only when the normalized pool value is a known
-    CEFR level (``CEFR_ORDER``). Unknown/empty/non-string
-    pool values keep the bridge verdict as-is (unmapped): uncertainty
-    keeps, never a fabricated level, never a raise on hostile items.
+    ("", "unmapped"). The item pool_level is never copied into
+    sense_cefr — pool_level stays on the pipeline row alongside
+    sense_cefr for stratification/display. Never returns None, never
+    raises on hostile items.
     """
     sense_cefr, method = sense_cefr_for(lemma, pos, gloss)
     if sense_cefr:
         return sense_cefr, method
-    pool_raw = item.get("pool_level")
-    pool = pool_raw.strip().upper() if isinstance(pool_raw, str) else ""
-    if pool and pool in CEFR_ORDER:
-        return pool, METHOD_POOL_FALLBACK
-    return sense_cefr, method
+    return "", METHOD_UNMAPPED
 
 
 def _lemma_fallback_examples(entries, read_entry, seen, keep_fn=None):
@@ -677,11 +672,9 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     C3: also returns lexical_type + register (picked-sense kaikki tags /
     phrase-type log entry) and pre_card_id (stable EN-content id) —
     dataset sources only, zero LLM calls.
-    Sense-CEFR never-null rule (owner lock 2026-09-12): when the bridge
-    returns an empty/None sense_cefr, the item pool_level is copied
-    (stripped + uppercased, known CEFR levels only) with method
-    "pool-fallback" — every precard row leaves with non-empty sense_cefr
-    whenever pool_level carries a valid level.
+    Sense-CEFR never-None rule (Q4(a)): when the bridge returns an
+    empty/None sense_cefr, return ("", "unmapped") — pool_level is never
+    copied into sense_cefr and stays on the pipeline row alongside it.
     R4: also returns circular_def (per-sense FLAG only, never drop) —
     True when en_def defines the lemma with itself ("The act or
     process of revegetating" for revegetation); see is_circular_def.
@@ -691,8 +684,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     kind = item.get("kind") or "word"
     lemma = (item.get("text") or "").strip()
     if not sid:
-        sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
-            item, lemma, item.get("pos") or "", gloss or "")
+        sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
+            lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "circular_def": is_circular_def(lemma, gloss or ""),
                 "ipa": "", "ipa_src": _anchor_home.IPA_SRC_MODEL,
@@ -788,8 +781,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    N_EXAMPLES else "partial")
     sense_tags = _anchor_home._sense_tag_set(sense)
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
-    sense_cefr, sense_cefr_method = _sense_cefr_or_pool_fallback(
-        item, lemma, id_pos, gloss or "")
+    sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
+        lemma, id_pos, gloss or "")
     return {"sense_id": sid, "en_def": gloss or "",
             "circular_def": is_circular_def(lemma, gloss or ""),
             "ipa": ipa,

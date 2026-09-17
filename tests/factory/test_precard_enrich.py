@@ -253,11 +253,23 @@ def _fake_inflect(api_key, model, sys_text, user_text):
         {"key": k, "keep": True, "reason": "test keep"} for k in keys]})
 
 
-def test_pipeline_apple_row_baseline(tmp_path):
+def test_pipeline_apple_row_baseline(tmp_path, monkeypatch):
     """Cutover baseline (ex-parity): the hermetic single-apple run pins
     the row. Old-vs-new row equality was proven by the passing parity
-    run before the old module was deleted (PR #697)."""
+    run before the old module was deleted (PR #697).
+    Q4 note: the bridge reads a tmp TSV here (hermetic — the default
+    TSV lives on W:, absent on CI) so apple resolves wn-single A1
+    instead of the old pool-fallback masking."""
     from factory.precard import pipeline as new
+    from factory.precard import cefr as vendored
+
+    tsv = tmp_path / "wordnet_sensekey_cefr.tsv"
+    tsv.write_text("apple%1:09:00::\tA1\n", encoding="utf-8")
+    monkeypatch.setattr(vendored, "DEFAULT_TSV", str(tsv))
+    monkeypatch.setattr(vendored, "DEFAULT_EVP", str(
+        tmp_path / "no-evp.json"))
+    vendored._CACHE.clear()
+    vendored._CAND_CACHE.clear()
 
     items = [{"kind": "word", "text": "apple", "pos": "noun",
               "pool_level": "A1"}]
