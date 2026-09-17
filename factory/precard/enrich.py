@@ -169,6 +169,39 @@ def _stem_match_5(a, b):
     return False
 
 
+def _singular_short(token):
+    """Strip one trailing plural -s (len>3, never -ss); else unchanged."""
+    if len(token) > 3 and token.endswith("s") \
+            and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def _short_stem_match_3(a, b):
+    """Len>=3 fallback for short-headword inflections (Q3 anchor).
+
+    _stem_match_5 skips every stem <5, so dogs/dog, gouty/gout and
+    running/run can never match there. This fallback requires both
+    sides len>=3 and accepts singularized equality (dogs/dog) or a
+    shared prefix >= max(3, (min_len+1)//2) (gouty/gout: 4,
+    running/run: 3). Suffix-only overlap (taste/wastebasket,
+    apple/pineapple: prefix 0) still rejects. Case-sensitive —
+    callers lowercase first.
+    """
+    if len(a) < 3 or len(b) < 3:
+        return False
+    if a == b:
+        return True
+    if _singular_short(a) == b or a == _singular_short(b):
+        return True
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    return n >= max(3, (min(len(a), len(b)) + 1) // 2)
+
+
 def headword_leak_tokens(text, kind):
     """R7: Latin tokens that must not leak into the FA fields."""
     lowered = (text or "").strip().lower()
@@ -317,12 +350,25 @@ def example_has_headword(example, headword, kind="word"):
     """Q3 anchor 1: True iff an example token stem-matches the headword.
 
     Reuses the morphology-tolerant _stem_match_5 (+ trailing-s) over
-    headword_leak_tokens, so inflections (gout/gouty, run/running via
-    prefix overlap) anchor without a second stemmer. Case-insensitive;
-    empty headword or no alpha token fails closed (False).
+    the headword tokens, plus a len>=3 singular/prefix fallback
+    (_short_stem_match_3) so short-headword inflections (dogs/dog,
+    gouty/gout, running/run) anchor without a second stemmer. The
+    headword is alpha-tokenized (_ALPHA_TOKEN_RX), so hyphenated
+    forms (well-known -> well/known) anchor on either part;
+    single-letter debris from splitting (don't -> don/t) is dropped
+    (len>=2 kept) so stray contraction fragments never anchor.
+    Case-insensitive; empty headword or no alpha token fails closed
+    (False).
     """
     try:
-        heads = [h for h in headword_leak_tokens(headword, kind) if h]
+        raw_heads = [h for h in headword_leak_tokens(headword, kind) if h]
+    except Exception:
+        return False
+    heads = []
+    try:
+        for raw in raw_heads:
+            heads.extend(t.lower() for t in _ALPHA_TOKEN_RX.findall(raw)
+                         if len(t) >= 2)
     except Exception:
         return False
     if not heads:
@@ -336,6 +382,11 @@ def example_has_headword(example, headword, kind="word"):
         for head in heads:
             try:
                 if _stem_match_5(lowered, head):
+                    return True
+            except Exception:
+                pass
+            try:
+                if _short_stem_match_3(lowered, head):
                     return True
             except Exception:
                 continue

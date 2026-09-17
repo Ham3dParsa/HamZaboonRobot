@@ -1207,6 +1207,20 @@ def resolve_dataset_examples(item, index, read_entry, tatoeba_pool=None):
 
     Fills item["dataset_examples"] (0-2 frozen strings). Deterministic:
     the anchor is re-derived with the same scorer as anchor_item_en.
+    Q3 known limitation (locked 2026-09-17): this sampling-line leg
+    keeps the legacy 8-20 length filter only — it does NOT apply the
+    precard Q3 dual-anchor acceptance (headword-anchored +
+    level-aware band + not weird). Canonical Q3 enforcement lives in
+    factory.precard.enrich (enrich_item / example_accepted), reached
+    via the live entry factory.run -> factory.precard.pipeline.main;
+    bot/services/handlers never call this function (only this
+    module's sampling branch + tests). Deliberately NOT fixed here:
+    importing factory.precard.enrich from this module — function-local
+    or module-level — would recouple the pilot line to the precard
+    line against the vendored-frozen convention (helpers are copied,
+    never imported, between the lines). Follow-up: if the sampling
+    path ever serves production cards again, vendor the Q3 predicate
+    frozen (copy, no import) or route that path through enrich_item.
     """
     text = (item.get("text") or "").strip()
     kind = item.get("kind") or "word"

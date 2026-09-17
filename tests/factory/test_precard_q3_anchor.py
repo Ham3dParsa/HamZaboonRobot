@@ -92,6 +92,36 @@ def test_q3_headword_presence_enforced():
     assert out2["example_synthetic_needed"] is True
 
 
+def test_q3_short_headword_inflections_anchor():
+    """Short-headword inflections anchor via the len>=3 fallback.
+
+    _stem_match_5 skips every stem <5, so without the fallback
+    dogs/dog, gouty/gout and running/run all read False (pinning
+    the reported warning). Suffix-only overlap (taste/wastebasket,
+    apple/pineapple: shared suffix, zero prefix) still rejects.
+    """
+    assert E.example_has_headword(
+        "The dogs bark loudly at night today", "dog") is True
+    assert E.example_has_headword(
+        "His painful gouty foot kept him home today", "gout") is True
+    assert E.example_has_headword(
+        "She is running every morning with friends now", "run") is True
+    assert E.example_has_headword(
+        "The old wastebasket stood in the corner today", "taste") is False
+    assert E.example_has_headword(
+        "She cut the pineapple for the party today", "apple") is False
+
+
+def test_q3_hyphenated_headword_anchors_on_part():
+    """Hyphenated headwords anchor on either alpha part (well/known)."""
+    assert E.example_has_headword(
+        "He is well known for his kindness today", "well-known") is True
+    assert E.example_has_headword(
+        "She is known for her kindness today now", "well-known") is True
+    assert E.example_has_headword(
+        "She eats a fresh red apple every morning", "well-known") is False
+
+
 def test_q3_level_aware_length_bands():
     """A: 3-10, B: 7-15, C: 10-18 (outer 3-18 for unknown levels)."""
     short5 = "She eats fresh apple daily"
