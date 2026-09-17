@@ -1678,7 +1678,11 @@ def test_s1_proper_anchor_reroutes_to_common_sense():
 
 
 def _g_view(senses, poss=None):
-    return {"senses": [{"gloss": g, "tags": t} for g, t in senses],
+    # R2/R5: senses may be (gloss, tags) or (gloss, tags, pos) triples;
+    # the pos leg defaults to "" (fail-open, never a name signal).
+    return {"senses": [{"gloss": g, "tags": t,
+                       "pos": (p if len(s) > 2 else "")}
+                      for s in senses for g, t, *p in [s]],
             "poss": set(poss or [])}
 
 
@@ -1704,6 +1708,60 @@ def test_g2_keeps_with_independent_sense():
     v = _g_classify("accusing", _g_view(
         [("third-person singular simple present of accuse", []),
          ("making accusations; blaming", [])]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_g2_ignores_name_rows_streets():
+    """R2: the streets case — 4 entry rows (plural-of, 3rd-person,
+    SURNAME, plural-of-Street); the single surname gloss broke the
+    every-gloss check so G2 kept it and a paid model call killed it
+    later. Name rows are skipped, the rest are all form refs -> drop."""
+    v = _g_classify("streets", _g_view(
+        [("plural of street", [], "noun"),
+         ("third-person singular simple present of street", [], "verb"),
+         ("A surname.", [], "name"),
+         ("plural of Street", [], "noun")]))
+    assert v == {"kept": False, "reason": "g2-inflection-form",
+                 "type_pending": False}
+
+
+def test_g2_name_only_left_to_r4():
+    """R2: all senses name-classified -> G2 does NOT drop (R4 keeps sole
+    ownership of name-only entries). pos_sets={} here so the R4
+    proper-noun gate itself does not fire — the G2 skip is asserted."""
+    v = _g_classify("gillian", _g_view(
+        [("A female given name.", [], "name"),
+         ("A surname.", [], "name")]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_g2_mixed_entry_with_real_sense_keeps():
+    """R2: form rows + a surname row + one real non-name sense -> keep
+    (the real sense survives the name-skipped all-form test)."""
+    v = _g_classify("streets", _g_view(
+        [("plural of street", [], "noun"),
+         ("A surname.", [], "name"),
+         ("a public road in a town", [], "noun")]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_g7_drops_nonlatin_gloss():
+    """R5: the de case — a sense gloss carrying Cyrillic script drops
+    g7-nonlatin (gloss scans run after G2/G5, so prior slugs keep
+    priority on overlap)."""
+    v = _g_classify("de", _g_view(
+        [('The name of the Cyrillic script letter "Д".', [])],
+        poss=["noun"]))
+    assert v == {"kept": False, "reason": "g7-nonlatin",
+                 "type_pending": False}
+
+
+def test_g7_keeps_latin_extended_loanword():
+    """R5: café-style latin-extended diacritics (U+00E9) are Latin, not
+    non-latin script — the per-script-block check never matches them."""
+    v = _g_classify("café", _g_view(
+        [("a small restaurant selling café coffee", [])],
+        poss=["noun"]))
     assert v["kept"] is True and v.get("reason") is None
 
 
