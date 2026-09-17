@@ -169,6 +169,50 @@ def _stem_match_5(a, b):
     return False
 
 
+def _singular_short(token):
+    """Strip one trailing plural -s (len>3, never -ss); else unchanged."""
+    if len(token) > 3 and token.endswith("s") \
+            and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def _short_stem_match_3(a, b):
+    """Len>=3 fallback for short-headword inflections (Q3 anchor).
+
+    Gated to the gap it was built for: only consulted when
+    min(len(a), len(b)) < 5 (heads _stem_match_5 skips). Long heads
+    stay at the locked need-5 threshold — apply/apple, tasty/taste
+    and card/care must NOT match here.
+    _stem_match_5 skips every stem <5, so dogs/dog, gouty/gout and
+    running/run can never match there. This fallback requires both
+    sides len>=3 and accepts singularized equality (dogs/dog) or a
+    shared prefix >= max(3, (min_len+1)//2) (gouty/gout: 4,
+    running/run: 3). Suffix-only overlap (taste/wastebasket,
+    apple/pineapple: prefix 0) still rejects. Case-sensitive —
+    callers lowercase first.
+    """
+    if min(len(a), len(b)) >= 5:
+        return False
+    if len(a) < 3 or len(b) < 3:
+        return False
+    if a == b:
+        return True
+    if _singular_short(a) == b or a == _singular_short(b):
+        return True
+    # Coincidental 3-prefixes are common in longer words (card/care),
+    # so pairs with min length >= 4 need a 4-prefix; min-3 pairs
+    # (running/run) keep the 3-prefix bar. Suffix-only overlap
+    # (taste/wastebasket, apple/pineapple: prefix 0) still rejects.
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    need = 4 if min(len(a), len(b)) >= 4 else 3
+    return n >= need
+
+
 def headword_leak_tokens(text, kind):
     """R7: Latin tokens that must not leak into the FA fields."""
     lowered = (text or "").strip().lower()
@@ -275,6 +319,142 @@ EXAMPLE_MIN_WORDS = 8
 EXAMPLE_MAX_WORDS = 20
 
 
+# Q3 dual-anchor acceptance (locked 2026-09-17): minimum N_EXAMPLES
+# headword-anchored examples per sense. Length is level-aware over the
+# item pool_level (A: 3-10, B: 7-15, C: 10-18; unknown -> 3-18 outer).
+# Weird characters are a hard reject (pollution regression). Cloze
+# gates stay soft (prefer_cloze_passing backfill); tiers
+# sense/lemma/pool + synthetic-needed semantics are unchanged.
+Q3_LEVEL_BANDS = {"A": (3, 10), "B": (7, 15), "C": (10, 18)}
+
+Q3_OUTER_MIN_WORDS = 3
+
+Q3_OUTER_MAX_WORDS = 18
+
+
+_TYPOGRAPHIC_OK = frozenset({
+    "\u2018", "\u2019", "\u201c", "\u201d",
+    "\u2013", "\u2014", "\u2026",
+})
+
+_WEIRD_URL_MARKERS = ("http://", "https://", "www.", "@", "://")
+
+_WEIRD_CHAR_RX = re.compile(r"[@#$%^*_=+|\\/<>{}\[\]~`]")
+
+
+def example_level_band(pool_level):
+    """Q3: (min, max) word-count band for a pool level.
+
+    First letter decides (A/B/C, case-insensitive, stripped);
+    unknown/empty/non-string pool levels fall back to the 3-18 outer
+    band (fail-open: uncertainty never drops content by itself).
+    """
+    band = Q3_LEVEL_BANDS.get(
+        ((pool_level or "").strip()[:1].upper()
+         if isinstance(pool_level, str) else ""))
+    if band is not None:
+        return band
+    return (Q3_OUTER_MIN_WORDS, Q3_OUTER_MAX_WORDS)
+
+
+def example_has_headword(example, headword, kind="word"):
+    """Q3 anchor 1: True iff an example token stem-matches the headword.
+
+    Reuses the morphology-tolerant _stem_match_5 (+ trailing-s) over
+    the headword tokens, plus a len>=3 singular/prefix fallback
+    (_short_stem_match_3) so short-headword inflections (dogs/dog,
+    gouty/gout, running/run) anchor without a second stemmer. The
+    headword is alpha-tokenized (_ALPHA_TOKEN_RX), so hyphenated
+    forms (well-known -> well/known) anchor on either part;
+    single-letter debris from splitting (don't -> don/t) is dropped
+    (len>=2 kept) so stray contraction fragments never anchor.
+    Case-insensitive; empty headword or no alpha token fails closed
+    (False).
+    """
+    try:
+        raw_heads = [h for h in headword_leak_tokens(headword, kind) if h]
+    except Exception:
+        return False
+    heads = []
+    try:
+        for raw in raw_heads:
+            heads.extend(t.lower() for t in _ALPHA_TOKEN_RX.findall(raw)
+                         if len(t) >= 2)
+    except Exception:
+        return False
+    if not heads:
+        return False
+    try:
+        tokens = _ALPHA_TOKEN_RX.findall(example or "")
+    except Exception:
+        return False
+    for token in tokens:
+        lowered = token.lower()
+        for head in heads:
+            try:
+                if _stem_match_5(lowered, head):
+                    return True
+            except Exception:
+                pass
+            try:
+                if _short_stem_match_3(lowered, head):
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def example_has_weird_chars(example):
+    """Q3 pollution regression: True iff the example carries weird chars.
+
+    Rejects URLs/markers (http://, https://, www., @, ://), the
+    pollution punctuation class (@#$%^*_=+|\\/<>{}[]~`), ASCII control
+    chars, and non-ASCII outside the curated typographic set
+    (''""--...). Fail-open on non-string input (False): malformed
+    rows are dropped by other gates, never here.
+    """
+    if not isinstance(example, str):
+        return False
+    if any(marker in example for marker in _WEIRD_URL_MARKERS):
+        return True
+    if _WEIRD_CHAR_RX.search(example) is not None:
+        return True
+    for char in example:
+        code = ord(char)
+        if code < 32 and char not in ("\t",):
+            return True
+        if code == 127:
+            return True
+        if code > 126 and char not in _TYPOGRAPHIC_OK and char != " ":
+            # Allow ordinary ASCII punctuation/space only; any other
+            # script/emoji/symbol is pollution.
+            if not ("A" <= char <= "Z" or "a" <= char <= "z"
+                    or "0" <= char <= "9"):
+                return True
+    return False
+
+
+def example_accepted(example, headword, kind="word", pool_level=""):
+    """Q3 acceptance: headword-anchored + level-aware length + not weird.
+
+    All three must hold (dual-anchor = headword presence AND
+    sense-tier provenance, which the caller enforces by filtering each
+    tier separately). Non-string/empty examples never accept.
+    """
+    if not isinstance(example, str) or not example.strip():
+        return False
+    if example_has_weird_chars(example):
+        return False
+    if not example_has_headword(example, headword, kind):
+        return False
+    low, high = example_level_band(pool_level)
+    try:
+        n = en_word_count(example)
+    except Exception:
+        return False
+    return low <= n <= high
+
+
 def en_word_count(text):
     """R11/R13: English word count (Latin tokens; digits/possessives count)."""
     return len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text or ""))
@@ -371,12 +551,17 @@ def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
     return sense_cefr, method
 
 
-def _lemma_fallback_examples(entries, read_entry, seen):
+def _lemma_fallback_examples(entries, read_entry, seen, keep_fn=None):
     """Lemma-level example fallback (R3, deterministic, zero LLM).
 
     All kaikki senses of the lemma's entries (not just the judged
     sense), length-filtered, excluding already-seen strings. Lookup
     errors fail open to [] (the caller keeps whatever it has).
+
+    Q3: an optional keep_fn(text) overrides the legacy length filter
+    (the enrich path passes the dual-anchor acceptance predicate so
+    3-7 word A-band examples are not pre-dropped by the 8-20 gate).
+    Default keeps the legacy filter_examples_by_length behavior.
     """
     out = []
     try:
@@ -401,7 +586,14 @@ def _lemma_fallback_examples(entries, read_entry, seen):
                 texts = sense_example_texts(sense)
             except Exception:
                 continue
-            for text in filter_examples_by_length(texts or []):
+            if keep_fn is not None:
+                try:
+                    kept = [t for t in (texts or []) if keep_fn(t)]
+                except Exception:
+                    kept = []
+            else:
+                kept = filter_examples_by_length(texts or [])
+            for text in kept:
                 if text not in seen and text not in out:
                     out.append(text)
     return out
@@ -460,13 +652,18 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
     chosen gloss) and pos/pos_src (anchored entry POS first, 1-3 tags).
     R42 v11: the example pool (anchored-sense kaikki examples, then the
-    tatoeba pool — both through the existing length filter, reused)
-    additionally passes the four cloze gates via
+    tatoeba pool) additionally passes the four cloze gates via
     prefer_cloze_passing (reused by import): cloze-passing
     examples fill the N_EXAMPLES slots first; cloze failures backfill
     only when no passing alternative exists, so the downstream release
     machinery (split_frozen_by_containment) still records them with
     their cloze-<gate> reason instead of silently keeping weak slots.
+    Q3 dual-anchor: every tier is acceptance-filtered first
+    (example_accepted: headword-anchored + level-aware 3-18 band +
+    no weird chars); only accepted examples reach the cloze pick, so
+    the dataset keeps at most N_EXAMPLES accepted rows and the model
+    fills ONLY the shortfall (synthetic-needed stays True only when
+    zero accepted examples exist).
     "enrich_path" is "full" when the dataset carriers cover IPA + all
     N_EXAMPLES slots, else "partial" (the model fills gaps downstream)
     so the fallback is counted in stage_calls, not silent.
@@ -537,23 +734,38 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 entry, sense = cand_entry, cand_sense
                 break
     ipa = _anchor_home.first_entry_ipa(entry) if entry else ""
-    sense_texts = filter_examples_by_length(
-        sense_example_texts(sense)) if sense else []
+    headword = item.get("text", "")
+    head_kind = item.get("kind") or "word"
+    head_pool = item.get("pool_level", "")
+
+    def _q3_keep(text):
+        try:
+            return example_accepted(text, headword, head_kind, head_pool)
+        except Exception:
+            return False
+
+    # Q3 dual-anchor: each tier is acceptance-filtered separately so
+    # provenance stays per-sense (the picked sense's own examples
+    # first — a gout-like shared string counts for the owning sense,
+    # never stolen across senses). Raw texts are collected without
+    # the legacy 8-20 pre-filter; the level-aware 3-18 band decides.
+    sense_raw = sense_example_texts(sense) if sense else []
+    sense_texts = [t for t in sense_raw if _q3_keep(t)]
     pool = list(sense_texts)
     seen = set(pool)
     # v14.1 (R3): lemma-level fallback BEFORE the tatoeba pool — a
     # sense switch that empties the picked sense (for/call A1) inherits
     # sibling-sense kaikki examples first (dataset-dataset, zero LLM).
-    lemma_texts = _lemma_fallback_examples(entries, read_entry, seen)
+    lemma_texts = _lemma_fallback_examples(
+        entries, read_entry, seen, keep_fn=_q3_keep)
     for cand in lemma_texts:
         if cand not in seen:
             pool.append(cand)
             seen.add(cand)
-    extra = filter_examples_by_length(
-        tatoeba_candidates(
-            tatoeba_pool, item.get("text", ""),
-            item.get("kind") or "word"),
-        loose_cap=True)
+    extra_raw = tatoeba_candidates(
+        tatoeba_pool, item.get("text", ""),
+        item.get("kind") or "word")
+    extra = [t for t in (extra_raw or []) if _q3_keep(t)]
     for cand in extra:
         if cand not in seen:
             pool.append(cand)
