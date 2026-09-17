@@ -6,7 +6,7 @@ base_commit: ab8163d
 branch: feat/467-nudges-silence-policy
 status: in-progress
 ---
-STATE: spec LOCKED + review verdict consumed — status: READY FOR IMPLEMENTATION — focus: implement Module A+B + tests in feat/467-nudges-silence-policy
+STATE: spec LOCKED + review verdict consumed + amended 2026-09-17 (bands 2,5,9) — status: READY FOR IMPLEMENTATION — focus: implement Module A+B + tests in feat/467-nudges-silence-policy
 
 ## Contract Lock — Dimensions 1, 5, 6 (owner locked 2026-09-07, issue #467)
 
@@ -18,12 +18,12 @@ GATE STATUS: LOCKED (dims 1, 5, 6). Dims 2, 3, 4, 7 stay PENDING.
 ### Guardrails
 1. New domain module `services/nudges.py` (catalog, guard conditions, silence evaluator). Presentation/lore in `config/themes.py` or formatters. Zero DB side effects, zero Telegram imports in `services/nudges.py` (AGENTS.md §3).
 2. Zero schema mutations, zero AI cost. In-memory data, `settings` keys, or bounded reads (`due_words_for_user`, `daily_session_budget`). Template substitution only.
-3. Persian typography: «،» lists, «؛» clauses, `-`/`.`; never `·`/`—`/`|` in learner strings (except `—` empty, `|` card footers). Persian numerals via `services/utils/formatting.py`.
+3. Persian typography (nudge text only per 2026-09-17 band 9): «،» lists, «؛» clauses, `-`/`.`; never `·`/`—`/`|` in nudge strings (except `—` empty, `|` card footers). Systemic parts (badges, dates, detail views) need an exact usage list before any ruling — no blanket ban there yet. Persian numerals via `services/utils/formatting.py`.
 
 ### Module A: services/nudges.py (pure, no Telegram imports)
 - `is_quiet_hours(now_dt)`: True iff Tehran time (`APP_TIMEZONE`) in [23:00, 08:00).
 - `evaluate_silence(user_id, session_budget, active_session_exists, due_count)`: Hard Silence True iff active session open OR budget remaining == 0 OR (due == 0 and no new cards).
-- Priority (at most ONE per window): 1:M03 streak-at-risk, 2:M06 unfinished, 3:M08 one-to-40%, 4:M05/M09 dues, 5:M04 teaser.
+- Priority (at most ONE per window): 1:M03 streak-at-risk, 2:M06 unfinished, 3:M08 one-to-ceil(N/2) (band 2 lock 2026-09-17; was one-to-40%), 4:M05/M09 dues, 5:M04 teaser.
 - Template registry M01-M10 verbatim per owner table (M10 fixed for recall < 50%).
 
 ### Module B: summary.py integration
@@ -44,4 +44,4 @@ GATE STATUS: LOCKED (dims 1, 5, 6). Dims 2, 3, 4, 7 stay PENDING.
 - Exec fixes approved: build_report frozen (M01 built in handler/summary site), M10 aliases pick_motivation (no duplicate), reads only at nudge tick with cached state.
 
 ## Blocked Questions
-- None open. Implementation proceeds under this lock.
+- None open. Implementation proceeds under this lock. Cap confirmed 2026-09-17 band 5 (max 2/day, max 1/window); push scheduler is required (no longer waiting on scope).

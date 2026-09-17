@@ -22,4 +22,4 @@ GATE STATUS: LOCKED for dimension 3.
 - dims 1,5,6 LOCKED; dim 2 HALF-LOCKED; dim 4 SEMI-LOCKED; dim 7 PENDING.
 
 ## Blocked Questions
-- None on dim 3 params. Implementation needs push scheduler scope (dim 11 flag) before any A/B code runs.
+- None on dim 3 params. Push scheduler approved 2026-09-17 (band 5), so the dim-11 scope flag is resolved; A/B code runs after the scheduler lands.

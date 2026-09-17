@@ -6,7 +6,7 @@ base_commit: ab8163d
 branch: docs/dim1-lock
 status: in-progress
 ---
-STATE: dim 1/7 — status: LOCKED — focus: message catalog M01-M10 frozen; dims 2-7 pending
+STATE: dim 1/7 — status: LOCKED — focus: message catalog M01-M10 frozen; dims 2-7 pending. Amended 2026-09-17 by owner bands 2,4,5,7,9 (see Amendments section).
 
 ## Contract Lock — Dimension 1 (owner locked 2026-09-07, issue #467)
 
@@ -21,13 +21,13 @@ GATE STATUS: LOCKED (dimension 1 only). Dimensions 2-7 remain PENDING.
 
 ### Message spec M01-M10 (verbatim, Persian)
 - M01 short-interval same-day (hard cards): after session iff `target_window == 'today'`. «اون {count} {content_type} سخت این نشست، حدود {hours} ساعت دیگه برمی‌گردن؛ یه نشستت رو برای اون موقع نگه دار تا بهشون به موقع رسیدگی کنیم.» Silence on `tomorrow`. Premium without normal quota gets optional extra-quota offer at x4.
-- M02 midnight crossing (0 study days): after 00:00 next day. `{shield_emoji} «دیروز فرصت نشد سر بزنی؛ {theme_shield_event}. حواست باشه، برای حفظ پیوستگی باید امروز حتماً یه نشست بری!»` — `{theme_shield_event}` injected from `config/themes.py`. No shield: streak-to-zero warning.
+- M02 midnight crossing (0 study days): after 00:00 next day. `{shield_emoji} «دیروز فرصت نشد سر بزنی؛ {theme_shield_event}. حواست باشه، برای حفظ پیوستگی باید امروز حتماً یه نشست بری!»` — `{theme_shield_event}` injected from `config/themes.py`. No shield: streak-to-zero warning. Shield rules per 2026-09-17 band 4: caps free 2 / premium 3, auto-consume 1 on a missed day, no 48h window, no manual rescue; coin/shop deferred post-beta.
 - M03 streak at risk: evening, iff `last_active_date < today` and no session today. «امروز هنوز به هم‌زبان سر نزدی؛ حیف پیوستگی {streak} روزه‌ت نیست؟ با یه نشست ۳ دقیقه‌ای {next_streak} روزش کن! 🔥»
 - M04 fresh words (teasing): noon. «چند تا {content_type} تازه برات آماده کردم؛ میای چند دقیقه درس بخونیم؟»
 - M05 due cards: morning iff `due_words_for_user` non-empty. «نوبت مرور چندتا {content_type} رسیده؛ بیا با یه نشست کوتاه سبک و مرتبشون کنیم.»
 - M06 unfinished session: noon/evening iff open `study_sessions` row same user calendar day. «یه نشست نصفه‌کاره داری که چندتا کارتش مونده؛ وقت داری سریع با هم ببندیمش؟»
 - M07 quota remaining: evening. «هنوز {remaining} نشست از سهمیه امروزت مونده؛ سرت خلوت شد یکیش رو بریم؟» (`remaining` = plan quota minus daily `settings` key).
-- M08 one step to heat jump: evening iff next session hits 40% line. «فقط یه نشست تا {target_heat_theme} مونده؛ همینو بری وضعیت امروزت می‌درخشه!» (`{target_heat_theme}` from `config/themes.py`).
+- M08 one step to heat jump: evening iff next session reaches the heat-2 line at session ceil(N/2) (band 2 lock 2026-09-17; supersedes the old 40% line). «فقط یه نشست تا {target_heat_theme} مونده؛ همینو بری وضعیت امروزت می‌درخشه!» (`{target_heat_theme}` from `config/themes.py`).
 - M09 evening dues ready: evening. «چند تا {content_type} برای امشب آماده مرور شدن؛ وقت داری یه دور سریع بزنیم؟» (sub-day intervals reviewed hours ago, due now).
 - M10 weak session (<50% recall): right after session, fixed. Two study tips (two-sided pause + honest grading), no blame.
 
@@ -42,6 +42,12 @@ GATE STATUS: LOCKED (dimension 1 only). Dimensions 2-7 remain PENDING.
 ## Evidence
 - Owner lock: chat 2026-09-07 («این را قفل میکنم. ثبت کن و پرسیست شود.»), spec table M01-M10 verbatim.
 - Prior grill: issue #467 comments (tiers, heat, shield, pre-reveal, Rich v2, S/D, punctuation, events, garden, nudges).
+
+## Amendments 2026-09-17 (owner bands, #467 comments 5721803668/5721810211/5721972921)
+- M08 trigger moved from 40% to ceil(N/2) session (heat band 2).
+- M02 shield copy follows band 4 (caps 2/3, auto-consume, no 48h, coin/shop post-beta).
+- Punctuation strictness limited to nudge text per band 9; systemic/badge/date usages need a usage list before ruling.
+- Cap confirmed max 2/day, max 1/window per band 5; scheduler required.
 
 ## Blocked Questions
 - None open on dim 1. Implementation detail for change 5 (premium x4 atomicity + tests) to be settled in implementation ticket under this lock.
