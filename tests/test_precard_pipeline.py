@@ -1679,9 +1679,11 @@ def test_s1_proper_anchor_reroutes_to_common_sense():
 
 def _g_view(senses, poss=None):
     # R2/R5: senses may be (gloss, tags) or (gloss, tags, pos) triples;
-    # the pos leg defaults to "" (fail-open, never a name signal).
+    # the pos leg is the SCALAR entry POS like production
+    # (_preprocess_entry_view "pos": pos), defaulting to "" (fail-open,
+    # never a name signal).
     return {"senses": [{"gloss": g, "tags": t,
-                       "pos": (p if len(s) > 2 else "")}
+                       "pos": (p[0] if p else "")}
                       for s in senses for g, t, *p in [s]],
             "poss": set(poss or [])}
 
@@ -1743,6 +1745,23 @@ def test_g2_mixed_entry_with_real_sense_keeps():
          ("A surname.", [], "name"),
          ("a public road in a town", [], "noun")]))
     assert v["kept"] is True and v.get("reason") is None
+
+
+def test_g2_ignores_pos_only_name_row():
+    """R2 POS leg: a definitional gloss with no name-gloss pattern under
+    a name/propn entry POS is still name-classified (POS alone marks
+    the row) — skipped in the all-form test, so the remaining form
+    rows drop as g2-inflection-form."""
+    v = _g_classify("streets", _g_view(
+        [("plural of street", [], "noun"),
+         ("a public road in a town", [], "name")]))
+    assert v == {"kept": False, "reason": "g2-inflection-form",
+                 "type_pending": False}
+    v2 = _g_classify("streets", _g_view(
+        [("plural of street", [], "noun"),
+         ("a public road in a town", [], "propn")]))
+    assert v2 == {"kept": False, "reason": "g2-inflection-form",
+                  "type_pending": False}
 
 
 def test_g7_drops_nonlatin_gloss():
