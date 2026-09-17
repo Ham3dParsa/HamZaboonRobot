@@ -2638,6 +2638,24 @@ def test_stage_summary_input_is_distinct_on_fallback_overlap(
     assert "s1-fallback" in out, out
 
 
+def test_stage_summary_failed_no_entry_carries_band(tmp_path):
+    """OC blocking W3: failed-no-entry detail lines route through
+    format_drop_line so the entry suffix lands; kept-key notes
+    (s1-fallback) stay suffix-less by design."""
+    from factory.precard.pipeline import _stage_summary
+    states = {"preprocess": {
+        "done": {"w:kept": {"kept": True, "model": "s1-fallback"}},
+        "failed": ["w:gone"],
+    }}
+    out_path = str(tmp_path / "precard.jsonl")
+    _stage_summary("preprocess", states, out_path,
+                   entry_bands={"w:gone": "B1", "w:kept": "A1"})
+    drop_log = (tmp_path / "dropped.log").read_text(encoding="utf-8")
+    assert "w:gone: failed-no-entry [entry=B1]" in drop_log, drop_log
+    assert "w:kept: s1-fallback\n" in drop_log, drop_log
+    assert "[entry=A1]" not in drop_log, drop_log
+
+
 def test_cand_cache_rebuilds_on_wrong_bridge_id():
     """_CAND_CACHE is keyed (lemma, pos) with value (bridge_id, cands):
     planting an entry under the real key shape but with a WRONG bridge_id
@@ -3516,6 +3534,26 @@ def test_dropped_log_carries_entry_band(tmp_path, monkeypatch):
     assert parse_drop_entry_band("w:ears: g2-inflection-form") is None
     assert parse_drop_entry_band(
         "w:margins: r20-zipf-low:1.40") is None
+
+
+def test_entry_band_sanitizes_hostile_pool_level():
+    """OC blocking W2: a hostile pool_level ("]", newline) cannot break
+    the dropped.log round-trip or forge lines — sanitized, uppercased,
+    fallback ENTRY_BAND_UNKNOWN."""
+    from factory.precard.pipeline import (
+        ENTRY_BAND_UNKNOWN, entry_band, format_drop_line,
+        parse_drop_entry_band)
+    assert entry_band({"pool_level": "b1] \n w:fake: evil"}) == (
+        "B1  W:FAKE: EVIL")
+    assert entry_band({"pool_level": "]\n\r["}) == ENTRY_BAND_UNKNOWN
+    assert entry_band({}) == ENTRY_BAND_UNKNOWN
+    assert entry_band({"pool_level": " a2 "}) == "A2"
+    line = format_drop_line(
+        "w:x", "g2-inflection-form",
+        {"w:x": "c1]\nw:fake: evil"})
+    assert "\n" not in line and line.count("[entry=") == 1
+    assert line == "w:x: g2-inflection-form [entry=C1W:FAKE: EVIL]"
+    assert parse_drop_entry_band(line) == "C1W:FAKE: EVIL"
 
 
 def test_survival_per_band_backfills_v141_shape():
