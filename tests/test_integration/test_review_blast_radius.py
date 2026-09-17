@@ -250,14 +250,25 @@ class UntrackedDiffRegressionTest(unittest.TestCase):
 
 
 class RiskyProbeGuardTest(unittest.TestCase):
-    """R6: denylist skip + per-call timeout are recorded as data."""
+    """R6: allowlist skip + per-call timeout are recorded as data."""
 
-    def test_is_risky_module_denylist(self):
+    def test_is_risky_module_allowlist(self):
+        # Non-pure surface: skipped by default.
         self.assertTrue(rbr.is_risky_module("handlers.x"))
         self.assertTrue(rbr.is_risky_module("services.db.words"))
+        self.assertTrue(rbr.is_risky_module("services.ai.generation"))
+        self.assertTrue(rbr.is_risky_module("services.ai.fallback_router"))
         self.assertTrue(rbr.is_risky_module("bot"))
+        self.assertTrue(rbr.is_risky_module("scripts.review_blast_radius"))
+        # Known-pure: probed by default.
+        self.assertFalse(rbr.is_risky_module("services.fsrs_core"))
         self.assertFalse(rbr.is_risky_module("services.scheduling"))
+        self.assertFalse(rbr.is_risky_module("services.utils.helpers"))
+        self.assertFalse(rbr.is_risky_module("services.session"))
+        self.assertFalse(rbr.is_risky_module("services.session.store"))
         self.assertFalse(rbr.is_risky_module("config.catalog"))
+        self.assertFalse(rbr.is_risky_module("config.catalog_languages"))
+        self.assertFalse(rbr.is_risky_module("tests.fake_pure"))
 
     def test_risky_modules_skipped_by_default_and_recorded(self):
         symbols = [
@@ -287,16 +298,150 @@ class RiskyProbeGuardTest(unittest.TestCase):
         self.assertTrue(
             any(row["output"].startswith("import-failed:") for row in rows))
 
+    def test_allowlist_probes_pure_and_skips_rest(self):
+        import sys
+        import types
+
+        mod = types.ModuleType("tests.fake_pure_rbr")
+
+        def pure_fn(x=None):
+            return {"ok": True}
+
+        mod.pure_fn = pure_fn
+        sys.modules["tests.fake_pure_rbr"] = mod
+        try:
+            symbols = [
+                {"name": "pure_fn", "file": "tests/fake_pure_rbr.py",
+                 "kind": "def"},
+                {"name": "gen", "file": "services/ai/generation.py",
+                 "kind": "def"},
+            ]
+            rows, _trunc = rbr.run_edge_probes(symbols)
+        finally:
+            del sys.modules["tests.fake_pure_rbr"]
+        probed = [row for row in rows
+                  if row["function"] == "tests.fake_pure_rbr.pure_fn"]
+        self.assertTrue(probed, "allowlisted module must be probed")
+        for row in probed:
+            self.assertNotEqual(row["input"], "skipped: risky-module")
+            self.assertEqual(set(row.keys()),
+                             {"function", "input", "output"})
+        skipped = [row for row in rows
+                   if row["function"] == "services.ai.generation"]
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["input"], "skipped: risky-module")
+        self.assertIn("--allow-risky", skipped[0]["output"])
+
     def test_probe_timeout_is_recorded_as_data(self):
         import time as _time
 
         def _hang(x=None):
-            _time.sleep(30)
+            _time.sleep(4)
             return 1
 
         out = rbr.probe_call(_hang, (None,), {}, timeout=0.2)
         self.assertTrue(out.startswith("timeout:"),
                         f"expected timeout data, got: {out}")
+
+
+class GraphifyMissingBlastRadiusTest(unittest.TestCase):
+    """W2: a missing graphify binary still yields AST-scan blast rows."""
+
+    def test_missing_graphify_still_emits_ast_scan_rows(self):
+        import tempfile
+
+        symbols = [{"name": "my_fn", "file": "services/scheduling.py",
+                    "kind": "def"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            graph = Path(tmp) / "graph.json"
+            with mock.patch.object(rbr, "_diff_py_files",
+                                   return_value=(["services/scheduling.py"],
+                                                 None)), \
+                 mock.patch.object(rbr, "collect_changed_symbols",
+                                   return_value=symbols), \
+                 mock.patch.object(rbr, "compute_wiring_delta",
+                                   return_value={"added_prefixes": [],
+                                                 "removed_prefixes": [],
+                                                 "orphaned": []}), \
+                 mock.patch.object(rbr, "compute_dead_refs",
+                                   return_value={"hits": {}}), \
+                 mock.patch.object(rbr, "callers_of",
+                                   return_value=([], False)), \
+                 mock.patch.object(rbr, "callees_of",
+                                   return_value=[]), \
+                 mock.patch.object(rbr.shutil, "which",
+                                   return_value=None):
+                context, note, code = rbr.build_context(
+                    base="HEAD", graph_json=graph, run_update=True,
+                    run_probes=False, run_graph=True,
+                    graph_explicit=False)
+        self.assertEqual(code, 0)
+        self.assertIn("graphify not found", note)
+        self.assertEqual(len(context["blast_radius"]), 1)
+        row = context["blast_radius"][0]
+        self.assertEqual(set(row.keys()),
+                         {"symbol", "callers", "callees", "via"})
+        self.assertTrue(row["via"].startswith("ast-scan"))
+
+
+class CredentialRedactionTest(unittest.TestCase):
+    """W4: credential-shaped probe outputs are redacted before persisting."""
+
+    def test_credential_shape_in_result_is_redacted(self):
+        def fetch_data(x=None):
+            return {"api_key": "sk-abc123def456ghi789"}
+
+        rows = rbr.probe_function("sampler", fetch_data)
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(set(row.keys()),
+                             {"function", "input", "output"})
+            if row["output"].startswith("return: {"):
+                self.fail(f"credential leaked into probe output: {row}")
+            self.assertIn("[redacted", row["output"])
+            self.assertNotIn("sk-abc", row["output"])
+
+    def test_sensitive_function_name_is_redacted(self):
+        def get_auth_token(x=None):
+            return "plain-value"
+
+        rows = rbr.probe_function("sampler", get_auth_token)
+        self.assertTrue(rows)
+        for row in rows:
+            if row["output"].startswith("return:"):
+                self.assertIn("[redacted", row["output"])
+                self.assertNotIn("plain-value", row["output"])
+
+
+class ProbeArgsetDedupeTest(unittest.TestCase):
+    """Zero-required-param functions emit one bare row, not six."""
+
+    def test_zero_param_function_has_single_bare_row(self):
+        def _noparam():
+            return 1
+
+        argsets = rbr._probe_argsets(_noparam)
+        self.assertEqual(argsets, [((), {})])
+        rows = rbr.probe_function("sampler", _noparam)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["input"], "_noparam()")
+
+
+class WiringServicesScopeTest(unittest.TestCase):
+    """services/ registers (e.g. services/routing.py) are collected."""
+
+    def test_head_keyboard_files_includes_services(self):
+        files = rbr._head_keyboard_files()
+        self.assertIn("services/routing.py", files)
+
+    def test_services_register_calls_collected_as_handlers(self):
+        source = ("from services.routing import register\n"
+                  "register(\"admin\", my_handler)\n")
+        _prefixes, handlers = rbr._prefixes_and_handlers_from_sources(
+            lambda rel: source if rel == "services/routing.py" else None,
+            ["services/routing.py"],
+        )
+        self.assertIn("admin", handlers)
 
 
 if __name__ == "__main__":

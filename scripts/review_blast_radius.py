@@ -21,6 +21,7 @@ import asyncio
 import concurrent.futures
 import inspect
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -38,11 +39,23 @@ MAX_PROBE_FUNCTIONS = 8
 PROBE_OUTPUT_LEN = 200
 PROBE_TIMEOUT_SEC = 5.0
 
-# Risky probe denylist (R6): modules with Telegram/DB/bot side effects are
-# never imported/probed unless --allow-risky is passed. Matched on the
-# dotted module name derived from the file relpath.
-RISKY_MODULE_PREFIXES = ("handlers.", "services.db.")
-RISKY_MODULE_EXACT = {"bot"}
+# Probe allowlist (R6): only known-pure modules are imported/probed by
+# default. Everything else is skipped unless --allow-risky is passed.
+# Matched on the dotted module name derived from the file relpath.
+SAFE_MODULE_PREFIXES = (
+    "services.utils.",
+    "services.session.",
+    "config.catalog",
+)
+SAFE_MODULE_EXACT = frozenset({
+    "services.fsrs_core",
+    "services.scheduling",
+    "services.session",
+    "config.catalog",
+})
+# Tests-local and synthetic helpers (exercised hermetically, no I/O).
+SAFE_TEST_PREFIXES = ("tests.", "test_")
+SAFE_BARE_PREFIXES = ("test_", "tmp_", "sampler", "probe")
 
 # Production scan targets mirror tests/test_dead_code_guard.py.
 PRODUCTION_SCAN_TARGETS = ("bot.py", "handlers", "services", "config")
@@ -120,7 +133,7 @@ def _show_at(ref: str, relpath: str) -> str | None:
 def _ls_py_at(ref: str) -> list[str]:
     rc, out, _ = _run(
         ["git", "ls-tree", "-r", "--name-only", ref, "--",
-         "bot.py", "handlers", "config"]
+         "bot.py", "handlers", "services", "config"]
     )
     if rc != 0:
         return []
@@ -299,7 +312,7 @@ def _prefixes_and_handlers_from_sources(
 
 def _head_keyboard_files() -> list[str]:
     rels: list[str] = []
-    for target in ("bot.py", "handlers", "config"):
+    for target in ("bot.py", "handlers", "services", "config"):
         path = REPO_ROOT / target
         if path.is_file() and path.suffix == ".py":
             rels.append(target)
@@ -344,7 +357,8 @@ def compute_wiring_delta(base: str) -> dict:
         _read_working_tree, _head_keyboard_files()
     )
     base_files = [f for f in _ls_py_at(base)
-                  if f == "bot.py" or f.startswith(("handlers/", "config/"))]
+                  if f == "bot.py" or f.startswith(
+                      ("handlers/", "services/", "config/"))]
     base_prefixes, _ = _prefixes_and_handlers_from_sources(
         lambda rel: _show_at(base, rel), base_files
     )
@@ -585,6 +599,16 @@ def _probe_argsets(fn) -> list[tuple[tuple, dict]]:
         return []
     params = list(sig.parameters.values())
     argsets: list[tuple[tuple, dict]] = []
+    seen: set[str] = set()
+
+    def _push(args_t: tuple, kwargs_d: dict) -> None:
+        # Zero-param functions would otherwise emit one bare row plus five
+        # identical bare rows (one per hostile); collapse exact duplicates.
+        key = repr((args_t, sorted(kwargs_d.items())))
+        if key not in seen:
+            seen.add(key)
+            argsets.append((args_t, kwargs_d))
+
     has_required = any(
         p.default is inspect.Parameter.empty
         and p.kind in (inspect.Parameter.POSITIONAL_ONLY,
@@ -593,7 +617,7 @@ def _probe_argsets(fn) -> list[tuple[tuple, dict]]:
         for p in params
     )
     if not has_required:
-        argsets.append(((), {}))
+        _push((), {})
     for hostile in _HOSTILES:
         args: list = []
         kwargs: dict = {}
@@ -618,7 +642,7 @@ def _probe_argsets(fn) -> list[tuple[tuple, dict]]:
             # class of bugs only shows when the hostile is actually passed,
             # so fill the first positional slot explicitly.
             args.append(hostile)
-        argsets.append((tuple(args), kwargs))
+        _push(tuple(args), kwargs)
         if len(argsets) >= 6:
             break
     return argsets
@@ -630,11 +654,27 @@ def _fmt_input(name: str, args: tuple, kwargs: dict) -> str:
     return f"{name}({', '.join(parts)})"
 
 
-def is_risky_module(mod: str) -> bool:
-    """True if *mod* is denylisted from edge probes (handlers/, db, bot)."""
-    if mod in RISKY_MODULE_EXACT:
+def _is_allowlisted_probe_module(mod: str) -> bool:
+    """True if *mod* is known-pure (no Telegram/DB/network side effects)."""
+    if mod in SAFE_MODULE_EXACT or mod.startswith(SAFE_MODULE_PREFIXES):
         return True
-    return mod.startswith(RISKY_MODULE_PREFIXES)
+    if mod.startswith(SAFE_TEST_PREFIXES):
+        return True
+    if "." not in mod and mod.startswith(SAFE_BARE_PREFIXES):
+        return True
+    return False
+
+
+def is_risky_module(mod: str) -> bool:
+    """True if *mod* must be skipped by edge probes unless --allow-risky.
+
+    Allowlist semantics (R6): only known-pure modules probe by default --
+    services/utils.*, services.fsrs_core, services.scheduling,
+    services/session.*, config catalog modules, and tests-local/synthetic
+    helpers. Everything else (handlers/, services/db/, services/ai/,
+    bot.py, scripts/, ...) is skipped.
+    """
+    return not _is_allowlisted_probe_module(mod)
 
 
 def _invoke_once(fn, args: tuple, kwargs: dict):
@@ -644,22 +684,105 @@ def _invoke_once(fn, args: tuple, kwargs: dict):
     return result
 
 
+# Credential redaction (W4): probe outputs persist into review-context.json,
+# so anything shaped like a credential is replaced before persisting.
+REDACTED_PROBE_OUTPUT = "[redacted: possible credential]"
+_SENSITIVE_NAME_TOKENS = frozenset({
+    "key", "keys", "token", "tokens", "secret", "secrets",
+    "passwd", "password", "auth",
+})
+_CRED_SHAPE_PATTERNS = (
+    re.compile(r"sk-"),
+    re.compile(r"ghp_"),
+    re.compile(r"AIza"),
+    re.compile(r"xox-"),
+    # Long opaque hex/base64 blobs (>= 32 chars): API keys, digests-as-keys.
+    re.compile(r"[A-Za-z0-9_+\-/=]{32,}"),
+)
+
+
+def _looks_like_credential(fn, text: str) -> bool:
+    """True if the probed function or its output text looks credential-ish."""
+    hay = f"{getattr(fn, '__module__', '') or ''} " \
+          f"{getattr(fn, '__name__', '') or ''}".lower()
+    if any(tok in _SENSITIVE_NAME_TOKENS
+           for tok in re.split(r"[^a-z0-9]+", hay)):
+        return True
+    return any(pat.search(text) for pat in _CRED_SHAPE_PATTERNS)
+
+
+class _DaemonThreadPool(concurrent.futures.ThreadPoolExecutor):
+    """ThreadPoolExecutor whose workers are daemon threads (W1).
+
+    Mirrors the installed ThreadPoolExecutor._adjust_thread_count except
+    workers are created daemonized, so a hung probe never blocks
+    interpreter exit. The pool is managed explicitly (no ``with`` block):
+    on timeout the caller runs ``shutdown(wait=False,
+    cancel_futures=True)`` instead of the blocking ``wait=True`` exit.
+    """
+
+    def _adjust_thread_count(self) -> None:
+        import threading
+        import weakref
+
+        from concurrent.futures.thread import _worker, _threads_queues
+
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:
+            thread_name = "%s_%d" % (self._thread_name_prefix or self,
+                                     num_threads)
+            t = threading.Thread(
+                name=thread_name,
+                target=_worker,
+                args=(
+                    weakref.ref(self, weakref_cb),
+                    self._work_queue,
+                    self._initializer,
+                    self._initargs,
+                ),
+                daemon=True,
+            )
+            t.start()
+            self._threads.add(t)
+            _threads_queues[t] = self._work_queue
+
+
 def probe_call(
     fn, args: tuple, kwargs: dict, timeout: float = PROBE_TIMEOUT_SEC
 ) -> str:
     """Call once with a per-call timeout; crashes/timeouts are data."""
-    name = getattr(fn, "__name__", str(fn))
-    _ = name  # name recorded by callers in the row's input field
+    pool = _DaemonThreadPool(max_workers=1, thread_name_prefix="rbr-probe")
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_invoke_once, fn, args, kwargs)
-            try:
-                result = future.result(timeout=timeout)
-            except concurrent.futures.TimeoutError:
-                future.cancel()
-                return f"timeout: exceeded {timeout:g}s"
-            return f"return: {repr(result)[:PROBE_OUTPUT_LEN]}"
+        future = pool.submit(_invoke_once, fn, args, kwargs)
+        try:
+            result = future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+            return f"timeout: exceeded {timeout:g}s"
+        except BaseException as exc:  # noqa: BLE001 -- probe must not raise
+            pool.shutdown(wait=True)  # task finished; worker idle, no block
+            text = f"{type(exc).__name__}: {str(exc)}"
+            if _looks_like_credential(fn, str(exc)):
+                text = REDACTED_PROBE_OUTPUT
+            return f"raise: {text[:PROBE_OUTPUT_LEN]}"
+        else:
+            pool.shutdown(wait=True)  # task finished; worker idle, no block
+            raw = repr(result)
+            if _looks_like_credential(fn, raw):
+                return f"return: {REDACTED_PROBE_OUTPUT}"
+            return f"return: {raw[:PROBE_OUTPUT_LEN]}"
     except BaseException as exc:  # noqa: BLE001 -- probe must not raise
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
         return f"raise: {type(exc).__name__}: {str(exc)[:PROBE_OUTPUT_LEN]}"
 
 
@@ -685,9 +808,10 @@ def run_edge_probes(
 ) -> tuple[list[dict], bool]:
     """Import touched modules, probe changed functions; return (rows, trunc).
 
-    Risky modules (handlers/, services/db/, bot.py) are skipped unless
-    *allow_risky* is True; every skip is recorded as a data row (never
-    silent). Each probe call is bounded by *timeout* seconds.
+    Only allowlisted known-pure modules probe by default; every other
+    module is skipped unless *allow_risky* is True. Every skip is recorded
+    as a data row (never silent). Each probe call is bounded by *timeout*
+    seconds.
     """
     if REPO_ROOT.as_posix() not in sys.path:
         sys.path.insert(0, REPO_ROOT.as_posix())
@@ -781,6 +905,9 @@ def build_context(
             and shutil.which("graphify") is None:
         note = ((note + "; " if note else "")
                 + "graphify not found: blast_radius from AST scan only")
+        blast_radius, radius_truncated = build_blast_radius(
+            changed_symbols, {}, False
+        )
     elif run_graph:
         if run_update:
             rc, _out, err = _run(["graphify", "update", "."])
@@ -851,8 +978,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-probes", action="store_true",
                         help="skip hostile-input edge probes")
     parser.add_argument("--allow-risky", action="store_true",
-                        help="probe denylisted modules (handlers/, "
-                             "services/db/, bot.py)")
+                         help="probe non-allowlisted modules (handlers/, "
+                              "services/db/, services/ai/, bot.py, ...)")
     parser.add_argument("--probe-timeout", type=float, default=PROBE_TIMEOUT_SEC,
                         help="per-probe-call timeout in seconds")
     args = parser.parse_args(argv)
