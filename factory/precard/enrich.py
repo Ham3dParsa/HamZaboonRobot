@@ -424,8 +424,8 @@ def is_circular_def(lemma, en_def):
     stems, or any uncertainty returns False. Deterministic,
     stdlib-only.
     """
-    text = (en_def or "").strip()
-    lem = (lemma or "").strip().lower()
+    text = en_def.strip() if isinstance(en_def, str) else ""
+    lem = lemma.strip().lower() if isinstance(lemma, str) else ""
     if not text or not lem:
         return False
     hit = _CIRCULAR_BEING_RX.match(text)

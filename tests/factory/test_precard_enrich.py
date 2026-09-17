@@ -128,6 +128,13 @@ def test_r4_case_insensitive_and_fail_open():
     assert new_enrich.is_circular_def("", "") is False
 
 
+def test_r4_non_string_inputs_fail_open():
+    """R4 fail-open: malformed judge picks (int/list/dict/None) never raise."""
+    assert new_enrich.is_circular_def(123, None) is False
+    assert new_enrich.is_circular_def(None, ["x"]) is False
+    assert new_enrich.is_circular_def([], {}) is False
+
+
 def test_r4_flag_on_enrich_payload_without_drop():
     """R4 FLAG only: enrich carries circular_def True and keeps en_def."""
     index, read_entry = _idx_revegetation()
