@@ -13,6 +13,7 @@ Full diff ref: [e.g. git diff origin/main...HEAD, full scope, not incremental]
 Locked contract: [paste numbered rules verbatim]
 Behavior spec: [paste spec or plan section verbatim]
 Focus checks: [wiring / quota / restart safety / hermeticity, as applicable]
+Review-context: [optional path to review-context.json produced by the blast-radius script]
 ```
 
 Banned in the request: verdict words and pre-answers.

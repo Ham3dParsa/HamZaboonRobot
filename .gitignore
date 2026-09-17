@@ -53,6 +53,7 @@ graph.html
 GRAPH_REPORT.md
 
 # Runtime / generated artifacts
+review-context.json
 tts_cache/
 junit/
 *.bak

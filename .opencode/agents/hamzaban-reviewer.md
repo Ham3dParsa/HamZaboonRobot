@@ -44,6 +44,30 @@ Findings must include:
 6. Does this change introduce a new seam with only one adapter (premature abstraction — see codebase-design skill's deletion test)?
 7. Does this change bypass an existing seam's interface (reaching into a module's internals instead of its public function)?
 
+Output contract additions (graphify blast-radius, still read-only):
+- Open with exactly one line: `GRAPH: FRESH` or `GRAPH: STALE` (freshness of
+  `review-context.json` against HEAD; no context file means `GRAPH: STALE`).
+- Include a `Blast-radius:` block (triggers fired plus affected symbols, or
+  `Blast-radius: N/A (no trigger)`). A missing `GRAPH:` line or missing
+  `Blast-radius:` block means the gate is red.
+- Evidence rule: graph output is a hint only. A graph-only row is `hold`,
+  never a confirmed finding. A confirmed finding needs `file:line` plus a
+  grep match or a reproducing test name.
+- Stale fallback: on `GRAPH: STALE`, fall back to grep plus the wiring guards
+  (`tests/test_wiring.py`, `tests/test_dead_code_guard.py`) and add one
+  `RE-RUN: regenerate review-context.json via the producer script` finding
+  for the implementer.
+
+REV-4 adversarial checklist (4 reads per changed function):
+1. Falsy vs None: does a default via `or` swallow a legitimate falsy input (`{}`, `[]`, `""`, `0`)?
+2. Normalization symmetry: is normalization (casefold/strip) applied on both sides of every compare?
+3. Non-finite guard: is every numeric input guarded against NaN/inf?
+4. Empty/negative/zero: are empty, negative, and zero inputs handled, not just the happy path?
+
+Uncovered-input rule: per changed function, name one input the tests do not
+cover (`{}`, `None`, `NaN`, mixed-case, negative, ...). A function row with no
+named uncovered input stays `hold` — it is never PASS by tests alone.
+
 Verification tools (read-only):
 - Focused tests, greps, wiring scans (`tests/test_wiring.py`, `tests/test_dead_code_guard.py`)
 - No production DB writes; use test snapshots only
