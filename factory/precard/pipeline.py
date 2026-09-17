@@ -404,13 +404,19 @@ def _reason_slug(reason):
 ENTRY_BAND_UNKNOWN = "?"
 
 
+def _sanitize_entry_band(raw):
+    """Round-trip-safe band: no []/CR/LF (line forgery), uppercased."""
+    cleaned = re.sub(r"[\[\]\r\n]+", "", str(raw or "")).strip().upper()
+    return cleaned or ENTRY_BAND_UNKNOWN
+
+
 def entry_band(item):
     """Entry band of one sample item: pool_level at sampling time."""
     try:
         raw = (item or {}).get("pool_level", "")
     except AttributeError:
         raw = ""
-    return str(raw or "").strip().upper() or ENTRY_BAND_UNKNOWN
+    return _sanitize_entry_band(raw)
 
 
 def build_entry_bands(items):
@@ -428,13 +434,15 @@ def build_entry_bands(items):
 def format_drop_line(key, reason, entry_bands=None):
     """One dropped.log detail line: legacy "key: reason" plus the
     " [entry=BAND]" suffix when the key's entry band is known. A None
-    (or key-missing) map emits the legacy line unchanged."""
+    (or key-missing) map emits the legacy line unchanged. The band is
+    sanitized (no []/CR/LF) so a hostile pool_level cannot break the
+    round-trip or forge lines."""
     line = "%s: %s" % (key, reason)
     band = None
     if isinstance(entry_bands, dict):
         band = entry_bands.get(key)
     if band:
-        line += " [entry=%s]" % band
+        line += " [entry=%s]" % _sanitize_entry_band(band)
     return line
 
 
@@ -520,11 +528,14 @@ def _stage_summary(stage, states, out_path, quiet=False, counts=None,
             continue
         reason = verdict.get("reason") or verdict.get("dropped") or ""
         if verdict.get("quarantine"):
+            # Kept-key note (review list, not a drop): no entry suffix —
+            # the lemma survives with its precard rows carrying pool_level.
             quarantined.append("%s: quarantine-%s" % (
                 key, verdict.get("quarantine")))
         if verdict.get("kept", True) and not verdict.get("dropped"):
             # judge fallbacks stay live but are notable: the judge
             # failed and the anchor survived instead.
+            # Kept-key note (same as quarantine above): no entry suffix.
             if str(verdict.get("model", "")).startswith("s1-"):
                 slugs["s1-fallback"] += 1
                 details.append("%s: s1-fallback" % key)
@@ -534,7 +545,8 @@ def _stage_summary(stage, states, out_path, quiet=False, counts=None,
     for key in failed:
         if key not in done:
             slugs["failed-no-entry"] += 1
-            details.append("%s: failed-no-entry" % key)
+            details.append(
+                format_drop_line(key, "failed-no-entry", entry_bands))
     hits = misses = cache = 0
     if isinstance(counts, dict):
         try:
