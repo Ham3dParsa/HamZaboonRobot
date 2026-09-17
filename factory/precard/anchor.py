@@ -1632,7 +1632,7 @@ def _preprocess_input_gates(text, view):
     """G2..G7 + brand-product input gates. Returns (drop_reason|None, quarantine|None).
 
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
-    metadata checks, then G2/G5/G7 gloss scans (G7 last so every
+    metadata checks, then G2/G5/G7 gloss scans (brand last so every
     pre-existing slug keeps priority on overlap). Quarantine (G4 single-sense
     suspect like "led") keeps the item with a review flag.
     Normalization is enforced HERE (not trusted from the caller): poss

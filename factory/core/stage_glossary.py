@@ -134,6 +134,8 @@ REASON_SLUGS = (
     "cloze-zipf",
     "cloze-density",
     "type-pending",
+    "g7-nonlatin",
+    "brand-product",
 )
 
 # --- Read shims (old -> new; new code writes new, reads old) ---
