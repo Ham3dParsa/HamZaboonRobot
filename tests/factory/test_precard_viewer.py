@@ -929,3 +929,27 @@ def test_colonless_reason_head_never_carries_suffix():
     assert viewer._reason_head(
         viewer._drop_reason("failed-no-entry [entry=B1]")) == \
         "failed-no-entry"
+
+
+def test_viewer_reuses_pipeline_entry_parser():
+    """S1 FIX 1 (single-source): viewer owns no entry-suffix regex;
+    band parsing matches pipeline.parse_drop_entry_band exactly
+    (pipeline has no leading-space requirement)."""
+    from factory.precard import pipeline as _pipeline
+    assert not hasattr(viewer, "_ENTRY_SUFFIX_RE")
+    for line in ("r4-name-only [entry=B1]", "r4-name-only[entry=B1]",
+                 "plain reason without suffix"):
+        assert viewer._drop_band(line) == (
+            (lambda b: b.strip().upper() if b else None)(
+                _pipeline.parse_drop_entry_band(line)))
+
+
+def test_viewer_lowercase_entry_band_normalized(tmp_path):
+    """S1 FIX 2: a hand-written lowercase suffix groups with its
+    uppercase bucket (pipeline uppercases on write)."""
+    assert viewer._drop_band("r4-name-only [entry=b1]") == "B1"
+    assert viewer._drop_reason("r4-name-only [entry=b1]") == "r4-name-only"
+    path = tmp_path / "dropped.log"
+    path.write_text("w:foo: r4-name-only [entry=b1]\n", encoding="utf-8")
+    dropped = viewer._load_dropped(path, None)
+    assert dropped["w:foo"] == {"reason": "r4-name-only", "entry_band": "B1"}
