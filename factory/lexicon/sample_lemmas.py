@@ -56,6 +56,23 @@ classes are unchanged. Allowlisted rows count as ``allowed_vowelless``.
 Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
 exactly like other skips (never reach ``classify`` or the reservoir).
 
+Validity sieve (locked R1 — deterministic, zero LLM, stdlib only):
+pilot ``pack/lemmas.csv`` rows are EXEMPT (pinned before the stream, never
+sieved); every surviving index-stream row passes ``validity_verdict()`` on
+its fetched Kaikki entry AFTER ``classify`` (so frequency-skips never pay
+a dump read) and BEFORE the reservoir. DROP when EVERY sense of the entry
+is junk (any of the junk classes below); a single real sense keeps. Junk
+classes (decision table lives in ``VALIDITY_JUNK_TAGS`` /
+``VALIDITY_FORMOF_TAG`` / ``VALIDITY_LETTER_NAME_RX`` below — single
+source): alt-of tags, pronunciation-spelling tags, form-of tag-or-pointer
+stubs, vocable tags, and a narrow letter-name gloss pattern. The sieve
+keys on sense CLASSES (casefolded Kaikki tags + that one gloss pattern),
+never on word length — real short words (be/do/go) keep via their true
+senses. Fail-open: malformed entries, missing/empty senses, or unreadable
+dump rows NEVER drop (uncertainty keeps). Dropped rows count as
+``skipped_validity`` and join ``seen_keys`` dedup exactly like other
+skips (never reach the reservoir).
+
 Lemma normalization and random-access ``fetch`` are REUSED from
 ``factory/core/registry.py`` (``normalize_lemma``) and
 ``factory/lexicon/build_kaikki_index.py`` (``fetch``) — this file defines neither.
@@ -74,6 +91,7 @@ import csv
 import json
 import os
 import random
+import re
 import sys
 
 
@@ -96,12 +114,14 @@ VOWELS = frozenset("aeiouAEIOU")
 # wordfreq zipf above this is kept (e.g. by/my/try/fly/sky). Rare junk
 # (e.g. qxwzea, zipf 0) stays dropped.
 FREQUENT_ZIPF_MIN = 3.0
-# Lemma-shape rule version (TICKET F2b follow-up): bump whenever the
-# shape/allowlist rules change. v1 = pre-F2b R5 (all drop:no_vowel rows
-# dropped); v2 = F2b allowlist (pack-hit or frequent vowel-less kept).
+# Lemma-shape + validity rule version (TICKET F2b follow-up, then R1):
+# bump whenever the shape/allowlist/validity rules change. v1 = pre-F2b
+# R5 (all drop:no_vowel rows dropped); v2 = F2b allowlist (pack-hit or
+# frequent vowel-less kept); v3 = R1 validity sieve (all-junk-sense
+# entries drop via validity_verdict, counted as skipped_validity).
 # Stored in the checkpoint header; a mismatch aborts fail-closed so a
 # resume never mixes counters/reservoirs across rule regimes.
-SHAPE_VERSION = 2
+SHAPE_VERSION = 3
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -326,6 +346,154 @@ def is_vowelless_allowlisted(word: object, pos: object,
         return False
 
 
+# Validity sieve decision table (locked R1 — SINGLE SOURCE: every junk
+# class the sampler drops on lives in these three names, consulted only
+# by is_junk_sense() below). Tag style mirrors
+# factory/precard/anchor.py VULGAR_TAGS/OBSOLETE_TAGS (frozen frozensets
+# of lowercase tags, matched casefolded); anchor.py owns THOSE sets and
+# is never imported here — this table owns the SAMPLER's junk classes.
+# Checked 2026-09-17: anchor.py has no reusable set for alt-of /
+# pronunciation-spelling / form-of / vocable / letter-name, so the table
+# is defined here (not duplicated anywhere else).
+VALIDITY_JUNK_TAGS = {
+    # alt-of class: cross-reference stubs ("Alternative spelling of X").
+    "alt-of": frozenset({"alt-of", "alternative"}),
+    # pronunciation-spelling class ("Pronunciation spelling of X").
+    "pronunciation-spelling": frozenset({"pronunciation-spelling"}),
+    # vocable-type class (singing vocables, e.g. "fa la la").
+    "vocable": frozenset({"vocable"}),
+}
+# form-of-only class: the tag OR a non-empty form_of[] mother pointer
+# (mirrors anchor._is_formof_sense semantics; bare participle/past tags
+# alone are NOT stub signals).
+VALIDITY_FORMOF_TAG = "form-of"
+# letter-name-pattern class: the gloss patterns the sieve may key on
+# (narrow by design — "Name of the letter ..." / Cyrillic-letter names
+# like the "de" Cyrillic-letter sense; real words never gloss this way).
+VALIDITY_LETTER_NAME_RX = re.compile(
+    r"\bname of the\b.{0,40}\bletter\b"
+    r"|\bcyrillic\b.{0,40}\bletter\b"
+    r"|\bletter\b.{0,40}\bcyrillic\b",
+    re.IGNORECASE,
+)
+# vocable-gloss class: singing syllables with no lexical meaning (the
+# live "de" intj sense carries NO vocable tag, so the tag class alone
+# misses it). Narrow: real interjections ("expressing sudden pain")
+# never gloss this way.
+VALIDITY_VOCABLE_GLOSS_RX = re.compile(
+    r"\bmeaningless\b.{0,30}\bsyllable\b"
+    r"|\bunstressed syllable\b"
+    r"|\bindicating a rhythm\b",
+    re.IGNORECASE,
+)
+# foreign-title class: non-English function-word senses smuggled into
+# the English dump (the live "de" prep sense: French nobility title).
+# Narrow: requires French + nobility/title together — real aristocracy
+# words ("aristocrat", "duke") never mention French.
+VALIDITY_FOREIGN_TITLE_RX = re.compile(
+    r"\bfrench\b.{0,40}\bnobility\b"
+    r"|\bnobility\b.{0,40}\bfrench\b"
+    r"|\btitles?\s+of\s+(the\s+)?french\b",
+    re.IGNORECASE,
+)
+# Reason slug for all-junk entries (matches shape_verdict "drop:<reason>").
+VALIDITY_DROP = "drop:validity"
+
+
+def _validity_first_gloss(sense: dict) -> str:
+    """First non-empty gloss string of a sense ("" when none)."""
+    try:
+        glosses = sense.get("glosses") or []
+    except AttributeError:
+        return ""
+    for cand in glosses:
+        if isinstance(cand, str) and cand.strip():
+            return cand.strip()
+    return ""
+
+
+def _validity_has_formof(sense: dict) -> bool:
+    """True on a form-of stub: tag or non-empty form_of[] pointer."""
+    try:
+        raw_tags = sense.get("tags") or []
+        tags = {str(t or "").strip().casefold()
+                for t in raw_tags if str(t or "").strip()}
+        if VALIDITY_FORMOF_TAG in tags:
+            return True
+        forms = sense.get("form_of") or []
+        if isinstance(forms, dict):
+            return len(forms) > 0  # {} is no mother pointer
+        try:
+            return len(list(forms)) > 0
+        except TypeError:
+            return bool(forms)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def is_junk_sense(sense: object) -> bool:
+    """True when ONE Kaikki sense belongs to any R1 junk class.
+
+    Pure, deterministic, stdlib-only; casefold tag matching. Non-dict
+    senses are uncertainty, never junk (fail-open: the entry keeps).
+    """
+    if not isinstance(sense, dict):
+        return False
+    try:
+        raw_tags = sense.get("tags") or []
+    except AttributeError:
+        return False
+    tags = {str(t or "").strip().casefold()
+            for t in raw_tags if str(t or "").strip()}
+    for class_tags in VALIDITY_JUNK_TAGS.values():
+        if tags & class_tags:
+            return True
+    if _validity_has_formof(sense):
+        return True
+    try:
+        gloss = _validity_first_gloss(sense)
+    except (AttributeError, TypeError):
+        return False
+    if gloss and VALIDITY_LETTER_NAME_RX.search(gloss):
+        return True
+    if gloss and VALIDITY_VOCABLE_GLOSS_RX.search(gloss):
+        return True
+    if gloss and VALIDITY_FOREIGN_TITLE_RX.search(gloss):
+        return True
+    return False
+
+
+def validity_verdict(entry: object) -> str:
+    """R1 validity sieve: "keep" or "drop:validity" for a Kaikki entry.
+
+    Drops WITHOUT opening downstream stages when EVERY sense-class of
+    the entry is junk (any class in the decision table above). Motivating
+    case: lemma "de" (5 senses — Cyrillic letter name, dialectal
+    alt-spelling, pronunciation spelling, singing vocable, French-
+    preposition cross-reference stub) passed sampling on frequency alone
+    and burned 4 model stages; under this sieve every sense lands in a
+    junk class so the lemma drops at sampling time. Real short words
+    with true senses (be/do/go) NEVER drop: the sieve keys on sense
+    CLASSES, never on word length — one real sense keeps the entry.
+
+    Pure, deterministic, stdlib-only. Fail-open on malformed entries
+    (non-dict, missing/non-list/empty senses, non-dict senses): never
+    drops on uncertainty.
+    """
+    if not isinstance(entry, dict):
+        return "keep"
+    try:
+        senses = entry.get("senses")
+    except AttributeError:
+        return "keep"
+    if not isinstance(senses, list) or not senses:
+        return "keep"
+    for sense in senses:
+        if not is_junk_sense(sense):
+            return "keep"
+    return VALIDITY_DROP
+
+
 def zipf_to_cefr(z: float, cutoffs: list[float]) -> str:
     for cut, level in zip(cutoffs, ["A1", "A2", "B1", "B2", "C1"]):
         if z >= cut:
@@ -451,7 +619,7 @@ def sample(
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
                 "skipped_no_freq": 0, "skipped_shape": 0,
-                "allowed_vowelless": 0,
+                "allowed_vowelless": 0, "skipped_validity": 0,
                 "phrase_candidates": 0, "pilot_rows": len(pilot),
                 "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
@@ -467,7 +635,7 @@ def sample(
             raise SystemExit(
                 f"error: stale progress {progress} "
                 f"(shape_v {saved.get('shape_v')!r} != {SHAPE_VERSION!r}: "
-                "shape/allowlist rules changed since checkpoint); "
+                "shape/allowlist/validity rules changed since checkpoint); "
                 "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
@@ -568,6 +736,18 @@ def sample(
             level = classify(word, pos, pack_data, lang)
             if level is None:
                 counters["skipped_no_freq"] += 1
+                continue
+            # R1 validity sieve (after classify so frequency-skips never
+            # pay a dump read; before the reservoir so junk never opens
+            # downstream stages). fetch() is reused, never redefined;
+            # ANY read failure fails open (uncertainty keeps).
+            try:
+                validity_entry = fetch(dump, offset, length)
+            except (OSError, ValueError):
+                validity_entry = None
+            if validity_entry is not None and \
+                    validity_verdict(validity_entry) != "keep":
+                counters["skipped_validity"] += 1
                 continue
             seen[level] += 1
             cap = caps[level]
