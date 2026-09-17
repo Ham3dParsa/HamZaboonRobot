@@ -1013,3 +1013,26 @@ def test_evidenced_note_matches_allowlist(tmp_path):
         dropped=run_dir / "dropped.log", run_log=run_dir / "run.log")
     assert "wn-single / wn-evp-gloss only" in html
     assert "other than pool-fallback" not in html
+
+
+def test_fa_evidenced_note_matches_allowlist(tmp_path):
+    """OC round: the FA drawer note must state the same allowlist —
+    unmapped excluded, pool levels shown separately."""
+    run_dir = tmp_path / "run-note-fa"
+    run_dir.mkdir()
+    sample_path = run_dir / "sample.json"
+    sample_path.write_text(json.dumps([{"key": "w:bare"}]),
+                           encoding="utf-8")
+    precard_path = run_dir / "precard.jsonl"
+    precard_path.write_text(
+        json.dumps(_row("w:bare", "bare", "bare#1", sense_cefr="",
+                        sense_cefr_method="unmapped")) + "\n",
+        encoding="utf-8")
+    for name in ("dropped.log", "run.log"):
+        (run_dir / name).write_text("", encoding="utf-8")
+    html = viewer.build_html(
+        run_dir, precard=precard_path, sample=sample_path,
+        dropped=run_dir / "dropped.log", run_log=run_dir / "run.log",
+        lang="fa")
+    assert "wn-single / wn-evp-gloss فقط" in html
+    assert "از پول کپی" not in html
