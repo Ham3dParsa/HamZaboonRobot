@@ -610,6 +610,39 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         print(message, file=sys.stderr)
         jlog.event("warning", message=message)
 
+    def _report_egress_cooldown(exc):
+        # Best-effort: tell the egress supervisor this server is dead
+        # for the provider (location-block / project-quota class), so
+        # the next leased run walks to the next server instead of
+        # retrying the same egress. Only ProviderCooldown (never
+        # key-level rate limits, never auth). Never fails the run;
+        # never logs secrets (lease id only, same as the lease line).
+        try:
+            from factory.precard.transport import ProviderCooldown
+        except Exception:
+            return
+        if not isinstance(exc, ProviderCooldown):
+            return
+        lease_id = os.environ.get("EGRESS_LEASE_ID", "")
+        if not lease_id:
+            return
+        try:
+            import json as _json
+            import urllib.request as _url
+            sup = os.environ.get("EGRESS_SUP_URL",
+                                 "http://127.0.0.1:18789")
+            tok = os.environ.get("EGRESS_SUP_TOKEN", "")
+            req = _url.Request(
+                sup + "/v1/report",
+                data=_json.dumps({"lease_id": lease_id,
+                                  "outcome": "http429"}).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer " + tok})
+            with _url.urlopen(req, timeout=10) as resp:
+                resp.read()
+        except Exception:
+            pass
+
     def _abort(stage, exc):
         # Red aborts (R11): auth stops print red on stderr, then raise.
         print(_color("auth abort (%s): %s"
@@ -1191,6 +1224,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     raise
                 except RateLimited as exc:
                     # R9 (S4 pattern): flush then STOP for a resume —
+                    _report_egress_cooldown(exc)
                     # ProviderCooldown rides along (RateLimited
                     # subclass), same as the s2/s3/s4 callers.
                     _flush(progress_dir, states)
@@ -1547,6 +1581,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     _abort("sense_judge", exc)
                     raise
                 except RateLimited as exc:
+                    _report_egress_cooldown(exc)
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
                                                     tele_flushed,
@@ -1680,6 +1715,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     _abort("topic_vectors", exc)
                     raise
                 except RateLimited as exc:
+                    _report_egress_cooldown(exc)
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
                                                     tele_flushed,
@@ -1831,6 +1867,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     _abort("topic_label", exc)
                     raise
                 except RateLimited as exc:
+                    _report_egress_cooldown(exc)
                     _flush(progress_dir, states)
                     tele_flushed = _flush_telemetry(
                         tele_dir, tele_store, tele_flushed, run_id=run_id)
