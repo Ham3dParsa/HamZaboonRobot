@@ -1398,13 +1398,83 @@ def _is_name_gloss(gloss):
     return bool(_NAME_GLOSS_RX.match(gloss or ""))
 
 
+# R5: per-script-block ord ranges for the g7-nonlatin gate (locked
+# 2026-09-17; the "de" case: a sense gloss carrying a Cyrillic letter,
+# e.g. 'The name of the Cyrillic script letter "Д".'). Latin blocks
+# (ASCII + Latin-1 Supplement + Latin Extended A/B + IPA Extensions)
+# are DELIBERATELY absent, so loanwords with latin-extended diacritics
+# (café U+00E9) never match: the check is per-script-block, not
+# "non-ASCII". Bopomofo/Thai/Devanagari/Georgian are out of the locked
+# set on purpose (fail-open on uncertainty — uncovered scripts keep).
+_NONLATIN_RANGES = (
+    (0x0370, 0x03FF),  # Greek and Coptic
+    (0x1F00, 0x1FFF),  # Greek Extended
+    (0x0400, 0x04FF),  # Cyrillic
+    (0x0500, 0x052F),  # Cyrillic Supplement
+    (0x2DE0, 0x2DFF),  # Cyrillic Extended-A
+    (0xA640, 0xA69F),  # Cyrillic Extended-B
+    (0x1C80, 0x1C8F),  # Cyrillic Extended-C
+    (0x0530, 0x058F),  # Armenian
+    (0x0590, 0x05FF),  # Hebrew
+    (0x0600, 0x06FF),  # Arabic
+    (0x0750, 0x077F),  # Arabic Supplement
+    (0x08A0, 0x08FF),  # Arabic Extended-A
+    (0xFB50, 0xFDFF),  # Arabic Presentation Forms-A
+    (0xFE70, 0xFEFF),  # Arabic Presentation Forms-B
+    (0x3040, 0x309F),  # Hiragana
+    (0x30A0, 0x30FF),  # Katakana
+    (0x3400, 0x4DBF),  # CJK Extension A
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+    (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
+    (0x1100, 0x11FF),  # Hangul Jamo
+    (0xAC00, 0xD7AF),  # Hangul Syllables
+)
+
+
+def _has_nonlatin_script(gloss):
+    """R5: True when the gloss carries a non-latin script char.
+
+    Any single hit drops (g7-nonlatin). Pure stdlib ord() ranges over
+    _NONLATIN_RANGES — never a non-ASCII test, so café-style
+    latin-extended diacritics keep. Fail-open (False) on any error.
+    """
+    try:
+        for ch in gloss or "":
+            code = ord(ch)
+            for lo, hi in _NONLATIN_RANGES:
+                if lo <= code <= hi:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def _is_name_row(sense):
+    """R2: True when a preprocess sense is name-classified (locked 2026-09-17).
+
+    Reuses (never redefines) the two name signals already in this
+    module: the entry POS in PROPER_NOUN_POS and the _is_name_gloss
+    pattern. Either signal marks the row — a surname gloss under a
+    generic noun POS still counts, and so does a definitional gloss
+    under a name/propn entry. Missing pos ("") is uncertainty, not a
+    name signal (fail-open to False).
+    """
+    try:
+        pos = str((sense or {}).get("pos") or "").strip().casefold()
+        if pos and pos in PROPER_NOUN_POS:
+            return True
+        return bool(_is_name_gloss((sense or {}).get("gloss") or ""))
+    except Exception:
+        return False
+
+
 def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                      type_log_available, entry_fn=None):
     """Preprocess verdict for one sample item (s0): {"kept", "reason", "type_pending"}.
 
     kept=False carries a drop reason (r4-name-only / r4-country-blocklist /
-    r20-zipf-low:<z> / applied-keep-false:<type> / g2..g6 input gates,
-    locked 2026-09-07).
+    r20-zipf-low:<z> / applied-keep-false:<type> / g2..g7 input gates,
+    locked 2026-09-07, g7 added 2026-09-17).
     Order for words: R4 country blocklist (casefolded, ABSOLUTE for
     single tokens since F1 — no POS-aware exemption, china drops too),
     R4 proper-noun, G-gates (no zipf bypass — entry
@@ -1417,7 +1487,7 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     Phrase items kept without a type judgement
     carry type_pending=True ("type-pending" flag). R35 v9: the word zipf
     gate is level-aware (ZIPF_FLOORS by pool_level); academic bypass kept.
-    entry_fn(text) -> {"senses": [{"gloss", "tags"}], "poss": set()}
+    entry_fn(text) -> {"senses": [{"gloss", "tags", "pos"}], "poss": set()}
     or None; without entry data the G-gates are skipped (keep).
     """
     kind = item.get("kind") or "word"
@@ -1515,6 +1585,10 @@ def _preprocess_entry_view(item, index, read_entry):
                     senses.append({
                         "gloss": glosses[0] if glosses else "",
                         "tags": [t for t in tags if t],
+                        # R2: the row's entry POS rides along so the G2
+                        # gate can skip name-classified rows (streets
+                        # surname row); "" when the entry carries none.
+                        "pos": pos,
                     })
     except Exception:
         return None
@@ -1524,10 +1598,11 @@ def _preprocess_entry_view(item, index, read_entry):
 
 
 def _preprocess_input_gates(text, view):
-    """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
+    """G2..G7 input gates. Returns (drop_reason|None, quarantine|None).
 
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
-    metadata checks, then G2/G5 gloss scans. Quarantine (G4 single-sense
+    metadata checks, then G2/G5/G7 gloss scans (G7 last so every
+    pre-existing slug keeps priority on overlap). Quarantine (G4 single-sense
     suspect like "led") keeps the item with a review flag.
     Normalization is enforced HERE (not trusted from the caller): poss
     and per-sense tags are casefolded up front, so any entry_fn casing
@@ -1542,6 +1617,7 @@ def _preprocess_input_gates(text, view):
             "gloss": s.get("gloss") or "",
             "tags": [str(t or "").strip().casefold()
                      for t in s.get("tags", [])],
+            "pos": str(s.get("pos") or "").strip().casefold(),
         })
     glosses = [s.get("gloss") or "" for s in senses]
     # G3: interjection-only entries have no flashcard value (all POS
@@ -1565,9 +1641,19 @@ def _preprocess_input_gates(text, view):
     # G6: every sense obsolete.
     if senses and all("obsolete" in s.get("tags", []) for s in senses):
         return "g6-obsolete", None
-    # G2: every gloss a mechanical inflection reference (kept when at
-    # least one sense is independent, e.g. accusing#1 adjective).
-    if glosses and all(_G2_FORM_RX.search(g) for g in glosses):
+    # G2: every NON-NAME gloss a mechanical inflection reference (R2,
+    # locked 2026-09-17; the "streets" case: 4 entry rows — plural-of,
+    # 3rd-person, SURNAME, plural-of-Street — where the single surname
+    # gloss broke the every-gloss check so G2 kept it and a paid model
+    # call killed it later). Name-classified rows (_is_name_row: entry
+    # POS in PROPER_NOUN_POS or the name-gloss pattern) are skipped in
+    # the all-form test. All-name (no non-name sense left) is NOT a G2
+    # drop — R4 keeps sole ownership of name-only entries. Kept when at
+    # least one non-name sense is independent (e.g. accusing#1
+    # adjective).
+    _live = [s for s in senses if not _is_name_row(s)]
+    if _live and all(_G2_FORM_RX.search(s.get("gloss") or "")
+                     for s in _live):
         return "g2-inflection-form", None
     # G5: demonym/geo glosses (phase-1 learner pool; travel phase brings
     # them back from a dedicated dataset).
@@ -1575,6 +1661,12 @@ def _preprocess_input_gates(text, view):
                         or _G5_PERTAIN_RX.search(g or "")
                         for g in glosses):
         return "g5-demonym", None
+    # G7: a sense gloss carrying non-latin script (R5, locked 2026-09-17;
+    # the "de" case: 'The name of the Cyrillic script letter "Д".').
+    # Any single hit drops (script check is per-script-block via
+    # _has_nonlatin_script, never non-ASCII, so café keeps).
+    if glosses and any(_has_nonlatin_script(g) for g in glosses):
+        return "g7-nonlatin", None
     return None, None
 
 
