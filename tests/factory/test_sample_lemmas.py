@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from factory.lexicon.sample_lemmas import LEVEL_ORDER, classify, is_vowelless_allowlisted, load_pack, load_pilot, main, pack_has_cefr_hit, shape_verdict
+from factory.lexicon.sample_lemmas import LEVEL_ORDER, classify, is_junk_sense, is_vowelless_allowlisted, load_pack, load_pilot, main, pack_has_cefr_hit, shape_verdict, validity_verdict
 
 LEVELS = LEVEL_ORDER
 QUOTA = 3
@@ -237,7 +237,7 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "shape_v": 2, "lines_done": 0, "seen": seen, "counters": {},
+            "shape_v": 3, "lines_done": 0, "seen": seen, "counters": {},
             "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
@@ -257,7 +257,7 @@ def test_resume_pre_r5_checkpoint_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "shape_v": 2, "lines_done": 0, "seen": seen,
+            "shape_v": 3, "lines_done": 0, "seen": seen,
             "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
@@ -272,7 +272,7 @@ def test_resume_missing_shape_version_aborts_loud(env):
     # instead of silently mixing shape rule regimes.
     from factory.lexicon.sample_lemmas import SHAPE_VERSION
 
-    assert SHAPE_VERSION == 2
+    assert SHAPE_VERSION == 3
     seen = {level: 0 for level in LEVELS}
     reservoirs = {level: [] for level in LEVELS}
     stat = os.stat(env["dump"])
@@ -293,7 +293,7 @@ def test_resume_missing_shape_version_aborts_loud(env):
 
 
 def test_resume_shape_version_mismatch_aborts_loud(env):
-    # shape_v=1 (pre-F2b rules) against current v2: same fail-closed abort.
+    # shape_v=1 (pre-F2b rules) against current v3: same fail-closed abort.
     seen = {level: 0 for level in LEVELS}
     reservoirs = {level: [] for level in LEVELS}
     stat = os.stat(env["dump"])
@@ -314,8 +314,9 @@ def test_resume_shape_version_mismatch_aborts_loud(env):
 
 
 def test_resume_new_checkpoint_counter_parity_with_allowlist(tmp_path, capsys):
-    # A v2 checkpoint resumes with counter parity INCLUDING allowed_vowelless:
-    # partial run, then resume, reports the same counters as a fresh run.
+    # A current-version checkpoint resumes with counter parity INCLUDING
+    # allowed_vowelless: partial run, then resume, reports the same
+    # counters as a fresh run.
     pack = str(tmp_path / "pack")
     pilot_rows = [("PilotA1", "noun", "A1")]
     fallback = {"rhythm|noun": "A1", "wobbleaaa|noun": "A1"}
@@ -702,3 +703,165 @@ def test_classify_empty_pack_no_keyerror(monkeypatch):
 
     monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
     assert classify("wobbleaaa", "noun", {}, "en") is None
+
+
+def build_dump_index_entries(tmp, rows):
+    """Dump+index builder variant whose entries carry Kaikki senses.
+
+    rows: [(word, pos, senses)] with senses a list of sense dicts
+    (glosses/tags/form_of). Byte offsets mirror build_dump_index exactly
+    so sample()'s fetch() reads back the same entry objects.
+    """
+    dump = os.path.join(tmp, "dump.jsonl")
+    index = os.path.join(tmp, "index.jsonl")
+    with open(dump, "wb") as dump_handle, open(index, "w", encoding="utf-8") as idx_handle:
+        for word, pos, senses in rows:
+            raw = (json.dumps({"word": word, "pos": pos, "senses": senses},
+                              ensure_ascii=False) + "\n").encode("utf-8")
+            offset = dump_handle.tell()
+            dump_handle.write(raw)
+            idx_handle.write(json.dumps({"word": word, "pos": pos,
+                                         "offset": offset, "length": len(raw)},
+                                        ensure_ascii=False) + "\n")
+    lookup = os.path.join(tmp, "lookup.json")
+    with open(lookup, "w", encoding="utf-8") as handle:
+        handle.write("{}")
+    return dump, index, lookup
+
+
+def _sense(gloss, tags=(), form_of=None):
+    sense = {"glosses": [gloss], "tags": list(tags)}
+    if form_of is not None:
+        sense["form_of"] = form_of
+    return sense
+
+
+def de_like_senses():
+    """The 5 R1 junk classes in one entry (the "de" case).
+
+    Cyrillic letter name / dialectal alt-spelling / pronunciation
+    spelling / singing vocable / French-preposition cross-reference
+    stub. The 5th sense models the French-preposition row as the
+    form-of-only stub class: the locked rule names exactly five junk
+    classes and this is the stub bucket (a bare cross-language pointer
+    with no English learner gloss). If live Kaikki tags the French row
+    differently, the single-source table (VALIDITY_JUNK_TAGS et al.)
+    is the one place to extend — never a second table.
+    """
+    return [
+        _sense("Name of the Cyrillic letter De."),
+        _sense('Alternative spelling of "the".', tags=["alternative"]),
+        _sense("Pronunciation spelling of the.",
+               tags=["Pronunciation-Spelling"]),
+        _sense("Singing vocable.", tags=["vocable"]),
+        _sense("Preposition meaning of in French.", tags=["form-of"],
+               form_of=[{"word": "de"}]),
+    ]
+
+
+def test_validity_junk_table_single_source():
+    # The junk-class decision table lives in ONE place in
+    # sample_lemmas.py (single source; anchor.py owns only its
+    # VULGAR/OBSOLETE sets and is never imported here).
+    from factory.lexicon import sample_lemmas as SL
+
+    assert set(SL.VALIDITY_JUNK_TAGS) == {
+        "alt-of", "pronunciation-spelling", "vocable"}
+    assert SL.VALIDITY_FORMOF_TAG == "form-of"
+    assert SL.VALIDITY_DROP == "drop:validity"
+
+
+def test_validity_verdict_de_like_drops():
+    assert validity_verdict({"word": "de", "senses": de_like_senses()}) == \
+        "drop:validity"
+
+
+def test_validity_verdict_each_junk_class_drops_solo():
+    solo_junk = [
+        _sense("Dialectal variant.", tags=["alt-of"]),
+        _sense("Dialectal variant.", tags=["Alternative"]),  # casefold
+        _sense("Pronunciation spelling of the.",
+               tags=["pronunciation-spelling"]),
+        _sense("Inflected form.", tags=["form-of"]),  # tag alone suffices
+        _sense("Something.", form_of=[{"word": "x"}]),  # pointer alone
+        _sense("Name of the letter A."),  # letter-name gloss pattern
+        _sense("Cyrillic letter De."),  # cyrillic-letter variant
+        _sense("La la.", tags=["VOCABLE"]),  # casefold
+    ]
+    for sense in solo_junk:
+        assert is_junk_sense(sense) is True, sense
+        assert validity_verdict({"word": "w", "senses": [sense]}) == \
+            "drop:validity", sense
+
+
+def test_validity_verdict_real_short_words_keep():
+    # be/do/go must NEVER drop: true senses carry no junk class, and the
+    # sieve never keys on word length.
+    for word, senses in [
+        ("be", [_sense("To exist.")]),
+        ("do", [_sense("To perform an action."),
+                _sense("Alternative spelling of dew.",  # mixed: 1 junk
+                       tags=["alternative"])]),  # + 1 real -> keep
+        ("go", [_sense("To move from one place to another."),
+                _sense("To proceed.", tags=["colloquial"])]),
+    ]:
+        assert validity_verdict({"word": word, "senses": senses}) == \
+            "keep", word
+
+
+def test_validity_verdict_narrowness_and_malformed_keep():
+    # Near-miss prose glosses are NOT letter names (pattern is narrow).
+    assert is_junk_sense(_sense("A letter to a friend.")) is False
+    assert is_junk_sense(_sense("To letter the pages.")) is False
+    # Bare participle/past tags without a form-of tag/pointer are real.
+    assert is_junk_sense(_sense("Running fast.", tags=["past"])) is False
+    # Empty form_of dict {} is no mother pointer (anchor parity).
+    assert is_junk_sense({"glosses": ["X"], "tags": [],
+                          "form_of": {}}) is False
+    # Malformed entries fail open: never drop on uncertainty.
+    for entry in [None, {}, {"word": "x"}, {"senses": []},
+                  {"senses": "nope"}, {"senses": [None]},
+                  {"senses": [_sense("To exist."), "bogus"]},
+                  {"senses": [{"tags": []}]},  # no gloss, no tags: unknown
+                  {"senses": [{"glosses": [None, 42], "tags": []}]}]:
+        assert validity_verdict(entry) == "keep", entry
+    # Tags alone decide (no gloss needed): a bare alternative-tagged
+    # single sense IS junk.
+    assert validity_verdict({"senses": [{"tags": ["alternative"]}]}) == \
+        "drop:validity"
+    assert is_junk_sense("bogus") is False
+    assert is_junk_sense(None) is False
+
+
+def test_validity_sieve_end_to_end(tmp_path, capsys):
+    # de-like entry drops at sampling WITHOUT reaching the reservoir
+    # (skipped_validity); be/do/go-like entries with true senses keep.
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("PilotA1", "noun", "A1")]
+    fallback = {"de|noun": "A1", "be|verb": "A1", "do|verb": "A1",
+                "go|verb": "A1"}
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    dump, index, lookup = build_dump_index_entries(dump_dir, [
+        ("de", "noun", de_like_senses()),
+        ("be", "verb", [_sense("To exist.")]),
+        ("do", "verb", [_sense("To perform an action."),
+                        _sense("Alternative spelling of dew.",
+                               tags=["alternative"])]),
+        ("go", "verb", [_sense("To move from one place to another.")]),
+    ])
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+    argv = ["--lang", "en", "--dump", dump, "--index", index,
+            "--lookup", lookup, "--pack", pack,
+            "--out", out, "--progress", progress,
+            "--mix", "4,0,0,0,0,0", "--seed", "7", "--batch", "4"]
+    assert main(argv) == 0
+    by_lemma = {row["lemma"]: row for row in read_rows(out)}
+    assert "de" not in by_lemma
+    assert set(["be", "do", "go"]) <= set(by_lemma)
+    assert "PilotA1" in by_lemma
+    assert len(by_lemma) == 4
+    text = capsys.readouterr().out
+    assert "'skipped_validity': 1" in text
