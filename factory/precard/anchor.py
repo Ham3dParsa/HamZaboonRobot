@@ -45,6 +45,10 @@ PROPER_NOUN_POS = {"name", "propn"}
 VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
                "ethnic-slur", "slur"}
 
+# Dataset truth for dead-register senses (single source; the sampler
+# imports this, never redefines it).
+OBSOLETE_TAGS = {"obsolete", "archaic", "dated", "historical"}
+
 
 REGISTER_META_RX = re.compile(r"^senses relating to\b")
 
@@ -266,7 +270,7 @@ def _v14_register_penalty(tags, gloss):
         return 0.50
     if g in ("A surname.", "A place name.", "A surname.", "A given name."):
         return 0.50
-    if t & {"obsolete", "archaic", "dated", "historical"}:
+    if t & OBSOLETE_TAGS:
         return 0.80
     return 1.0
 
