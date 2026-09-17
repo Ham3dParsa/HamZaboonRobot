@@ -111,6 +111,19 @@ def test_r3_s3_prompt_has_visual_rule():
     assert "Arts & Culture" in topics.V15_USER_TMPL
 
 
+def test_topup_tiebreak_distinguishes_leisure_from_sport():
+    """Q5 locked: the TOPUP tie-break family carries the leisure/sport
+    line (same style as the R3 color/shape rules)."""
+    assert "casual leisure" in topics.TOPUP_USER_TMPL
+    assert "Competitive sports" in topics.TOPUP_USER_TMPL
+    prompt = topics._label_prompt(
+        [{"key": "w:tennis", "text": "tennis",
+          "gloss": "a game played with rackets",
+          "sense_id": "tennis#0"}])
+    assert "casual leisure" in prompt
+    assert "Sports & Leisure" in prompt
+
+
 def test_r3_pink_like_resolves_via_llm():
     """R3 locked: a pink-like sense resolves via the LLM path (transport)."""
     import json

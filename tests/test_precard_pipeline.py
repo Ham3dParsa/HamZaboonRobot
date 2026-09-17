@@ -1861,6 +1861,47 @@ def test_g7_keeps_latin_extended_loanword():
     assert v["kept"] is True and v.get("reason") is None
 
 
+def test_brand_drops_playboy_like_name_row():
+    """D-brand (locked 2026-09-17): the Playboy #1 shape — a name-POS
+    row whose gloss carries a brand signal drops as brand-product,
+    even beside a real noun sense (locked DROP-over-queue trade-off,
+    reversible via rekey)."""
+    v = _g_classify("playboy", _g_view(
+        [("a man who has many sexual partners", [], "noun"),
+         ("An American men's lifestyle and entertainment magazine.",
+          [], "name")]))
+    assert v == {"kept": False, "reason": "brand-product",
+                 "type_pending": False}
+
+
+def test_brand_keeps_company_of_soldiers():
+    """D-brand narrowness: a collective "company" gloss under noun POS
+    is not a brand — and "company" is not a bare signal at all (the s1
+    "A tech company" name-row fixture proves it a keep) — so the item
+    keeps."""
+    v = _g_classify("company", _g_view(
+        [("A company of soldiers", [], "noun")],
+        poss=["noun"]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_brand_fail_open_on_blank_pos():
+    """D-brand fail-open: a brand-signalled gloss with no entry POS
+    ("") is uncertainty, not a brand signal — the item keeps."""
+    v = _g_classify("playboy", _g_view(
+        [("A brand of men's magazine", [], "")]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_brand_signal_under_noun_pos_keeps():
+    """D-brand conjunction: a real brand signal ("magazine") under a
+    noun (non-name) POS row never marks the row — the item keeps."""
+    v = _g_classify("magazine", _g_view(
+        [("a monthly magazine about fishing", [], "noun")],
+        poss=["noun"]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
 def test_g3_drops_interjections():
     v = _g_classify("ahem", _g_view(
         [("used to attract attention", [])], poss=["interj"]))
