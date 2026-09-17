@@ -1035,6 +1035,35 @@ def test_charts_kpi_values_bound_to_mini_stats(tmp_path):
     assert re.search(r"(?<![0-9.])67(?![0-9.])", charts) is None
 
 
+def test_drawer_grid_scrolls_with_workspace_floor(tmp_path):
+    """T1 (plan-precard-viewer-responsive R1): drawer grid caps at 38vh
+    with internal scroll; workspace never collapses below 200px."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    grid = re.search(r"\.dist-grid \{(.*?)\}", html, re.S).group(1)
+    assert "max-height: 38vh" in grid
+    assert "overflow-y: auto" in grid
+    workspace = re.search(r"\.split-workspace \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 200px" in workspace
+
+
+def test_phone_stacking_media_query(tmp_path):
+    """T2 (plan-precard-viewer-responsive R2): phone-only (<=640px)
+    single-column stacking; kbd hints hidden."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "@media (max-width:640px)" in html
+    media = html[html.find("@media (max-width:640px)"):]
+    assert "grid-template-columns: 1fr" in media
+    assert re.search(
+        r"\.shortcut-hint,\s*\.kbd-key\s*\{[^}]*display:\s*none",
+        media)
+
+
 def test_charts_widths_math_exact_mini(tmp_path):
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
