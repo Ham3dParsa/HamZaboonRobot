@@ -750,6 +750,7 @@ def build_context(
     run_graph: bool,
     allow_risky: bool = False,
     probe_timeout: float = PROBE_TIMEOUT_SEC,
+    graph_explicit: bool = False,
 ) -> tuple[dict, str | None, int]:
     """Assemble the review context.
 
@@ -776,7 +777,8 @@ def build_context(
     radius_truncated = False
     queried = False
 
-    if run_graph and shutil.which("graphify") is None:
+    if run_graph and not graph_explicit \
+            and shutil.which("graphify") is None:
         note = ((note + "; " if note else "")
                 + "graphify not found: blast_radius from AST scan only")
     elif run_graph:
@@ -863,6 +865,7 @@ def main(argv: list[str] | None = None) -> int:
         run_graph=not args.no_graph,
         allow_risky=args.allow_risky,
         probe_timeout=args.probe_timeout,
+        graph_explicit=args.graph is not None,
     )
     out_path = Path(args.out)
     out_path.write_text(json.dumps(context, indent=2), encoding="utf-8")

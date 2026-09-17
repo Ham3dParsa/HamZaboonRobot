@@ -13,6 +13,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "review_blast_radius.py"
@@ -110,7 +111,11 @@ class ReviewBlastRadiusShapeTest(unittest.TestCase):
                              encoding="utf-8")
             out = str(Path(tmp) / "review-context.json")
             buf = io.StringIO()
-            with redirect_stderr(buf):
+            # Hermetic w.r.t. the graphify binary (absent in CI): an explicit
+            # --graph file must be honored without the binary on PATH.
+            with mock.patch.object(rbr.shutil, "which",
+                                   return_value=None), \
+                    redirect_stderr(buf):
                 code = rbr.main(["--base", "HEAD", "--out", out,
                                  "--no-update", "--no-probes",
                                  "--graph", str(graph)])
