@@ -10,6 +10,7 @@ import html
 import json
 import math
 import re
+import sys
 from collections import OrderedDict
 from pathlib import Path
 
@@ -23,6 +24,741 @@ from factory.precard.topics import LABELS as _TOPIC_LABELS
 _PROPER_RE = re.compile(r"w:([A-Za-z]+):pick-proper-noun/([^\s,)]+)")
 
 _STAGE_IDS = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
+
+_LANGS = ("en", "fa")
+
+STRINGS = {
+    "en": {
+        "brand": "Precard Studio",
+        "loading": "Loading...",
+        "navigate": "↑↓ or J K navigate",
+        "theme": "Theme",
+        "search.ph": "Search lemma or key... (press /)",
+        "title": "precard viewer — {run}",
+        "placeholder": "Select a word from the left list",
+        "all.topics": "All Topics",
+        "topics.title": ("All Topics counts all lemmas (kept + dropped); "
+                         "each topic counts kept-only lemmas"),
+        "all.statuses": "All Statuses",
+        "kept.only": "Kept Only",
+        "dropped.only": "Dropped Only",
+        "synthetic": "Needs Synthetic Ex",
+        "status.title": ("Dropped lemmas carry no senses: Dropped Only "
+                         "combined with a CEFR, topic, style, method, or "
+                         "source filter matches nothing"),
+        "all.styles": "All Styles",
+        "styles.title": ("All Styles counts all lemmas (kept + dropped); "
+                         "each style counts kept-only lemmas with any sense "
+                         "carrying it"),
+        "all.methods": "All Methods",
+        "methods.title": ("All Methods counts all lemmas (kept + dropped); "
+                          "each method counts kept-only lemmas with any sense "
+                          "using it"),
+        "all.sources": "All Sources",
+        "sources.title": ("All Sources counts all lemmas (kept + dropped); "
+                          "each source counts kept-only lemmas with any sense "
+                          "from it"),
+        "sort.default": "Original Order",
+        "sort.alpha": "A → Z",
+        "sort.senses": "Senses (High to Low)",
+        "sort.cefr": "CEFR Level",
+        "sort.title": ("CEFR Level sorts by each kept lemma's lowest sense "
+                       "CEFR (filter matches any sense)"),
+        "opt.kept": "{v} ({N} kept lemmas)",
+        "pill.all": "ALL: all {N} lemmas (kept + dropped)",
+        "pill.level": ("{L}: {N} kept-only lemmas with any sense at {L} "
+                       "(pool or sense CEFR; one lemma may count in "
+                       "2 levels)"),
+        "strip": ("{N} lemmas (all: {K} kept, {D} dropped) · {P} precards "
+                  "(kept-only rows) · kept rate {R}% (kept lemmas / "
+                  "all lemmas)"),
+        "drops.tip": ("drops by reason (dropped.log): {H}: {N} "
+                      "dropped lemmas"),
+        "drops.none": "no drops recorded",
+        "summary": ("Distributions — nine metric groups · lemma-level "
+                    "(exists, overlaps noted) vs precard-level (row-level) · "
+                    "every number names its unit"),
+        "g1.h": "precards per kept lemma",
+        "g1.kv": ("mean {a} precards · median {b} · p90 {c} (over {N} "
+                  "kept lemmas)"),
+        "g1.buckets": ("1 precard / 2 precards / 3 precards / 4+ precards ; "
+                       "precards bucket ; kept lemmas"),
+        "g2.h": "kept vs dropped",
+        "g2.kv": ("{K} kept lemmas · {D} dropped lemmas · kept rate {R}% "
+                  "(kept lemmas / all lemmas)"),
+        "g2.th": "drop reason (stage signal) ; dropped lemmas",
+        "g3.h": "senses by CEFR",
+        "g3.th": "CEFR ; kept lemmas, lemma-level (exists) ; precards, row-level",
+        "g3.note": ("lemma counts overlap: {N} kept lemmas sit in 2+ CEFR "
+                    "buckets (sense_cefr ∪ pool_level); precard counts are "
+                    "row-level and never overlap."),
+        "g4.h": "senses by topic",
+        "g4.th": "topic ; (same two columns as g3)",
+        "g4.note": ("lemma counts overlap: {N} kept lemmas sit in 2+ topic "
+                    "buckets; {P} precards carry no topic label."),
+        "g4.empty": "no topic labels",
+        "g5.h": "synthetic examples needed",
+        "g5.kv": ("{P} precards ({PP}% of all precards) · {M} kept lemmas "
+                  "({MP}% of kept lemmas)"),
+        "g6.h": "pool-vs-sense CEFR mismatch",
+        "g6.kv": ("{P} precards ({PP}% of all precards) · {M} kept lemmas "
+                  "with ≥1 mismatch"),
+        "g6.ev": ("evidenced-only: {E} precards ({EP}% of {D} evidenced "
+                  "precards)"),
+        "g6.note": ("evidenced = sense_cefr_method other than pool-fallback "
+                    "or (unknown) (copied levels match by construction)."),
+        "g7.h": "CEFR provenance",
+        "g7.th": "CEFR method ; precards, row-level",
+        "g7.note": ("row-level sense_cefr_method; pool-fallback levels are "
+                    "copied from the pool."),
+        "g8.h": "topic s4 paths",
+        "g8.th": "s4 path ; precards, row-level",
+        "g8.note": "row-level stage_calls.s4_path.",
+        "g9.h": "example sourcing",
+        "g9.th": "example source ; precards, row-level",
+        "g9.note": "row-level example_fallback.",
+        "empty.rows": "no rows",
+        "count": ("{F} of {M} lemmas (filtered view, all) · {P} precards "
+                  "(kept-only)"),
+        "count.title": ("Filtered view over all {N} lemmas ({K} kept, "
+                        "{D} dropped) and {P} precards (kept-only rows)"),
+        "drop.badge": "DROP",
+        "cefr.title": "lowest CEFR across senses (filter matches any sense)",
+        "badge.title": "{N} precards (kept-only senses)",
+        "hero.title": "{N} kept-only precard rows for this lemma",
+        "dropped.hero": ("dropped: {reason} / This lemma was dropped during "
+                         "precard filtering stages."),
+        "topic.title": "topic label + weight 0..1",
+        "ex.synth": ("No dataset examples — Flagged for synthetic generation "
+                     "({fb})"),
+        "ex.none": "No examples available",
+        "pipe": "Pipeline:",
+        "chip.s2": "{name} disambiguation model",
+        "chip.s3": "{name} model",
+        "chip.s4": "{name} path: {p}",
+        "copy.id": "Copy ID / Copy Sense / Copied!",
+        "pool.badge": "Pool level: {p} / pool: {p}",
+        "foot.fallback": "fallback:",
+        "foot.cefr": "cefr-src:",
+        "foot.ipa": "ipa-src:",
+        "foot.hash": "Precard Hash ID / hash:",
+        "empty.h": "No matching lemmas found",
+        "empty.p": "Try adjusting your filters or search query.",
+        "empty.drop": ("Dropped lemmas carry no senses, so a CEFR/topic/style/"
+                       "method/source filter never matches them. Clear them "
+                       "to browse all {N} dropped lemmas."),
+        "ban.sample": "sample order skipped (missing {p})",
+        "ban.rows": "precard rows skipped (missing {p})",
+        "ban.dropped": "dropped list skipped (missing {p})",
+        "ban.runlog": "run-log scan skipped (missing {p})",
+    },
+    "fa": {
+        "brand": "استودیو پیش‌کارت",
+        "loading": "در حال بارگذاری…",
+        "navigate": "‎↑ ↓ یا J K برای جابه‌جایی",
+        "theme": "پوسته",
+        "search.ph": "جست‌وجوی لِما یا کلید… (کلید /)",
+        "title": "نمایشگر پیش‌کارت — {run}",
+        "placeholder": "یک واژه را از فهرست کناری انتخاب کنید",
+        "all.topics": "همه موضوع‌ها",
+        "topics.title": ("«همه موضوع‌ها» همه لِماها را می‌شمارد (نگه‌داشته‌شده + "
+                         "حذف‌شده)؛ هر موضوع فقط لِماهای نگه‌داشته‌شده را می‌شمارد"),
+        "all.statuses": "همه وضعیت‌ها",
+        "kept.only": "فقط نگه‌داشته‌شده‌ها",
+        "dropped.only": "فقط حذف‌شده‌ها",
+        "synthetic": "نیازمند مثال ساختگی",
+        "status.title": ("لِماهای حذف‌شده معنی‌ای ندارند: «فقط حذف‌شده‌ها» همراه فیلتر "
+                         "سطح، موضوع، سبک، متد یا منبع هیچ نتیجه‌ای ندارد"),
+        "all.styles": "همه سبک‌ها",
+        "styles.title": ("«همه سبک‌ها» همه لِماها را می‌شمارد (نگه‌داشته‌شده + "
+                         "حذف‌شده)؛ هر سبک فقط لِماهای نگه‌داشته‌شده‌ای را می‌شمارد "
+                         "که معنی‌ای با آن دارند"),
+        "all.methods": "همه متدها",
+        "methods.title": ("«همه متدها» همه لِماها را می‌شمارد (نگه‌داشته‌شده + "
+                          "حذف‌شده)؛ هر متد فقط لِماهای نگه‌داشته‌شده‌ای را می‌شمارد "
+                          "که معنی‌ای با آن دارند"),
+        "all.sources": "همه منبع‌ها",
+        "sources.title": ("«همه منبع‌ها» همه لِماها را می‌شمارد (نگه‌داشته‌شده + "
+                          "حذف‌شده)؛ هر منبع فقط لِماهای نگه‌داشته‌شده‌ای را می‌شمارد "
+                          "که معنی‌ای از آن دارند"),
+        "sort.default": "ترتیب اصلی",
+        "sort.alpha": "الفبا (A تا Z)",
+        "sort.senses": "معنی‌ها (زیاد به کم)",
+        "sort.cefr": "سطح CEFR",
+        "sort.title": ("«سطح CEFR» بر اساس پایین‌ترین سطح معنی هر لمای نگه‌داشته‌شده "
+                       "مرتب می‌کند (فیلتر با هر معنی‌ای منطبق می‌شود)"),
+        "opt.kept": "{v} ({N} لمای نگه‌داشته‌شده)",
+        "pill.all": "همه: همه {N} لِما (نگه‌داشته‌شده + حذف‌شده)",
+        "pill.level": ("{L}: {N} لمای نگه‌داشته‌شده با معنی در {L} (CEFR پول یا "
+                       "معنی؛ یک لِما ممکن است در ۲ سطح شمرده شود)"),
+        "strip": ("{N} لِما (همه: {K} نگه‌داشته‌شده، {D} حذف‌شده) · {P} پیش‌کارت "
+                  "(فقط ردیف‌های نگه‌داشته‌شده) · نرخ ماندگاری {R}٪ (لِماهای "
+                  "نگه‌داشته‌شده / همه لِماها)"),
+        "drops.tip": ("حذف‌ها بر اساس دلیل (dropped.log): ‏{H}: {N} لمای حذف‌شده"),
+        "drops.none": "حذفی ثبت نشده",
+        "summary": ("توزیع‌ها — ۹ گروه سنجه · سطح لِما (وجودی، با ذکر هم‌پوشانی‌ها) "
+                    "در برابر سطح پیش‌کارت (ردیفی) · هر عدد واحد خود را مشخص می‌کند"),
+        "g1.h": "پیش‌کارت به‌ازای هر لمای نگه‌داشته‌شده",
+        "g1.kv": ("میانگین {a} پیش‌کارت · میانه {b} · صدک نود {c} (روی {N} لمای "
+                  "نگه‌داشته‌شده)"),
+        "g1.buckets": ("1 پیش‌کارت / 2 پیش‌کارت / 3 پیش‌کارت / 4+ پیش‌کارت ؛ "
+                       "بازه پیش‌کارت ؛ لِماهای نگه‌داشته‌شده"),
+        "g2.h": "نگه‌داشته‌شده در برابر حذف‌شده",
+        "g2.kv": ("{K} لمای نگه‌داشته‌شده · {D} لمای حذف‌شده · نرخ ماندگاری {R}٪ "
+                  "(لِماهای نگه‌داشته‌شده / همه لِماها)"),
+        "g2.th": "دلیل حذف (سیگنال مرحله) ؛ لِماهای حذف‌شده",
+        "g3.h": "معنی‌ها بر اساس CEFR",
+        "g3.th": "CEFR ؛ لِماهای نگه‌داشته‌شده، سطح لِما (وجودی) ؛ پیش‌کارتها، سطح ردیفی",
+        "g3.note": ("شمارش لِماها هم‌پوشانی دارد: {N} لمای نگه‌داشته‌شده در ۲+ بازه "
+                    "CEFR هستند (sense_cefr ∪ pool_level)؛ شمارش پیش‌کارتها ردیفی "
+                    "است و هرگز هم‌پوشانی ندارد."),
+        "g4.h": "معنی‌ها بر اساس موضوع",
+        "g4.th": "موضوع ؛ (همان دو ستون گروه ۳)",
+        "g4.note": ("شمارش لِماها هم‌پوشانی دارد: {N} لمای نگه‌داشته‌شده در ۲+ بازه "
+                    "موضوعی هستند؛ {P} پیش‌کارت فاقد برچسب موضوعی‌اند."),
+        "g4.empty": "بدون برچسب موضوعی",
+        "g5.h": "مثال‌های ساختگی موردنیاز",
+        "g5.kv": ("{P} پیش‌کارت ({PP}٪ از همه پیش‌کارتها) · {M} لمای نگه‌داشته‌شده "
+                  "({MP}٪ از لِماهای نگه‌داشته‌شده)"),
+        "g6.h": "مغایرت CEFR پول و معنی",
+        "g6.kv": ("{P} پیش‌کارت ({PP}٪ از همه پیش‌کارتها) · {M} لمای نگه‌داشته‌شده "
+                  "با ۱+ مغایرت"),
+        "g6.ev": "فقط مدرک‌دارها: {E} پیش‌کارت ({EP}٪ از {D} پیش‌کارت مدرک‌دار)",
+        "g6.note": ("مدرک‌دار یعنی sense_cefr_method غیر از pool-fallback یا (unknown) "
+                    "(سطوح کپی‌شده طبق تعریف منطبق‌اند)."),
+        "g7.h": "منشأ سطح CEFR",
+        "g7.th": "متد CEFR ؛ پیش‌کارتها، سطح ردیفی",
+        "g7.note": ("در سطح ردیف: sense_cefr_method؛ سطوح pool-fallback از پول کپی "
+                    "شده‌اند."),
+        "g8.h": "مسیرهای s4 موضوع",
+        "g8.th": "مسیر s4 ؛ پیش‌کارتها، سطح ردیفی",
+        "g8.note": "در سطح ردیف: stage_calls.s4_path.",
+        "g9.h": "منشأ مثال‌ها",
+        "g9.th": "منبع مثال ؛ پیش‌کارتها، سطح ردیفی",
+        "g9.note": "در سطح ردیف: example_fallback.",
+        "empty.rows": "ردیفی موجود نیست",
+        "count": ("{F} از {M} لِما (نمای فیلترشده، همه) · {P} پیش‌کارت "
+                  "(فقط نگه‌داشته‌شده)"),
+        "count.title": ("نمای فیلترشده روی همه {N} لِما ({K} نگه‌داشته‌شده، "
+                        "{D} حذف‌شده) و {P} پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)"),
+        "drop.badge": "حذف",
+        "cefr.title": "پایین‌ترین CEFR در میان معنی‌ها (فیلتر با هر معنی‌ای منطبق می‌شود)",
+        "badge.title": "{N} پیش‌کارت (فقط معنی‌های نگه‌داشته‌شده)",
+        "hero.title": "{N} ردیف پیش‌کارت نگه‌داشته‌شده برای این لِما",
+        "dropped.hero": "حذف‌شده: {reason} / این لِما در مراحل پالایش پیش‌کارت حذف شد.",
+        "topic.title": "برچسب موضوع + وزن 0..1",
+        "ex.synth": "فاقد مثال در دیتاست — نشانه‌گذاری‌شده برای تولید ساختگی ({fb})",
+        "ex.none": "مثالی موجود نیست",
+        "pipe": "خط تولید:",
+        "chip.s2": "مدل ابهام‌زدایی {name}",
+        "chip.s3": "مدل {name}",
+        "chip.s4": "مسیر {name}: ‏{p}",
+        "copy.id": "کپی شناسه / کپی معنی / کپی شد!",
+        "pool.badge": "سطح پول: {p} / پول: {p}",
+        "foot.fallback": "منبع مثال:",
+        "foot.cefr": "منبع سطح:",
+        "foot.ipa": "منبع آوا:",
+        "foot.hash": "شناسه هش پیش‌کارت / هش:",
+        "empty.h": "هیچ لمای منطبقی پیدا نشد",
+        "empty.p": "فیلترها یا عبارت جست‌وجو را تغییر دهید.",
+        "empty.drop": ("لِماهای حذف‌شده معنی‌ای ندارند؛ بنابراین فیلترهای سطح، موضوع، "
+                       "سبک، متد یا منبع با آن‌ها منطبق نمی‌شوند. فیلترها را پاک کنید "
+                       "تا همه {N} لمای حذف‌شده را ببینید."),
+        "ban.sample": "ترتیب نمونه نادیده گرفته شد (فاقد {p})",
+        "ban.rows": "ردیف‌های پیش‌کارت نادیده گرفته شد (فاقد {p})",
+        "ban.dropped": "فهرست حذف‌شده‌ها نادیده گرفته شد (فاقد {p})",
+        "ban.runlog": "پویش لاگ اجرا نادیده گرفته شد (فاقد {p})",
+    },
+}
+
+
+def _tr(lang, key, **kwargs):
+    text = STRINGS[lang][key]
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
+
+_RTL_CSS = """
+[dir="rtl"] .sidebar { border-right: none; border-left: 1px solid var(--border-subtle); }
+[dir="rtl"] .lemma-list-item.selected { border-left: none; border-right: 3px solid var(--accent); }
+[dir="rtl"] .dist-group th, [dir="rtl"] .dist-group td { text-align: right; }
+[dir="rtl"] .dist-group td.num { text-align: left; }
+[dir="rtl"] .example-item { border-left: none; border-right: 3px solid var(--border-strong); border-radius: 6px 0 0 6px; }
+[dir="rtl"] .search-input { text-align: right; }
+[dir="rtl"] .detail-pane { text-align: right; }
+[dir="rtl"] .hero-title-group { flex-direction: row; }
+[dir="rtl"] .telemetry-box { flex-direction: row; }
+[dir="rtl"] .filter-bar { flex-direction: row; }
+[dir="rtl"] {
+  --font-sans: "Segoe UI", system-ui, sans-serif;
+}
+[dir="rtl"] .header-strip,
+[dir="rtl"] .dist-drawer > summary,
+[dir="rtl"] .dist-hint,
+[dir="rtl"] .dist-group h3,
+[dir="rtl"] .dist-group table,
+[dir="rtl"] .dist-note,
+[dir="rtl"] .dist-kv,
+[dir="rtl"] .stats-badge,
+[dir="rtl"] .pill-btn,
+[dir="rtl"] .select-filter,
+[dir="rtl"] .search-input,
+[dir="rtl"] .shortcut-hint,
+[dir="rtl"] .telemetry-box,
+[dir="rtl"] .no-examples-notice,
+[dir="rtl"] .dropped-reason-pill,
+[dir="rtl"] .copy-btn,
+[dir="rtl"] .viewer-banner {
+  font-family: var(--font-sans);
+}
+"""
+
+_FA_TOGGLE = ('\n      <a class="theme-toggle-btn" '
+              'href="precard-viewer.html" style="text-decoration:none;">EN</a>')
+
+
+def _en_toggle(href):
+    return ('\n      <a class="theme-toggle-btn" '
+            'href="%s" style="text-decoration:none;">FA</a>' % href)
+
+
+def _inject_en_toggle(page, href):
+    return _sub_once(page, "      </button>\n    </div>\n  </header>",
+                     "      </button>%s\n    </div>\n  </header>"
+                     % _en_toggle(href))
+
+
+def _sub_once(page, old, new):
+    found = page.find(old)
+    if found < 0:
+        raise AssertionError(
+            "viewer-fa: expected chrome not found: %r" % old[:60])
+    return page[:found] + new + page[found + len(old):]
+
+
+def _header_strip_fa(stats):
+    if stats["drops_by_reason"]:
+        drops_tip = ("حذف‌ها بر اساس دلیل (dropped.log): ‏"
+                     + ", ".join("%s: %d لمای حذف‌شده" % (head, count)
+                                 for head, count in stats["drops_by_reason"]))
+    else:
+        drops_tip = _tr("fa", "drops.none")
+    return (
+        '<div class="header-strip" id="headerStrip" title="%s">'
+        '<span><b>%d</b> لِما '
+        '<span class="hs-dim">(همه: <b>%d</b> نگه‌داشته‌شده، '
+        '<b>%d</b> حذف‌شده)</span></span>'
+        '<span class="hs-sep">\u00b7</span>'
+        '<span><b>%d</b> پیش‌کارت '
+        '<span class="hs-dim">(فقط ردیف‌های نگه‌داشته‌شده)</span></span>'
+        '<span class="hs-sep">\u00b7</span>'
+        '<span>نرخ ماندگاری <b>%d٪</b> '
+        '<span class="hs-dim">(لِماهای نگه‌داشته‌شده / همه لِماها)</span></span>'
+        "</div>" % (
+            html.escape(drops_tip, quote=True),
+            stats["lemmas_total"], stats["lemmas_kept"],
+            stats["lemmas_dropped"], stats["precards_total"],
+            stats["kept_rate_pct"]))
+
+
+def _fa_th(key):
+    return [part.strip() for part in STRINGS["fa"][key].split("؛")]
+
+
+def _dist_drawer_fa(stats):
+    ppc = stats["ppc"]
+    buckets = [part.strip() for part in
+               STRINGS["fa"]["g1.buckets"].split("؛")]
+    bucket_labels = [part.strip() for part in buckets[0].split("/")]
+    g1 = (
+        "<h3>1 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g1.h"])
+        + '<p class="dist-kv">%s</p>' % _esc(_tr(
+            "fa", "g1.kv", a=ppc["mean"], b=ppc["median"],
+            c=ppc["p90"], N=stats["lemmas_kept"]))
+        + _dist_table(
+            (buckets[1], buckets[2]),
+            [(bucket_labels[0], ppc["hist"]["1"]),
+             (bucket_labels[1], ppc["hist"]["2"]),
+             (bucket_labels[2], ppc["hist"]["3"]),
+             (bucket_labels[3], ppc["hist"]["4+"])]))
+
+    g2 = (
+        "<h3>2 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g2.h"])
+        + '<p class="dist-kv">%s</p>' % _esc(_tr(
+            "fa", "g2.kv", K=stats["lemmas_kept"],
+            D=stats["lemmas_dropped"], R=stats["kept_rate_pct"]))
+        + (_dist_table(
+            _fa_th("g2.th"),
+            [(head, count) for head, count in stats["drops_by_reason"]])
+            if stats["drops_by_reason"]
+            else '<p class="dist-note">%s</p>' % _esc(_tr("fa", "drops.none"))))
+
+    levels = _ordered_levels(stats["cefr_lemma"], stats["cefr_precard"])
+    g3 = (
+        "<h3>3 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g3.h"])
+        + _dist_table(
+            _fa_th("g3.th"),
+            [(lvl, stats["cefr_lemma"].get(lvl, 0),
+              stats["cefr_precard"].get(lvl, 0)) for lvl in levels])
+        + '<p class="dist-note">%s</p>' % _esc(_tr(
+            "fa", "g3.note", N=stats["cefr_lemma_overlap"])))
+
+    labels = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),
+                    key=lambda l: (-stats["topic_precard"].get(l, 0), l))
+    g4 = (
+        "<h3>4 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g4.h"])
+        + (_dist_table(
+            _fa_th("g4.th"),
+            [(label, stats["topic_lemma"].get(label, 0),
+              stats["topic_precard"].get(label, 0)) for label in labels])
+            if labels
+            else '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g4.empty")))
+        + '<p class="dist-note">%s</p>' % _esc(_tr(
+            "fa", "g4.note", N=stats["topic_lemma_overlap"],
+            P=stats["untagged_precards"])))
+
+    synth = stats["synthetic"]
+    g5 = (
+        "<h3>5 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g5.h"])
+        + '<p class="dist-kv">%s</p>' % _esc(_tr(
+            "fa", "g5.kv", P=synth["precards"], PP=synth["precards_pct"],
+            M=synth["lemmas"], MP=synth["lemmas_pct"])))
+
+    mismatch = stats["mismatch"]
+    g6 = (
+        "<h3>6 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g6.h"])
+        + '<p class="dist-kv">%s</p>' % _esc(_tr(
+            "fa", "g6.kv", P=mismatch["precards"],
+            PP=mismatch["precards_pct"], M=mismatch["lemmas"]))
+        + '<p class="dist-kv">%s</p>' % _esc(_tr(
+            "fa", "g6.ev", E=mismatch["evidenced_precards"],
+            EP=mismatch["evidenced_pct"],
+            D=mismatch["evidenced_denominator"]))
+        + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g6.note")))
+
+    g7 = (
+        "<h3>7 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g7.h"])
+        + (_dist_table(
+            _fa_th("g7.th"),
+            [(method, "%d پیش‌کارت (%s٪)" % (
+                count, _pct(count, stats["precards_total"])))
+             for method, count in stats["cefr_method"].items()])
+            if stats["cefr_method"]
+            else '<p class="dist-note">%s</p>' % _esc(_tr("fa", "empty.rows")))
+        + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g7.note")))
+
+    g8 = (
+        "<h3>8 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g8.h"])
+        + (_dist_table(
+            _fa_th("g8.th"),
+            [(path, "%d پیش‌کارت (%s٪)" % (
+                count, _pct(count, stats["precards_total"])))
+             for path, count in stats["topic_path"].items()])
+            if stats["topic_path"]
+            else '<p class="dist-note">%s</p>' % _esc(_tr("fa", "empty.rows")))
+        + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g8.note")))
+
+    g9 = (
+        "<h3>9 \u00b7 %s</h3>" % _esc(STRINGS["fa"]["g9.h"])
+        + (_dist_table(
+            _fa_th("g9.th"),
+            [(source, "%d پیش‌کارت (%s٪)" % (
+                count, _pct(count, stats["precards_total"])))
+             for source, count in stats["example_source"].items()])
+            if stats["example_source"]
+            else '<p class="dist-note">%s</p>' % _esc(_tr("fa", "empty.rows")))
+        + '<p class="dist-note">%s</p>' % _esc(_tr("fa", "g9.note")))
+
+    return (
+        '<details class="dist-drawer" id="distDrawer">'
+        "<summary>%s</summary>" % _esc(_tr("fa", "summary"))
+        + '<div class="dist-grid">'
+        + "".join('<section class="dist-group">%s</section>' % g
+                   for g in (g1, g2, g3, g4, g5, g6, g7, g8, g9))
+        + "</div></details>")
+
+
+def _apply_fa_chrome(page):
+    page = _sub_once(page, '<html lang="en" data-theme="dark">',
+                     '<html lang="fa" dir="rtl" data-theme="dark">')
+    page = _sub_once(page, "  padding: 6px 24px;\n}\n</style>",
+                     "  padding: 6px 24px;\n}" + _RTL_CSS + "</style>")
+    page = _sub_once(page, "<h1>Precard Studio",
+                     "<h1>%s" % _tr("fa", "brand"))
+    page = _sub_once(
+        page, '<span class="stats-badge" id="statsCount">Loading...</span>',
+        '<span class="stats-badge" id="statsCount">%s</span>'
+        % _tr("fa", "loading"))
+    page = _sub_once(
+        page,
+        "      <div class=\"shortcut-hint\">\n"
+        "        <span class=\"kbd-key\">↑</span><span class=\"kbd-key\">↓</span>"
+        " or <span class=\"kbd-key\">J</span><span class=\"kbd-key\">K</span>"
+        " navigate\n"
+        "      </div>",
+        "      <div class=\"shortcut-hint\">%s</div>" % _tr("fa", "navigate"))
+    page = _sub_once(
+        page, "<span id=\"themeIcon\">☀️</span> Theme",
+        "<span id=\"themeIcon\">☀️</span> %s" % _tr("fa", "theme"))
+    page = _sub_once(page, "      </button>\n    </div>\n  </header>",
+                     "      </button>%s\n    </div>\n  </header>" % _FA_TOGGLE)
+    page = _sub_once(page, 'placeholder="Search lemma or key... (press /)"',
+                     'placeholder="%s"' % html.escape(
+                         _tr("fa", "search.ph"), quote=True))
+    page = _sub_once(
+        page,
+        "      title=\"All Topics counts all lemmas (kept + dropped); "
+        "each topic counts kept-only lemmas\">\n"
+        "      <option value=\"ALL\">All Topics</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"ALL\">%s</option>" % (
+            html.escape(_tr("fa", "topics.title"), quote=True),
+            _tr("fa", "all.topics")))
+    page = _sub_once(
+        page,
+        "      title=\"Dropped lemmas carry no senses: Dropped Only combined "
+        "with a CEFR, topic, style, method, or source filter matches "
+        "nothing\">\n"
+        "      <option value=\"ALL\">All Statuses</option>\n"
+        "      <option value=\"KEPT\">Kept Only</option>\n"
+        "      <option value=\"DROPPED\">Dropped Only</option>\n"
+        "      <option value=\"SYNTHETIC\">Needs Synthetic Ex</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"ALL\">%s</option>\n"
+        "      <option value=\"KEPT\">%s</option>\n"
+        "      <option value=\"DROPPED\">%s</option>\n"
+        "      <option value=\"SYNTHETIC\">%s</option>" % (
+            html.escape(_tr("fa", "status.title"), quote=True),
+            _tr("fa", "all.statuses"), _tr("fa", "kept.only"),
+            _tr("fa", "dropped.only"), _tr("fa", "synthetic")))
+    page = _sub_once(
+        page,
+        "      title=\"All Styles counts all lemmas (kept + dropped); each "
+        "style counts kept-only lemmas with any sense carrying it\">\n"
+        "      <option value=\"ALL\">All Styles</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"ALL\">%s</option>" % (
+            html.escape(_tr("fa", "styles.title"), quote=True),
+            _tr("fa", "all.styles")))
+    page = _sub_once(
+        page,
+        "      title=\"All Methods counts all lemmas (kept + dropped); each "
+        "method counts kept-only lemmas with any sense using it\">\n"
+        "      <option value=\"ALL\">All Methods</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"ALL\">%s</option>" % (
+            html.escape(_tr("fa", "methods.title"), quote=True),
+            _tr("fa", "all.methods")))
+    page = _sub_once(
+        page,
+        "      title=\"All Sources counts all lemmas (kept + dropped); each "
+        "source counts kept-only lemmas with any sense from it\">\n"
+        "      <option value=\"ALL\">All Sources</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"ALL\">%s</option>" % (
+            html.escape(_tr("fa", "sources.title"), quote=True),
+            _tr("fa", "all.sources")))
+    page = _sub_once(
+        page,
+        "      title=\"CEFR Level sorts by each kept lemma's lowest sense "
+        "CEFR (filter matches any sense)\">\n"
+        "      <option value=\"DEFAULT\">Original Order</option>\n"
+        "      <option value=\"ALPHA\">A → Z</option>\n"
+        "      <option value=\"SENSES_DESC\">Senses (High to Low)</option>\n"
+        "      <option value=\"CEFR_ASC\">CEFR Level</option>",
+        "      title=\"%s\">\n"
+        "      <option value=\"DEFAULT\">%s</option>\n"
+        "      <option value=\"ALPHA\">%s</option>\n"
+        "      <option value=\"SENSES_DESC\">%s</option>\n"
+        "      <option value=\"CEFR_ASC\">%s</option>" % (
+            html.escape(_tr("fa", "sort.title"), quote=True),
+            _tr("fa", "sort.default"), _tr("fa", "sort.alpha"),
+            _tr("fa", "sort.senses"), _tr("fa", "sort.cefr")))
+    page = _sub_once(
+        page, ">Select a word from the left list</div>",
+        ">%s</div>" % _tr("fa", "placeholder"))
+    return page
+
+
+_FA_JS_HELPERS = """
+const UI_STRINGS = __UI_STRINGS__;
+function trFmt(t, params) {
+  let s = t || "";
+  if (params) {
+    Object.keys(params).sort((a, b) => b.length - a.length).forEach(k => {
+      s = s.split("{" + k + "}").join(params[k]);
+    });
+  }
+  return s;
+}
+function tr(key, params) { return trFmt(UI_STRINGS[key], params); }
+function trPart(key, i, params) {
+  return trFmt((UI_STRINGS[key] || "").split(" / ")[i] || "", params);
+}
+"""
+
+
+def _apply_fa_js(page):
+    page = _sub_once(page, "const KNOWN_TOPICS =",
+                     _FA_JS_HELPERS.replace(
+                         "__UI_STRINGS__",
+                         _neutralise(json.dumps(STRINGS["fa"],
+                                                ensure_ascii=False)))
+                     + "const KNOWN_TOPICS =")
+    subs = [
+        ("if (allPill) allPill.title = `ALL: all "
+         "${escapeHtml(STATS.lemmas_total)} lemmas (kept + dropped)`;",
+         "if (allPill) allPill.title = tr(\"pill.all\", "
+         "{N: escapeHtml(STATS.lemmas_total)});"),
+        ("if (btn) btn.title = `${escapeHtml(lvl)}: ${escapeHtml(count)} "
+         "kept-only lemmas with any sense at ${escapeHtml(lvl)} (pool or "
+         "sense CEFR; one lemma may count in 2 levels)`;",
+         "if (btn) btn.title = tr(\"pill.level\", {L: escapeHtml(lvl), "
+         "N: escapeHtml(count)});"),
+        ("sel.innerHTML = `<option value=\"ALL\">All Topics "
+         "(${RAW_LEMMAS.length})</option>`;",
+         "sel.innerHTML = `<option value=\"ALL\">${tr(\"opt.kept\", "
+         "{v: UI_STRINGS[\"all.topics\"], N: RAW_LEMMAS.length})}</option>`;"),
+        ("styleSel.innerHTML = `<option value=\"ALL\">All Styles "
+         "(${RAW_LEMMAS.length})</option>`;",
+         "styleSel.innerHTML = `<option value=\"ALL\">${tr(\"opt.kept\", "
+         "{v: UI_STRINGS[\"all.styles\"], N: RAW_LEMMAS.length})}</option>`;"),
+        ("methodSel.innerHTML = `<option value=\"ALL\">All Methods "
+         "(${RAW_LEMMAS.length})</option>`;",
+         "methodSel.innerHTML = `<option value=\"ALL\">${tr(\"opt.kept\", "
+         "{v: UI_STRINGS[\"all.methods\"], N: RAW_LEMMAS.length})}</option>`;"),
+        ("sourceSel.innerHTML = `<option value=\"ALL\">All Sources "
+         "(${RAW_LEMMAS.length})</option>`;",
+         "sourceSel.innerHTML = `<option value=\"ALL\">${tr(\"opt.kept\", "
+         "{v: UI_STRINGS[\"all.sources\"], N: RAW_LEMMAS.length})}</option>`;"),
+        ("opt.textContent = `${t} (${topicCounts[t]})`;",
+         "opt.textContent = tr(\"opt.kept\", {v: t, N: topicCounts[t]});"),
+        ("opt.textContent = `${v} (${styleCounts[v]} kept lemmas)`;",
+         "opt.textContent = tr(\"opt.kept\", {v: v, N: styleCounts[v]});"),
+        ("opt.textContent = `${v} (${methodCounts[v]} kept lemmas)`;",
+         "opt.textContent = tr(\"opt.kept\", {v: v, N: methodCounts[v]});"),
+        ("opt.textContent = `${v} (${sourceCounts[v]} kept lemmas)`;",
+         "opt.textContent = tr(\"opt.kept\", {v: v, N: sourceCounts[v]});"),
+        ("opt.title = `${v}: ${styleCounts[v]} kept-only lemmas "
+         "with any sense carrying it`;",
+         "opt.title = `${v}: ${styleCounts[v]} "
+         "لمای نگه‌داشته‌شده با معنی منطبق`;"),
+        ("opt.title = `${v}: ${methodCounts[v]} kept-only lemmas "
+         "with any sense using it`;",
+         "opt.title = `${v}: ${methodCounts[v]} "
+         "لمای نگه‌داشته‌شده با معنی منطبق`;"),
+        ("opt.title = `${v}: ${sourceCounts[v]} kept-only lemmas "
+         "with any sense from it`;",
+         "opt.title = `${v}: ${sourceCounts[v]} "
+         "لمای نگه‌داشته‌شده با معنی منطبق`;"),
+        ("let hint = \"Try adjusting your filters or search query.\";",
+         "let hint = UI_STRINGS[\"empty.p\"];"),
+        ("hint = `Dropped lemmas carry no senses, so a "
+         "CEFR/topic/style/method/source filter never matches them. `",
+         "hint = tr(\"empty.drop\", {N: STATS.lemmas_dropped});"),
+        ("        + `Clear them to browse all ${STATS.lemmas_dropped} "
+         "dropped lemmas.`;", ""),
+        ("<h3>No matching lemmas found</h3>",
+         "<h3>${UI_STRINGS[\"empty.h\"]}</h3>"),
+        ("statsEl.textContent = `${escapeHtml(filteredList.length)} of "
+         "${escapeHtml(RAW_LEMMAS.length)} lemmas (filtered view, all) · "
+         "${escapeHtml(filteredPrecards)} precards (kept-only)`;",
+         "statsEl.textContent = tr(\"count\", "
+         "{F: escapeHtml(filteredList.length), "
+         "M: escapeHtml(RAW_LEMMAS.length), "
+         "P: escapeHtml(filteredPrecards)});"),
+        ("statsEl.title = `Filtered view over all "
+         "${escapeHtml(STATS.lemmas_total)} lemmas "
+         "(${escapeHtml(STATS.lemmas_kept)} kept, "
+         "${escapeHtml(STATS.lemmas_dropped)} dropped) and "
+         "${escapeHtml(STATS.precards_total)} precards (kept-only rows)`;",
+         "statsEl.title = tr(\"count.title\", "
+         "{N: escapeHtml(STATS.lemmas_total), "
+         "K: escapeHtml(STATS.lemmas_kept), "
+         "D: escapeHtml(STATS.lemmas_dropped), "
+         "P: escapeHtml(STATS.precards_total)});"),
+        ("border-color:var(--drop-b);\">DROP</span>",
+         "border-color:var(--drop-b);\">${UI_STRINGS[\"drop.badge\"]}</span>"),
+        ("title=\"lowest CEFR across senses (filter matches any sense)\"",
+         "title=\"${UI_STRINGS[\"cefr.title\"]}\""),
+        ("title=\"${escapeHtml(nPrecards)} precards (kept-only senses)\""
+         ">${escapeHtml(nPrecards)} precards</span>",
+         "title=\"${tr(\"badge.title\", {N: escapeHtml(nPrecards)})}\">"
+         "${escapeHtml(nPrecards)} پیش‌کارت</span>"),
+        ("btn.textContent = \"Copied!\";",
+         "btn.textContent = trPart(\"copy.id\", 2);"),
+        ("<div class=\"dropped-reason-pill\">dropped: "
+         "${escapeHtml(item.drop_reason)}</div>",
+         "<div class=\"dropped-reason-pill\">"
+         "${trPart(\"dropped.hero\", 0, "
+         "{reason: escapeHtml(item.drop_reason)})}</div>"),
+        ("<p style=\"margin-top:16px; font-size:13px; "
+         "color:var(--text-secondary)\">This lemma was dropped during precard "
+         "filtering stages.</p>",
+         "<p style=\"margin-top:16px; font-size:13px; "
+         "color:var(--text-secondary)\">"
+         "${trPart(\"dropped.hero\", 1, "
+         "{reason: escapeHtml(item.drop_reason)})}</p>"),
+        ("title=\"topic label + weight 0..1\"",
+         "title=\"${UI_STRINGS[\"topic.title\"]}\""),
+        ("<div class=\"no-examples-notice\">⚠️ No dataset examples — "
+         "Flagged for synthetic generation "
+         "(${escapeHtml(s.example_fallback)})</div>",
+         "<div class=\"no-examples-notice\">⚠️ "
+         "${tr(\"ex.synth\", {fb: escapeHtml(s.example_fallback)})}</div>"),
+        ("font-style:italic\">No examples available</div>",
+         "font-style:italic\">${UI_STRINGS[\"ex.none\"]}</div>"),
+        ("title=\"${STAGE_NAMES.s2 || 's2'} disambiguation model\"",
+         "title=\"${tr(\"chip.s2\", {name: STAGE_NAMES.s2 || 's2'})}\""),
+        ("title=\"${STAGE_NAMES.s3 || 's3'} model\"",
+         "title=\"${tr(\"chip.s3\", {name: STAGE_NAMES.s3 || 's3'})}\""),
+        ("title=\"${STAGE_NAMES.s4 || 's4'} path: "
+         "${escapeHtml(sc.s4_path || '')}\"",
+         "title=\"${tr(\"chip.s4\", {name: STAGE_NAMES.s4 || 's4', "
+         "p: escapeHtml(sc.s4_path || '')})}\""),
+        ("font-weight:bold;\">Pipeline:</span>",
+         "font-weight:bold;\">${UI_STRINGS[\"pipe\"]}</span>"),
+        ("data-copy-text=\"${escapeHtml(s.pre_card_id)}\">Copy ID</button>",
+         "data-copy-text=\"${escapeHtml(s.pre_card_id)}\">"
+         "${trPart(\"copy.id\", 0)}</button>"),
+        ("data-copy-text=\"${escapeHtml(s.sense_id)}\">Copy Sense</button>",
+         "data-copy-text=\"${escapeHtml(s.sense_id)}\">"
+         "${trPart(\"copy.id\", 1)}</button>"),
+        ("title=\"Pool level: ${escapeHtml(s.pool_level)}\">pool: "
+         "${escapeHtml(s.pool_level)}",
+         "title=\"${trPart(\"pool.badge\", 0, "
+         "{p: escapeHtml(s.pool_level)})}\">"
+         "${trPart(\"pool.badge\", 1, {p: escapeHtml(s.pool_level)})}"),
+        ("<span>fallback: <code>${escapeHtml(s.example_fallback)}</code></span>",
+         "<span>${UI_STRINGS[\"foot.fallback\"]} "
+         "<code>${escapeHtml(s.example_fallback)}</code></span>"),
+        ("<span>cefr-src: <code>${escapeHtml(s.sense_cefr_method)}</code></span>",
+         "<span>${UI_STRINGS[\"foot.cefr\"]} "
+         "<code>${escapeHtml(s.sense_cefr_method)}</code></span>"),
+        ("<span>ipa-src: <code>${escapeHtml(s.ipa_src || 'dataset')}</code></span>",
+         "<span>${UI_STRINGS[\"foot.ipa\"]} "
+         "<code>${escapeHtml(s.ipa_src || 'dataset')}</code></span>"),
+        ("<span title=\"Precard Hash ID\">hash: "
+         "<code>${escapeHtml(s.pre_card_id)}</code></span>",
+         "<span title=\"${trPart(\"foot.hash\", 0)}\">"
+         "${trPart(\"foot.hash\", 1)} "
+         "<code>${escapeHtml(s.pre_card_id)}</code></span>"),
+        ("title=\"${escapeHtml(item.senses.length)} kept-only precard rows "
+         "for this lemma\">${escapeHtml(item.senses.length)} precards</span>",
+         "title=\"${tr(\"hero.title\", "
+         "{N: escapeHtml(item.senses.length)})}\">"
+         "${escapeHtml(item.senses.length)} پیش‌کارت</span>"),
+        ("${item.dropped ? 'style=\"text-decoration:line-through; "
+         "opacity:0.6\"' : ''}>${escapeHtml(item.text)}</span>",
+         "${item.dropped ? 'style=\"text-decoration:line-through; "
+         "opacity:0.6\"' : ''}><bdi>${escapeHtml(item.text)}</bdi></span>"),
+        ("<span class=\"item-sub\">${escapeHtml(item.key)}</span>",
+         "<span class=\"item-sub\"><bdi>${escapeHtml(item.key)}</bdi></span>"),
+    ]
+    for old, new in subs:
+        page = _sub_once(page, old, new)
+    return page
 
 _HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -1691,8 +2427,26 @@ def _dist_drawer(stats):
         + "</div></details>")
 
 
+def _fa_sibling(path):
+    name = path.name
+    if name.endswith(".fa.html"):
+        return path
+    if name.endswith(".html"):
+        return path.with_name(name[:-len(".html")] + ".fa.html")
+    return path.with_name(name + ".fa.html")
+
+
+def _en_sibling(path):
+    name = path.name
+    if name.endswith(".fa.html"):
+        return path.with_name(name[:-len(".fa.html")] + ".html")
+    return path.with_name(path.stem + "-en.html")
+
+
 def _build(run_dir=None, precard=None, sample=None, dropped=None,
-           run_log=None, limit=0, title=None):
+           run_log=None, limit=0, title=None, lang="en"):
+    if lang not in _LANGS:
+        raise ValueError("lang must be one of %s" % (list(_LANGS),))
     run_path = Path(run_dir) if run_dir else None
     if run_path is None:
         for cand in (precard, dropped, run_log):
@@ -1710,15 +2464,28 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
     warnings = []
     order = _load_order(sample_path, limit)
     if sample_path is None or not sample_path.exists():
-        warnings.append("sample order skipped (missing %s)" % sample_path)
+        if lang == "fa":
+            warnings.append(_tr("fa", "ban.sample", p=sample_path))
+        else:
+            warnings.append("sample order skipped (missing %s)" % sample_path)
     rows = _load_rows(precard_path)
     if not precard_path.exists():
-        warnings.append("precard rows skipped (missing %s)" % precard_path)
+        if lang == "fa":
+            warnings.append(_tr("fa", "ban.rows", p=precard_path))
+        else:
+            warnings.append("precard rows skipped (missing %s)" % precard_path)
     dropped_map = _load_dropped(dropped_path, run_log_path)
     if not dropped_path.exists():
-        warnings.append("dropped list skipped (missing %s)" % dropped_path)
+        if lang == "fa":
+            warnings.append(_tr("fa", "ban.dropped", p=dropped_path))
+        else:
+            warnings.append("dropped list skipped (missing %s)" % dropped_path)
     if run_log_path is None or not run_log_path.exists():
-        warnings.append("run-log scan skipped (missing %s)" % run_log_path)
+        if lang == "fa":
+            warnings.append(_tr("fa", "ban.runlog", p=run_log_path))
+        else:
+            warnings.append(
+                "run-log scan skipped (missing %s)" % run_log_path)
 
     keys = [k for k in order if k in rows or k in dropped_map]
     seen = set(keys)
@@ -1754,14 +2521,23 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
                 "senses": [],
             })
 
-    page = _HTML_TEMPLATE.replace(
-        "__TITLE__", _esc(title or ("precard viewer \u2014 %s" % run_path.name)))
+    if title:
+        shown_title = title
+    elif lang == "fa":
+        shown_title = _tr("fa", "title", run=run_path.name)
+    else:
+        shown_title = "precard viewer \u2014 %s" % run_path.name
+    page = _HTML_TEMPLATE.replace("__TITLE__", _esc(shown_title))
     page = page.replace("__LINE_VERSION__", _esc(_LINE_VERSION))
     page = page.replace("__CEFR_PILLS__", _cefr_pills())
     page = page.replace("__BANNERS__", _banners(warnings))
     stats = _compute_stats(rows, dropped_map)
-    page = page.replace("__HEADER_STRIP__", _header_strip(stats))
-    page = page.replace("__DIST_DRAWER__", _dist_drawer(stats))
+    if lang == "fa":
+        page = page.replace("__HEADER_STRIP__", _header_strip_fa(stats))
+        page = page.replace("__DIST_DRAWER__", _dist_drawer_fa(stats))
+    else:
+        page = page.replace("__HEADER_STRIP__", _header_strip(stats))
+        page = page.replace("__DIST_DRAWER__", _dist_drawer(stats))
     page = page.replace("__VIEWER_DATA__",
                         _neutralise(json.dumps(lemmas_data, ensure_ascii=False)))
     page = page.replace("__VIEWER_STATS__",
@@ -1773,14 +2549,20 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
                         _neutralise(json.dumps(
                             {sid: normalize_stage(sid) for sid in _STAGE_IDS},
                             ensure_ascii=False)))
+    if lang == "fa":
+        page = _apply_fa_chrome(page)
+        page = _apply_fa_js(page)
+    else:
+        page = _inject_en_toggle(
+            page, _fa_sibling(Path("precard-viewer.html")).name)
     return page, {"rows": n_rows, "lemmas": len(keys)}
 
 
 def build_html(run_dir=None, *, precard=None, sample=None, dropped=None,
-               run_log=None, limit=0, title=None):
+               run_log=None, limit=0, title=None, lang="en"):
     """Return the standalone viewer HTML text for one precard run."""
     page, _stats = _build(run_dir, precard, sample, dropped, run_log,
-                          limit, title)
+                          limit, title, lang)
     return page
 
 
@@ -1797,19 +2579,56 @@ def main(argv=None):
     ap.add_argument("--run-log", default=None,
                     help="run log path (default <run-dir>/run.log)")
     ap.add_argument("--out", default=None,
-                    help="viewer path (default <run-dir>/precard-viewer.html)")
+                    help="viewer path for the selected language "
+                    "(both twins are always written; default "
+                    "<run-dir>/precard-viewer.html)")
     ap.add_argument("--limit", type=int, default=0,
                     help="max sample lemmas (0 = all)")
     ap.add_argument("--title", default=None,
                     help="page title (default 'precard viewer \u2014 <run-dir name>')")
+    ap.add_argument("--lang", default="en", choices=list(_LANGS),
+                    help="viewer language: en or fa (default en)")
     args = ap.parse_args(argv)
-    page, stats = _build(args.run_dir, args.precard, args.sample,
-                         args.dropped, args.run_log, args.limit, args.title)
-    dest = Path(args.out) if args.out else Path(args.run_dir) / "precard-viewer.html"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(page, encoding="utf-8")
+    try:
+        page_en, stats = _build(args.run_dir, args.precard, args.sample,
+                                args.dropped, args.run_log, args.limit,
+                                args.title, "en")
+        page_fa, _fa_stats = _build(args.run_dir, args.precard, args.sample,
+                                    args.dropped, args.run_log, args.limit,
+                                    args.title, "fa")
+    except AssertionError as exc:
+        print("viewer build failed: %s" % exc, file=sys.stderr)
+        return 1
+    if args.out:
+        given = Path(args.out)
+        if args.lang == "fa":
+            dest_fa = given
+            dest_en = _en_sibling(given)
+        else:
+            dest_en = given
+            dest_fa = _fa_sibling(given)
+    else:
+        dest_en = Path(args.run_dir) / "precard-viewer.html"
+        dest_fa = Path(args.run_dir) / "precard-viewer.fa.html"
+    if dest_en == dest_fa:
+        print("viewer --out collision: en and fa twins resolve to %s"
+              % dest_en, file=sys.stderr)
+        return 2
+    if dest_fa.name != _fa_sibling(Path("precard-viewer.html")).name:
+        page_en = page_en.replace(
+            'href="precard-viewer.fa.html"',
+            'href="%s"' % html.escape(dest_fa.name, quote=True), 1)
+    if dest_en.name != "precard-viewer.html":
+        page_fa = page_fa.replace(
+            'href="precard-viewer.html"',
+            'href="%s"' % html.escape(dest_en.name, quote=True), 1)
+    dest_en.parent.mkdir(parents=True, exist_ok=True)
+    dest_en.write_text(page_en, encoding="utf-8")
+    dest_fa.parent.mkdir(parents=True, exist_ok=True)
+    dest_fa.write_text(page_fa, encoding="utf-8")
+    shown = dest_fa if args.lang == "fa" else dest_en
     print("wrote %(out)s rows=%(rows)d lemmas=%(lemmas)d" % {
-        "out": dest, "rows": stats["rows"], "lemmas": stats["lemmas"]})
+        "out": shown, "rows": stats["rows"], "lemmas": stats["lemmas"]})
     return 0
 
 

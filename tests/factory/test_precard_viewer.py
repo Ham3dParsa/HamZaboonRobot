@@ -5,9 +5,12 @@ pipeline line outputs (precard.jsonl rows carry the v14.1 fanout fields).
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from factory.precard import viewer
 from factory.precard.pipeline import DEFAULT_OUT, DEFAULT_SAMPLE
@@ -570,3 +573,312 @@ def test_method_source_filter_wiring_and_units(tmp_path):
     assert "CEFR/topic/style/method/source filter never matches" in html
     assert "${method}" not in html
     assert "${source}" not in html
+
+
+def test_strings_catalog_key_parity_and_placeholders():
+    assert set(viewer.STRINGS["fa"]) == set(viewer.STRINGS["en"])
+    assert len(viewer.STRINGS["en"]) >= 80
+    for key in ("strip", "drops.tip", "count", "count.title", "g1.kv",
+                "g2.kv", "g5.kv", "g6.kv", "g6.ev", "title", "opt.kept",
+                "pill.all", "pill.level"):
+        assert (set(re.findall(r"\{[A-Za-z]+\}", viewer.STRINGS["fa"][key]))
+                == set(re.findall(r"\{[A-Za-z]+\}",
+                                  viewer.STRINGS["en"][key])))
+    for key, markers in (("strip", ("{N}", "{K}", "{D}", "{P}", "{R}")),
+                         ("title", ("{run}",)),
+                         ("drops.tip", ("{H}", "{N}")),
+                         ("g5.kv", ("{P}", "{PP}", "{M}", "{MP}"))):
+        for marker in markers:
+            assert marker in viewer.STRINGS["fa"][key]
+            assert marker in viewer.STRINGS["en"][key]
+
+
+def test_default_lang_is_en(tmp_path):
+    fix = _mini_run(tmp_path)
+    kwargs = {"precard": fix["precard"], "sample": fix["sample"],
+              "dropped": fix["dropped"], "run_log": fix["run_log"]}
+    assert viewer.build_html(fix["run_dir"], **kwargs) == viewer.build_html(
+        fix["run_dir"], lang="en", **kwargs)
+
+
+def test_inject_en_toggle_inserts_single_line():
+    """Hermetic replacement for the origin/main golden test (CI checkouts
+    lack the origin/main ref): the EN toggle injection adds exactly one
+    line and changes nothing else."""
+    page = ("<header>\n"
+            "      </button>\n    </div>\n  </header>\n"
+            "<p>body</p>")
+    got = viewer._inject_en_toggle(page, "precard-viewer.fa.html")
+    assert got.count(">FA</a>") == 1
+    assert "precard-viewer.fa.html" in got
+    assert got.replace(viewer._en_toggle("precard-viewer.fa.html"),
+                       "") == page
+
+
+def test_en_twin_links_to_fa_sibling_default(tmp_path):
+    """Round 2 item 1: default twins link both ways (EN->FA, FA->EN)."""
+    fix = _mini_run(tmp_path)
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"])])
+    assert rc == 0
+    en_html = (fix["run_dir"] / "precard-viewer.html").read_text(
+        encoding="utf-8")
+    fa_html = (fix["run_dir"] / "precard-viewer.fa.html").read_text(
+        encoding="utf-8")
+    assert 'href="precard-viewer.fa.html"' in en_html
+    assert ">FA</a>" in en_html
+    assert 'href="precard-viewer.html"' in fa_html
+
+
+def test_en_twin_links_to_fa_sibling_custom_out(tmp_path):
+    """Round 2 item 1: custom --out names work via _fa_sibling logic."""
+    fix = _mini_run(tmp_path)
+    custom = fix["run_dir"] / "custom-viewer.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--out", str(custom)])
+    assert rc == 0
+    want_fa = viewer._fa_sibling(custom).name
+    assert want_fa != "precard-viewer.fa.html"
+    en_html = custom.read_text(encoding="utf-8")
+    assert 'href="%s"' % want_fa in en_html
+    assert ">FA</a>" in en_html
+    assert viewer._fa_sibling(custom).exists()
+    fa_html = viewer._fa_sibling(custom).read_text(encoding="utf-8")
+    assert 'href="%s"' % custom.name in fa_html
+
+
+def test_fa_hero_and_sidebar_badges_use_pishkart(tmp_path):
+    """Round 2 item 2: hero + sidebar badges read '{N} پیش‌کارت'."""
+    fix = _mini_run(tmp_path)
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert "${escapeHtml(item.senses.length)} پیش‌کارت</span>" in fa_html
+    assert "${escapeHtml(nPrecards)} پیش‌کارت</span>" in fa_html
+    assert "${escapeHtml(item.senses.length)} precards</span>" not in fa_html
+    assert "${escapeHtml(nPrecards)} precards</span>" not in fa_html
+
+
+def test_fa_g7_g8_g9_cells_use_pishkart(tmp_path):
+    """Round 2 item 2: g7/g8/g9 row cells read '{N} پیش‌کارت ({P}٪)'."""
+    fix = _mini_run(tmp_path)
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert "10 پیش‌کارت (" in fa_html
+    assert re.search(r"[0-9]+ پیش‌کارت", fa_html)
+    assert "٪" in fa_html
+    assert " precards (" not in fa_html
+
+
+def test_fa_option_titles_unified_pattern(tmp_path):
+    """Round 2 item 3: style/method/source per-option titles share the
+    unified '{v}: {N} لمای نگه‌داشته‌شده با معنی منطبق' pattern."""
+    fix = _mini_run(tmp_path)
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert ("`${v}: ${styleCounts[v]} "
+            "لمای نگه‌داشته‌شده با معنی منطبق`") in fa_html
+    assert ("`${v}: ${methodCounts[v]} "
+            "لمای نگه‌داشته‌شده با معنی منطبق`") in fa_html
+    assert ("`${v}: ${sourceCounts[v]} "
+            "لمای نگه‌داشته‌شده با معنی منطبق`") in fa_html
+    for leftover in ("kept-only lemmas with any sense carrying it",
+                     "kept-only lemmas with any sense using it",
+                     "kept-only lemmas with any sense from it"):
+        assert leftover not in fa_html
+    assert "register:${s.register}" in fa_html
+    assert "type:${s.lexical_type}" in fa_html
+
+
+def test_fa_build_rtl_shell_and_chrome(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"], lang="fa")
+    assert '<html lang="fa" dir="rtl"' in html
+    assert "استودیو پیش‌کارت" in html
+    assert "در حال بارگذاری…" in html
+    assert "یک واژه را از فهرست کناری انتخاب کنید" in html
+    assert "نرخ ماندگاری" in html
+    assert '[dir="rtl"]' in html
+
+
+def test_cli_lang_flag_builds_twin_files(tmp_path):
+    fix = _mini_run(tmp_path)
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]), "--lang", "fa"])
+    assert rc == 0
+    assert (fix["run_dir"] / "precard-viewer.html").exists()
+    assert (fix["run_dir"] / "precard-viewer.fa.html").exists()
+    fa_html = (fix["run_dir"] / "precard-viewer.fa.html").read_text(
+        encoding="utf-8")
+    assert '<html lang="fa" dir="rtl"' in fa_html
+
+
+def test_cli_help_lists_lang_flag():
+    proc = subprocess.run(
+        [sys.executable, "-m", "factory.precard.viewer", "--help"],
+        cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0
+    assert "--lang" in proc.stdout
+
+
+def test_fa_embeds_ui_strings_next_to_stats(tmp_path):
+    fix = _mini_run(tmp_path)
+    en_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="en")
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert "const UI_STRINGS = " not in en_html
+    assert fa_html.count("const UI_STRINGS = ") == 1
+    anchor = fa_html.find("const STATS = ")
+    strings_at = fa_html.find("const UI_STRINGS = ")
+    assert anchor > 0 and strings_at > anchor
+    for ref in ('UI_STRINGS["empty.h"]', "UI_STRINGS['empty.h']",
+                'UI_STRINGS["count"]', "UI_STRINGS['count']"):
+        if ref in fa_html:
+            break
+    else:
+        raise AssertionError("FA JS has no UI_STRINGS lookups")
+
+
+def test_no_catalog_en_literals_in_fa(tmp_path):
+    fix = _mini_run(tmp_path)
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    for literal in ("Precard Studio", "Loading...",
+                    "Search lemma or key... (press /)",
+                    "Select a word from the left list",
+                    "All Topics", "All Statuses", "Kept Only",
+                    "Dropped Only", "Needs Synthetic Ex", "All Styles",
+                    "All Methods", "All Sources", "Original Order",
+                    "Senses (High to Low)", "CEFR Level",
+                    "No matching lemmas found",
+                    "Try adjusting your filters or search query.",
+                    "precard viewer",                     "precard rows skipped",
+                    "sample order skipped", "dropped list skipped",
+                    "run-log scan skipped", "Copy ID", "Copy Sense",
+                    "Copied!", "Pipeline:"):
+        assert literal not in fa_html
+    assert ">DROP<" not in fa_html
+    assert "حذف" in fa_html
+
+
+@pytest.mark.parametrize("lang,units", [
+    ("en", ("precards (kept-only senses)",
+             "each topic counts kept-only lemmas",
+             "lowest CEFR across senses",
+             "carry no senses",
+             "kept-only rows",
+             "kept lemmas / all lemmas")),
+    ("fa", ("فقط معنی‌های نگه‌داشته‌شده",
+             "فقط لِماهای نگه‌داشته‌شده را می‌شمارد",
+             "پایین‌ترین CEFR",
+             "معنی‌ای ندارند",
+             "فقط ردیف‌های نگه‌داشته‌شده",
+             "لِماهای نگه‌داشته‌شده / همه لِماها")),
+])
+def test_label_rule_units_both_langs(tmp_path, lang, units):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"], lang=lang)
+    for unit in units:
+        assert unit in html
+    assert re.search(r"[0-9]", html)
+
+
+def test_v141_shape_fa_header_numbers(tmp_path):
+    fix = _v141_shape_run(tmp_path)
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert "<b>276</b>" in fa_html
+    assert "<b>185</b>" in fa_html
+    assert "<b>91</b>" in fa_html
+    assert "<b>491</b>" in fa_html
+    assert "67٪" in fa_html or "67%" in fa_html
+    assert "لِما" in fa_html
+    assert "پیش‌کارت" in fa_html
+    assert "نرخ ماندگاری" in fa_html
+
+
+def test_fa_prose_uses_offline_sans_stack(tmp_path):
+    """OC review round 1 (PR 748): no remote fonts (offline contract) —
+    FA prose uses the system sans stack."""
+    fix = _mini_run(tmp_path)
+    en_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="en")
+    fa_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                                sample=fix["sample"], dropped=fix["dropped"],
+                                run_log=fix["run_log"], lang="fa")
+    assert "fonts.googleapis.com" not in en_html
+    assert "fonts.googleapis.com" not in fa_html
+    assert '[dir="rtl"] .dist-group table' in fa_html
+    assert '[dir="rtl"] .header-strip' in fa_html
+    assert '"Segoe UI", system-ui, sans-serif' in fa_html
+
+
+def test_main_fails_closed_on_broken_template(tmp_path, monkeypatch):
+    """OC review round 1 (PR 748): a missing chrome anchor must exit
+    non-zero with a message, not an unhandled traceback."""
+    fix = _mini_run(tmp_path)
+    monkeypatch.setattr(
+        viewer, "_HTML_TEMPLATE",
+        viewer._HTML_TEMPLATE.replace(
+            "      </button>\n    </div>\n  </header>", "GONE"))
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"])])
+    assert rc != 0
+
+
+def test_fa_custom_out_twin_links_and_help(tmp_path):
+    """OC review round 1 (PR 748): --lang fa --out writes both twins with
+    cross-pointing escaped hrefs; --help documents twin behavior."""
+    fix = _mini_run(tmp_path)
+    out = fix["run_dir"] / "custom-fa.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--lang", "fa", "--out", str(out)])
+    assert rc == 0
+    fa_html = out.read_text(encoding="utf-8")
+    en_twin = out.parent / viewer._en_sibling(out).name
+    assert en_twin.exists()
+    en_html = en_twin.read_text(encoding="utf-8")
+    assert 'href="%s"' % en_twin.name in fa_html
+    assert 'href="%s"' % out.name in en_html
+    proc = subprocess.run(
+        [sys.executable, "-m", "factory.precard.viewer", "--help"],
+        cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0
+    assert "both twins" in proc.stdout
+
+
+def test_colliding_out_refuses_to_overwrite_twin(tmp_path):
+    """OC review round 2 (PR 748): --lang en --out x.fa.html resolves
+    both twins to one path — refuse with exit 2 instead of overwriting."""
+    fix = _mini_run(tmp_path)
+    out = fix["run_dir"] / "custom.fa.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--lang", "en", "--out", str(out)])
+    assert rc == 2
+
+
+def test_fa_twin_links_to_en_sibling_custom_out(tmp_path):
+    fix = _mini_run(tmp_path)
+    out = fix["run_dir"] / "custom-viewer.html"
+    rc = viewer.main(["--run-dir", str(fix["run_dir"]),
+                      "--sample", str(fix["sample"]),
+                      "--out", str(out)])
+    assert rc == 0
+    fa_html = (fix["run_dir"] / "custom-viewer.fa.html").read_text(
+        encoding="utf-8")
+    assert 'href="custom-viewer.html"' in fa_html
