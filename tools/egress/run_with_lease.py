@@ -48,6 +48,14 @@ def main(argv=None):
         lease.get("lease_id", "")[:8],
         lease.get("server_id", "") or "", lease.get("provider", "") or ""))
     env = dict(os.environ)
+    # Lease identity for the child (ids only, secret-free like the lease
+    # line above): lets provider-aware children report terminal outcomes
+    # (e.g. a location-blocked server) back to the supervisor so the
+    # next lease walks on instead of retrying the same dead egress.
+    if lease.get("lease_id"):
+        env["EGRESS_LEASE_ID"] = lease["lease_id"]
+    if lease.get("server_id"):
+        env["EGRESS_SERVER_ID"] = lease["server_id"]
     proxy = lease.get("proxy_url") or ""
     if proxy:
         env["HTTPS_PROXY"] = proxy

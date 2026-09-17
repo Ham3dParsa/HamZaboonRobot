@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import concurrent.futures
 import hashlib
 import hmac
 import json
@@ -689,7 +690,13 @@ class TunnelOwner:
         link-bearing, and not cooling — the lease and the tunnel must
         name the same server, or a later http429 report cools the
         wrong one. Otherwise the classic first-avail pick applies
-        (the caller syncs the lease record to it).
+        (the caller syncs the lease record to it). A live tunnel for
+        the wanted server is reused BEFORE any probing, so steady
+        reuse pays no probe wall and a ping flake can never cool a
+        working tunnel. Spawn/egress-check failures carry the failed
+        server id as ``failed_server_id`` on the raised error, so the
+        /v1/lease handler cools the server that actually failed
+        (never the stale hint).
         """
         try:
             from . import tunnel as _tunnel_mod
@@ -713,15 +720,62 @@ class TunnelOwner:
                     and self._tunnel.proc.poll() is None:
                 return (self._tunnel.proxy_url,
                         self._tunnel.egress_ip(), self._server_id)
+            # Probe-batch (2026-09-17): never spawn xray on an unprobed
+            # server. Ping the first 8 in parallel (8 workers x 2s ping
+            # ~= 2s wall), keep pool order, cool the dead for this
+            # provider so the next lease skips them. Servers past the
+            # first 8 stay as unprobed fallback (never cooled): a big
+            # pool never loses healthy servers it did not probe. A
+            # fully dead pool parks fast here instead of burning the
+            # 25s spawn timeout per attempt behind the 60s client lease
+            # timeout (the pile-up that orphaned xray children).
+            # Budget: ~2s probe + 25s Tunnel.start + 15s egress check
+            # ~= 42s worst case < 60s client lease timeout.
+            cands = avail[:8]
+
+            def _live(server):
+                try:
+                    return bool(_server_tcp_ping(server))
+                except Exception:
+                    return False
+
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=8) as _ex:
+                _ok = dict(zip([s["id"] for s in cands],
+                               _ex.map(_live, cands)))
+            live_ids = {sid for sid, ok in _ok.items() if ok}
+            for sid in [s["id"] for s in cands if s["id"] not in live_ids]:
+                self._pool.cool(sid, provider, seconds=600)
+            avail = [s for s in cands if s["id"] in live_ids] \
+                + avail[len(cands):]
+            if not avail:
+                raise RuntimeError("no live server (probed %d, all dead)"
+                                   % len(cands))
+            wanted = avail[0]
+            if prefer is not None:
+                hinted = [s for s in avail if s.get("id") == prefer]
+                if hinted:
+                    wanted = hinted[0]
+            if self._tunnel is not None and self._server_id == wanted["id"] \
+                    and self._tunnel.proc is not None \
+                    and self._tunnel.proc.poll() is None:
+                return (self._tunnel.proxy_url,
+                        self._tunnel.egress_ip(), self._server_id)
             self._drop_locked()
             server = wanted
-            tun = _tunnel_mod.Tunnel(server, server["link"])
-            proxy = tun.start()
+            try:
+                tun = _tunnel_mod.Tunnel(server, server["link"])
+                proxy = tun.start()
+            except (RuntimeError, ValueError, OSError) as exc:
+                exc.failed_server_id = server["id"]
+                raise
             try:
                 ip = tun.egress_ip()
             except Exception:
                 tun.stop()
-                raise RuntimeError("tunnel up but egress check failed")
+                err = RuntimeError("tunnel up but egress check failed")
+                err.failed_server_id = server["id"]
+                raise err
             self._tunnel = tun
             self._server_id = server["id"]
             return proxy, ip, server["id"]
@@ -799,8 +853,20 @@ class Handler(BaseHTTPRequestHandler):
                         provider=data.get("provider"),
                         prefer=data.get("server_id"))
                 except (RuntimeError, ValueError, OSError) as exc:
-                    # Acquire failed: drop the minted lease (no orphan
-                    # records) and park with a message.
+                    # Acquire failed: cool the server that actually
+                    # failed (surfaced as failed_server_id) so the next
+                    # lease moves on instead of retrying the same dead
+                    # egress; fall back to the hint only when unknown
+                    # (e.g. all-dead probe, already cooled 600s each).
+                    # Drop the minted lease (no orphan records) and park
+                    # with a message.
+                    failed = getattr(exc, "failed_server_id", "") \
+                        or data.get("server_id", "")
+                    try:
+                        POOL.cool(failed, data.get("provider"),
+                                  seconds=1800)
+                    except Exception:
+                        pass
                     POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
