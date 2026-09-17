@@ -1283,6 +1283,7 @@ body {
 .cefr-A1, .cefr-A2 { background: var(--cefr-a-bg); color: var(--cefr-a); border: 1px solid var(--cefr-a-b); }
 .cefr-B1, .cefr-B2 { background: var(--cefr-b-bg); color: var(--cefr-b); border: 1px solid var(--cefr-b-b); }
 .cefr-C1, .cefr-C2 { background: var(--cefr-c-bg); color: var(--cefr-c); border: 1px solid var(--cefr-c-b); }
+.cefr-none { background: var(--bg-page); color: var(--text-muted); border: 1px solid var(--border-subtle); }
 
 .pos-tag {
   font-family: var(--font-mono);
@@ -1879,7 +1880,7 @@ function selectLemma(index) {
         <div class="sense-topline">
           <div class="topline-left">
             <span class="sense-id-badge">${escapeHtml(s.sense_id)}</span>
-            <span class="cefr-tag cefr-${escapeHtml(s.sense_cefr)}">${escapeHtml(s.sense_cefr)}</span>
+            ${(s.sense_cefr ? `<span class="cefr-tag cefr-${escapeHtml(s.sense_cefr)}">${escapeHtml(s.sense_cefr)}</span>` : `<span class="cefr-tag cefr-none" title="unmapped sense CEFR">—</span>`)}
             ${s.pool_level !== s.sense_cefr ? `<span class="stats-badge" title="Pool level: ${escapeHtml(s.pool_level)}">pool: ${escapeHtml(s.pool_level)}</span>` : ""}
             ${posList}
             ${regHtml}
@@ -2232,7 +2233,7 @@ def _compute_stats(rows, dropped_map):
             path_precard[path] = path_precard.get(path, 0) + 1
             source = rec.get("example_fallback") or _UNKNOWN_METHOD
             source_precard[source] = source_precard.get(source, 0) + 1
-            evidenced = method not in ("pool-fallback", _UNKNOWN_METHOD)
+            evidenced = method in ("wn-single", "wn-evp-gloss")
             if evidenced:
                 evidenced_rows += 1
             if (sense_cefr != _MISSING and pool != _MISSING
@@ -2414,8 +2415,9 @@ def _dist_drawer(stats):
         "with \u22651 mismatch</p>"
         '<p class="dist-kv">evidenced-only: <b>%(ep)d</b> precards '
         "(%(epp)s%% of %(ed)d evidenced precards)</p>"
-        '<p class="dist-note">evidenced = sense_cefr_method other than '
-        "pool-fallback or (unknown) (copied levels match by construction).</p>" % {
+        '<p class="dist-note">evidenced = sense_cefr_method wn-single / '
+        'wn-evp-gloss only; unmapped and pool-fallback rows are '
+        'excluded.</p>' % {
             "p": mismatch["precards"], "pp": mismatch["precards_pct"],
             "m": mismatch["lemmas"], "ep": mismatch["evidenced_precards"],
             "epp": mismatch["evidenced_pct"],
@@ -2431,7 +2433,7 @@ def _dist_drawer(stats):
             if stats["cefr_method"]
             else '<p class="dist-note">no rows</p>')
         + '<p class="dist-note">row-level sense_cefr_method; '
-        "pool-fallback levels are copied from the pool.</p>")
+        "unmapped rows carry no level (pool_level shown separately).</p>")
 
     g8 = (
         "<h3>8 \u00b7 topic s4 paths</h3>"

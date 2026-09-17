@@ -882,6 +882,8 @@ def test_fa_twin_links_to_en_sibling_custom_out(tmp_path):
     fa_html = (fix["run_dir"] / "custom-viewer.fa.html").read_text(
         encoding="utf-8")
     assert 'href="custom-viewer.html"' in fa_html
+
+
 def test_drop_suffix_stripped_at_reader_with_band_field(tmp_path):
     """OC blocking W1: enriched lines ("w:X: reason [entry=B1]") must not
     leak the suffix into viewer reason grouping — the reader strips it
@@ -927,3 +929,87 @@ def test_colonless_reason_head_never_carries_suffix():
     assert viewer._reason_head(
         viewer._drop_reason("failed-no-entry [entry=B1]")) == \
         "failed-no-entry"
+
+
+def test_unmapped_rows_not_counted_as_evidenced():
+    """OC round 2 W1: unmapped rows are not evidenced — only wn-single /
+    wn-evp-gloss count, so an empty sense_cefr vs pool mismatch stays
+    out of the evidenced denominator."""
+    rows = {
+        "w:a": [{"sense_cefr": "B1", "pool_level": "A1",
+                 "sense_cefr_method": "wn-single",
+                 "stage_calls": {}, "topic_vector": []}],
+        "w:b": [{"sense_cefr": "", "pool_level": "A1",
+                 "sense_cefr_method": "unmapped",
+                 "stage_calls": {}, "topic_vector": []}],
+        "w:c": [{"sense_cefr": "A1", "pool_level": "A1",
+                 "sense_cefr_method": "unmapped",
+                 "stage_calls": {}, "topic_vector": []}],
+    }
+    stats = viewer._compute_stats(rows, {})
+    assert stats["mismatch"]["precards"] == 1
+    assert stats["mismatch"]["evidenced_denominator"] == 1
+    assert stats["mismatch"]["evidenced_precards"] == 1
+    assert stats["mismatch"]["evidenced_pct"] == 100.0
+
+
+def test_evp_gloss_counts_as_evidenced():
+    """OC round 2 W1: wn-evp-gloss is evidenced alongside wn-single."""
+    rows = {
+        "w:a": [{"sense_cefr": "B1", "pool_level": "A1",
+                 "sense_cefr_method": "wn-evp-gloss",
+                 "stage_calls": {}, "topic_vector": []}],
+        "w:b": [{"sense_cefr": "", "pool_level": "A1",
+                 "sense_cefr_method": "pool-fallback",
+                 "stage_calls": {}, "topic_vector": []}],
+    }
+    stats = viewer._compute_stats(rows, {})
+    assert stats["mismatch"]["precards"] == 1
+    assert stats["mismatch"]["evidenced_denominator"] == 1
+    assert stats["mismatch"]["evidenced_precards"] == 1
+
+
+def test_unmapped_sense_renders_cefr_none_placeholder(tmp_path):
+    """OC round 2 W2: unmapped rows render a cefr-none/— chip, never
+    an empty `cefr-` class span."""
+    run_dir = tmp_path / "run-unmapped-chip"
+    run_dir.mkdir()
+    sample_path = run_dir / "sample.json"
+    sample_path.write_text(json.dumps([{"key": "w:bare"}]),
+                           encoding="utf-8")
+    precard_path = run_dir / "precard.jsonl"
+    precard_path.write_text(
+        json.dumps(_row("w:bare", "bare", "bare#1", sense_cefr="",
+                        sense_cefr_method="unmapped")) + "\n",
+        encoding="utf-8")
+    for name in ("dropped.log", "run.log"):
+        (run_dir / name).write_text("", encoding="utf-8")
+    html = viewer.build_html(
+        run_dir, precard=precard_path, sample=sample_path,
+        dropped=run_dir / "dropped.log", run_log=run_dir / "run.log")
+    assert "cefr-none" in html
+    assert 'class="cefr-tag cefr-"' not in html
+    assert "unmapped sense CEFR" in html
+
+
+def test_evidenced_note_matches_allowlist(tmp_path):
+    """Reviewer round: the rendered evidenced note must state the
+    allowlist (wn-single / wn-evp-gloss only), never the stale
+    deny-list wording that claimed unmapped counts."""
+    run_dir = tmp_path / "run-note"
+    run_dir.mkdir()
+    sample_path = run_dir / "sample.json"
+    sample_path.write_text(json.dumps([{"key": "w:bare"}]),
+                           encoding="utf-8")
+    precard_path = run_dir / "precard.jsonl"
+    precard_path.write_text(
+        json.dumps(_row("w:bare", "bare", "bare#1", sense_cefr="",
+                        sense_cefr_method="unmapped")) + "\n",
+        encoding="utf-8")
+    for name in ("dropped.log", "run.log"):
+        (run_dir / name).write_text("", encoding="utf-8")
+    html = viewer.build_html(
+        run_dir, precard=precard_path, sample=sample_path,
+        dropped=run_dir / "dropped.log", run_log=run_dir / "run.log")
+    assert "wn-single / wn-evp-gloss only" in html
+    assert "other than pool-fallback" not in html
