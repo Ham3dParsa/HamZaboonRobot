@@ -1042,9 +1042,12 @@ def test_drawer_grid_scrolls_with_workspace_floor(tmp_path):
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
                              run_log=fix["run_log"])
-    grid = re.search(r"\.dist-grid \{(.*?)\}", html, re.S).group(1)
+    grid_match = re.search(r"\.dist-grid \{(.*?)\}", html, re.S)
+    assert grid_match is not None
+    grid = grid_match.group(1)
     assert "max-height: 38vh" in grid
     assert "overflow-y: auto" in grid
+    assert "min-height: 0" in grid
     workspace = re.search(r"\.split-workspace \{(.*?)\}", html, re.S).group(1)
     assert "min-height: 200px" in workspace
 
@@ -1062,6 +1065,10 @@ def test_phone_stacking_media_query(tmp_path):
     assert re.search(
         r"\.shortcut-hint,\s*\.kbd-key\s*\{[^}]*display:\s*none",
         media)
+    ws_media = re.search(
+        r"\.split-workspace\s*\{([^}]*)\}", media)
+    assert ws_media is not None
+    assert "overflow-y: auto" in ws_media.group(1)
 
 
 def test_charts_widths_math_exact_mini(tmp_path):

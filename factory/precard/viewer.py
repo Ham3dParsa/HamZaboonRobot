@@ -1222,6 +1222,7 @@ body {
   .split-workspace {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(180px,38vh) minmax(220px,1fr);
+    overflow-y: auto;
   }
   .sidebar {
     max-height: 38vh;
