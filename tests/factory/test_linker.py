@@ -7,11 +7,11 @@ LINKed, FALSE rows park, and the shipped vendor table validates clean.
 import csv
 import pathlib
 
-from factory.precard import linker
+from factory.linker import linker
 
 
 TABLE = (pathlib.Path(__file__).resolve().parents[2]
-         / "factory" / "precard" / "data" / "link_table.tsv")
+         / "factory" / "linker" / "table.tsv")
 
 
 def test_sa_move_only_overlap_never_fires():
