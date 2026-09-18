@@ -83,11 +83,25 @@ STRINGS = {
         "tab.review": "Review",
         "tab.metrics": "Metrics",
         "tab.charts": "Charts",
-        "charts.badge_levels": "lemma-level \u00b7 row-level",
+        "charts.badge_levels": "lemma-level, row-level",
         "charts.donut_cap": "kept of all lemmas",
         "charts.rail_share": "share of precards",
         "charts.untagged": "{N} untagged",
         "charts.pillar_unit": "precard(s)",
+        "charts.kpi_kept_meta": "{K} kept, {D} dropped",
+        "charts.kpi_fanout_meta": "median {M}, P90 {P}",
+        "charts.kpi_mismatch_meta": "{E} of {T} evidenced",
+        "charts.kpi_synth_meta": "{N} without real example",
+        "charts.others": "others ({N} methods)",
+        "charts.bench": "production health:",
+        "charts.bench_vals": "mean {M}, median {D}, P90 {P}",
+        "charts.pareto_head": "drop pareto (validation stages):",
+        "charts.cefr_guide_lemma": "lemma-level (exists)",
+        "charts.cefr_guide_precard": "precard (row-level)",
+        "charts.cefr_pair": "lemma / precard",
+        "charts.s4_head": "topic-vector method shares:",
+        "charts.prov_head": "example provenance",
+        "charts.prov_total": "{N} rows total",
         "kpi.kept": "Lemma kept rate",
         "kpi.fanout": "Mean precards",
         "kpi.mismatch": "Evidenced mismatch",
@@ -217,11 +231,25 @@ STRINGS = {
         "tab.review": "بررسی",
         "tab.metrics": "سنجه‌ها",
         "tab.charts": "نمودارها",
-        "charts.badge_levels": "سطح لِما \u00b7 سطح ردیفی",
+        "charts.badge_levels": "سطح لِما، سطح ردیفی",
         "charts.donut_cap": "از همه لِماها",
         "charts.rail_share": "سهم از پیش‌کارت‌ها",
         "charts.untagged": "{N} بدون برچسب",
         "charts.pillar_unit": "پیش‌کارت",
+        "charts.kpi_kept_meta": "{K} نگه\u200cداشته، {D} حذف",
+        "charts.kpi_fanout_meta": "میانه {M}، صدک \u06f9\u06f0: {P}",
+        "charts.kpi_mismatch_meta": "{E} از {T} مدرک\u200cدار",
+        "charts.kpi_synth_meta": "{N} بدون مثال واقعی",
+        "charts.others": "سایر ({N} متد)",
+        "charts.bench": "سلامت تولید:",
+        "charts.bench_vals": "میانگین {M}، میانه {D}، صدک \u06f9\u06f0: {P}",
+        "charts.pareto_head": "تحلیل پارتو عوامل حذف:",
+        "charts.cefr_guide_lemma": "سطح لِما (وجودی)",
+        "charts.cefr_guide_precard": "پیش\u200cکارت (ردیفی)",
+        "charts.cefr_pair": "لِما / کارت",
+        "charts.s4_head": "سهم متدهای تخصیص موضوعی:",
+        "charts.prov_head": "منشأ تولید مثال\u200cها",
+        "charts.prov_total": "مجموع {N} ردیف",
         "kpi.kept": "نرخ ماندگاری لماها",
         "kpi.fanout": "میانگین پیش‌کارت",
         "kpi.mismatch": "مغایرت مدرک‌دار",
@@ -1206,11 +1234,25 @@ body {
   overflow: hidden;
   min-height: 200px;
 }
+/* Review tab touch scroll: the pane itself must shrink inside the
+   app-shell column (min-height:0) and stack its workspace (flex
+   column); the [hidden] guard keeps tab switching working now that
+   the pane carries an author display rule. */
+#reviewPane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#reviewPane[hidden], #metricsPane[hidden], #chartsPane[hidden] {
+  display: none;
+}
 
 .sidebar {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   overflow-y: auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -1301,6 +1343,16 @@ body {
   }
   #chartsPane .kpi-card {
     padding: 8px 10px;
+  }
+  #chartsPane .charts-panel {
+    padding: 16px 14px;
+  }
+  #chartsPane .charts-donut-wrap {
+    flex-direction: column;
+    text-align: center;
+  }
+  #chartsPane .charts-rail-grid {
+    grid-template-columns: 1fr;
   }
   .advanced-filters {
     display: block;
@@ -1629,16 +1681,19 @@ body {
 .kpi-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
 .kpi-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 14px 16px;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .kpi-card::after {
   content: '';
@@ -1652,56 +1707,66 @@ body {
 .kpi-card.rail-mint::after { background: var(--charts-mint); }
 .kpi-card.rail-purple::after { background: var(--charts-purple); }
 .kpi-card.rail-rose::after { background: var(--charts-rose); }
+.kpi-card.rail-gold .kpi-value { color: var(--charts-gold); }
+.kpi-card.rail-mint .kpi-value { color: var(--charts-mint); }
+.kpi-card.rail-purple .kpi-value { color: var(--charts-purple); }
+.kpi-card.rail-rose .kpi-value { color: var(--charts-rose); }
 .kpi-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
 }
 .kpi-value {
-  font-family: var(--font-mono);
   font-size: 24px;
   font-weight: 900;
-  color: var(--text-primary);
+  line-height: 1.1;
   margin: 2px 0;
 }
 .kpi-sub {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 .charts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 .charts-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 4px 16px color-mix(in srgb, black 35%, transparent);
+}
+.charts-panel-full {
+  grid-column: 1 / -1;
 }
 .charts-panel-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
 }
 .charts-panel-head h3 {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14.5px;
+  font-weight: 800;
   color: var(--text-primary);
 }
 .charts-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  padding: 1px 6px;
-  border-radius: 4px;
+  background: var(--bg-page);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: 8px;
 }
 .charts-row {
   display: flex;
@@ -1746,17 +1811,42 @@ body {
   font-size: 11px;
   color: var(--text-primary);
 }
-.charts-colhead {
-  font-size: 11px;
+.charts-legend-line {
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
-  margin: 6px 0 2px 0;
+}
+.charts-section-head {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.charts-guide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.charts-guide .charts-pair {
+  margin-inline-start: auto;
+  color: var(--text-primary);
+  font-weight: 700;
+  white-space: nowrap;
 }
 .charts-donut-wrap {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 20px;
+}
+.charts-donut-box {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+  margin: 0 auto;
 }
 .charts-donut {
   width: 120px;
@@ -1773,22 +1863,35 @@ body {
   stroke: var(--charts-gold);
   stroke-width: 6;
 }
+.charts-donut-fg.drop {
+  stroke: var(--charts-rose);
+}
+.charts-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
 .charts-donut-label {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
   color: var(--charts-gold);
 }
 .charts-donut-cap {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
+  margin-top: 4px;
 }
 .charts-keep-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 10px;
+  flex: 1;
 }
 .charts-keep-row {
   display: flex;
@@ -1814,11 +1917,12 @@ body {
 }
 .charts-dot.keep { background: var(--charts-gold); }
 .charts-dot.drop { background: var(--charts-rose); }
+.charts-dot.lemma { background: var(--charts-mint); }
+.charts-dot.precard { background: var(--charts-purple); }
 .charts-pareto {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 10px;
 }
 .charts-pareto .charts-row {
   display: grid;
@@ -1839,15 +1943,23 @@ body {
   min-width: 34px;
   font-weight: 700;
 }
+.charts-row-others {
+  opacity: 0.75;
+}
+.charts-row-others .charts-fill {
+  opacity: 0.65;
+}
 .charts-scroll {
   max-height: 280px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .charts-cefr-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 12px;
 }
 .charts-cefr-item {
   display: grid;
@@ -1886,7 +1998,9 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   overflow: hidden;
-  margin-top: 6px;
+}
+.charts-rail-thin {
+  height: 14px;
 }
 .charts-rail > div { height: 100%; }
 .charts-seg0 { background: var(--charts-gold); }
@@ -1896,8 +2010,7 @@ body {
 .charts-rail-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
 }
 .charts-rail-item {
   display: flex;
@@ -1921,7 +2034,6 @@ body {
 .charts-rail-cap {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 6px;
 }
 .charts-topics {
   display: flex;
@@ -1951,14 +2063,13 @@ body {
 .charts-pillars {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-top: 6px;
+  gap: 12px;
 }
 .charts-pillar {
   background: var(--bg-page);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px 8px;
+  border-radius: 12px;
+  padding: 16px 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1990,15 +2101,29 @@ body {
   font-family: var(--font-mono);
 }
 .charts-pillar-stat {
-  font-size: 13px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 900;
   color: var(--text-primary);
   font-family: var(--font-mono);
 }
 .charts-pillar-share {
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+.charts-bench {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: color-mix(in srgb, var(--charts-mint) 8%, var(--bg-page));
+  border: 1px dashed color-mix(in srgb, var(--charts-mint) 35%, transparent);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--charts-mint);
 }
 @media (max-width: 390px) {
   .charts-pillars { grid-template-columns: 1fr; }
@@ -3142,18 +3267,12 @@ def _charts_legend(lang, key):
     legends = {
         "en": {
             "kept_share": "kept lemmas / all lemmas",
-            "fanout": "precards (kept-only rows)",
-            "mismatch": "evidenced precards",
-            "synthetic": "of all precards",
-            "fanout_dist": "precards bucket \u00b7 kept lemmas",
+            "fanout_dist": "precards bucket, kept lemmas",
             "row_level": "precards, row-level",
         },
         "fa": {
             "kept_share": "لِماهای نگه‌داشته‌شده / همه لِماها",
-            "fanout": "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
-            "mismatch": "پیش‌کارت مدرک‌دار",
-            "synthetic": "از همه پیش‌کارتها",
-            "fanout_dist": "بازه پیش‌کارت \u00b7 لِماهای نگه‌داشته‌شده",
+            "fanout_dist": "بازه پیش‌کارت، لِماهای نگه‌داشته‌شده",
             "row_level": "پیش‌کارتها، سطح ردیفی",
         },
     }
@@ -3173,10 +3292,11 @@ def _rail(dist, total, lang):
         % (_RAIL_SEGS[i % len(_RAIL_SEGS)], _pct(count, total))
         for i, (_name, count) in enumerate(items))
     pct_sign = "٪" if lang == "fa" else "%"
+    item_sep = "،" if lang == "fa" else ","
     grid = "".join(
         '<div class="charts-rail-item"><span class="charts-rail-name">%s</span>'
-        '<span class="charts-num">%s \u00b7 %s%s</span></div>'
-        % (_esc(name), _esc(_num(count, lang)),
+        '<span class="charts-num">%s%s %s%s</span></div>'
+        % (_esc(name), _esc(_num(count, lang)), item_sep,
            _esc(_num(_pct(count, total), lang)), pct_sign)
         for name, count in items)
     return ('<div class="charts-rail">%s</div>'
@@ -3211,15 +3331,23 @@ def _render_charts(stats, lang="en"):
 
     kpis = [
         ("kpiKept", _tr(lang, "kpi.kept"), _num("%d%s" % (rate, pct_sign), lang),
-         _charts_legend(lang, "kept_share"), "rail-gold"),
+         _tr(lang, "charts.kpi_kept_meta",
+              K=_num(kept, lang),
+              D=_num(stats["lemmas_dropped"], lang)), "rail-gold"),
         ("kpiFanout", _tr(lang, "kpi.fanout"), _num(ppc["mean"], lang),
-         _charts_legend(lang, "fanout"), "rail-mint"),
+         _tr(lang, "charts.kpi_fanout_meta",
+              M=_num(ppc["median"], lang),
+              P=_num(ppc["p90"], lang)), "rail-mint"),
         ("kpiMismatch", _tr(lang, "kpi.mismatch"),
          _num("%s%s" % (mismatch["evidenced_pct"], pct_sign), lang),
-         _charts_legend(lang, "mismatch"), "rail-purple"),
+         _tr(lang, "charts.kpi_mismatch_meta",
+              E=_num(mismatch["evidenced_precards"], lang),
+              T=_num(mismatch["evidenced_denominator"], lang)),
+         "rail-purple"),
         ("kpiSynthetic", _tr(lang, "kpi.synthetic"),
          _num("%s%s" % (synth["precards_pct"], pct_sign), lang),
-         _charts_legend(lang, "synthetic"), "rail-rose"),
+         _tr(lang, "charts.kpi_synth_meta",
+              N=_num(synth["precards"], lang)), "rail-rose"),
     ]
     kpi_html = (
         '<div class="kpi-strip">'
@@ -3233,16 +3361,28 @@ def _render_charts(stats, lang="en"):
         + "</div>")
 
     kept_share = _pct(kept, total)
+    drop_share = 0.0 if not total else round(100.0 - kept_share, 1)
     drops = stats["drops_by_reason"]
     drop_max = max([count for _head, count in drops] + [0])
     if drops:
-        pareto = ('<div class="charts-pareto">' + "".join(
+        top, rest = drops[:4], drops[4:]
+        rows = "".join(
             _bar_row(head, _num(count, lang), _pct(count, drop_max), "drop")
-            for head, count in drops) + "</div>")
+            for head, count in top)
+        if rest:
+            rest_n = sum(count for _head, count in rest)
+            rows += (
+                '<div class="charts-row charts-row-others">'
+                '<span class="charts-name">%s</span>'
+                '<div class="charts-track"><div class="charts-fill drop" '
+                'style="width:%s%%"></div></div>'
+                '<span class="charts-num">%s</span></div>'
+                % (_esc(_tr(lang, "charts.others", N=_num(len(rest), lang))),
+                   min(_pct(rest_n, drop_max), 100.0),
+                   _esc(_num(rest_n, lang))))
+        pareto = '<div class="charts-pareto">' + rows + "</div>"
     else:
         pareto = '<p class="dist-note">%s</p>' % _esc(_tr(lang, "drops.none"))
-    g2_heads = [_esc(part.strip()) for part in
-                _tr(lang, "g2.th").split(sep)]
     if lang == "fa":
         kept_row_label = "لِماهای نگه‌داشته‌شده"
         dropped_row_label = "لِماهای حذف‌شده"
@@ -3262,19 +3402,26 @@ def _render_charts(stats, lang="en"):
     p1 = (
         '<section class="charts-panel">%s'
         '<div class="charts-donut-wrap">'
+        '<div class="charts-donut-box">'
         '<svg class="charts-donut" viewBox="0 0 42 42" role="img">'
         '<circle cx="21" cy="21" r="16" class="charts-donut-bg"></circle>'
+        '<circle cx="21" cy="21" r="16" class="charts-donut-fg drop" '
+        'pathLength="100" stroke-dasharray="%s 100" '
+        'stroke-dashoffset="-%s"></circle>'
         '<circle cx="21" cy="21" r="16" class="charts-donut-fg" '
         'pathLength="100" stroke-dasharray="%s 100"></circle>'
         "</svg>"
-        '<div><div class="charts-donut-label">%s</div>'
+        '<div class="charts-donut-center">'
+        '<div class="charts-donut-label">%s</div>'
         '<div class="charts-donut-cap">%s</div>'
-        '<div class="kpi-sub">%s</div></div></div>%s'
-        '<p class="charts-colhead">%s</p>%s</section>'
-        % (head(2, "g2.h"), kept_share, _num("%d%s" % (rate, pct_sign), lang),
-           _esc(_tr(lang, "charts.donut_cap")),
-           _esc(_charts_legend(lang, "kept_share")), keep_rows,
-           " · ".join(g2_heads), pareto))
+        "</div></div>%s</div>"
+        '<p class="charts-legend-line">%s</p>'
+        '<p class="charts-section-head">%s</p>%s</section>'
+        % (head(2, "g2.h"), drop_share, kept_share, kept_share,
+           _num("%d%s" % (rate, pct_sign), lang),
+           _esc(_tr(lang, "charts.donut_cap")), keep_rows,
+           _esc(_charts_legend(lang, "kept_share")),
+           _esc(_tr(lang, "charts.pareto_head")), pareto))
 
     levels = _ordered_levels(stats["cefr_lemma"], stats["cefr_precard"])
     lemma_max = max([stats["cefr_lemma"].get(lvl, 0)
@@ -3301,17 +3448,20 @@ def _render_charts(stats, lang="en"):
                _pct(lemma_n, lemma_max), _pct(precard_n, precard_max),
                _esc(pair)))
     dual = '<div class="charts-cefr-list">' + "".join(dual_items) + "</div>"
-    g3_heads = [_esc(part.strip()) for part in
-                _tr(lang, "g3.th").split(sep)]
+    guide = (
+        '<div class="charts-guide">'
+        '<span><span class="charts-dot lemma"></span>%s</span>'
+        '<span><span class="charts-dot precard"></span>%s</span>'
+        '<span class="charts-pair">%s</span></div>'
+        % (_esc(_tr(lang, "charts.cefr_guide_lemma")),
+           _esc(_tr(lang, "charts.cefr_guide_precard")),
+           _esc(_tr(lang, "charts.cefr_pair"))))
     p2 = (
-        '<section class="charts-panel">%s'
-        '<p class="charts-colhead">%s</p>%s</section>'
-        % (head(3, "g3.h"), " · ".join(g3_heads), dual))
+        '<section class="charts-panel">%s%s%s</section>'
+        % (head(3, "g3.h"), guide, dual))
 
     n_rows = stats["precards_total"]
     s4_rail = _rail(stats["topic_path"], n_rows, lang)
-    g8_heads = [_esc(part.strip()) for part in
-                _tr(lang, "g8.th").split(sep)]
     if lang == "fa":
         method_rows = [
             (method, "%d پیش‌کارت (%s٪)" % (
@@ -3325,20 +3475,22 @@ def _render_charts(stats, lang="en"):
     example_rail = _rail(stats["example_source"], n_rows, lang)
     g7_heads = [_esc(part.strip()) for part in
                 _tr(lang, "g7.th").split(sep)]
-    g9_heads = [_esc(part.strip()) for part in
-                _tr(lang, "g9.th").split(sep)]
     method_grid = (_dist_table(g7_heads, method_rows)
                    if method_rows
                    else '<p class="dist-note">%s</p>'
                    % _esc(_tr(lang, "empty.rows")))
     p3 = (
         '<section class="charts-panel">%s'
-        '<p class="charts-colhead">%s</p>%s'
-        '<p class="charts-colhead">%s</p>%s'
-        '<p class="charts-colhead">%s</p>%s</section>'
-        % (head(8, "g8.h"), " · ".join(g8_heads), s4_rail,
-           " · ".join(g7_heads), method_grid,
-           " · ".join(g9_heads), example_rail))
+        '<p class="charts-section-head">%s</p>%s%s'
+        '<div><p class="charts-section-head">%s</p>'
+        '<p class="charts-legend-line">%s%s %s</p></div>%s</section>'
+        % (head(8, "g8.h"), _esc(_tr(lang, "charts.s4_head")), s4_rail,
+           method_grid,
+           _esc(_tr(lang, "charts.prov_head")),
+           _esc(_tr(lang, "charts.prov_total",
+                     N=_num(n_rows, lang))),
+           "،" if lang == "fa" else ",",
+           _esc(_tr(lang, "charts.rail_share")), example_rail))
 
     ranked = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),
                     key=lambda l: (-stats["topic_precard"].get(l, 0), l))
@@ -3356,7 +3508,7 @@ def _render_charts(stats, lang="en"):
                           N=_num(stats["untagged_precards"], lang))
     p4 = (
         '<section class="charts-panel">%s'
-        '<p class="charts-colhead">%s</p>'
+        '<p class="charts-legend-line">%s</p>'
         '<div class="charts-scroll">%s</div></section>'
         % (head(4, "g4.h", untagged_badge),
            _esc(_charts_legend(lang, "row_level")), topics))
@@ -3391,11 +3543,18 @@ def _render_charts(stats, lang="en"):
                _esc(_num(_pct(count, stats["lemmas_kept"]), lang)),
                pct_sign))
     pillars = '<div class="charts-pillars">' + "".join(pillar_cells) + "</div>"
+    bench = (
+        '<div class="charts-bench"><span>%s</span><span>%s</span></div>'
+        % (_esc(_tr(lang, "charts.bench")),
+           _esc(_tr(lang, "charts.bench_vals",
+                     M=_num(ppc["mean"], lang),
+                     D=_num(ppc["median"], lang),
+                     P=_num(ppc["p90"], lang)))))
     p5 = (
-        '<section class="charts-panel">%s%s'
-        '<p class="charts-colhead">%s</p></section>'
+        '<section class="charts-panel charts-panel-full">%s%s'
+        '<p class="charts-legend-line">%s</p>%s</section>'
         % (head(1, "g1.h"), pillars,
-           _esc(_charts_legend(lang, "fanout_dist"))))
+           _esc(_charts_legend(lang, "fanout_dist")), bench))
 
     return (kpi_html + '<div class="charts-grid">'
             + p1 + p2 + p3 + p4 + p5 + "</div>")

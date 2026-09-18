@@ -1118,7 +1118,7 @@ def test_fa_charts_chrome_uses_approved_strings(tmp_path):
     charts = _charts_section(fa_html)
     for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
                  "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
-                 "نیاز به مثال ساختگی", "سطح لِما · سطح ردیفی"):
+                  "نیاز به مثال ساختگی", "سطح لِما، سطح ردیفی"):
         assert text in fa_html, text
     assert "گروه سنجه" not in charts
     assert ">۷۰٪<" in charts
@@ -1275,18 +1275,23 @@ def test_charts_deprosed_legends_not_prose_en(tmp_path):
                              sample=fix["sample"], dropped=fix["dropped"],
                              run_log=fix["run_log"])
     charts = _charts_section(html)
-    for prose in ("median", "p90", "evidenced-only",
+    for prose in ("evidenced-only",
                   "lemma counts overlap", "stage_calls.s4_path",
                   "example_fallback", "sense_cefr_method",
                   "shown separately", "never overlap",
                   "(same two columns as g3)"):
         assert prose not in charts, prose
     for legend in ("kept lemmas / all lemmas",
-                   "precards (kept-only rows)",
-                   "evidenced precards", "of all precards",
                    "precards, row-level", "precards bucket",
                    "dropped lemmas", "lemma-level (exists)"):
         assert legend in charts, legend
+    # Reference round (R3/R4): KPI metas carry real counts; the median/P90
+    # words now live in the fanout meta + health footer, not the drawer.
+    assert "7 kept, 3 dropped" in charts
+    assert re.search(r"median \d+, P90 \d+", charts)
+    assert re.search(r"\d+ of \d+ evidenced", charts)
+    assert re.search(r"\d+ without real example", charts)
+    assert "production health:" in charts
     for prose in ("lemma counts overlap", "evidenced-only",
                   "stage_calls.s4_path"):
         assert prose in html
@@ -1295,25 +1300,25 @@ def test_charts_deprosed_legends_not_prose_en(tmp_path):
 def test_charts_deprosed_legends_not_prose_fa(tmp_path):
     fa_html = _build_both(tmp_path, "fa")
     charts = _charts_section(fa_html)
-    for prose in ("میانه", "صدک نود", "هم‌پوشانی",
+    for prose in ("هم‌پوشانی",
                   "فقط مدرک‌دارها", "۲+ بازه"):
         assert prose not in charts, prose
     for legend in ("لِماهای نگه‌داشته‌شده / همه لِماها",
-                   "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
-                   "پیش‌کارت مدرک‌دار", "از همه پیش‌کارتها",
                    "پیش‌کارتها، سطح ردیفی", "بازه پیش‌کارت"):
         assert legend in charts, legend
+    # Reference round (R3/R4): metas carry real counts (FA digits).
+    assert "۷ نگه\u200cداشته، \u06f3 حذف" in charts
+    assert re.search(r"میانه \d+، صدک \u06f9\u06f0: \d+", charts)
+    assert re.search(r"\d+ از \d+ مدرک\u200cدار", charts)
+    assert re.search(r"\d+ بدون مثال واقعی", charts)
+    assert "سلامت تولید:" in charts
     assert "هم‌پوشانی" in fa_html
 
 
 @pytest.mark.parametrize("lang,legends", [
     ("en", ("kept lemmas / all lemmas",
-             "precards (kept-only rows)",
-             "evidenced precards", "of all precards",
              "precards, row-level", "precards bucket")),
     ("fa", ("لِماهای نگه‌داشته‌شده / همه لِماها",
-             "پیش‌کارت (فقط ردیف‌های نگه‌داشته‌شده)",
-             "پیش‌کارت مدرک‌دار", "از همه پیش‌کارتها",
              "پیش‌کارتها، سطح ردیفی", "بازه پیش‌کارت")),
 ])
 def test_charts_legends_reuse_catalog_only(tmp_path, lang, legends):
@@ -1655,3 +1660,149 @@ def test_phone_stacking_media_query(tmp_path):
         r"\.split-workspace\s*\{([^}]*)\}", media)
     assert ws_media is not None
     assert "overflow-y: auto" in ws_media.group(1)
+
+
+def _ref_stats():
+    """Reference-fidelity round: v2 shape with 6 drop reasons so the
+    pareto rollup has something to roll up."""
+    stats = _v2_stats()
+    stats["drops_by_reason"] = [["r%d" % i, count] for i, count in
+                                enumerate((30, 21, 18, 9, 9, 8))]
+    return stats
+
+
+def test_ref_donut_two_segments():
+    """R2: kept + dropped arcs (reference ring), shares sum to 100."""
+    en = viewer._render_charts(_ref_stats(), "en")
+    assert en.count("charts-donut-fg") == 2
+    assert 'stroke-dasharray="70.0 100"' in en
+    assert 'stroke-dasharray="30.0 100"' in en
+
+
+def test_ref_kpi_meta_real_counts():
+    """R3: KPI third line carries real STATS counts, both langs."""
+    en = viewer._render_charts(_ref_stats(), "en")
+    assert "7 kept, 3 dropped" in en
+    assert "median 2, P90 3" in en
+    assert "1 of 4 evidenced" in en
+    assert "2 without real example" in en
+    fa = viewer._render_charts(_ref_stats(), "fa")
+    assert "\u06f7 نگه\u200cداشته، \u06f3 حذف" in fa
+    assert "میانه \u06f2، صدک \u06f9\u06f0: \u06f3" in fa
+
+
+def test_ref_pareto_other_rollup():
+    """R5: top-4 reasons stay; the rest roll into one others row."""
+    en = viewer._render_charts(_ref_stats(), "en")
+    assert "charts-row-others" in en
+    assert "others (2 methods)" in en
+    assert ">17<" in en
+    assert "r5" not in en
+    fa = viewer._render_charts(_ref_stats(), "fa")
+    assert "سایر (۲ متد)" in fa
+
+
+def test_ref_fanout_fullwidth_and_bench():
+    """R4: fan-out spans the grid; health footer shows mean/med/P90."""
+    en = viewer._render_charts(_ref_stats(), "en")
+    assert "charts-panel-full" in en
+    assert "production health:" in en
+    assert "mean 1.71, median 2, P90 3" in en
+    fa = viewer._render_charts(_ref_stats(), "fa")
+    assert "سلامت تولید:" in fa
+    assert "میانگین" in fa
+
+
+def test_ref_no_colhead_class():
+    """Owner eyeball: no redundant caption rows left in charts."""
+    for lang in ("en", "fa"):
+        assert "charts-colhead" not in viewer._render_charts(
+            _ref_stats(), lang)
+
+
+def test_ref_cefr_guide_words(tmp_path):
+    """Guide row keeps the required unit words (no test breakage)."""
+    assert "lemma-level (exists)" in viewer._render_charts(
+        _ref_stats(), "en")
+    assert "وجودی" in viewer._render_charts(_ref_stats(), "fa")
+
+
+def test_ref_panel_css(tmp_path):
+    """Reference panel anatomy: shadow, head divider, full-width span,
+    centered donut overlay."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    panel = re.search(r"\.charts-panel \{(.*?)\}", css, re.S).group(1)
+    assert "box-shadow:" in panel
+    assert "border-radius: 16px" in panel
+    head = re.search(r"\.charts-panel-head \{(.*?)\}", css, re.S).group(1)
+    assert "border-bottom:" in head
+    full = re.search(r"\.charts-panel-full \{(.*?)\}", css, re.S).group(1)
+    assert "grid-column: 1 / -1" in full
+    assert ".charts-donut-center" in css
+
+
+def test_ref_catalog_keys_both_langs():
+    """New reference strings exist in EN + FA (eyeball-flagged)."""
+    for key in ("charts.kpi_kept_meta", "charts.kpi_fanout_meta",
+                "charts.kpi_mismatch_meta", "charts.kpi_synth_meta",
+                "charts.others", "charts.bench", "charts.bench_vals",
+                "charts.pareto_head", "charts.cefr_guide_lemma",
+                "charts.cefr_guide_precard", "charts.cefr_pair",
+                "charts.s4_head", "charts.prov_head", "charts.prov_total"):
+        assert key in viewer.STRINGS["en"], key
+        assert key in viewer.STRINGS["fa"], key
+
+
+def test_ref_others_width_clamped():
+    """OC round: a rest-sum larger than the top reason still caps at
+    100% — no pareto track overflow."""
+    stats = _v2_stats()
+    stats["drops_by_reason"] = [["r%d" % i, count] for i, count in
+                                enumerate((10, 9, 9, 9, 9, 9))]
+    en = viewer._render_charts(stats, "en")
+    assert "others (2 methods)" in en
+    assert ">18<" in en
+    widths = [float(w) for w in
+              re.findall(r"charts-fill drop\" style=\"width:([0-9.]+)%", en)]
+    assert widths and all(w <= 100.0 for w in widths)
+
+
+def test_ref_empty_donut_no_full_drop():
+    """OC round: an empty dataset renders an empty ring, never a
+    solid full-drop circle."""
+    stats = _v2_stats()
+    stats.update({"lemmas_total": 0, "lemmas_kept": 0,
+                  "lemmas_dropped": 0, "kept_rate_pct": 0})
+    en = viewer._render_charts(stats, "en")
+    assert re.search(r'stroke-dasharray="100', en) is None
+
+
+def test_ref_no_middot_in_charts(tmp_path):
+    """Owner tablet round R1A/R2A: no U+00B7 anywhere in the charts
+    tab (drawer headings keep theirs — out of scope)."""
+    for lang in ("en", "fa"):
+        sub = tmp_path / ("ref-nodot-%s" % lang)
+        sub.mkdir()
+        charts = _charts_section(_build_both(sub, lang))
+        assert "\u00b7" not in charts
+
+
+def test_review_sidebar_shrinks_for_touch_scroll(tmp_path):
+    """Owner tablet round R3A: the review tab must shrink inside the
+    app-shell column instead of blowing the page out — otherwise
+    touch scroll has nowhere to go."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pane = re.search(r"#reviewPane \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 0" in pane
+    assert "flex-direction: column" in pane
+    assert re.search(r"#reviewPane\[hidden\]", html)
+    side = re.search(r"\.sidebar \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 0" in side
