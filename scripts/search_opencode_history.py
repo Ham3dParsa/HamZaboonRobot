@@ -29,7 +29,6 @@ import os
 import platform
 import re
 import sqlite3
-import sys
 import time
 
 
@@ -202,7 +201,6 @@ def search(con, norm_terms, raw_terms, project_id, project_label,
         args.append(project_id)
     if since_ms:
         args.append(since_ms)
-    rows = None
     cur = con.execute(
         "select p.session_id, p.data from part p"
         " join session s on s.id = p.session_id"
