@@ -810,8 +810,9 @@ def test_v141_shape_fa_header_numbers(tmp_path):
 
 
 def test_fa_prose_uses_offline_sans_stack(tmp_path):
-    """OC review round 1 (PR 748): no remote fonts (offline contract) —
-    FA prose uses the system sans stack."""
+    """Charts v2: EN stays fully offline; FA charts path may load
+    Vazirmatn via CDN with an offline-safe fallback stack (layout
+    identical without the font, no global overrides)."""
     fix = _mini_run(tmp_path)
     en_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                                 sample=fix["sample"], dropped=fix["dropped"],
@@ -820,7 +821,8 @@ def test_fa_prose_uses_offline_sans_stack(tmp_path):
                                 sample=fix["sample"], dropped=fix["dropped"],
                                 run_log=fix["run_log"], lang="fa")
     assert "fonts.googleapis.com" not in en_html
-    assert "fonts.googleapis.com" not in fa_html
+    assert "family=Vazirmatn" in fa_html
+    assert "'Vazirmatn', \"Segoe UI\", system-ui" in fa_html
     assert '[dir="rtl"] .dist-group table' in fa_html
     assert '[dir="rtl"] .header-strip' in fa_html
     assert '"Segoe UI", system-ui, sans-serif' in fa_html
@@ -1052,6 +1054,8 @@ def test_charts_widths_math_exact_mini(tmp_path):
 
 
 def test_charts_use_theme_vars_only(tmp_path):
+    """Charts v2: oklch accent tokens (allowlisted) + theme vars only;
+    no hex/rgb anywhere in charts CSS or inline styles."""
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
@@ -1060,14 +1064,37 @@ def test_charts_use_theme_vars_only(tmp_path):
     assert "oklch" not in charts and "rgb(" not in charts
     assert re.search(r"#[0-9a-fA-F]{3,8}", charts) is None
     for style in re.findall(r'style="([^"]+)"', charts):
-        assert re.fullmatch(r"width:[0-9.]+%", style), style
+        for decl in style.split(";"):
+            decl = decl.strip()
+            if not decl:
+                continue
+            assert re.fullmatch(r"(width|height):[0-9.]+%", decl), decl
     start = html.find("/* Charts tab")
     end = html.find(".viewer-banner {")
     assert start > 0 and end > start
     css = html[start:end]
-    assert "oklch" not in css and "rgb(" not in css
+    assert "rgb(" not in css
     assert re.search(r"#[0-9a-fA-F]{3,8}", css) is None
+    tokens = {
+        "oklch(.699.137106.2)",
+        "oklch(.699.137166.2)",
+        "oklch(.699.137286.2)",
+        "oklch(.699.137346.2)",
+        "oklch(.130.020286.2)",
+        "oklch(.290.035286.2)",
+        "oklch(.55.137106.2)",
+        "oklch(.55.137166.2)",
+        "oklch(.55.137286.2)",
+        "oklch(.55.12346.2)",
+        "oklch(.96.008286)",
+        "oklch(.85.02286)",
+    }
+    found = re.findall(r"oklch\([^)]*\)", css)
+    assert found, "charts v2 must define oklch accent tokens"
+    norm = {re.sub(r"\s+", "", t) for t in found}
+    assert norm <= tokens, norm - tokens
     assert "var(--accent)" in css
+    assert "var(--charts-gold)" in css
 
 
 def test_charts_catalog_additions_only(tmp_path):
@@ -1091,16 +1118,18 @@ def test_fa_charts_chrome_uses_approved_strings(tmp_path):
     charts = _charts_section(fa_html)
     for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
                  "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
-                 "نیاز به مثال ساختگی", "گروه سنجه 2"):
+                 "نیاز به مثال ساختگی", "سطح لِما · سطح ردیفی"):
         assert text in fa_html, text
-    assert ">70٪<" in charts
-    assert ">1.43<" in charts
+    assert "گروه سنجه" not in charts
+    assert ">۷۰٪<" in charts
+    assert ">۱.۴۳<" in charts
     for literal in (">Review<", ">Charts<", "Lemma kept rate",
                     "Mean precards", "Evidenced mismatch",
                     "Synthetic needed"):
         assert literal not in fa_html, literal
-    # Data values stay Latin; approved group prose keeps its own ۱+/۲+
-    # digits verbatim (never rewritten).
+    assert "metric group" not in charts
+    # CEFR codes (A1...) and width math stay Latin verbatim
+    # (never rewritten).
     assert re.search(r"[0-9]", charts)
 
 
@@ -1291,3 +1320,134 @@ def test_charts_legends_reuse_catalog_only(tmp_path, lang, legends):
     catalog = json.dumps(viewer.STRINGS[lang], ensure_ascii=False)
     for legend in legends:
         assert legend in catalog, legend
+
+
+def test_charts_kpi_strip_rails_and_scale(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    for rail in ("rail-gold", "rail-mint", "rail-purple", "rail-rose"):
+        assert rail in charts, rail
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "minmax(180px, 1fr)" in css
+    assert "font-size: 24px" in css and "font-weight: 900" in css
+    assert "width: 4px" in css
+
+
+def test_charts_retention_donut_and_rows(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "kept of all lemmas" in charts
+    assert "kept lemmas" in charts
+    assert "dropped lemmas" in charts
+    assert "<b>7</b>" in charts
+    assert "<b>3</b>" in charts
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "width: 120px" in css and "height: 120px" in css
+    assert "var(--charts-gold)" in css
+
+
+def test_charts_pareto_grid_ltr_title(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "charts-pareto" in charts
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "140px 1fr auto" in css
+    assert "direction: ltr" in css
+    assert "border-radius: 99px" in css
+    assert "var(--charts-rose)" in css
+
+
+def test_fa_charts_kpi_persian_digits(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    charts = _charts_section(fa_html)
+    assert ">۷۰٪<" in charts
+    assert ">۱.۴۳<" in charts
+    assert ">70%<" not in charts
+    assert "Vazirmatn" in fa_html
+    assert "fonts.googleapis.com" in fa_html
+
+
+def _v2_stats():
+    return {
+        "lemmas_total": 10, "lemmas_kept": 7, "lemmas_dropped": 3,
+        "precards_total": 12, "kept_rate_pct": 70,
+        "drops_by_reason": [["anchor-drop", 2], ["sense-judge-drop", 1]],
+        "ppc": {"mean": 1.71, "median": 2, "p90": 3,
+                "hist": {"1": 3, "2": 3, "3": 1, "4+": 0}},
+        "cefr_lemma": {"A1": 4, "B1": 3, "C1": 2},
+        "cefr_precard": {"A1": 6, "B1": 4, "C1": 2},
+        "topic_lemma": {"Food & Drink": 5, "Travel": 2},
+        "topic_precard": {"Food & Drink": 9, "Travel": 3},
+        "untagged_precards": 0,
+        "synthetic": {"precards": 2, "precards_pct": 16.7,
+                      "lemmas": 2, "lemmas_pct": 28.6},
+        "mismatch": {"precards": 3, "precards_pct": 25.0, "lemmas": 2,
+                     "evidenced_precards": 1, "evidenced_denominator": 4,
+                     "evidenced_pct": 25.0},
+        "cefr_method": {"pool-fallback": 8, "wn-single": 4},
+        "topic_path": {"llm": 5, "fallback": 4, "leg1": 3},
+        "example_source": {"sense": 6, "lemma": 4, "pool": 2},
+    }
+
+
+def test_charts_cefr_badges_and_pairs(tmp_path):
+    en = viewer._render_charts(_v2_stats(), "en")
+    for band in ("charts-cefr-badge a", "charts-cefr-badge b",
+                 "charts-cefr-badge c"):
+        assert band in en, band
+    assert "4 / 6" in en
+    assert "charts-fill lemma" in en
+    assert "charts-fill precard" in en
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "var(--charts-mint)" in css
+    assert "var(--charts-purple)" in css
+    assert "flex: none" in css
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "۴ / ۶" in fa
+    assert "A1" in fa
+
+
+def test_charts_s4_rail_segments_and_legend():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-rail" in en
+    assert "charts-rail-grid" in en
+    assert "share of precards" in en
+    assert 'style="width:41.7%"' in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "سهم از پیش‌کارت‌ها" in fa
+    assert "۵" in fa
+
+
+def test_charts_topics_cards_and_untagged_badge():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-topics" in en
+    assert "charts-fill topic" in en
+    assert "0 untagged" in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "۰ بدون برچسب" in fa
+
+
+def test_charts_pillars_grid_and_units():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-pillars" in en
+    assert "charts-pillar-stage" in en
+    assert "precard(s)" in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "پیش‌کارت" in fa
