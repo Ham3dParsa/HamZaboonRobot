@@ -55,7 +55,6 @@ STUB_RE = re.compile(
     r"eye dialect|pronunciation spelling)\b",
     re.I,
 )
-NAME_RE = re.compile(r"^[A-Z]")
 
 
 def norm_tokens(text):
