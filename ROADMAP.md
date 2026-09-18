@@ -4,9 +4,10 @@
 
 HamZaban is a Telegram-based language-learning assistant for Persian-speaking
 learners. It provides personalized vocabulary, grammar lessons, and spaced
-repetition through pull-based study sessions across multiple target languages.
-There is no daily push delivery; learners start a session when they want to
-study.
+ repetition through pull-based study sessions across multiple target languages.
+ There is no daily push delivery of card content; learners start a session
+ when they want to study. Duolingo-style return nudges are allowed under
+ Push Policy v1 (max 2/day, quiet hours, opt-out, nudge content only).
 
 The roadmap prioritizes reliable learning value, predictable AI costs, clear
 Telegram UX, and an architecture that can support additional languages without
@@ -201,8 +202,12 @@ The following decisions are locked:
 - Retention points are awarded only after a successful learner review action:
   interval indexes 1, 2, 3, and 4 award 1, 3, 6, and 10 points respectively.
   Reaching the 30-day checkpoint also awards a one-time 10-point mastery
-  bonus. Generating content, receiving reminders, and streak length award no
-  retention points.
+   bonus. Generating content, receiving reminders, and streak length award no
+   retention points.
+   (SUPERSEDED 2026-09-17: XP follows the locked Mode-2 formula — 1 XP per
+   graded card, +3 completion bonus, milestone synced to the heat line at
+   session ceil(N/2); owner lock on #467. The 1/3/6/10 interval ladder above
+   is void.)
 - `retention_events` is append-only and prevents duplicate milestone awards.
   The displayed streak remains separate from words retained and the
   seven-day retention rate.
@@ -401,8 +406,9 @@ The next language addition must use this contract.
   via `services/session/build_session_list` (Tier 1 due reviews → Tier 2
   first-exposure → Tier 3 AI generation, currently stub).
 - Each card is rendered inside the same session message via edit; a new session
-  inactivates the previous card. There is no push delivery, no reservoir, and
-  no `delivery_queue`/`daily_cards` path.
+   inactivates the previous card. There is no push delivery of card content and
+   no reservoir (return nudges follow Push Policy v1); no
+   `delivery_queue`/`daily_cards` path.
 - Session sizing uses per-plan values read from the `plans` DB table: each plan
   stores its daily session budget (`max_sessions`) and target cards per session
   (`cards_per_session`). A study session produces up to `cards_per_session`
@@ -512,8 +518,9 @@ where explicitly noted; everything else in this document stays in force.
   issue stays open and becomes an acceptance criterion on the future
   post-beta points-system spec.
 - **Milestone map (GitHub Milestones #1–#4).** MS-1: Factory Card Schema &
-  EN Pool (issues #550, #588, #590) → MS-2a: Frictionless Study Session
-  (break down #467; dead-ends incl. #161) → MS-2b: Retention Loop & Push
+   EN Pool (issues #550, #588, #590) → MS-2a: Frictionless Study Session
+   (break down #467; dead-ends incl. #161; compensatory #605/#724 deferred
+   post-beta, out of scope for current beta per 2026-09-17 lock) → MS-2b: Retention Loop & Push
   Policy v1 (needs locked streak rule) → MS-3: Closed Beta Pilot
   (`v0.9.0-beta` tag; structured logs + manual review, no dashboard).
   Max one open milestone at a time. DE/TR factory, packs content, and
