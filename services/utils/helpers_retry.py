@@ -351,6 +351,13 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, *, reset_telegr
 
                     _helpers_facade._reset_telegram_cb()
                 return result
+        except Forbidden:
+            if chat_id > 0:
+                try:
+                    db.set_user_blocked(chat_id)
+                except Exception:
+                    pass
+            raise
         except BadRequest:
             raise
         except RetryAfter as exc:

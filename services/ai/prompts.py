@@ -8,7 +8,7 @@
 import json
 
 from config import AI_CARD_OUTPUT_FORMAT
-from config.catalog import (
+from config.catalog_languages import (
     example_language_label,
     goal_hint,
     goal_label,
