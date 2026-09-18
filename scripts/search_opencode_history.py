@@ -26,12 +26,34 @@ import argparse
 import datetime
 import json
 import os
+import platform
 import re
 import sqlite3
 import sys
 import time
 
-DB = "file:C:/Users/HamedParsa/.local/share/opencode/opencode.db?mode=ro"
+
+def _default_db_path():
+    """Platform-aware default opencode SQLite path (no PII baked in)."""
+    override = os.environ.get("OPENCODE_DB")
+    if override:
+        return override
+    home = os.path.expanduser("~")
+    system = platform.system()
+    if system == "Windows":
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(home, "AppData", "Local")
+        return os.path.join(base, "opencode", "opencode.db")
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return os.path.join(xdg, "opencode", "opencode.db")
+    # Legacy fallback: previous hardcoded Windows-only value kept last-resort.
+    legacy = "C:/Users/HamedParsa/.local/share/opencode/opencode.db"
+    if system == "Windows" and os.path.exists(legacy):
+        return legacy
+    return os.path.join(home, ".local", "share", "opencode", "opencode.db")
+
+
+DB = _default_db_path()
 
 # Arabic/Persian digit variants -> ASCII, for normalization.
 _DIGIT_MAP = {ord(c): str(i) for i, c in enumerate("0123456789")}
@@ -55,8 +77,11 @@ def normalize_fa(s):
     return " ".join(s.split())
 
 
-def connect():
-    return sqlite3.connect(DB, uri=True)
+def connect(db_path=None):
+    path = db_path or DB
+    if path.startswith("file:"):
+        return sqlite3.connect(path, uri=True)
+    return sqlite3.connect("file:%s?mode=ro" % path, uri=True)
 
 
 def list_projects(con):
@@ -75,13 +100,18 @@ def resolve_project(con, override, all_projects):
     if all_projects:
         return None, "all projects"
     if override:
-        row = con.execute(
-            "select id, worktree from project where worktree like ?",
+        rows = con.execute(
+            "select id, worktree, time_updated from project"
+            " where worktree like ? order by time_updated desc",
             ("%" + override + "%",),
-        ).fetchone()
-        if row is None:
+        ).fetchall()
+        if not rows:
             return None, "NO-MATCH:%s" % override
-        return row[0], row[1]
+        if len(rows) > 1:
+            print("warning: %d projects match %r; using most recent:" % (len(rows), override))
+            for pid, worktree, _updated in rows:
+                print("  %s  %s" % (pid[:8], worktree))
+        return rows[0][0], rows[0][1]
     cwd = os.path.normpath(os.getcwd()).replace("\\", "/")
     row = con.execute(
         "select id, worktree from project"
@@ -91,12 +121,18 @@ def resolve_project(con, override, all_projects):
     if row:
         return row[0], row[1] + " (auto from cwd)"
     base = os.path.basename(cwd.rstrip("/")) or cwd
-    row = con.execute(
-        "select id, worktree from project where worktree like ?",
+    rows = con.execute(
+        "select id, worktree, time_updated from project"
+        " where worktree like ? order by time_updated desc",
         ("%" + base + "%",),
-    ).fetchone()
-    if row:
-        return row[0], row[1] + " (auto from cwd basename)"
+    ).fetchall()
+    if rows:
+        if len(rows) > 1:
+            print("warning: %d projects match cwd basename %r;"
+                  " using most recent:" % (len(rows), base))
+            for pid, worktree, _updated in rows:
+                print("  %s  %s" % (pid[:8], worktree))
+        return rows[0][0], rows[0][1] + " (auto from cwd basename)"
     return None, "all projects (cwd %s matched nothing)" % cwd
 
 
@@ -166,37 +202,52 @@ def search(con, norm_terms, raw_terms, project_id, project_label,
         args.append(project_id)
     if since_ms:
         args.append(since_ms)
-    rows = con.execute(
+    rows = None
+    cur = con.execute(
         "select p.session_id, p.data from part p"
         " join session s on s.id = p.session_id"
         " where 1 = 1 %s %s %s" % (type_filter, proj_filter, since_filter),
         args,
-    ).fetchall()
+    )
 
     now_ms = int(time.time() * 1000)
     hits = {}      # sid -> matching part count
     first_text = {}  # sid -> first matching text (for snippets)
-    for sid, data in rows:
-        if exclude_prefix and sid.startswith(exclude_prefix):
-            continue
-        ptype, text = part_text(data)
-        if text_only and ptype is not None and ptype != "text":
-            continue
-        if not text or not part_matches(normalize_fa(text)):
-            continue
-        hits[sid] = hits.get(sid, 0) + 1
-        if sid not in first_text:
-            first_text[sid] = text
+    scanned = 0
+    while True:
+        # Chunked fetchmany: never materialize the full part table (~468k
+        # rows) in memory; Python-side normalization still applies per chunk.
+        batch = cur.fetchmany(2000)
+        if not batch:
+            break
+        scanned += len(batch)
+        for sid, data in batch:
+            if exclude_prefix and sid.startswith(exclude_prefix):
+                continue
+            ptype, text = part_text(data)
+            if text_only and ptype is not None and ptype != "text":
+                continue
+            if not text or not part_matches(normalize_fa(text)):
+                continue
+            hits[sid] = hits.get(sid, 0) + 1
+            if sid not in first_text:
+                first_text[sid] = text
 
     # Title/slug bonus: sessions whose title matches count even with 0 part hits.
+    # Single batched metadata lookup (no N+1 per-hit query).
     meta = {}
-    for sid in list(hits):
-        r = con.execute(
-            "select s.title, s.slug, s.time_created, s.time_updated"
-            " from session s where s.id = ?", (sid,),
-        ).fetchone()
-        if r:
-            meta[sid] = r
+    if hits:
+        hit_ids = [sid for sid in hits
+                   if not (exclude_prefix and sid.startswith(exclude_prefix))]
+        for i in range(0, len(hit_ids), 500):
+            chunk = hit_ids[i:i + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            for row in con.execute(
+                "select s.id, s.title, s.slug, s.time_created, s.time_updated"
+                " from session s where s.id in (%s)" % placeholders,
+                chunk,
+            ):
+                meta[row[0]] = row[1:]
     if norm_terms:
         extra_args = list(args)
         title_rows = con.execute(
@@ -227,9 +278,32 @@ def search(con, norm_terms, raw_terms, project_id, project_label,
 
     lines = []
     lines.append("project: %s | mode: %s | text-only: %s | scanned=%d parts in %.2fs"
-                 % (project_label, mode, text_only, len(rows), dt))
+                 % (project_label, mode, text_only, scanned, dt))
     lines.append("score = hits * 30/(30+age_days); title match adds +3 hits")
     lines.append("sessions matched: %d" % len(ranked))
+    # Snippet refill: one grouped parts query for all ranked sessions
+    # (no per-session rescan); Python picks up to `snippets` matches per sid.
+    refill = {}
+    needy = [sid for _, _, _, _, sid, _, _ in ranked
+             if first_text.get(sid) is None or snippets > 1]
+    if needy and snippets:
+        placeholders = ",".join("?" for _ in needy)
+        for sid, data in con.execute(
+            "select p.session_id, p.data from part p where p.session_id in (%s)"
+            % placeholders
+            + (" and p.data like '%\"type\":\"text\"%'" if text_only else "")
+            + " order by p.session_id, p.time_created",
+            needy,
+        ):
+            bucket = refill.setdefault(sid, [])
+            if len(bucket) >= snippets:
+                continue
+            ptype, text = part_text(data)
+            if text_only and ptype is not None and ptype != "text":
+                continue
+            if not text or not part_matches(normalize_fa(text)):
+                continue
+            bucket.append(text)
     for score, n, age, updated, sid, title, slug in ranked:
         lines.append("=" * 70)
         lines.append("score=%.2f hits=%d age=%.0fd  %s  %s"
@@ -242,16 +316,8 @@ def search(con, norm_terms, raw_terms, project_id, project_label,
                 lines.append("  [%s] %s" % (term, frag[:220]))
                 shown += 1
         if shown < snippets:
-            for (data,) in con.execute(
-                "select p.data from part p where p.session_id = ?"
-                + (" and p.data like '%\"type\":\"text\"%'" if text_only else "")
-                + " order by p.time_created limit 400",
-                (sid,),
-            ):
-                ptype, text = part_text(data)
-                if text_only and ptype is not None and ptype != "text":
-                    continue
-                if not text or not part_matches(normalize_fa(text)) or text == seed:
+            for text in refill.get(sid, []):
+                if text == seed:
                     continue
                 term, frag = snippet(text, raw_terms)
                 if frag:
@@ -290,8 +356,15 @@ def main(argv=None):
     ap.add_argument("--include-tools", action="store_true",
                     help="also match tool/reasoning/step blobs (default: text parts only)")
     ap.add_argument("--out", default=None, help="also write output file (utf-8-sig)")
+    ap.add_argument("--db", default=None,
+                    help="opencode SQLite path (default: $OPENCODE_DB or"
+                    " platform-aware standard location)")
     args = ap.parse_args(argv)
-    con = connect()
+    try:
+        con = connect(args.db)
+    except Exception as exc:
+        ap.error("cannot open opencode DB %r: %s"
+                 % (args.db or DB, exc))
     if args.list_projects:
         list_projects(con)
         return 0
