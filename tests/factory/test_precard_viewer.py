@@ -810,8 +810,9 @@ def test_v141_shape_fa_header_numbers(tmp_path):
 
 
 def test_fa_prose_uses_offline_sans_stack(tmp_path):
-    """OC review round 1 (PR 748): no remote fonts (offline contract) —
-    FA prose uses the system sans stack."""
+    """Charts v2: EN stays fully offline; FA charts path may load
+    Vazirmatn via CDN with an offline-safe fallback stack (layout
+    identical without the font, no global overrides)."""
     fix = _mini_run(tmp_path)
     en_html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                                 sample=fix["sample"], dropped=fix["dropped"],
@@ -820,7 +821,8 @@ def test_fa_prose_uses_offline_sans_stack(tmp_path):
                                 sample=fix["sample"], dropped=fix["dropped"],
                                 run_log=fix["run_log"], lang="fa")
     assert "fonts.googleapis.com" not in en_html
-    assert "fonts.googleapis.com" not in fa_html
+    assert "family=Vazirmatn" in fa_html
+    assert "'Vazirmatn', \"Segoe UI\", system-ui" in fa_html
     assert '[dir="rtl"] .dist-group table' in fa_html
     assert '[dir="rtl"] .header-strip' in fa_html
     assert '"Segoe UI", system-ui, sans-serif' in fa_html
@@ -1052,6 +1054,8 @@ def test_charts_widths_math_exact_mini(tmp_path):
 
 
 def test_charts_use_theme_vars_only(tmp_path):
+    """Charts v2: oklch accent tokens (allowlisted) + theme vars only;
+    no hex/rgb anywhere in charts CSS or inline styles."""
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
@@ -1060,14 +1064,37 @@ def test_charts_use_theme_vars_only(tmp_path):
     assert "oklch" not in charts and "rgb(" not in charts
     assert re.search(r"#[0-9a-fA-F]{3,8}", charts) is None
     for style in re.findall(r'style="([^"]+)"', charts):
-        assert re.fullmatch(r"width:[0-9.]+%", style), style
+        for decl in style.split(";"):
+            decl = decl.strip()
+            if not decl:
+                continue
+            assert re.fullmatch(r"(width|height):[0-9.]+%", decl), decl
     start = html.find("/* Charts tab")
     end = html.find(".viewer-banner {")
     assert start > 0 and end > start
     css = html[start:end]
-    assert "oklch" not in css and "rgb(" not in css
+    assert "rgb(" not in css
     assert re.search(r"#[0-9a-fA-F]{3,8}", css) is None
+    tokens = {
+        "oklch(.699.137106.2)",
+        "oklch(.699.137166.2)",
+        "oklch(.699.137286.2)",
+        "oklch(.699.137346.2)",
+        "oklch(.130.020286.2)",
+        "oklch(.290.035286.2)",
+        "oklch(.55.137106.2)",
+        "oklch(.55.137166.2)",
+        "oklch(.55.137286.2)",
+        "oklch(.55.12346.2)",
+        "oklch(.96.008286)",
+        "oklch(.85.02286)",
+    }
+    found = re.findall(r"oklch\([^)]*\)", css)
+    assert found, "charts v2 must define oklch accent tokens"
+    norm = {re.sub(r"\s+", "", t) for t in found}
+    assert norm <= tokens, norm - tokens
     assert "var(--accent)" in css
+    assert "var(--charts-gold)" in css
 
 
 def test_charts_catalog_additions_only(tmp_path):
@@ -1091,16 +1118,18 @@ def test_fa_charts_chrome_uses_approved_strings(tmp_path):
     charts = _charts_section(fa_html)
     for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
                  "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
-                 "نیاز به مثال ساختگی", "گروه سنجه 2"):
+                 "نیاز به مثال ساختگی", "سطح لِما · سطح ردیفی"):
         assert text in fa_html, text
-    assert ">70٪<" in charts
-    assert ">1.43<" in charts
+    assert "گروه سنجه" not in charts
+    assert ">۷۰٪<" in charts
+    assert ">۱.۴۳<" in charts
     for literal in (">Review<", ">Charts<", "Lemma kept rate",
                     "Mean precards", "Evidenced mismatch",
                     "Synthetic needed"):
         assert literal not in fa_html, literal
-    # Data values stay Latin; approved group prose keeps its own ۱+/۲+
-    # digits verbatim (never rewritten).
+    assert "metric group" not in charts
+    # CEFR codes (A1...) and width math stay Latin verbatim
+    # (never rewritten).
     assert re.search(r"[0-9]", charts)
 
 
@@ -1291,3 +1320,338 @@ def test_charts_legends_reuse_catalog_only(tmp_path, lang, legends):
     catalog = json.dumps(viewer.STRINGS[lang], ensure_ascii=False)
     for legend in legends:
         assert legend in catalog, legend
+
+
+def test_charts_kpi_strip_rails_and_scale(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    for rail in ("rail-gold", "rail-mint", "rail-purple", "rail-rose"):
+        assert rail in charts, rail
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "minmax(180px, 1fr)" in css
+    assert "font-size: 24px" in css and "font-weight: 900" in css
+    assert "width: 4px" in css
+
+
+def test_charts_retention_donut_and_rows(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "kept of all lemmas" in charts
+    assert "kept lemmas" in charts
+    assert "dropped lemmas" in charts
+    assert "<b>7</b>" in charts
+    assert "<b>3</b>" in charts
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "width: 120px" in css and "height: 120px" in css
+    assert "var(--charts-gold)" in css
+
+
+def test_charts_pareto_grid_ltr_title(tmp_path):
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = _charts_section(html)
+    assert "charts-pareto" in charts
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "140px 1fr auto" in css
+    assert "direction: ltr" in css
+    assert "border-radius: 99px" in css
+    assert "var(--charts-rose)" in css
+
+
+def test_fa_charts_kpi_persian_digits(tmp_path):
+    fa_html = _build_both(tmp_path, "fa")
+    charts = _charts_section(fa_html)
+    assert ">۷۰٪<" in charts
+    assert ">۱.۴۳<" in charts
+    assert ">70%<" not in charts
+    assert "Vazirmatn" in fa_html
+    assert "fonts.googleapis.com" in fa_html
+
+
+def _v2_stats():
+    return {
+        "lemmas_total": 10, "lemmas_kept": 7, "lemmas_dropped": 3,
+        "precards_total": 12, "kept_rate_pct": 70,
+        "drops_by_reason": [["anchor-drop", 2], ["sense-judge-drop", 1]],
+        "ppc": {"mean": 1.71, "median": 2, "p90": 3,
+                "hist": {"1": 3, "2": 3, "3": 1, "4+": 0}},
+        "cefr_lemma": {"A1": 4, "B1": 3, "C1": 2},
+        "cefr_precard": {"A1": 6, "B1": 4, "C1": 2},
+        "topic_lemma": {"Food & Drink": 5, "Travel": 2},
+        "topic_precard": {"Food & Drink": 9, "Travel": 3},
+        "untagged_precards": 0,
+        "synthetic": {"precards": 2, "precards_pct": 16.7,
+                      "lemmas": 2, "lemmas_pct": 28.6},
+        "mismatch": {"precards": 3, "precards_pct": 25.0, "lemmas": 2,
+                     "evidenced_precards": 1, "evidenced_denominator": 4,
+                     "evidenced_pct": 25.0},
+        "cefr_method": {"pool-fallback": 8, "wn-single": 4},
+        "topic_path": {"llm": 5, "fallback": 4, "leg1": 3},
+        "example_source": {"sense": 6, "lemma": 4, "pool": 2},
+    }
+
+
+def test_charts_cefr_badges_and_pairs(tmp_path):
+    en = viewer._render_charts(_v2_stats(), "en")
+    for band in ("charts-cefr-badge a", "charts-cefr-badge b",
+                 "charts-cefr-badge c"):
+        assert band in en, band
+    assert "4 / 6" in en
+    assert "charts-fill lemma" in en
+    assert "charts-fill precard" in en
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    start = html.find("/* Charts tab")
+    css = html[start:html.find(".viewer-banner {", start)]
+    assert "var(--charts-mint)" in css
+    assert "var(--charts-purple)" in css
+    assert "flex: none" in css
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "۴ / ۶" in fa
+    assert "A1" in fa
+
+
+def test_charts_s4_rail_segments_and_legend():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-rail" in en
+    assert "charts-rail-grid" in en
+    assert "share of precards" in en
+    assert 'style="width:41.7%"' in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "سهم از پیش‌کارت‌ها" in fa
+    assert "۵" in fa
+
+
+def test_charts_topics_cards_and_untagged_badge():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-topics" in en
+    assert "charts-fill topic" in en
+    assert "0 untagged" in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "۰ بدون برچسب" in fa
+
+
+def test_charts_pillars_grid_and_units():
+    en = viewer._render_charts(_v2_stats(), "en")
+    assert "charts-pillars" in en
+    assert "charts-pillar-stage" in en
+    assert "precard(s)" in en
+    fa = viewer._render_charts(_v2_stats(), "fa")
+    assert "پیش‌کارت" in fa
+
+
+def _advanced_filters_block(html):
+    start = html.find('id="advancedFilters"')
+    assert start > 0
+    open_tag = html.rfind("<details", 0, start)
+    return html[open_tag:html.find("</details>", start)]
+
+
+def test_advanced_filters_collapsible_structure(tmp_path):
+    """T-C (viewer-batch): CEFR pills + all selects fold into a
+    <details> with a labeled summary + count span; search stays on top
+    outside; every control id is preserved."""
+    fix = _mini_run(tmp_path)
+    kwargs = {"precard": fix["precard"], "sample": fix["sample"],
+              "dropped": fix["dropped"], "run_log": fix["run_log"]}
+    for lang in ("en", "fa"):
+        html = viewer.build_html(fix["run_dir"], lang=lang, **kwargs)
+        assert ('<details class="advanced-filters" '
+                'id="advancedFilters" open>') in html
+        assert "<summary>" in html
+        assert 'id="activeFilterCount"' in html
+        ids = ("cefrPills", "topicFilter", "statusFilter",
+               "registerFilter", "methodFilter", "sourceFilter",
+               "sortOrder")
+        for sel in ids:
+            assert ('id="%s"' % sel) in html
+        assert (html.find('id="searchInput"')
+                < html.find('id="advancedFilters"'))
+        block = _advanced_filters_block(html)
+        for sel in ids:
+            assert ('id="%s"' % sel) in block
+        assert 'id="searchInput"' not in block
+        assert 'id="sortOrder"' in block
+    en_html = viewer.build_html(fix["run_dir"], lang="en", **kwargs)
+    assert "<span>Advanced filters</span>" in en_html
+    fa_html = viewer.build_html(fix["run_dir"], lang="fa", **kwargs)
+    assert "<span>فیلترهای پیشرفته</span>" in fa_html
+    assert ".advanced-filters" in en_html
+    flat = re.search(r"\.advanced-filters \{(.*?)\}", en_html, re.S).group(1)
+    assert "display: contents" in flat
+    summary_css = re.search(
+        r"\.advanced-filters > summary \{(.*?)\}",
+        en_html, re.S).group(1)
+    assert "display: none" in summary_css
+    media = en_html[en_html.find("@media (max-width:640px)"):]
+    assert ".advanced-filters" in media
+    phone_block = re.search(
+        r"\.advanced-filters \{(.*?)\}", media, re.S).group(1)
+    assert "min-width: 0" in phone_block
+    phone_summary = re.search(
+        r"\.advanced-filters > summary \{(.*?)\}", media, re.S).group(1)
+    assert "min-height: 40px" in phone_summary
+    assert 'matchMedia("(max-width: 640px)")' in en_html
+    assert 'getElementById("advancedFilters")' in en_html
+    assert 'removeAttribute("open")' in en_html
+    assert 'addEventListener("change", syncAdvFilters)' in en_html
+    assert "syncAdvFilters();" in en_html
+
+
+def test_advanced_filters_counter_hook(tmp_path):
+    """T-C (viewer-batch): applyFilters recomputes the active-filter
+    count (non-ALL among CEFR pills + 5 filter selects) into the count
+    span; FA renders it through the strings catalog, never English."""
+    fix = _mini_run(tmp_path)
+    kwargs = {"precard": fix["precard"], "sample": fix["sample"],
+              "dropped": fix["dropped"], "run_log": fix["run_log"]}
+    en_html = viewer.build_html(fix["run_dir"], lang="en", **kwargs)
+    assert 'currentCefrFilter !== "ALL" ? 1 : 0' in en_html
+    assert "`${nActive} active filters`" in en_html
+    assert 'getElementById("activeFilterCount")' in en_html
+    fa_html = viewer.build_html(fix["run_dir"], lang="fa", **kwargs)
+    assert 'tr("filters.active", {N: nActive})' in fa_html
+    assert "active filters" not in fa_html
+
+
+def test_advanced_filters_strings_bilingual():
+    """T-C (viewer-batch): the 4 new catalog keys (2 per lang) with
+    matching placeholders."""
+    assert (viewer.STRINGS["en"]["filters.advanced"]
+            == "Advanced filters")
+    assert (viewer.STRINGS["fa"]["filters.advanced"]
+            == "فیلترهای پیشرفته")
+    assert (viewer.STRINGS["en"]["filters.active"]
+            == "{N} active filters")
+    assert (viewer.STRINGS["fa"]["filters.active"]
+            == "{N} فیلتر فعال")
+
+
+def test_charts_pane_scrolls_without_trapping(tmp_path):
+    """T-A (viewer-batch): the detail (charts) pane keeps its internal
+    scroll (overflow-y:auto) and can shrink inside the workspace grid
+    (min-height:0), mirroring the drawer-grid precedent."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pane = re.search(r"\n\.detail-pane \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-y: auto" in pane
+    assert "min-height: 0" in pane
+
+
+def test_charts_tab_pane_scrolls_without_trapping(tmp_path):
+    """Owner eyeball round: the charts tab pane itself must scroll —
+    its content exceeds small viewports with no other scroller."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = re.search(r"\n#chartsPane \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-y: auto" in charts
+    assert "min-height: 0" in charts
+
+
+def test_drawer_grid_scrolls_with_workspace_floor(tmp_path):
+    """T1 (plan-precard-viewer-responsive R1): drawer grid caps at 38vh
+    with internal scroll; workspace never collapses below 200px."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    grid_match = re.search(r"\.dist-grid \{(.*?)\}", html, re.S)
+    assert grid_match is not None
+    grid = grid_match.group(1)
+    assert "max-height: 38vh" in grid
+    assert "overflow-y: auto" in grid
+    assert "min-height: 0" in grid
+    workspace = re.search(r"\.split-workspace \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 200px" in workspace
+
+
+def test_filter_pills_scroll_horizontally(tmp_path):
+    """T-E (viewer-batch): the CEFR pill row scrolls on the x axis
+    (with touch momentum) instead of trapping overflow."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pills = re.search(r"\n\.filter-pills \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-x: auto" in pills
+    assert "-webkit-overflow-scrolling: touch" in pills
+    assert "min-width: 0" in pills
+
+
+def test_light_surfaces_deepened_dark_identical(tmp_path):
+    """T-D (viewer-batch): light secondary surfaces/borders deepen a
+    notch for element separation; the dark theme is byte-identical."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    root = html[html.find(":root {"):html.find('[data-theme="dark"]')]
+    assert "--bg-surface-hover: #eef0f3;" in root
+    assert "--bg-surface-active: #e0e3e8;" in root
+    assert "--border-subtle: #d4d7dd;" in root
+    assert "--border-strong: #b4b9c1;" in root
+    for old in ("#f8f9fa", "#eaebee", "#e2e4e9", "#c8cbd2"):
+        assert old not in root
+    dark = html[html.find('[data-theme="dark"] {'):
+                html.find("/* Themed scrollbars")]
+    for line in ("--bg-page: #121316;",
+                 "--bg-surface: #191a1f;",
+                 "--bg-surface-hover: #22232a;",
+                 "--bg-surface-active: #2b2d35;",
+                 "--border-subtle: #292b34;",
+                 "--border-strong: #3a3d4a;",
+                 "--text-primary: #f3f4f6;",
+                 "--accent: #38bdf8;"):
+        assert line in dark
+
+
+def test_phone_kpi_density_two_columns(tmp_path):
+    """T-B (viewer-batch): phone-only KPI strip compacts to a 2-column
+    grid with smaller values and tighter padding."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "@media (max-width:640px)" in html
+    media = html[html.find("@media (max-width:640px)"):]
+    strip = re.search(r"#chartsPane \.kpi-strip \{(.*?)\}", media, re.S).group(1)
+    assert "grid-template-columns: 1fr 1fr" in strip
+    value = re.search(r"#chartsPane \.kpi-value \{(.*?)\}", media, re.S).group(1)
+    size = re.search(r"font-size:\s*(\d+)px", value)
+    assert size is not None and 18 <= int(size.group(1)) <= 20
+
+
+def test_phone_stacking_media_query(tmp_path):
+    """T2 (plan-precard-viewer-responsive R2): phone-only (<=640px)
+    single-column stacking; kbd hints hidden."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "@media (max-width:640px)" in html
+    media = html[html.find("@media (max-width:640px)"):]
+    assert "grid-template-columns: 1fr" in media
+    assert re.search(
+        r"\.shortcut-hint,\s*\.kbd-key\s*\{[^}]*display:\s*none",
+        media)
+    ws_media = re.search(
+        r"\.split-workspace\s*\{([^}]*)\}", media)
+    assert ws_media is not None
+    assert "overflow-y: auto" in ws_media.group(1)
