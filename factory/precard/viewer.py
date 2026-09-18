@@ -83,18 +83,18 @@ STRINGS = {
         "tab.review": "Review",
         "tab.metrics": "Metrics",
         "tab.charts": "Charts",
-        "charts.badge_levels": "lemma-level \u00b7 row-level",
+        "charts.badge_levels": "lemma-level, row-level",
         "charts.donut_cap": "kept of all lemmas",
         "charts.rail_share": "share of precards",
         "charts.untagged": "{N} untagged",
         "charts.pillar_unit": "precard(s)",
-        "charts.kpi_kept_meta": "{K} kept \u00b7 {D} dropped",
-        "charts.kpi_fanout_meta": "median {M} \u00b7 P90 {P}",
+        "charts.kpi_kept_meta": "{K} kept, {D} dropped",
+        "charts.kpi_fanout_meta": "median {M}, P90 {P}",
         "charts.kpi_mismatch_meta": "{E} of {T} evidenced",
         "charts.kpi_synth_meta": "{N} without real example",
         "charts.others": "others ({N} methods)",
         "charts.bench": "production health:",
-        "charts.bench_vals": "mean {M} \u00b7 median {D} \u00b7 P90 {P}",
+        "charts.bench_vals": "mean {M}, median {D}, P90 {P}",
         "charts.pareto_head": "drop pareto (validation stages):",
         "charts.cefr_guide_lemma": "lemma-level (exists)",
         "charts.cefr_guide_precard": "precard (row-level)",
@@ -231,18 +231,18 @@ STRINGS = {
         "tab.review": "بررسی",
         "tab.metrics": "سنجه‌ها",
         "tab.charts": "نمودارها",
-        "charts.badge_levels": "سطح لِما \u00b7 سطح ردیفی",
+        "charts.badge_levels": "سطح لِما، سطح ردیفی",
         "charts.donut_cap": "از همه لِماها",
         "charts.rail_share": "سهم از پیش‌کارت‌ها",
         "charts.untagged": "{N} بدون برچسب",
         "charts.pillar_unit": "پیش‌کارت",
-        "charts.kpi_kept_meta": "{K} نگه\u200cداشته \u00b7 {D} حذف",
-        "charts.kpi_fanout_meta": "میانه {M} \u00b7 صدک \u06f9\u06f0: {P}",
+        "charts.kpi_kept_meta": "{K} نگه\u200cداشته، {D} حذف",
+        "charts.kpi_fanout_meta": "میانه {M}، صدک \u06f9\u06f0: {P}",
         "charts.kpi_mismatch_meta": "{E} از {T} مدرک\u200cدار",
         "charts.kpi_synth_meta": "{N} بدون مثال واقعی",
         "charts.others": "سایر ({N} متد)",
         "charts.bench": "سلامت تولید:",
-        "charts.bench_vals": "میانگین {M} \u00b7 میانه {D} \u00b7 صدک \u06f9\u06f0: {P}",
+        "charts.bench_vals": "میانگین {M}، میانه {D}، صدک \u06f9\u06f0: {P}",
         "charts.pareto_head": "تحلیل پارتو عوامل حذف:",
         "charts.cefr_guide_lemma": "سطح لِما (وجودی)",
         "charts.cefr_guide_precard": "پیش\u200cکارت (ردیفی)",
@@ -1234,11 +1234,25 @@ body {
   overflow: hidden;
   min-height: 200px;
 }
+/* Review tab touch scroll: the pane itself must shrink inside the
+   app-shell column (min-height:0) and stack its workspace (flex
+   column); the [hidden] guard keeps tab switching working now that
+   the pane carries an author display rule. */
+#reviewPane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#reviewPane[hidden], #metricsPane[hidden], #chartsPane[hidden] {
+  display: none;
+}
 
 .sidebar {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   overflow-y: auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -3253,12 +3267,12 @@ def _charts_legend(lang, key):
     legends = {
         "en": {
             "kept_share": "kept lemmas / all lemmas",
-            "fanout_dist": "precards bucket \u00b7 kept lemmas",
+            "fanout_dist": "precards bucket, kept lemmas",
             "row_level": "precards, row-level",
         },
         "fa": {
             "kept_share": "لِماهای نگه‌داشته‌شده / همه لِماها",
-            "fanout_dist": "بازه پیش‌کارت \u00b7 لِماهای نگه‌داشته‌شده",
+            "fanout_dist": "بازه پیش‌کارت، لِماهای نگه‌داشته‌شده",
             "row_level": "پیش‌کارتها، سطح ردیفی",
         },
     }
@@ -3278,10 +3292,11 @@ def _rail(dist, total, lang):
         % (_RAIL_SEGS[i % len(_RAIL_SEGS)], _pct(count, total))
         for i, (_name, count) in enumerate(items))
     pct_sign = "٪" if lang == "fa" else "%"
+    item_sep = "،" if lang == "fa" else ","
     grid = "".join(
         '<div class="charts-rail-item"><span class="charts-rail-name">%s</span>'
-        '<span class="charts-num">%s \u00b7 %s%s</span></div>'
-        % (_esc(name), _esc(_num(count, lang)),
+        '<span class="charts-num">%s%s %s%s</span></div>'
+        % (_esc(name), _esc(_num(count, lang)), item_sep,
            _esc(_num(_pct(count, total), lang)), pct_sign)
         for name, count in items)
     return ('<div class="charts-rail">%s</div>'
@@ -3468,12 +3483,13 @@ def _render_charts(stats, lang="en"):
         '<section class="charts-panel">%s'
         '<p class="charts-section-head">%s</p>%s%s'
         '<div><p class="charts-section-head">%s</p>'
-        '<p class="charts-legend-line">%s · %s</p></div>%s</section>'
+        '<p class="charts-legend-line">%s%s %s</p></div>%s</section>'
         % (head(8, "g8.h"), _esc(_tr(lang, "charts.s4_head")), s4_rail,
            method_grid,
            _esc(_tr(lang, "charts.prov_head")),
            _esc(_tr(lang, "charts.prov_total",
                      N=_num(n_rows, lang))),
+           "،" if lang == "fa" else ",",
            _esc(_tr(lang, "charts.rail_share")), example_rail))
 
     ranked = sorted(set(stats["topic_lemma"]) | set(stats["topic_precard"]),

@@ -1118,7 +1118,7 @@ def test_fa_charts_chrome_uses_approved_strings(tmp_path):
     charts = _charts_section(fa_html)
     for text in ("بررسی", "نمودارها", "نرخ ماندگاری لماها",
                  "میانگین پیش‌کارت", "مغایرت مدرک‌دار",
-                 "نیاز به مثال ساختگی", "سطح لِما · سطح ردیفی"):
+                  "نیاز به مثال ساختگی", "سطح لِما، سطح ردیفی"):
         assert text in fa_html, text
     assert "گروه سنجه" not in charts
     assert ">۷۰٪<" in charts
@@ -1287,8 +1287,8 @@ def test_charts_deprosed_legends_not_prose_en(tmp_path):
         assert legend in charts, legend
     # Reference round (R3/R4): KPI metas carry real counts; the median/P90
     # words now live in the fanout meta + health footer, not the drawer.
-    assert "7 kept \u00b7 3 dropped" in charts
-    assert re.search(r"median \d+ \u00b7 P90 \d+", charts)
+    assert "7 kept, 3 dropped" in charts
+    assert re.search(r"median \d+, P90 \d+", charts)
     assert re.search(r"\d+ of \d+ evidenced", charts)
     assert re.search(r"\d+ without real example", charts)
     assert "production health:" in charts
@@ -1307,8 +1307,8 @@ def test_charts_deprosed_legends_not_prose_fa(tmp_path):
                    "پیش‌کارتها، سطح ردیفی", "بازه پیش‌کارت"):
         assert legend in charts, legend
     # Reference round (R3/R4): metas carry real counts (FA digits).
-    assert "۷ نگه\u200cداشته \u00b7 \u06f3 حذف" in charts
-    assert re.search(r"میانه \d+ \u00b7 صدک \u06f9\u06f0: \d+", charts)
+    assert "۷ نگه\u200cداشته، \u06f3 حذف" in charts
+    assert re.search(r"میانه \d+، صدک \u06f9\u06f0: \d+", charts)
     assert re.search(r"\d+ از \d+ مدرک\u200cدار", charts)
     assert re.search(r"\d+ بدون مثال واقعی", charts)
     assert "سلامت تولید:" in charts
@@ -1682,13 +1682,13 @@ def test_ref_donut_two_segments():
 def test_ref_kpi_meta_real_counts():
     """R3: KPI third line carries real STATS counts, both langs."""
     en = viewer._render_charts(_ref_stats(), "en")
-    assert "7 kept \u00b7 3 dropped" in en
-    assert "median 2 \u00b7 P90 3" in en
+    assert "7 kept, 3 dropped" in en
+    assert "median 2, P90 3" in en
     assert "1 of 4 evidenced" in en
     assert "2 without real example" in en
     fa = viewer._render_charts(_ref_stats(), "fa")
-    assert "\u06f7 نگه\u200cداشته \u00b7 \u06f3 حذف" in fa
-    assert "میانه \u06f2 \u00b7 صدک \u06f9\u06f0: \u06f3" in fa
+    assert "\u06f7 نگه\u200cداشته، \u06f3 حذف" in fa
+    assert "میانه \u06f2، صدک \u06f9\u06f0: \u06f3" in fa
 
 
 def test_ref_pareto_other_rollup():
@@ -1707,7 +1707,7 @@ def test_ref_fanout_fullwidth_and_bench():
     en = viewer._render_charts(_ref_stats(), "en")
     assert "charts-panel-full" in en
     assert "production health:" in en
-    assert "mean 1.71 \u00b7 median 2 \u00b7 P90 3" in en
+    assert "mean 1.71, median 2, P90 3" in en
     fa = viewer._render_charts(_ref_stats(), "fa")
     assert "سلامت تولید:" in fa
     assert "میانگین" in fa
@@ -1780,3 +1780,29 @@ def test_ref_empty_donut_no_full_drop():
                   "lemmas_dropped": 0, "kept_rate_pct": 0})
     en = viewer._render_charts(stats, "en")
     assert re.search(r'stroke-dasharray="100', en) is None
+
+
+def test_ref_no_middot_in_charts(tmp_path):
+    """Owner tablet round R1A/R2A: no U+00B7 anywhere in the charts
+    tab (drawer headings keep theirs — out of scope)."""
+    for lang in ("en", "fa"):
+        sub = tmp_path / ("ref-nodot-%s" % lang)
+        sub.mkdir()
+        charts = _charts_section(_build_both(sub, lang))
+        assert "\u00b7" not in charts
+
+
+def test_review_sidebar_shrinks_for_touch_scroll(tmp_path):
+    """Owner tablet round R3A: the review tab must shrink inside the
+    app-shell column instead of blowing the page out — otherwise
+    touch scroll has nowhere to go."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pane = re.search(r"#reviewPane \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 0" in pane
+    assert "flex-direction: column" in pane
+    assert re.search(r"#reviewPane\[hidden\]", html)
+    side = re.search(r"\.sidebar \{(.*?)\}", html, re.S).group(1)
+    assert "min-height: 0" in side
