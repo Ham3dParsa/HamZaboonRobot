@@ -710,25 +710,25 @@ def _decision_rule(method, n_fires):
         return ("قاعده کلیددقیق + %d سیگنال" % n_fires,
                 "%d سیگنال ≥ حد %d → پیوند "
                 "<span class='code'>(<bdi>%s</bdi>)</span>"
-                % (n_fires, need, method))
+                % (n_fires, need, _esc(method)))
     if method.startswith("LINK:judge-v2"):
         return ("قاعده پیوند با داور",
                 "رأی داور ← پیوند "
-                "<span class='code'>(<bdi>%s</bdi>)</span>" % method)
+                "<span class='code'>(<bdi>%s</bdi>)</span>" % _esc(method))
     if method.startswith("LINK:manual-override"):
         return ("قاعده پیوند دستی مالک",
                 "override مالک ← پیوند "
-                "<span class='code'>(<bdi>%s</bdi>)</span>" % method)
+                "<span class='code'>(<bdi>%s</bdi>)</span>" % _esc(method))
     if method.startswith("LINK"):
         return ("قاعده %d+ سیگنال (حد %d)" % (n_fires, need),
                 "%d سیگنال ≥ %d → پیوند "
                 "<span class='code'>(<bdi>%s</bdi>)</span>"
-                % (n_fires, need, method))
+                % (n_fires, need, _esc(method)))
     if method in ("JUDGE-PENDING", "JUDGE-REVIEW"):
         return ("قاعده انتظار داور",
                 "%d سیگنال < حد %d → انتظار داور "
                 "<span class='code'>(<bdi>%s</bdi>)</span>"
-                % (n_fires, need, method))
+                % (n_fires, need, _esc(method)))
     if method == "UNMAPPED":
         return ("قاعده بی‌علامتی",
                 "۰ سیگنال → نگاشت‌نشده "
@@ -744,10 +744,10 @@ def _decision_rule(method, n_fires):
     if method in ("JUDGE-NONE", "MANUAL-NONE"):
         return ("قاعده بدون‌پیوند",
                 "بدون‌پیوند اعلام شد "
-                "<span class='code'>(<bdi>%s</bdi>)</span>" % method)
+                "<span class='code'>(<bdi>%s</bdi>)</span>" % _esc(method))
     return ("قاعده تصمیم",
             "تصمیم ثبت شد "
-            "<span class='code'>(<bdi>%s</bdi>)</span>" % method)
+            "<span class='code'>(<bdi>%s</bdi>)</span>" % _esc(method))
 
 
 def _decision_why(method, n_fires):

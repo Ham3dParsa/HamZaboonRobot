@@ -585,3 +585,29 @@ def test_export_record_schema_shape():
     assert isinstance(rec["flags"], list)
     # per-record shape: no parallel-dict top level
     assert "records" not in rec and "glosses" not in rec
+
+
+def test_decision_rule_hostile_method_escaped_all_branches():
+    hostile = 'LINK:2-sig"><script>alert(1)</script>'
+    methods = [
+        "LINK:exact-sensekey+2-sig" + hostile[11:],
+        "LINK:judge-v2" + hostile[4:],
+        "LINK:manual-override" + hostile[4:],
+        hostile,
+        "JUDGE-PENDING",
+        "JUDGE-NONE",
+        "WAT" + hostile,
+    ]
+    for method in methods:
+        _rule, cmp_txt = viewer._decision_rule(method, 2)
+        assert "<script>" not in cmp_txt, method
+    # full gallery path: hostile TSV method cell must not break HTML
+    rows = [dict(_rows()[0], method=hostile)]
+    import pathlib as _pl
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmp:
+        out = str(_pl.Path(tmp) / "gallery.html")
+        viewer.build_linker_gallery(rows, [], out)
+        page = _pl.Path(out).read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;" in page
