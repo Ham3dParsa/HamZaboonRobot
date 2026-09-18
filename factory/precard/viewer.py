@@ -64,6 +64,8 @@ STRINGS = {
         "sort.cefr": "CEFR Level",
         "sort.title": ("CEFR Level sorts by each kept lemma's lowest sense "
                        "CEFR (filter matches any sense)"),
+        "filters.advanced": "Advanced filters",
+        "filters.active": "{N} active filters",
         "opt.kept": "{v} ({N} kept lemmas)",
         "pill.all": "ALL: all {N} lemmas (kept + dropped)",
         "pill.level": ("{L}: {N} kept-only lemmas with any sense at {L} "
@@ -194,6 +196,8 @@ STRINGS = {
         "sort.cefr": "سطح CEFR",
         "sort.title": ("«سطح CEFR» بر اساس پایین‌ترین سطح معنی هر لمای نگه‌داشته‌شده "
                        "مرتب می‌کند (فیلتر با هر معنی‌ای منطبق می‌شود)"),
+        "filters.advanced": "فیلترهای پیشرفته",
+        "filters.active": "{N} فیلتر فعال",
         "opt.kept": "{v} ({N} لمای نگه‌داشته‌شده)",
         "pill.all": "همه: همه {N} لِما (نگه‌داشته‌شده + حذف‌شده)",
         "pill.level": ("{L}: {N} لمای نگه‌داشته‌شده با معنی در {L} (CEFR پول یا "
@@ -592,6 +596,8 @@ def _apply_fa_chrome(page):
     page = _sub_once(
         page, ">Select a word from the left list</div>",
         ">%s</div>" % _tr("fa", "placeholder"))
+    page = _sub_once(page, "<summary><span>Advanced filters</span>",
+                     "<summary><span>%s</span>" % _tr("fa", "filters.advanced"))
     return page
 
 
@@ -692,6 +698,10 @@ def _apply_fa_js(page):
          "K: escapeHtml(STATS.lemmas_kept), "
          "D: escapeHtml(STATS.lemmas_dropped), "
          "P: escapeHtml(STATS.precards_total)});"),
+        ("if (activeCount) activeCount.textContent = "
+         "`${nActive} active filters`;",
+         "if (activeCount) activeCount.textContent = "
+         "tr(\"filters.active\", {N: nActive});"),
         ("border-color:var(--drop-b);\">DROP</span>",
          "border-color:var(--drop-b);\">${UI_STRINGS[\"drop.badge\"]}</span>"),
         ("title=\"lowest CEFR across senses (filter matches any sense)\"",
@@ -790,10 +800,10 @@ _HTML_TEMPLATE = """
   /* LIGHT THEME */
   --bg-page: #f1f2f5;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #f8f9fa;
-  --bg-surface-active: #eaebee;
-  --border-subtle: #e2e4e9;
-  --border-strong: #c8cbd2;
+  --bg-surface-hover: #eef0f3;
+  --bg-surface-active: #e0e3e8;
+  --border-subtle: #d4d7dd;
+  --border-strong: #b4b9c1;
 
   --text-primary: #111317;
   --text-secondary: #4b515d;
@@ -1123,6 +1133,10 @@ body {
 .filter-pills {
   display: flex;
   gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  min-width: 0;
 }
 .pill-btn {
   background: var(--bg-page);
@@ -1151,6 +1165,22 @@ body {
 .pill-btn.active .pill-count {
   opacity: 0.9;
   font-weight: bold;
+}
+
+/* Collapsible advanced filters: desktop stays flat (details dissolves
+   into the filter bar, summary hidden — geometry unchanged); phones get
+   a full-width disclosure with a 40px summary button. */
+.advanced-filters {
+  display: contents;
+}
+.advanced-filters > summary {
+  display: none;
+}
+.active-filter-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .split-workspace {
@@ -1208,6 +1238,7 @@ body {
 .detail-pane {
   background: var(--bg-page);
   overflow-y: auto;
+  min-height: 0;
   padding: 24px 32px 60px 32px;
 }
 .detail-content {
@@ -1244,6 +1275,40 @@ body {
   }
   .app-header {
     padding: 10px 12px;
+  }
+  .kpi-strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .kpi-value {
+    font-size: 18px;
+  }
+  .kpi-card {
+    padding: 8px 10px;
+  }
+  .advanced-filters {
+    display: block;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .advanced-filters > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 1 1 100%;
+    min-height: 40px;
+    padding: 6px 12px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+  }
+  .advanced-filters > summary::-webkit-details-marker {
+    display: none;
   }
 }
 
@@ -1734,6 +1799,8 @@ __VIEW_TABS__
   <div class="filter-bar">
     <input type="text" id="searchInput" class="search-input" placeholder="Search lemma or key... (press /)" oninput="applyFilters()">
 
+    <details class="advanced-filters" id="advancedFilters" open>
+    <summary><span>Advanced filters</span> <span class="active-filter-count" id="activeFilterCount"></span></summary>
     <div class="filter-pills" id="cefrPills">
 __CEFR_PILLS__
     </div>
@@ -1773,6 +1840,7 @@ __CEFR_PILLS__
       <option value="SENSES_DESC">Senses (High to Low)</option>
       <option value="CEFR_ASC">CEFR Level</option>
     </select>
+    </details>
   </div>
 
   <div class="split-workspace">
@@ -1948,6 +2016,10 @@ function applyFilters() {
   const method = document.getElementById("methodFilter").value;
   const source = document.getElementById("sourceFilter").value;
   const sort = document.getElementById("sortOrder").value;
+
+  const nActive = (currentCefrFilter !== "ALL" ? 1 : 0) + [topic, status, style, method, source].filter(v => v !== "ALL").length;
+  const activeCount = document.getElementById("activeFilterCount");
+  if (activeCount) activeCount.textContent = `${nActive} active filters`;
 
   filteredList = RAW_LEMMAS.filter(item => {
     if (q && !item.text.toLowerCase().includes(q) && !item.key.toLowerCase().includes(q)) {
@@ -2236,6 +2308,14 @@ window.addEventListener("keydown", (e) => {
     document.getElementById("searchInput").focus();
   }
 });
+
+// Narrow viewports start with advanced filters collapsed (markup
+// carries `open` so desktop renders flat); wide restores it.
+const advFilters = document.getElementById("advancedFilters");
+const advMq = window.matchMedia("(max-width: 640px)");
+function syncAdvFilters() { if (advMq.matches) advFilters.removeAttribute("open"); else advFilters.setAttribute("open", ""); }
+advMq.addEventListener("change", syncAdvFilters);
+syncAdvFilters();
 
 // Initial Run
 initTopicsAndPillCounts();

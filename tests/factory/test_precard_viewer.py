@@ -580,7 +580,7 @@ def test_strings_catalog_key_parity_and_placeholders():
     assert len(viewer.STRINGS["en"]) >= 80
     for key in ("strip", "drops.tip", "count", "count.title", "g1.kv",
                 "g2.kv", "g5.kv", "g6.kv", "g6.ev", "title", "opt.kept",
-                "pill.all", "pill.level"):
+                "pill.all", "pill.level", "filters.active"):
         assert (set(re.findall(r"\{[A-Za-z]+\}", viewer.STRINGS["fa"][key]))
                 == set(re.findall(r"\{[A-Za-z]+\}",
                                   viewer.STRINGS["en"][key])))
@@ -763,8 +763,9 @@ def test_no_catalog_en_literals_in_fa(tmp_path):
                     "Try adjusting your filters or search query.",
                     "precard viewer",                     "precard rows skipped",
                     "sample order skipped", "dropped list skipped",
-                    "run-log scan skipped", "Copy ID", "Copy Sense",
-                    "Copied!", "Pipeline:"):
+                     "run-log scan skipped", "Copy ID", "Copy Sense",
+                     "Copied!", "Pipeline:",
+                     "Advanced filters", "active filters"):
         assert literal not in fa_html
     assert ">DROP<" not in fa_html
     assert "حذف" in fa_html
@@ -1088,6 +1089,8 @@ def test_charts_widths_math_exact_mini(tmp_path):
 
 
 def test_charts_use_theme_vars_only(tmp_path):
+
+
     fix = _mini_run(tmp_path)
     html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
                              sample=fix["sample"], dropped=fix["dropped"],
@@ -1248,6 +1251,93 @@ def test_metrics_tab_hosts_drawer_review_keeps_filters(tmp_path):
     assert 'class="split-workspace"' not in metrics
 
 
+def _advanced_filters_block(html):
+    start = html.find('id="advancedFilters"')
+    assert start > 0
+    open_tag = html.rfind("<details", 0, start)
+    return html[open_tag:html.find("</details>", start)]
+
+
+def test_advanced_filters_collapsible_structure(tmp_path):
+    """T-C (viewer-batch): CEFR pills + all selects fold into a
+    <details> with a labeled summary + count span; search stays on top
+    outside; every control id is preserved."""
+    fix = _mini_run(tmp_path)
+    kwargs = {"precard": fix["precard"], "sample": fix["sample"],
+              "dropped": fix["dropped"], "run_log": fix["run_log"]}
+    for lang in ("en", "fa"):
+        html = viewer.build_html(fix["run_dir"], lang=lang, **kwargs)
+        assert ('<details class="advanced-filters" '
+                'id="advancedFilters" open>') in html
+        assert "<summary>" in html
+        assert 'id="activeFilterCount"' in html
+        ids = ("cefrPills", "topicFilter", "statusFilter",
+               "registerFilter", "methodFilter", "sourceFilter",
+               "sortOrder")
+        for sel in ids:
+            assert ('id="%s"' % sel) in html
+        assert (html.find('id="searchInput"')
+                < html.find('id="advancedFilters"'))
+        block = _advanced_filters_block(html)
+        for sel in ids:
+            assert ('id="%s"' % sel) in block
+        assert 'id="searchInput"' not in block
+        assert 'id="sortOrder"' in block
+    en_html = viewer.build_html(fix["run_dir"], lang="en", **kwargs)
+    assert "<span>Advanced filters</span>" in en_html
+    fa_html = viewer.build_html(fix["run_dir"], lang="fa", **kwargs)
+    assert "<span>فیلترهای پیشرفته</span>" in fa_html
+    assert ".advanced-filters" in en_html
+    flat = re.search(r"\.advanced-filters \{(.*?)\}", en_html, re.S).group(1)
+    assert "display: contents" in flat
+    summary_css = re.search(
+        r"\.advanced-filters > summary \{(.*?)\}",
+        en_html, re.S).group(1)
+    assert "display: none" in summary_css
+    media = en_html[en_html.find("@media (max-width:640px)"):]
+    assert ".advanced-filters" in media
+    phone_block = re.search(
+        r"\.advanced-filters \{(.*?)\}", media, re.S).group(1)
+    assert "min-width: 0" in phone_block
+    phone_summary = re.search(
+        r"\.advanced-filters > summary \{(.*?)\}", media, re.S).group(1)
+    assert "min-height: 40px" in phone_summary
+    assert 'matchMedia("(max-width: 640px)")' in en_html
+    assert 'getElementById("advancedFilters")' in en_html
+    assert 'removeAttribute("open")' in en_html
+    assert 'addEventListener("change", syncAdvFilters)' in en_html
+    assert "syncAdvFilters();" in en_html
+
+
+def test_advanced_filters_counter_hook(tmp_path):
+    """T-C (viewer-batch): applyFilters recomputes the active-filter
+    count (non-ALL among CEFR pills + 5 filter selects) into the count
+    span; FA renders it through the strings catalog, never English."""
+    fix = _mini_run(tmp_path)
+    kwargs = {"precard": fix["precard"], "sample": fix["sample"],
+              "dropped": fix["dropped"], "run_log": fix["run_log"]}
+    en_html = viewer.build_html(fix["run_dir"], lang="en", **kwargs)
+    assert 'currentCefrFilter !== "ALL" ? 1 : 0' in en_html
+    assert "`${nActive} active filters`" in en_html
+    assert 'getElementById("activeFilterCount")' in en_html
+    fa_html = viewer.build_html(fix["run_dir"], lang="fa", **kwargs)
+    assert 'tr("filters.active", {N: nActive})' in fa_html
+    assert "active filters" not in fa_html
+
+
+def test_advanced_filters_strings_bilingual():
+    """T-C (viewer-batch): the 4 new catalog keys (2 per lang) with
+    matching placeholders."""
+    assert (viewer.STRINGS["en"]["filters.advanced"]
+            == "Advanced filters")
+    assert (viewer.STRINGS["fa"]["filters.advanced"]
+            == "فیلترهای پیشرفته")
+    assert (viewer.STRINGS["en"]["filters.active"]
+            == "{N} active filters")
+    assert (viewer.STRINGS["fa"]["filters.active"]
+            == "{N} فیلتر فعال")
+
+
 def test_fa_tabs_three_labels_and_metrics_drawer(tmp_path):
     fa_html = _build_both(tmp_path, "fa")
     assert (fa_html.find("بررسی")
@@ -1327,3 +1417,72 @@ def test_charts_legends_reuse_catalog_only(tmp_path, lang, legends):
     catalog = json.dumps(viewer.STRINGS[lang], ensure_ascii=False)
     for legend in legends:
         assert legend in catalog, legend
+
+
+def test_charts_pane_scrolls_without_trapping(tmp_path):
+    """T-A (viewer-batch): the detail (charts) pane keeps its internal
+    scroll (overflow-y:auto) and can shrink inside the workspace grid
+    (min-height:0), mirroring the drawer-grid precedent."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pane = re.search(r"\n\.detail-pane \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-y: auto" in pane
+    assert "min-height: 0" in pane
+
+
+def test_phone_kpi_density_two_columns(tmp_path):
+    """T-B (viewer-batch): phone-only KPI strip compacts to a 2-column
+    grid with smaller values and tighter padding."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    assert "@media (max-width:640px)" in html
+    media = html[html.find("@media (max-width:640px)"):]
+    strip = re.search(r"\.kpi-strip \{(.*?)\}", media, re.S).group(1)
+    assert "grid-template-columns: 1fr 1fr" in strip
+    value = re.search(r"\.kpi-value \{(.*?)\}", media, re.S).group(1)
+    size = re.search(r"font-size:\s*(\d+)px", value)
+    assert size is not None and 18 <= int(size.group(1)) <= 20
+
+
+def test_light_surfaces_deepened_dark_identical(tmp_path):
+    """T-D (viewer-batch): light secondary surfaces/borders deepen a
+    notch for element separation; the dark theme is byte-identical."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    root = html[html.find(":root {"):html.find('[data-theme="dark"]')]
+    assert "--bg-surface-hover: #eef0f3;" in root
+    assert "--bg-surface-active: #e0e3e8;" in root
+    assert "--border-subtle: #d4d7dd;" in root
+    assert "--border-strong: #b4b9c1;" in root
+    for old in ("#f8f9fa", "#eaebee", "#e2e4e9", "#c8cbd2"):
+        assert old not in root
+    dark = html[html.find('[data-theme="dark"] {'):
+                html.find("/* Themed scrollbars")]
+    for line in ("--bg-page: #121316;",
+                 "--bg-surface: #191a1f;",
+                 "--bg-surface-hover: #22232a;",
+                 "--bg-surface-active: #2b2d35;",
+                 "--border-subtle: #292b34;",
+                 "--border-strong: #3a3d4a;",
+                 "--text-primary: #f3f4f6;",
+                 "--accent: #38bdf8;"):
+        assert line in dark
+
+
+def test_filter_pills_scroll_horizontally(tmp_path):
+    """T-E (viewer-batch): the CEFR pill row scrolls on the x axis
+    (with touch momentum) instead of trapping overflow."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    pills = re.search(r"\n\.filter-pills \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-x: auto" in pills
+    assert "-webkit-overflow-scrolling: touch" in pills
+    assert "min-width: 0" in pills
