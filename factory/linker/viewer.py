@@ -53,6 +53,7 @@ from factory.linker.linker import (
     QUARANTINE,
     SE_CUT,
     machine_block,
+    _stats_stage,
     signal_vocab,
     telemetry_counters,
 )
@@ -284,21 +285,9 @@ def outcome_key(verdict):
     return "-"
 
 
-def _stage_of(method):
-    method = method or ""
-    if method.startswith("LINK"):
-        return "link"
-    if method in ("JUDGE-NONE", "MANUAL-NONE"):
-        return "none"
-    if method in ("JUDGE-PENDING", "JUDGE-REVIEW"):
-        return "pending"
-    if method == "UNMAPPED":
-        return "unmapped"
-    if method == "twin-pending":
-        return "twin"
-    if method == "quarantined-known-false":
-        return "quarantine"
-    return "other"
+# Single source: stage bucketing lives in linker._stats_stage (covers all 13
+# LINK_METHOD_VOCAB methods); this alias keeps existing call sites working.
+_stage_of = _stats_stage
 
 
 def _fgroup_of(key):
@@ -932,7 +921,9 @@ def _render_trace(row, verdict, cand_entry=None):
                         if wn_gloss else ""))
         cand_why = ("نامزد برتر با %d سیگنال از فهرست کوتاه انتخاب شد"
                     % len(rule_fires) if rule_fires
-                    else "نامزد برتر از داور آمد (بدون سیگنال قاعده‌ای)")
+                    else ("نامزد برتر از داور آمد (بدون سیگنال قاعده‌ای)"
+                          if verdict
+                          else "نامزد برتر ردیف است (بدون سیگنال قاعده‌ای؛ داوری نشد)"))
     else:
         cand_out += "<br>خروجی نامزد برتر: —"
         cand_why = "هیچ نامزدی کوتاه‌نیامد چون هیچ سیگنالی شلیک نکرد"
@@ -1952,7 +1943,7 @@ _JS = """
   var total = rows.length;
   var FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩";
   function norm(s) {
-    s = (s || "").toLowerCase();
+    s = (s || "").normalize("NFKC").toLowerCase();
     var out = "";
     for (var i = 0; i < s.length; i++) {
       var at = FA_DIGITS.indexOf(s[i]);

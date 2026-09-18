@@ -557,10 +557,58 @@ def test_link_stats_none_method_no_crash():
     stats = linker.link_stats(rows)
     assert stats["total"] == 1
     assert stats["stage"]["other"] == 1
-    assert stats["unknown_methods"] == [None]
+    assert stats["unknown_methods"] == [""]
     counters = linker.telemetry_counters(rows)
     assert counters["total"] == 1
     assert counters["stage"]["other"] == 1
+
+
+def test_link_stats_mixed_none_and_str_method_no_crash():
+    # None mixed with str: sorted() over the raw keys raised TypeError.
+    rows = [
+        {"kaikki_sense_id": "a", "method": None,
+         "evidence": "", "flags": ""},
+        {"kaikki_sense_id": "b", "method": "LINK:2-sig",
+         "evidence": "Sa:j=0.40", "flags": ""},
+    ]
+    stats = linker.link_stats(rows)
+    assert stats["total"] == 2
+    assert None not in stats["method_counts"]
+    assert stats["method_counts"][""] == 1
+    assert stats["unknown_methods"] == [""]
+
+
+def test_trace_cand_why_no_verdict_row_winner():
+    # LINK:2-sig row, {} verdict, empty evidence: winner is the row's own
+    # sensekey, so the why-line must NOT claim a judge source.
+    row = {"kaikki_sense_id": "k", "method": "LINK:2-sig",
+           "evidence": "", "flags": "", "lemma": "run",
+           "kaikki_gloss": "To move.",
+           "wordnet_sensekey": "run%2:38:00::"}
+    bare = viewer._render_trace(row, {})
+    assert "نامزد برتر از داور آمد" not in bare
+    assert "نامزد برتر ردیف است" in bare
+    # verdict-present keeps the judge wording.
+    judged = viewer._render_trace(row, {
+        "verdict": "LINK", "winner_sensekey": "run%2:38:00::",
+        "votes": [{"ok": True, "verdict": "LINK", "winner_index": 0}],
+    })
+    assert "نامزد برتر از داور آمد" in judged
+
+
+def test_stage_mapping_single_source():
+    from factory.linker.linker import _stats_stage, LINK_METHOD_VOCAB
+    assert viewer._stage_of is _stats_stage
+    for method in list(LINK_METHOD_VOCAB) + [None, "", "WAT"]:
+        assert viewer._stage_of(method) == _stats_stage(method)
+
+
+def test_js_norm_nfkc_parity():
+    import pathlib as _pl
+    src = _pl.Path(viewer.__file__).read_text(encoding="utf-8")
+    assert 'normalize("NFKC")' in src
+    # fullwidth query matches after NFKC (parity with normalize_search).
+    assert viewer.normalize_search("ＲＵＮ") == "run"
 
 
 def test_export_record_schema_shape():

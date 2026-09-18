@@ -694,7 +694,7 @@ def link_stats(rows):
                "judge": 0, "short-gloss": 0, "zero-sig": 0}
     flags = {}
     for row in rows:
-        method = row.get("method", "")
+        method = row.get("method") or ""
         evidence = row.get("evidence", "")
         method_counts[method] = method_counts.get(method, 0) + 1
         stage[_stats_stage(method)] += 1
