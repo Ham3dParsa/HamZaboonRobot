@@ -1250,6 +1250,14 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
                 await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
         blocked_mock.assert_called_once_with(123)
 
+    async def test_delete_with_retry_marks_user_blocked_on_forbidden(self):
+        bot_mock = MagicMock()
+        bot_mock.delete_message = AsyncMock(side_effect=Forbidden("blocked"))
+        with patch.object(db, "set_user_blocked") as blocked_mock:
+            with self.assertRaises(Forbidden):
+                await helpers._delete_with_retry(bot_mock, 123, 456)
+        blocked_mock.assert_called_once_with(123)
+
     async def test_edit_markup_with_retry_calls_reset_on_success(self):
         bot_mock = MagicMock()
         bot_mock.edit_message_reply_markup = AsyncMock(return_value="ok")
