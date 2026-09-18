@@ -1756,3 +1756,27 @@ def test_ref_catalog_keys_both_langs():
                 "charts.s4_head", "charts.prov_head", "charts.prov_total"):
         assert key in viewer.STRINGS["en"], key
         assert key in viewer.STRINGS["fa"], key
+
+
+def test_ref_others_width_clamped():
+    """OC round: a rest-sum larger than the top reason still caps at
+    100% — no pareto track overflow."""
+    stats = _v2_stats()
+    stats["drops_by_reason"] = [["r%d" % i, count] for i, count in
+                                enumerate((10, 9, 9, 9, 9, 9))]
+    en = viewer._render_charts(stats, "en")
+    assert "others (2 methods)" in en
+    assert ">18<" in en
+    widths = [float(w) for w in
+              re.findall(r"charts-fill drop\" style=\"width:([0-9.]+)%", en)]
+    assert widths and all(w <= 100.0 for w in widths)
+
+
+def test_ref_empty_donut_no_full_drop():
+    """OC round: an empty dataset renders an empty ring, never a
+    solid full-drop circle."""
+    stats = _v2_stats()
+    stats.update({"lemmas_total": 0, "lemmas_kept": 0,
+                  "lemmas_dropped": 0, "kept_rate_pct": 0})
+    en = viewer._render_charts(stats, "en")
+    assert re.search(r'stroke-dasharray="100', en) is None

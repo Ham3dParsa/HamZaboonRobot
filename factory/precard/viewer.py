@@ -3346,7 +3346,7 @@ def _render_charts(stats, lang="en"):
         + "</div>")
 
     kept_share = _pct(kept, total)
-    drop_share = round(100.0 - kept_share, 1)
+    drop_share = 0.0 if not total else round(100.0 - kept_share, 1)
     drops = stats["drops_by_reason"]
     drop_max = max([count for _head, count in drops] + [0])
     if drops:
@@ -3363,7 +3363,8 @@ def _render_charts(stats, lang="en"):
                 'style="width:%s%%"></div></div>'
                 '<span class="charts-num">%s</span></div>'
                 % (_esc(_tr(lang, "charts.others", N=_num(len(rest), lang))),
-                   _pct(rest_n, drop_max), _esc(_num(rest_n, lang))))
+                   min(_pct(rest_n, drop_max), 100.0),
+                   _esc(_num(rest_n, lang))))
         pareto = '<div class="charts-pareto">' + rows + "</div>"
     else:
         pareto = '<p class="dist-note">%s</p>' % _esc(_tr(lang, "drops.none"))
