@@ -1,7 +1,7 @@
 # Hamzaban — Living Project State & Architecture Map
 
 > Single source of truth for current architectural state, active roadmap, domain vocabulary, and next atomic tasks.
-> Updated as of **2026-08-22**. Keep under 100 lines. Canonical specs: `AGENTS.md`, `ROADMAP.md`, GitHub Issues. Pull-based study sessions only — no push delivery.
+> Updated as of **2026-09-18**. Keep under 100 lines. Canonical specs: `AGENTS.md`, `ROADMAP.md`, GitHub Issues. Pull-based study sessions; return nudges only under Push Policy v1 (2026-09-17 locks).
 > **Legend:** `[PLANNED — not implemented]` = aspirational / design intent, not live code. **Live baseline is §3 :35–45 only.**
 
 ---
@@ -22,9 +22,9 @@
 | Term | Definition |
 |---|---|
 | **Continuity (Streak)** | Consecutive days with ≥1 completed session (`users.streak`, `users.last_active_date`) — [PLANNED — not implemented] aspirational streak model; live streak is minimal `users.streak`/`last_active_date` only. |
-| **Daily Intensity (Flame)** | Computed from `plans.max_sessions`: L1 Base, L2 High-Heat, L3 Perfect Day — [PLANNED — not implemented]. |
-| **Shield** | Consumed on 1 missed day; monthly quota (Free 1, Bronze+ 2) → `users.streak_shields` — [PLANNED — not implemented] (shields not live). |
-| **Effort XP** | Flat `cards×1 + 2/session +5 perfect-day`; no grade inflation — [PLANNED — not implemented] (XP not live). |
+| **Daily Intensity (Flame)** | Computed from `plans.max_sessions` (locked 2026-09-17): cold before session 1; fire 1 for 1..ceil(N/2)-1; fire 2 for ceil(N/2)..N-1; fire 3 on completing N (N=1 → straight to 3) — [PLANNED — not implemented]. |
+| **Shield** | Auto-consumes 1 on a missed day with balance; caps free 2 / premium 3; coin/shop post-beta → `users.streak_shields` — [PLANNED — not implemented] (shields not live). |
+| **Effort XP** | Locked Mode-2 (2026-09-17): 1 XP per graded card + 3 per completed session, milestone at ceil(N/2) — [PLANNED — not implemented] (XP not live). |
 | **SessionCompleted** | Sole event advancing streak/intensity/XP — [PLANNED — not implemented]. |
 | **Grade Policy** | `services/session/grade_policy.py` per activity (srs_review, first_exposure). |
 
@@ -56,7 +56,7 @@
 - [ ] **M1 — Core Continuity & Daily Stats.** Schema `daily_study_stats` + `users.total_xp/best_streak/streak_shields` — [PLANNED — not implemented]; `services/streak/` DTOs — [PLANNED — not implemented].
 - [ ] **M2 — Atomic Wiring.** `SessionCompleted` in `advance_session` before clear; `BEGIN IMMEDIATE` bundling; idempotency token — [PLANNED — not implemented].
 - [ ] **M3 — Theme Registry.** `config/themes.py`; `/status` copy — [PLANNED — not implemented].
-- [ ] **M4 — Shield & Rescue Hook.** Monthly refill; lazy `ensure_streak_state` — [PLANNED — not implemented].
+- [ ] **M4 — Shield & Rescue Hook.** Auto-consume on missed day; caps free 2 / premium 3 — [PLANNED — not implemented].
 - [ ] **M5 — Economy Ledger.** Coins/items; depends on retention events — [PLANNED — not implemented].
 
 ---
