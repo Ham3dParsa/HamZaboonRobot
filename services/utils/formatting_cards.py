@@ -8,7 +8,7 @@ grammar-tip message, and the post-session summary/detail/legend renderings.
 ``from services.utils.formatting import ...`` caller works unchanged.
 
 Leaf-import law: stdlib (``datetime``, ``json``, ``random``, ``re``) +
-``config.catalog`` (:func:`language_label`) +
+``config.catalog_languages`` (:func:`language_label`) +
 ``services/utils/validation.py`` (``_CUSTOM_WORD_MAX_WORDS``) + the T1 leaf
 ``services/utils/formatting_escape.py`` (escape/digits, never duplicated) +
 the sibling ``services/utils/formatting_jalali.py`` date helpers
@@ -22,7 +22,7 @@ import json
 import random
 import re
 
-from config.catalog import language_label
+from config.catalog_languages import language_label
 from services.utils.formatting_escape import (
     escape_mdv2,
     escape_mdv2_code,

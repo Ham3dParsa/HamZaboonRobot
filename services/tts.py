@@ -10,7 +10,7 @@ from pathlib import Path
 
 import edge_tts
 
-from config.catalog import LANGUAGES
+from config.catalog_languages import LANGUAGES
 
 logger = logging.getLogger(__name__)
 
