@@ -1590,6 +1590,8 @@ body {
   --charts-bg: oklch(.96 .008 286);
   --charts-border: oklch(.85 .02 286);
   font-family: 'Vazirmatn', "Segoe UI", system-ui, -apple-system, sans-serif;
+  overflow-y: auto;
+  min-height: 0;
 }
 [data-theme="dark"] #chartsPane {
   --charts-gold: oklch(.699 .137 106.2);

@@ -1553,6 +1553,18 @@ def test_charts_pane_scrolls_without_trapping(tmp_path):
     assert "min-height: 0" in pane
 
 
+def test_charts_tab_pane_scrolls_without_trapping(tmp_path):
+    """Owner eyeball round: the charts tab pane itself must scroll —
+    its content exceeds small viewports with no other scroller."""
+    fix = _mini_run(tmp_path)
+    html = viewer.build_html(fix["run_dir"], precard=fix["precard"],
+                             sample=fix["sample"], dropped=fix["dropped"],
+                             run_log=fix["run_log"])
+    charts = re.search(r"\n#chartsPane \{(.*?)\}", html, re.S).group(1)
+    assert "overflow-y: auto" in charts
+    assert "min-height: 0" in charts
+
+
 def test_drawer_grid_scrolls_with_workspace_floor(tmp_path):
     """T1 (plan-precard-viewer-responsive R1): drawer grid caps at 38vh
     with internal scroll; workspace never collapses below 200px."""
