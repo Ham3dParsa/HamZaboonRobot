@@ -15,6 +15,9 @@ from factory.precard.judge import fanout_picks
 # P2 (R5): model chains live in factory.precard.net (single owner);
 # this leg holds zero model lists and reads chains through it.
 from factory.precard import net as _net
+from factory.precard import prompt_registry as _prompts
+from factory.precard.prompt_registry import (
+    TOPIC_TIEBREAK, TOPUP_USER_TMPL, V15_USER_TMPL, V16B_DEFS)
 
 LABELS = ["Daily Life & Home", "Food & Drink", "Health & Body",
           "Work & Careers", "Education & Exams", "Travel & Transportation",
@@ -185,7 +188,6 @@ from factory.core.telemetry import (
     emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
     resolve_cost)
 from factory.precard.accounting import item_key
-from factory.precard.prompts import TOPIC_TIEBREAK
 from factory.precard.transport import (
     AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
     raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
@@ -216,24 +218,10 @@ V15_TOL = 0.01
 
 
 
-V15_USER_TMPL = (
-    "For EACH sense below, assign 1 to 3 topic labels with weights (numbers 0..1) summing to 1.0. "
-    "The CURRENT label is usually the primary topic — keep it first with the largest weight UNLESS "
-    "the gloss genuinely spans another topic (e.g. rock music = Society & Culture + Emotions & Relationships; "
-    "a flat tire on a trip = Travel & Transportation + Daily Life & Home). "
-    "TIE-BREAK & DOMAIN MAPPING (apply strictly): "
-    "colors and visual themes (e.g. pink, reddish, bright) "
-    "-> Arts & Culture (0.60) + Daily Life & Home (0.40); do NOT leave color terms "
-    "as purely abstract. Other physical or sensory attributes (e.g. shallow, dirty, "
-    "smooth) belong to their natural domain (Nature & Environment, Daily Life & Home). "
-    "Functional, purely quantitative, or directional dimensions (e.g. low, high, once, few) "
-    "-> Other / Abstract (1.00). "
-    "Use 2+ topics only where genuinely mixed; single-topic senses get one entry with weight 1.0. "
-    f"Allowed labels with ids (use EXACT strings): {json.dumps(V15_ID2LABEL)}. "
-    'Output: {"results": [{"lemma": "...", "vectors": [{"sense_id": "<exact sense id>", '
-    '"vector": [{"topic_id": N, "topic_label": "<exact allowed label>", "weight": w}]}]}]}. '
-    "Cover EVERY sense id from the input exactly once. Weights must sum to 1.0 (±0.01). "
-    "Input follows:\n")
+# T-RUN-B: V15_USER_TMPL lives in factory.precard.prompt_registry
+# (verbatim default; imported above for legacy attribute access).
+# Call sites resolve it at call time via _prompts.get_prompt so a picked
+# variant actually reroutes the wording.
 
 
 def validate_vectors(vecs, r):
@@ -303,59 +291,15 @@ V16B_LABEL2ID = {lab: i + 1 for i, lab in enumerate(LABELS)}
 V16B_TOL = 0.01
 
 
-V16B_DEFS = ("1 Daily Life & Home: everyday routines, household, clothing, time. "
-        "2 Food & Drink: eating, cooking, food/drink items and the act of eating. "
-        "3 Health & Body: body parts, illness, medicine, hygiene. "
-        "4 Work & Careers: jobs, offices, meetings, professional life. "
-        "5 Education & Exams: school, study, exams, learning. "
-        "6 Travel & Transportation: trips, vehicles, directions, movement. "
-        "7 Society: community, traditions, social life, public affairs. "
-        "8 Arts & Culture: art, film, music, literature. "
-        "9 Animals & Living Beings: animals and living creatures, even if edible. "
-        "10 Nature & Environment: plants, earth, air, water, weather, landscapes. "
-        "11 Science & Technology: science, computers, devices, inventions. "
-        "12 Business & Economy: money, trade, markets, finance. "
-        "13 Law & Politics: rules, government, crime, rights. "
-        "14 Sports & Leisure: games, sports, hobbies, free-time fun. "
-        "15 Emotions & Relationships: feelings, family, friendship, love. "
-        "16 Other / Abstract: abstract, grammatical, or unclassifiable meanings.")
+# T-RUN-B: V16B_DEFS lives in factory.precard.prompt_registry (verbatim
+# default; imported above for legacy attribute access).
 
 
 
 
 
-TOPUP_USER_TMPL = (
-    "For EACH sense below, pick ONE primary topic label (id 1..16) AND a weight vector of 1 to 3 "
-    "labels (weights 0..1, summing to 1.0). The vector's top entry must be the primary label. "
-    "TIE-BREAK & DOMAIN MAPPING (apply strictly): "
-    "colors and visual themes (e.g. pink, reddish, bright) "
-    "-> Arts & Culture (0.60) + Daily Life & Home (0.40); do NOT leave color terms "
-    "as purely abstract. Other physical or sensory attributes (e.g. shallow, dirty, "
-    "smooth) belong to their natural domain (Nature & Environment, Daily Life & Home). "
-    "Functional, purely quantitative, or directional dimensions (e.g. low, high, once, few) "
-    "-> Other / Abstract (1.00); use Travel & Transportation (1.00) only if navigational. "
-    "Non-human animals & wildlife -> Animals & Living Beings even if edible "
-    "(a swimming fish = Animals, a fish on the table = Food & Drink). "
-    "Humans, family, and person nouns stay under Society or Emotions & Relationships. "
-    "Eating, cooking, or food acts -> Food & Drink. "
-    "Workplace, professions, and office activities -> Work & Careers. "
-    "Art, film, music, literature -> Arts & Culture. "
-    "Competitive sports (teams, matches, tournaments) vs casual leisure "
-    "(hobbies, free-time fun): both map to Sports & Leisure — split across "
-    "domains only when the gloss genuinely spans one (a pro athlete's "
-    "contract = Sports & Leisure + Work & Careers). "
-    "Strictly abstract logic, function words, and grammatical operators with no topical anchor "
-    "(e.g. about, always, anything, both, each, would, by) -> Other / Abstract (1.00). "
-    "MULTI-TOPIC GUIDELINE: use 2 to 3 labels with weights summing to 1.0 whenever a sense "
-    "genuinely spans multiple domains. Distribute weights proportionally (e.g. 0.60/0.40 or "
-    "0.50/0.50) rather than forcing 1.00 into a single bucket. "
-    f"Labels (use EXACT strings, id = position): {V16B_DEFS} "
-    f"Id map: {json.dumps(V16B_ID2LABEL)}. "
-    'Output: {"results": [{"lemma": "...", "senses": [{"sense_id": "<exact sense id>", '
-    '"topic_id": N, "topic_label": "<exact label>", "confidence": 0..1, '
-    '"vector": [{"topic_id": N, "topic_label": "<exact label>", "weight": w}]}]}]}. '
-    "Cover EVERY sense id from the input exactly once. Weights must sum to 1.0 (+-0.01). "
-    "Input follows:\n")
+# T-RUN-B: TOPUP_USER_TMPL lives in factory.precard.prompt_registry (verbatim
+# default; imported above for legacy attribute access).
 
 
 def validate_senses(items, want_ids):
@@ -423,10 +367,10 @@ def _label_prompt(entries):
     The v14.1 tie-break addendum rides AFTER the lemma blocks (the
     head-frozen layout stays byte-identical across batches).
     """
-    return TOPUP_USER_TMPL + "\n\n".join(
+    return _prompts.get_prompt("topup_user_tmpl") + "\n\n".join(
         topup_lemma_block(e["text"], [{"sense_id": e["sense_id"],
                                   "gloss": e.get("gloss") or ""}])
-        for e in entries) + "\n\n" + TOPIC_TIEBREAK
+        for e in entries) + "\n\n" + _prompts.get_prompt("topic_tiebreak")
 
 
 def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
@@ -985,7 +929,8 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     out = {}
     if not pseudos:
         return out
-    prompt = V15_USER_TMPL + "\n\n".join(v15_lemma_block(r) for r in pseudos)
+    prompt = _prompts.get_prompt("v15_user_tmpl") + "\n\n".join(
+        v15_lemma_block(r) for r in pseudos)
     if ring is None:
         ring = KeyRing([api_key])
     attempt_rows = []

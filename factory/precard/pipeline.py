@@ -54,6 +54,7 @@ from factory.precard.anchor import IPA_SRC_MODEL
 from factory.precard.topics import (
     LABEL_BATCH, TOPIC_METHOD, _needs_fanout_relabel, label_batch,
     vectors_batch)
+from factory.precard import prompt_registry as _prompts
 from factory.core.telemetry import write_summary as _tele_write
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, append_telemetry_history,
@@ -656,6 +657,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         raise SystemExit("--resume and --no-resume are mutually exclusive "
                          "(--resume prints the RESUME PLAN then runs, "
                          "--no-resume starts fresh)")
+    # T-RUN-B: prompt-variant selection applies before anything resolves a
+    # prompt (dry-run included — it prints the same plan either way).
+    # Default (no flag, no env) resolves the byte-pinned v1 wordings.
+    _prompts.select(list(getattr(args, "prompt_variant", None) or []))
     # R10: one run_id (start-ts + pid) joins provider_map.json, the
     # run.log header, every telemetry record, and every --json-log
     # event of this run.
@@ -2374,6 +2379,14 @@ def parse_args(argv=None):
                     help="emit per-try telemetry attempt rows (default off: "
                     "one terminal record per batch, attempt volume "
                     "unchanged)")
+    ap.add_argument("--prompt-variant", action="append", default=[],
+                    metavar="NAME=variant",
+                    help="pick a registered prompt variant for one run "
+                    "prompt (repeatable, comma-joined NAME=variant pairs "
+                    "also work; same grammar as FACTORY_PROMPT_VARIANT). "
+                    "Default resolves the byte-pinned v1 wordings; e.g. "
+                    "--prompt-variant topic_tiebreak=no-tiebreak. Unknown "
+                    "names/variants fail fast with KeyError.")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
