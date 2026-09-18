@@ -163,7 +163,7 @@ class TestReexportSurface(unittest.TestCase):
         )
         cards_modules = top_imports(cards_tree)
         allowed = {
-            "config.catalog",
+            "config.catalog_languages",
             "services.utils.formatting_escape",
             "services.utils.formatting_jalali",
             "services.utils.validation",

@@ -14,7 +14,7 @@ from services.db.display_toggles import (
 
 # Card-mode registry re-exported from config.catalog_card_types (single source, R1).
 # Kept as module-level aliases so existing imports (services/db/users.py) keep
-# working without a breaking change; the canonical definitions live in catalog.
+# working without a breaking change; the canonical definitions live in config.catalog_card_types.
 from config.catalog_card_types import (
     CARD_MODE_GATES,
     CARD_MODES,
