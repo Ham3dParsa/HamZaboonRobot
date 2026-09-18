@@ -26,25 +26,7 @@ debt note.
 """
 
 from factory.linker import linker
-from factory.linker.linker import validate_table_rows
-
-# Frozen method vocabulary: every ``method`` value the shipped table
-# carries, plus the two ``decide()`` outputs absent from the vendor table
-# (JUDGE-PENDING / UNMAPPED rows never ship). LINK ``N-sig`` methods follow
-# the ``LINK:<n>-sig`` / ``LINK:exact-sensekey+<n>-sig`` pattern for n >= 2;
-# only the observed n values are pinned below.
-LINK_METHOD_VOCAB = frozenset({
-    "LINK:2-sig",
-    "LINK:3-sig",
-    "LINK:exact-sensekey+2-sig",
-    "LINK:judge-v2",
-    "LINK:manual-override",
-    "JUDGE-PENDING",
-    "UNMAPPED",
-    "twin-pending",
-    "quarantined-known-false",
-    "MANUAL-NONE",
-})
+from factory.linker.linker import LINK_METHOD_VOCAB, validate_table_rows
 
 __all__ = [
     "LINK_METHOD_VOCAB",

@@ -584,3 +584,297 @@ def validate_table_rows(rows):
             if method == "MANUAL-NONE" and sensekey != "-":
                 violations.append("MANUAL-NONE without '-' sensekey: %s" % kid)
     return violations
+
+
+# --- Stage telemetry (ADDITIVE, F3/F4 display helper; no behavior change) ---
+#
+# COMPLETION_DESIGN_V2 §8 sketches ``LINK_METHOD_VOCAB`` + ``link_stats``.
+# Followed with one extension (reason): the §8 sketch lists 9 values, but
+# real run tables also emit UNMAPPED / JUDGE-PENDING / JUDGE-NONE /
+# JUDGE-REVIEW (see run20), so the vocab covers those too — otherwise the
+# gallery would hide real rows inside an "other" bucket.
+LINK_METHOD_VOCAB = frozenset({
+    "LINK:2-sig",
+    "LINK:3-sig",
+    "LINK:exact-sensekey+2-sig",
+    "LINK:judge-v2",
+    "LINK:manual-override",
+    "twin-pending",
+    "quarantined-known-false",
+    "MANUAL-NONE",
+    "UNMAPPED",
+    "JUDGE-PENDING",
+    "JUDGE-NONE",
+    "JUDGE-REVIEW",
+    "absent",
+})
+
+_STAGE_NONE = frozenset({"JUDGE-NONE", "MANUAL-NONE"})
+_STAGE_PENDING = frozenset({"JUDGE-PENDING", "JUDGE-REVIEW"})
+
+
+def _stats_stage(method):
+    """Bucket one link method into a gallery stage name."""
+    method = method or ""
+    if method.startswith("LINK"):
+        return "link"
+    if method in _STAGE_NONE:
+        return "none"
+    if method in _STAGE_PENDING:
+        return "pending"
+    if method == "UNMAPPED":
+        return "unmapped"
+    if method == "twin-pending":
+        return "twin"
+    if method == "quarantined-known-false":
+        return "quarantine"
+    return "other"
+
+
+def _stats_signals(evidence):
+    """Per-row signal presence parsed from one evidence string.
+
+    Only the rule half (before ``|``) counts as rule fires; the judge
+    tail counts as ``judge``.
+    """
+    text = evidence or ""
+    rule, _, tail = text.partition("|")
+    hits = set()
+    for tok in rule.split("+"):
+        tok = tok.strip()
+        if tok.startswith("Sa:"):
+            hits.add("Sa")
+        elif tok.startswith("Sb:"):
+            hits.add("Sb")
+        elif tok.startswith("Sc:"):
+            hits.add("Sc")
+        elif tok.startswith("Sd:"):
+            hits.add("Sd")
+        elif tok.startswith("Se:"):
+            hits.add("Se")
+        elif "short-gloss" in tok:
+            hits.add("short-gloss")
+        elif tok == "0sig":
+            hits.add("zero-sig")
+    if "judge:" in tail or "judge:" in rule:
+        hits.add("judge")
+    return hits
+
+
+def link_stats(rows):
+    """Count per-stage / per-signal / per-flag telemetry over link rows.
+
+    Pure rows-only helper for the linker gallery (COMPLETION_DESIGN_V2
+    §8). Takes plain row dicts (``method``/``evidence``/``flags``),
+    returns ``{"total", "method_counts", "unknown_methods", "stage",
+    "signals", "flags"}``. ``stage["provisional"]`` is orthogonal: a
+    row whose flags or evidence mentions ``provisional`` counts there
+    AND in its method stage, so stage buckets minus provisional sum to
+    ``total`` while provisional overlaps.
+
+    >>> rows = [
+    ...     {"kaikki_sense_id": "a", "method": "LINK:2-sig",
+    ...      "evidence": "Sa:j=0.27+Sb:source", "flags": ""},
+    ...     {"kaikki_sense_id": "b", "method": "JUDGE-PENDING",
+    ...      "evidence": "Sa:j=0.27", "flags": ""},
+    ...     {"kaikki_sense_id": "c", "method": "UNMAPPED",
+    ...      "evidence": "0sig", "flags": ""},
+    ... ]
+    >>> s = link_stats(rows)
+    >>> (s["total"], s["stage"]["link"], s["stage"]["pending"])
+    (3, 1, 1)
+    >>> (s["signals"]["Sa"], s["signals"]["Sb"], s["unknown_methods"])
+    (2, 1, [])
+    """
+    rows = list(rows or [])
+    method_counts = {}
+    stage = {"link": 0, "none": 0, "pending": 0, "unmapped": 0,
+             "twin": 0, "quarantine": 0, "provisional": 0, "other": 0}
+    signals = {"Sa": 0, "Sb": 0, "Sc": 0, "Sd": 0, "Se": 0,
+               "judge": 0, "short-gloss": 0, "zero-sig": 0}
+    flags = {}
+    for row in rows:
+        method = row.get("method") or ""
+        evidence = row.get("evidence", "")
+        method_counts[method] = method_counts.get(method, 0) + 1
+        stage[_stats_stage(method)] += 1
+        flag_text = row.get("flags", "") or ""
+        if "provisional" in flag_text or "provisional" in (evidence or ""):
+            stage["provisional"] += 1
+        for hit in _stats_signals(evidence):
+            signals[hit] += 1
+        for flag in flag_text.split("+"):
+            flag = flag.strip()
+            if flag:
+                flags[flag] = flags.get(flag, 0) + 1
+    unknown = sorted(m for m in method_counts if m not in LINK_METHOD_VOCAB)
+    return {
+        "total": len(rows),
+        "method_counts": method_counts,
+        "unknown_methods": unknown,
+        "stage": stage,
+        "signals": signals,
+        "flags": flags,
+    }
+
+
+# --- Gallery vocabulary + per-card machine telemetry (ADDITIVE, no behavior change) ---
+#
+# Locked gallery vocabulary (owner round 2): every gauge/chip/telemetry key
+# uses these names everywhere. Legacy Sa..Se / short-gloss / 0sig codes
+# survive ONLY as parenthetical aliases inside evidence strings, so old
+# tables stay readable. Nothing below is consulted by decide/link_stats.
+SIGNAL_VOCAB = {
+    "Sa": {"name": "lexical-overlap", "fa": "هم‌پوشانی واژگان تعریف"},
+    "Sb": {"name": "synonym-crossfire", "fa": "آتش متقابل هم‌معنی‌ها"},
+    "Sc": {"name": "example-crossfire", "fa": "آتش متقابل مثال‌ها"},
+    "Sd": {"name": "hypernym-topic", "fa": "ابرنام/موضوع"},
+    "Se": {"name": "meaning-similarity", "fa": "شباهت معنایی"},
+    "short-gloss": {"name": "short-definition", "fa": "تعریف کوتاه"},
+    "zero-sig": {"name": "no-signal", "fa": "بی‌علامت"},
+    "judge": {"name": "judge-vote", "fa": "رأی داور"},
+}
+
+# Raw evidence tokens that are aliases of a canonical code (legacy 0sig).
+SIGNAL_ALIAS = {"0sig": "zero-sig"}
+
+JUDGE_VOCAB = {
+    "unanimous": {"name": "unanimous", "fa": "اجماعی 3-0"},
+    "split": {"name": "split-vote", "fa": "شقه 2-1"},
+}
+
+
+def signal_vocab(code):
+    """Map a legacy signal code to the locked gallery vocabulary entry.
+
+    Returns ``{"code", "name", "fa"}``; unknown codes pass through with
+    ``name == code`` (fail-soft for future signals).
+
+    >>> signal_vocab("Sa")["name"]
+    'lexical-overlap'
+    >>> signal_vocab("0sig")["name"]
+    'no-signal'
+    >>> signal_vocab("Se")["fa"]
+    'شباهت معنایی'
+    >>> signal_vocab("judge")["name"]
+    'judge-vote'
+    >>> signal_vocab("Sx")["name"]
+    'Sx'
+    """
+    canon = SIGNAL_ALIAS.get(code, code)
+    entry = SIGNAL_VOCAB.get(canon)
+    if entry is None:
+        return {"code": code, "name": code, "fa": code}
+    return {"code": canon, "name": entry["name"], "fa": entry["fa"]}
+
+
+def telemetry_counters(rows):
+    """Vocabulary-keyed counters over link rows (gallery display helper).
+
+    Same row scan as :func:`link_stats` but signal keys are locked
+    vocabulary names (``lexical-overlap`` … ``no-signal``,
+    ``judge-vote``) instead of legacy codes. Stage buckets identical.
+
+    >>> rows = [
+    ...     {"kaikki_sense_id": "a", "method": "LINK:2-sig",
+    ...      "evidence": "Sa:j=0.27+Sb:source", "flags": ""},
+    ...     {"kaikki_sense_id": "c", "method": "UNMAPPED",
+    ...      "evidence": "0sig", "flags": ""},
+    ... ]
+    >>> c = telemetry_counters(rows)
+    >>> (c["total"], c["signals"]["lexical-overlap"], c["signals"]["no-signal"])
+    (2, 1, 1)
+    >>> c["stage"]["link"]
+    1
+    """
+    rows = list(rows or [])
+    signals = {entry["name"]: 0 for entry in SIGNAL_VOCAB.values()}
+    stage = {"link": 0, "none": 0, "pending": 0, "unmapped": 0,
+             "twin": 0, "quarantine": 0, "provisional": 0, "other": 0}
+    for row in rows:
+        stage[_stats_stage(row.get("method", ""))] += 1
+        flag_text = row.get("flags", "") or ""
+        if "provisional" in flag_text or "provisional" in (row.get("evidence", "") or ""):
+            stage["provisional"] += 1
+        for hit in _stats_signals(row.get("evidence", "")):
+            name = signal_vocab(hit)["name"]
+            signals[name] = signals.get(name, 0) + 1
+    return {"total": len(rows), "signals": signals, "stage": stage}
+
+
+def machine_block(row):
+    """Per-card machine telemetry for the gallery (pure, JSON-safe).
+
+    Parses the row's rule-half evidence into per-signal fired detail
+    (exact words/scores), attaches the frozen decision thresholds, and
+    the tier/seed/build parsed from the ``provenance`` column (if any).
+
+    >>> row = {"kaikki_sense_id": "k", "method": "LINK:2-sig",
+    ...        "evidence": "Sa:j=0.40+Sd:hyp=move", "flags": "",
+    ...        "provenance": "rules:v0.6-equiv:se=None:STOP=base:seed=20260918:build=run20"}
+    >>> blk = machine_block(row)
+    >>> (blk["signals"]["lexical-overlap"]["detail"], blk["tier"], blk["seed"])
+    ('Sa:j=0.40', 'base', '20260918')
+    >>> blk["thresholds"]["link_min"]
+    2
+    >>> machine_block({"kaikki_sense_id": "u", "method": "UNMAPPED",
+    ...                "evidence": "0sig", "flags": ""})["signals"]["no-signal"]["detail"]
+    '0sig'
+    """
+    row = row or {}
+    evidence = row.get("evidence", "") or ""
+    rule, _, _ = evidence.partition("|")
+    signals = {}
+    for tok in rule.split("+"):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok.startswith("Sa:"):
+            code = "Sa"
+        elif tok.startswith("Sb:"):
+            code = "Sb"
+        elif tok.startswith("Sc:"):
+            code = "Sc"
+        elif tok.startswith("Sd:"):
+            code = "Sd"
+        elif tok.startswith("Se:"):
+            code = "Se"
+        elif "short-gloss" in tok:
+            code = "short-gloss"
+        elif tok in ("0sig", "zero-sig"):
+            code = "zero-sig"
+        elif "judge:" in tok:
+            code = "judge"
+        else:
+            code = tok
+        name = signal_vocab(code)["name"]
+        signals.setdefault(name, {"code": signal_vocab(code)["code"],
+                                  "alias": tok, "detail": tok})
+    provenance = row.get("provenance", "") or ""
+    tier = seed = build = ""
+    for chunk in provenance.split(":"):
+        if chunk.startswith("STOP="):
+            tier = chunk[len("STOP="):]
+        elif chunk.startswith("seed="):
+            seed = chunk[len("seed="):]
+        elif chunk.startswith("build="):
+            build = chunk[len("build="):]
+    flags = [f.strip() for f in (row.get("flags", "") or "").split("+") if f.strip()]
+    return {
+        "kid": row.get("kaikki_sense_id", ""),
+        "method": row.get("method", ""),
+        "signals": signals,
+        "thresholds": {
+            "jaccard": JACCARD_DEFAULT,
+            "se_cut": SE_CUT,
+            "se_veto_floor": SE_VETO_FLOOR,
+            "link_min": LINK_MIN_DEFAULT,
+            "shortlist_cap": SHORTLIST_CAP,
+            "ultra_short_min_tokens": ULTRA_SHORT_MIN_TOKENS,
+        },
+        "tier": tier or "unknown",
+        "seed": seed or "unknown",
+        "build": build or "unknown",
+        "flags": flags,
+        "provenance": provenance,
+    }
