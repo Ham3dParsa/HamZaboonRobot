@@ -247,6 +247,7 @@ branches).
 | `grill-to-spec` | Plan needs ambiguity resolution before execution. |
 | `tdd-enforcement` | Writing new logic or modifying behavior during implementation. |
 | `detached-run` | Long job expected to exceed ~2 minutes, factory run over network, egress probe/sweep, or explicit background order. |
+| `history-search` | Asked about past talks/decisions, or agent hits unknown context (recall sweep before repeating settled work). |
 
 Subagents in `.opencode/agents/` — `hamzaban-reviewer`: read-only gate for
 §6.3; `hamzaban-db`/`-ai`/`-handler`: domain helpers.
