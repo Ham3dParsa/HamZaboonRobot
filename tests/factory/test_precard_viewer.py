@@ -1441,9 +1441,9 @@ def test_phone_kpi_density_two_columns(tmp_path):
                              run_log=fix["run_log"])
     assert "@media (max-width:640px)" in html
     media = html[html.find("@media (max-width:640px)"):]
-    strip = re.search(r"\.kpi-strip \{(.*?)\}", media, re.S).group(1)
+    strip = re.search(r"#chartsPane \.kpi-strip \{(.*?)\}", media, re.S).group(1)
     assert "grid-template-columns: 1fr 1fr" in strip
-    value = re.search(r"\.kpi-value \{(.*?)\}", media, re.S).group(1)
+    value = re.search(r"#chartsPane \.kpi-value \{(.*?)\}", media, re.S).group(1)
     size = re.search(r"font-size:\s*(\d+)px", value)
     assert size is not None and 18 <= int(size.group(1)) <= 20
 

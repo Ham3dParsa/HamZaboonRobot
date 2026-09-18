@@ -1276,14 +1276,14 @@ body {
   .app-header {
     padding: 10px 12px;
   }
-  .kpi-strip {
+  #chartsPane .kpi-strip {
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
-  .kpi-value {
+  #chartsPane .kpi-value {
     font-size: 18px;
   }
-  .kpi-card {
+  #chartsPane .kpi-card {
     padding: 8px 10px;
   }
   .advanced-filters {
