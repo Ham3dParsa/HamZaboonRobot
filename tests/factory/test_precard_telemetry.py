@@ -656,3 +656,36 @@ def test_run_with_lease_line_gains_server_provider(
     out = capsys.readouterr().out
     assert "server=s1" in out and "provider=zen" in out
     assert "proxy_url" not in out and "127.0.0.1:18888" not in out
+
+
+def test_run_start_carries_prompts_version_and_variant_map(tmp_path):
+    """OC must-fix #765: run_start (run.log + run_events.jsonl) carries
+    PROMPTS_VERSION + the resolved {name:variant} map, so two
+    --prompt-variant runs are distinguishable in logs."""
+    import os
+    from factory.precard import pipeline as pipe
+    from factory.precard import prompt_registry as PR
+    PR.register_variant("topic_tiebreak", "test-alt-765", "ALT-TIEBREAK")
+    saved_env = os.environ.get("FACTORY_PROMPT_VARIANT")
+    os.environ.pop("FACTORY_PROMPT_VARIANT", None)
+    try:
+        out = _run_apple(tmp_path, "--json-log", "--prompt-variant",
+                         "topic_tiebreak=test-alt-765")
+    finally:
+        PR.reset()
+        if saved_env is not None:
+            os.environ["FACTORY_PROMPT_VARIANT"] = saved_env
+    parent = _out_dir(out)
+    events = [json.loads(line) for line in
+              (parent / "run_events.jsonl").read_text(
+                  encoding="utf-8").splitlines() if line.strip()]
+    starts = [e for e in events if e["event"] == "run_start"]
+    assert len(starts) == 1
+    assert starts[0]["prompts_version"] == PR.PROMPTS_VERSION == "v1"
+    assert starts[0]["prompt_variants"]["topic_tiebreak"] == "test-alt-765"
+    assert set(starts[0]["prompt_variants"]) == set(PR.PROMPT_NAMES)
+    log_lines = (parent / "run.log").read_text(
+        encoding="utf-8").splitlines()
+    assert log_lines and log_lines[0].startswith("run ")
+    assert any("test-alt-765" in line and "v1" in line
+               for line in log_lines[1:])

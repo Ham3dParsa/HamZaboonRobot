@@ -720,7 +720,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         return 0
 
     # Machine event stream starts with the real run (dry-run above
-    # returns before any file is written).
+    # returns before any file is written). T-RUN-B R8: resolve prompt
+    # variants BEFORE any file side-effect (jlog/progress_dir come
+    # later) so a malformed selection dies with zero files touched.
+    try:
+        _prompt_variants = {name: _prompts.selected_variant(name)
+                            for name in _prompts.PROMPT_NAMES}
+    except ValueError as exc:
+        raise SystemExit(
+            "bad --prompt-variant/FACTORY_PROMPT_VARIANT: %s" % exc)
     jlog = _JsonLog(args.out, run_id, bool(args.json_log))
     # Created later (after progress load); _preflight_exit closes it
     # when set so a stillborn run never leaves run.log locked (Windows
@@ -894,10 +902,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
     # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
     # no fail-closed signal, so fail is always 0 there.
+    # T-RUN-B: resolved prompt map (built pre-file above) at run start
+    # so two --prompt-variant runs are distinguishable in run.log +
+    # run_events.
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"),
         namer=progress.display, run_id=run_id)
-    jlog.event("run_start", run_id=run_id)
+    run_logger.log("prompts %s %s" % (
+        _prompts.PROMPTS_VERSION,
+        json.dumps(_prompt_variants, sort_keys=True)))
+    jlog.event("run_start", run_id=run_id,
+               prompts_version=_prompts.PROMPTS_VERSION,
+               prompt_variants=_prompt_variants)
     for stage in progress.STAGES:
         if stage not in selected:
             run_logger.log("stage %s skipped (not selected)"

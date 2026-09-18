@@ -156,11 +156,10 @@ def selected_variant(name):
         raise KeyError("unknown prompt: %r" % (name,))
     if name in _ACTIVE:
         return _ACTIVE[name]
-    try:
-        env = _env_selection()
-    except ValueError:
-        env = {}
-    return env.get(name, "default")
+    # Fail fast: a malformed FACTORY_PROMPT_VARIANT raises ValueError
+    # (never silently swallowed — env agrees with explicit select()).
+    # Absent/empty env still resolves {} -> "default".
+    return _env_selection().get(name, "default")
 
 
 def reset():
@@ -173,10 +172,9 @@ def _resolve(name):
     if name in _ACTIVE:
         variant = _ACTIVE[name]
     else:
-        try:
-            variant = _env_selection().get(name)
-        except ValueError:
-            variant = None
+        # Fail fast (same rule as selected_variant): malformed env
+        # raises ValueError instead of silently resolving defaults.
+        variant = _env_selection().get(name)
     if variant:
         try:
             return _VARIANTS[name][variant]

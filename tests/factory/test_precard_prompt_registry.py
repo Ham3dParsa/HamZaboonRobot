@@ -170,3 +170,30 @@ def test_unknown_name_fails_closed():
         PR.select("no_such_prompt=x")
     with pytest.raises(KeyError):
         PR.register_variant("no_such_prompt", "x", "y")
+
+
+def test_malformed_env_raises_fail_fast():
+    """OC must-fix #765: a malformed FACTORY_PROMPT_VARIANT is never
+    silently swallowed — _resolve/selected_variant let ValueError
+    propagate (fail fast, env agrees with CLI select())."""
+    os.environ["FACTORY_PROMPT_VARIANT"] = "bogus-chunk-no-equals"
+    with pytest.raises(ValueError):
+        PR.selected_variant("topic_tiebreak")
+    with pytest.raises(ValueError):
+        PR.get_prompt("topic_tiebreak")
+
+
+def test_absent_and_empty_env_resolve_defaults():
+    """Absent env (normal path) and empty env keep resolving v1."""
+    os.environ.pop("FACTORY_PROMPT_VARIANT", None)
+    assert PR.selected_variant("topic_tiebreak") == "default"
+    assert PR.get_prompt("topic_tiebreak") == PR.TOPIC_TIEBREAK
+    os.environ["FACTORY_PROMPT_VARIANT"] = ""
+    assert PR.selected_variant("topic_tiebreak") == "default"
+    assert PR.get_prompt("topic_tiebreak") == PR.TOPIC_TIEBREAK
+
+
+def test_explicit_select_malformed_raises():
+    """Explicit select() behavior unchanged: malformed chunks raise."""
+    with pytest.raises(ValueError):
+        PR.select("bogus-chunk-no-equals")
