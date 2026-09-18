@@ -199,11 +199,18 @@ def test_judge_window_all_stub_keeps():
 
 def test_judge_prompt_template_unchanged():
     """v14.1: the judge picks 1-4 ordered senses (fan-out); the
-    candidate-id grounding and hierarchy lines are unchanged."""
-    import inspect
-    src = inspect.getsource(judge_prompt)
-    assert "PICK the 1-4 most useful senses per item" in src
-    assert "candidate ids" in src
+    candidate-id grounding and hierarchy lines are unchanged.
+
+    T-RUN-B: the head wording lives in factory.precard.prompt_registry
+    (verbatim move) — assert the resolved wording and the rendered
+    prompt, not the source location. Byte-identity is pinned by
+    tests/factory/test_precard_prompt_registry.py.
+    """
+    from factory.precard import prompt_registry
+    head = "\n".join(prompt_registry.get_prompt_lines("judge_head"))
+    assert "PICK the 1-4 most useful senses per item" in head
+    assert "candidate ids" in head
+    assert judge_prompt([], {}) == head
 
 
 # --- Item 4: mother_lemma emission ----------------------------------------

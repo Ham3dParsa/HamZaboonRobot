@@ -54,6 +54,7 @@ from factory.precard.anchor import IPA_SRC_MODEL
 from factory.precard.topics import (
     LABEL_BATCH, TOPIC_METHOD, _needs_fanout_relabel, label_batch,
     vectors_batch)
+from factory.precard import prompt_registry as _prompts
 from factory.core.telemetry import write_summary as _tele_write
 from factory.precard.transport import (
     AuthError, KeyRing, RateLimited, append_telemetry_history,
@@ -656,6 +657,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         raise SystemExit("--resume and --no-resume are mutually exclusive "
                          "(--resume prints the RESUME PLAN then runs, "
                          "--no-resume starts fresh)")
+    # T-RUN-B: prompt-variant selection applies before anything resolves a
+    # prompt (dry-run included — it prints the same plan either way).
+    # Default (no flag, no env) resolves the byte-pinned v1 wordings.
+    _prompts.select(list(getattr(args, "prompt_variant", None) or []))
     # R10: one run_id (start-ts + pid) joins provider_map.json, the
     # run.log header, every telemetry record, and every --json-log
     # event of this run.
@@ -715,7 +720,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         return 0
 
     # Machine event stream starts with the real run (dry-run above
-    # returns before any file is written).
+    # returns before any file is written). T-RUN-B R8: resolve prompt
+    # variants BEFORE any file side-effect (jlog/progress_dir come
+    # later) so a malformed selection dies with zero files touched.
+    try:
+        _prompt_variants = {name: _prompts.selected_variant(name)
+                            for name in _prompts.PROMPT_NAMES}
+    except ValueError as exc:
+        raise SystemExit(
+            "bad --prompt-variant/FACTORY_PROMPT_VARIANT: %s" % exc)
     jlog = _JsonLog(args.out, run_id, bool(args.json_log))
     # Created later (after progress load); _preflight_exit closes it
     # when set so a stillborn run never leaves run.log locked (Windows
@@ -889,10 +902,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
     # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
     # no fail-closed signal, so fail is always 0 there.
+    # T-RUN-B: resolved prompt map (built pre-file above) at run start
+    # so two --prompt-variant runs are distinguishable in run.log +
+    # run_events.
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"),
         namer=progress.display, run_id=run_id)
-    jlog.event("run_start", run_id=run_id)
+    run_logger.log("prompts %s %s" % (
+        _prompts.PROMPTS_VERSION,
+        json.dumps(_prompt_variants, sort_keys=True)))
+    jlog.event("run_start", run_id=run_id,
+               prompts_version=_prompts.PROMPTS_VERSION,
+               prompt_variants=_prompt_variants)
     for stage in progress.STAGES:
         if stage not in selected:
             run_logger.log("stage %s skipped (not selected)"
@@ -2374,6 +2395,14 @@ def parse_args(argv=None):
                     help="emit per-try telemetry attempt rows (default off: "
                     "one terminal record per batch, attempt volume "
                     "unchanged)")
+    ap.add_argument("--prompt-variant", action="append", default=[],
+                    metavar="NAME=variant",
+                    help="pick a registered prompt variant for one run "
+                    "prompt (repeatable, comma-joined NAME=variant pairs "
+                    "also work; same grammar as FACTORY_PROMPT_VARIANT). "
+                    "Default resolves the byte-pinned v1 wordings; e.g. "
+                    "--prompt-variant topic_tiebreak=no-tiebreak. Unknown "
+                    "names/variants fail fast with KeyError.")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")

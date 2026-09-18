@@ -21,6 +21,7 @@ from factory.precard import anchor as _anchor_home
 from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
 from factory.precard import net as _net
+from factory.precard import prompt_registry as _prompts
 
 # Model attempts route through net.call_leg (single-model + KeyRing
 # rotation). Each leg walks its net-table chain (steps down only on
@@ -86,34 +87,9 @@ def judge_fallback(item, anchor_res):
 
 
 def judge_prompt(batch, anchor_map):
-    lines = ["PICK the 1-4 most useful senses per item for Persian "
-             "learners of English, ordered most-useful-first (one card "
-             "= one atomic sense downstream, so rank every sense worth "
-             "its own card).",
-             "Prioritization hierarchy:",
-             "1. High-frequency tangible and conversational meaning over "
-             "technical, academic, or domain-specific jargon (e.g., "
-             "cooking/water boil > thermodynamic boil), UNLESS the item's "
-             "pool_level is C1/C2 or all candidates are strictly "
-             "abstract/technical.",
-             "2. Modern living usage over archaic, obsolete, or highly "
-             "regional dialectal senses.",
-             "3. If candidates contain both an independent lexical meaning "
-             "and a purely grammatical/inflectional reference, ALWAYS pick "
-             "the independent lexical meaning.",
-             "4. For modal/auxiliary verbs (would, could, should), the "
-             "grammatical main sense takes absolute precedence over any "
-             "nominal or philosophical sense.",
-             "Picked senses must be clearly different meanings (never two "
-             "wordings of the same sense).",
-              "",
-              'Output: {"results": [{"key": "<item key>", '
-              '"picks": ["<sense_id>", ... up to 4]}]}.',
-              "A single \"pick\": \"<sense_id>\" row is also accepted "
-              "(one sense).",
-              "Every pick MUST be one of that item's candidate ids "
-              "(empty picks only when the item has no candidates).",
-              "Input follows:"]
+    # T-RUN-B: head lines live in factory.precard.prompt_registry
+    # (verbatim default); per-item KEY blocks appended unchanged.
+    lines = list(_prompts.get_prompt_lines("judge_head"))
     for item in batch:
         key = item_key(item)
         cands = (anchor_map.get(key) or {}).get("candidates", [])
@@ -353,7 +329,7 @@ from factory.precard.transport import (
 
 _tele_record = record_call
 _tele_usage = extract_usage
-from factory.precard.prompts import INFLECTION_REVIEW_SYS
+from factory.precard.prompt_registry import INFLECTION_REVIEW_SYS
 
 
 INFLECTION_REVIEW_BATCH = 16
@@ -363,10 +339,8 @@ JUDGE_BATCH = 12
 
 def _inflection_review_prompt(batch):
     """Batch prompt: one KEY/word/gloss block per item."""
-    lines = ["Judge EACH inflected form against its dictionary gloss.",
-             'Output: {"results": [{"key": "<item key>", '
-             '"keep": true/false, "reason": "<why>"}]}.',
-             "Input follows:"]
+    # T-RUN-B: head lines live in factory.precard.prompt_registry.
+    lines = list(_prompts.get_prompt_lines("inflection_review_head"))
     for entry in batch:
         lines.append("KEY %s" % entry["key"])
         lines.append("word: %s" % (entry.get("text") or ""))
@@ -490,7 +464,9 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     # system prompt once (extra leading texts pass through, so the
     # avalai/google remap transports keep working unchanged).
     def _adapted(key, model, text, _t=transport):
-        return _t(key, model, INFLECTION_REVIEW_SYS, text)
+        # T-RUN-B: sys prompt resolves at call time (variant-aware).
+        return _t(key, model, _prompts.get_prompt("inflection_review_sys"),
+                  text)
     out = {}
     # R8: deterministic pre-check first — skipped lemmas keep without a
     # verdict and never enter a prompt batch (no transport call, no
