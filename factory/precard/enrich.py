@@ -704,16 +704,12 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
         want_idx = int(sid.split("#")[-1])
     except (TypeError, ValueError):
         want_idx = None
-    entries, pos = _anchor_home._entries_for(item, index)
     # R34 v9: an xref-resolved pick carries the TARGET lemma in its
     # sense_id ("colour#2" for item "color") — enrich from the target
-    # rows, not the item rows.
+    # rows, not the item rows (shared seam with the anchor() view).
     sid_lemma = sid.rpartition("#")[0].strip().lower() if "#" in sid \
         else ""
-    if sid_lemma and sid_lemma != (item.get("text") or "").strip().lower():
-        target_rows = (index or {}).get(sid_lemma)
-        if target_rows:
-            entries, pos = list(target_rows), ""
+    entries, pos = _anchor_home._resolve_pick_entries(item, sid, index)
     entry = sense = None
     if want_idx is not None:
         try:

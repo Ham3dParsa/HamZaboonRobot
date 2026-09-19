@@ -1099,6 +1099,93 @@ def anchor_rank_item(item, index, read_entry):
             "xref_unresolvable": bool(probe.get("xref_unresolvable"))}
 
 
+def anchor(item, index, read_entry):
+    """Q-anchor view: the ONE S1 anchor decision for an item.
+
+    Rank + reroutes + drops in one call: anchor_rank_item, then the
+    proper-top reroute, the name-gloss reroute, then the vulgar-anchor
+    and no-real-def (xref-unresolvable) verdicts. score/xref/POS rules
+    live in this module's seams (score_senses, detect_xref /
+    resolve_xref_anchor, _picked_entry_pos / _resolve_pick_entries) —
+    callers change rules here, never by reimplementing them.
+
+    Returns (ranked, warnings): the anchor_rank dict (carrying "dropped"
+    when the item drops) plus stderr warning lines the caller prints
+    (kept out of the dict so progress files stay byte-identical).
+    anchor_item_en itself never drops; THIS view is where S1 drops.
+    """
+    key = item_key(item)
+    warnings = []
+    ranked = anchor_rank_item(item, index, read_entry)
+    if (ranked.get("anchor_pos") or "") in PROPER_NOUN_POS:
+        rerouted = _reroute_proper_anchor(item, ranked, index, read_entry)
+        if rerouted is not None:
+            ranked["top"], ranked["en_def"], \
+                ranked["anchor_pos"] = rerouted
+            ranked["rerouted_from_proper"] = True
+            # Mirror the name branch: refresh the tag carrier from the
+            # TARGET sense and re-run the vulgar verdict (stale
+            # anchor_tags would leak a vulgar target past the gate);
+            # empty lookups keep the anchor's tags (uncertainty keeps).
+            fresh = _target_sense_tags(
+                item, rerouted[0].get("sense_id", ""), index, read_entry)
+            if fresh:
+                ranked["anchor_tags"] = sorted(fresh)
+            fresh_mother = _mother_for_top(
+                item, rerouted[0].get("sense_id", ""), index, read_entry)
+            if fresh_mother is not None:
+                ranked["mother_lemma"], \
+                    ranked["mother_lemmas"], \
+                    ranked["mother_multi"] = fresh_mother
+            if set(ranked.get("anchor_tags") or {}) & VULGAR_TAGS:
+                ranked.pop("rerouted_from_proper", None)
+                ranked["dropped"] = "vulgar-anchor"
+            warnings.append(
+                "warning: %s re-anchored off proper top -> %s" % (
+                    key, rerouted[0].get("sense_id", "")))
+        else:
+            ranked["dropped"] = "anchor-proper-noun"
+    elif _is_name_gloss((ranked.get("top") or {}).get("gloss", "")):
+        # F2: name-gloss top (given/surname/place-name) with a non-proper
+        # entry POS — the gloss-based sibling of the proper branch above.
+        rerouted = _reroute_name_gloss_anchor(item, ranked, index,
+                                              read_entry)
+        if rerouted is not None:
+            ranked["top"], ranked["en_def"], \
+                ranked["anchor_pos"] = rerouted
+            if ranked.get("rerouted_from_name"):
+                fresh = _target_sense_tags(
+                    item, rerouted[0].get("sense_id", ""), index,
+                    read_entry)
+                if fresh:
+                    ranked["anchor_tags"] = sorted(fresh)
+                fresh_mother = _mother_for_top(
+                    item, rerouted[0].get("sense_id", ""), index,
+                    read_entry)
+                if fresh_mother is not None:
+                    ranked["mother_lemma"], \
+                        ranked["mother_lemmas"], \
+                        ranked["mother_multi"] = fresh_mother
+                if set(ranked.get("anchor_tags") or {}) & VULGAR_TAGS:
+                    ranked.pop("rerouted_from_name", None)
+                    ranked["dropped"] = "vulgar-anchor"
+                else:
+                    warnings.append(
+                        "warning: %s re-anchored off name top -> %s" % (
+                            key, rerouted[0].get("sense_id", "")))
+            elif ranked.get("name_eval_error"):
+                warnings.append(
+                    "warning: %s name-eval error, keeping anchor top"
+                    % key)
+        else:
+            ranked["dropped"] = "anchor-name-gloss"
+    elif set(ranked.get("anchor_tags") or {}) & VULGAR_TAGS:
+        ranked["dropped"] = "vulgar-anchor"
+    elif ranked.get("xref_unresolvable"):
+        ranked["dropped"] = "no-real-def"
+    return ranked, warnings
+
+
 def _reroute_proper_anchor(item, ranked, index, read_entry):
     """Best non-proper candidate when the anchor is proper (act-fix).
 
@@ -1303,13 +1390,8 @@ def _window_sense(item, sense_id, index, read_entry):
     except (TypeError, ValueError, AttributeError):
         return None
     try:
-        entries, pos = _entries_for(item, index)
+        entries, pos = _resolve_pick_entries(item, sense_id, index)
         sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower()
-        if sid_lemma and sid_lemma != (
-                item.get("text") or "").strip().lower():
-            target_rows = (index or {}).get(sid_lemma)
-            if target_rows:
-                entries, pos = list(target_rows), ""
         scored = score_senses(
             sid_lemma or item.get("text", ""), entries, pos, read_entry)
     except Exception:
@@ -1344,13 +1426,8 @@ def _picked_entry_pos(item, sense_id, index, read_entry):
     except (TypeError, ValueError, AttributeError):
         return ""
     try:
-        entries, pos = _entries_for(item, index)
+        entries, pos = _resolve_pick_entries(item, sense_id, index)
         sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower()
-        if sid_lemma and sid_lemma != (
-                item.get("text") or "").strip().lower():
-            target_rows = (index or {}).get(sid_lemma)
-            if target_rows:
-                entries, pos = list(target_rows), ""
         scored = score_senses(
             sid_lemma or item.get("text", ""), entries, pos, read_entry)
     except Exception:
@@ -1377,6 +1454,26 @@ def _entries_for(item, index):
         if rows:
             return list(rows), ""
     return [], ""
+
+
+def _resolve_pick_entries(item, sense_id, index):
+    """Entries/pos for one sense_id through the xref-target switch.
+
+    The shared seam of the anchor() view: an xref-resolved pick carries
+    the TARGET lemma in its sense_id, so entries resolve from the target
+    rows, not the item rows (same switch anchor_item_en applies when it
+    re-bases candidates/POS). A missing target keeps the item rows
+    (uncertainty keeps — the caller decides the verdict, never this).
+    """
+    entries, pos = _entries_for(item, index)
+    sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower() \
+        if "#" in (sense_id or "") else ""
+    if sid_lemma and sid_lemma != (
+            item.get("text") or "").strip().lower():
+        target_rows = (index or {}).get(sid_lemma)
+        if target_rows:
+            entries, pos = list(target_rows), ""
+    return entries, pos
 
 
 def _sense_tag_set(sense):
