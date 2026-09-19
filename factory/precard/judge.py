@@ -22,6 +22,7 @@ from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
 from factory.precard import net as _net
 from factory.precard import prompt_registry as _prompts
+from factory.precard import run_leg as _run_leg
 
 # Model attempts route through net.call_leg (single-model + KeyRing
 # rotation). Each leg walks its net-table chain (steps down only on
@@ -454,11 +455,11 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(tele_provider or "avalai") or "avalai"
-    ordered = [p for p in _net.switch_plan(base_provider,
-                                           "inflection_review")
-               if p == base_provider
-               or (rings is not None and p in rings)]
+    base_provider, _leg_plan = _run_leg.plan(
+        "inflection_review", tele_provider or "avalai",
+        base_models, rings, ring, key_var)
+    ordered = [s["provider"] for s in _leg_plan]
+    _step_by_provider = {s["provider"]: s for s in _leg_plan}
     # Inflection transports take (key, model, system, text) while
     # call_leg drives (key, model, text): bind the fixed review
     # system prompt once (extra leading texts pass through, so the
@@ -493,13 +494,12 @@ def inflection_review(items, transport, api_key="", model_calls=None,
         limited_all = True  # cleared by any outcome that is not a 429
         n_tried = 0
         for eff_idx, eff in enumerate(ordered):
-            eff_models = (list(base_models)
-                          if base_models is not None and eff == base_provider
-                          else _net.leg_chain(eff, "inflection_review"))
-            eff_ring = (rings or {}).get(eff) or ring
+            _step = _step_by_provider[eff]
+            eff_models = _step["models"]
+            eff_ring = _step["ring"]
             cur_ring = eff_ring
-            eff_target = _net.target_for(eff)
-            eff_key_var = key_var if eff == base_provider else ""
+            eff_target = _step["target"]
+            eff_key_var = _step["key_var"]
             eff_cooled = False
             for model in eff_models:
                 if isinstance(tried, list) and model not in tried:
@@ -633,7 +633,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                 # chain (same batch, that provider's ring); the last —
                 # or any paid — provider raises loud (the caller fails
                 # the batch closed to review-uncertain).
-                if eff_idx + 1 < len(ordered):
+                if _run_leg.cooldown_continues(ordered, eff_idx):
                     continue
                 raise cool_exc
         if not settled and limited_all and n_tried:
@@ -725,10 +725,11 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     # only its base provider (a cooldown stops for a resume).
     # Providers without a ring are not attempted.
     # Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "avalai"
-    ordered = [p for p in _net.switch_plan(provider, "sense_judge")
-               if p == base_provider
-               or (rings is not None and p in rings)]
+    base_provider, _leg_plan = _run_leg.plan(
+        "sense_judge", provider,
+        base_models, rings, ring, key_var)
+    ordered = [s["provider"] for s in _leg_plan]
+    _step_by_provider = {s["provider"]: s for s in _leg_plan}
     limited_all = True  # cleared by any model that is not ROTATE-exhausted
     n_tried = 0
     cool_exc = None
@@ -741,12 +742,11 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                               model_actual=tele_model_actual)
 
     for eff_idx, eff in enumerate(ordered):
-        eff_models = (list(base_models)
-                      if base_models is not None and eff == base_provider
-                      else _net.leg_chain(eff, "sense_judge"))
-        eff_ring = (rings or {}).get(eff) or ring
-        eff_target = _net.target_for(eff)
-        eff_key_var = key_var if eff == base_provider else ""
+        _step = _step_by_provider[eff]
+        eff_models = _step["models"]
+        eff_ring = _step["ring"]
+        eff_target = _step["target"]
+        eff_key_var = _step["key_var"]
         eff_cooled = False
         for model in eff_models:
             if isinstance(tried, list) and model not in tried:
@@ -864,7 +864,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
             # R6: a free-leg cooldown moves to the next provider's
             # chain (same batch, that provider's ring); the last —
             # or any paid — provider stops loud for a resume.
-            if eff_idx + 1 < len(ordered):
+            if _run_leg.cooldown_continues(ordered, eff_idx):
                 continue
             raise cool_exc
     if limited_all and n_tried:
