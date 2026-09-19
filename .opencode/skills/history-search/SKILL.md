@@ -27,7 +27,7 @@ Out of scope: never a substitute for reading repo docs, `ROADMAP.md`, or GitHub 
 
 ### 1. Normalize keywords
 
-Persian normalize before running: each positional arg is one term, a quoted multi-word arg is an exact phrase. Default is AND (part must contain all terms); `--any` for OR. Prefer 2+ distinctive terms over one short one (short substrings over-match).
+Pass raw terms (the script normalizes Persian internally): each positional arg is one term, a quoted multi-word arg is an exact phrase. Default is AND (part must contain all terms); `--any` for OR. Prefer 2+ distinctive terms over one short one (short substrings over-match).
 
 ### 2. Run the script
 
@@ -38,7 +38,7 @@ python scripts/search_opencode_history.py "عبارت دقیق" --since 2026-09-
 python scripts/search_opencode_history.py "عبارت" --exclude-session ses_XXXX
 ```
 
-Project auto-detects from cwd (`--project <sub>` to override, `--all-projects` to skip). Text parts only by default (`--include-tools` to also match tool/reasoning blobs). Score = hits × 30/(30+age_days); title match adds +3. `--out <file>` writes utf-8-sig.
+Project auto-detects from cwd (`--project <sub>` to override, `--all-projects` to skip). Text parts only by default (`--include-tools` to also match tool/reasoning blobs). Results print their own scoring formula; higher means more hits on fresher sessions. `--out <file>` writes utf-8-sig.
 
 ### 3. Read snippets, escalate only if needed
 

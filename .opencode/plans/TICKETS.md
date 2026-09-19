@@ -20,3 +20,4 @@
 | A2-13 (BUG-B4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` | planned (seam #17 + serialize vs word-query worktrees) |
 | J-B6 (R5/F5) | `architecture-deepening/plan-2026-08-17-jb6-plan-identity.md` | — | `refactor/plan-identity` | complete (PR #387 merged) |
 | ARCH-DEEPENING (canonical remaining-work tracker) | `architecture-deepening/plan-2026-08-19-remaining-work.md` | — | A/B/C tracks | in-progress — counts tracked live in remaining-work plan (#437) |
+| REVIEWER-GRAPHIFY (grep-first + blast-radius script) | `reviewer/plan-graphify-reviewer.md` | #731 | `feat/reviewer-blast-radius` | complete — PR #735 squash-merged 2026-09-17; OC APPROVED + Kilo pass, reviewer GATE PASS |
