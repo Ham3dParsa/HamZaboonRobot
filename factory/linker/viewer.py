@@ -48,6 +48,7 @@ from pathlib import Path
 
 from factory.linker.cli import word_matches_kid
 from factory.linker.linker import (
+    CANON_SIGNAL_NAMES,
     JACCARD_DEFAULT,
     LINK_MIN_DEFAULT,
     QUARANTINE,
@@ -68,7 +69,7 @@ from factory.linker.linker import (
 # Gallery version: MAJOR.MINOR.PATCH-for-viewer — MAJOR = gallery
 # rewrite/redesign, MINOR = new visible block or behavior change,
 # PATCH = wording/fix-only change. Bump on every viewer-visible change.
-GALLERY_VERSION = "4.0.0"
+GALLERY_VERSION = "4.1.0"
 
 # Gallery changelog: one line per shipped round, dated (oldest first).
 # Rendered in the footer collapsible; append (never rewrite) per round.
@@ -91,6 +92,10 @@ GALLERY_CHANGELOG = (
     ("2026-09-19", "NFKC parity: python + JS search normalize alike"),
     ("2026-09-19", "None-crash guard: null votes/verdicts render safe"),
     ("2026-09-19", "single-source vocab: chips read signal_vocab only"),
+    ("2026-09-19", "canonical quorum: only locked-vocab signals count; "
+                    "failed-vote wire holds; stable card ids per build"),
+    ("2026-09-19", "node-5 winner def from pack, support quote labeled; "
+                    "v4.1b methods/flags with gate reasons"),
 )
 
 _GAP_SLOTS = ("def", "cefr", "syns", "antos", "example")
@@ -367,12 +372,9 @@ def outcome_key(verdict):
 # Audit rule (owner gallery round 5): every filter key must match real
 # data — raw evidence tokens (``edge:…``, ``inventory…``, ``judge-first``,
 # ``no-candidates:…``, ``best-cand-twinned…``) fall through signal_vocab()
-# with name == code and must NEVER become filter keys.
-_CANON_SIG_NAMES = frozenset({
-    signal_vocab(code)["name"]
-    for code in ("Sa", "Sb", "Sc", "Sd", "Se", "short-gloss",
-                 "zero-sig", "judge")
-})
+# with name == code and must NEVER become filter keys. Single source:
+# linker.CANON_SIGNAL_NAMES (this alias keeps existing call sites working).
+_CANON_SIG_NAMES = CANON_SIGNAL_NAMES
 
 # Real Persian rule names for mechanical (judge-less) LINK methods — a
 # rule win shows one of these, never a bare «قاعده».
@@ -434,21 +436,44 @@ def _is_mechanical_link(row, verdict=None):
     return not (verdict or {})
 
 
-def _winner_def_status(row, verdict=None):
-    """(kind, text) for the winner definition shown gallery-side.
+def _winner_pack_gloss(winner_key, cand_entry):
+    """FULL winner definition from the candidate pack (no recompute).
 
-    Kinds: ``def`` (a real definition), ``example-as-def`` (upstream
-    judge quoted a BARE example sentence — no ``||`` structure — where
-    a ``gloss || words: .. || eg: ..`` string belongs; never present it
-    as a definition, label it explicitly), ``missing`` (honest gap).
+    Looks up ``cand_entry["top3"]`` for the winner sensekey and returns
+    its ``gloss`` verbatim; "" when the pack is absent or carries no
+    winner entry. The pack gloss is a real definition — never a quote.
 
-    >>> _winner_def_status({"wordnet_gloss": "move fast"}, {})
-    ('def', 'move fast')
-    >>> _winner_def_status({}, {"wordnet_evidence": "move fast || words: run"})
-    ('def', 'move fast')
-    >>> _winner_def_status({}, {"wordnet_evidence": "who are these people running around?"})
-    ('example-as-def', 'who are these people running around?')
-    >>> _winner_def_status({}, {})
+    >>> _winner_pack_gloss("run%2:38:00::", {"top3": [
+    ...     {"sensekey": "run%2:38:00::", "gloss": "move fast"}]})
+    'move fast'
+    >>> _winner_pack_gloss("run%2:38:00::", None)
+    ''
+    """
+    for cand in ((cand_entry or {}).get("top3") or []):
+        if (cand or {}).get("sensekey") == winner_key:
+            return (cand or {}).get("gloss", "") or ""
+    return ""
+
+
+def _node5_winner_def(row, verdict, winner_key="", cand_entry=None):
+    """(kind, text) for the node-5 outcome definition (B1 rule).
+
+    The winner definition comes from definition fields ONLY — row
+    ``wordnet_gloss``/``winner_def``, verdict
+    ``winner_gloss``/``winner_def``, then the candidate-pack gloss for
+    the winner sensekey — never from ``wordnet_evidence``, which is a
+    deliberately-quoted support string (sometimes a bare example).
+    Kinds: ``def`` (a real definition), ``missing`` (honest gap; the
+    caller renders the gap line, never a silent empty node).
+
+    >>> row = {"kaikki_sense_id": "en-get-en-verb-~ybLNLQA"}
+    >>> verdict = {"wordnet_evidence":
+    ...     "She got a lot of paintings from her uncle"}
+    >>> cands = {"top3": [{"sensekey": "get%2:40:00::",
+    ...     "gloss": "come into the possession of something"}]}
+    >>> _node5_winner_def(row, verdict, "get%2:40:00::", cands)
+    ('def', 'come into the possession of something')
+    >>> _node5_winner_def(row, verdict, "get%2:40:00::", None)
     ('missing', '')
     """
     row = row or {}
@@ -456,37 +481,38 @@ def _winner_def_status(row, verdict=None):
         val = (row.get(key) or "").strip()
         if val and val != "-":
             return ("def", val)
-    raw = ((verdict or {}).get("wordnet_evidence", "") or "").strip()
-    if not raw:
-        return ("missing", "")
-    if "||" not in raw:
-        return ("example-as-def", raw)
-    gloss, _syns, _eg = parse_wn_parts(raw)
-    if gloss:
-        return ("def", gloss)
+    for key in ("winner_gloss", "winner_def"):
+        val = ((verdict or {}).get(key, "") or "").strip()
+        if val and val != "-":
+            return ("def", val)
+    pack = _winner_pack_gloss(winner_key, cand_entry).strip()
+    if pack:
+        return ("def", pack)
     return ("missing", "")
 
 
-def _winner_def_from_row(row, verdict=None):
-    """Winner definition from data already on the row (no recompute).
+def _support_quote(verdict):
+    """(kind, text) for the judge support quote shown beside node-5.
 
-    Returns the definition text ONLY when it really is one; a bare
-    upstream example sentence (see :func:`_winner_def_status`) yields ""
-    so callers render the labeled ``example-shown-as-def (upstream)``
-    fallback instead of mislabeling it. Empty string = honest gap (the
-    caller renders the gap line, never a silent empty node).
+    ``wordnet_evidence`` is evidence, not a definition: a bare upstream
+    sentence (no ``||`` structure) is an ``example-quote``, a structured
+    ``gloss || words: ..`` string a ``support-quote``. Empty verdict
+    evidence yields ``("", "")`` (no quote line rendered).
 
-    >>> _winner_def_from_row({"wordnet_gloss": "move fast"}, {})
-    'move fast'
-    >>> _winner_def_from_row({}, {"wordnet_evidence": "move fast || words: run"})
-    'move fast'
-    >>> _winner_def_from_row({}, {"wordnet_evidence": "who runs around?"})
-    ''
-    >>> _winner_def_from_row({}, {})
-    ''
+    >>> _support_quote({"wordnet_evidence":
+    ...     "She got a lot of paintings from her uncle"})
+    ('example-quote', 'She got a lot of paintings from her uncle')
+    >>> _support_quote({"wordnet_evidence": "move fast || words: run"})
+    ('support-quote', 'move fast || words: run')
+    >>> _support_quote({})
+    ('', '')
     """
-    kind, text = _winner_def_status(row, verdict)
-    return text if kind == "def" else ""
+    raw = ((verdict or {}).get("wordnet_evidence", "") or "").strip()
+    if not raw:
+        return ("", "")
+    if "||" not in raw:
+        return ("example-quote", raw)
+    return ("support-quote", raw)
 
 
 # Flag → color-chip class (node-5): green filled ok, amber provisional,
@@ -1019,13 +1045,14 @@ def _render_distinct_reasons(verdict):
             "<ul class='reasonlist'>%s</ul></div>" % "".join(items))
 
 
-def _gap_cells(row, verdict):
+def _gap_cells(row, verdict, winner_def=""):
     verdict = verdict or {}
-    # Winner-def rule: a bare upstream example must never fill the def
-    # slot with a ✓ — only a real definition transfers (the labeled
-    # example fallback lives in the winner area, not here).
-    kind, wdef = _winner_def_status(row, verdict)
-    gloss = wdef if kind == "def" else ""
+    # B1 rule: the def slot fills ONLY from the resolved winner
+    # definition passed in (definition fields + candidate pack) — never
+    # from wordnet_evidence, which is a support quote. Synonym/example
+    # slots still parse the quote's structured parts (labeled
+    # wordnet-sourced support, not definitions).
+    gloss = (winner_def or "").strip()
     raw = (verdict.get("wordnet_evidence", "") or "")
     if "||" in raw:
         _g, syns, example = parse_wn_parts(raw)
@@ -1188,6 +1215,12 @@ def _method_fa(method):
 
 _FLAG_FA = {
     "provisional_consensus": "اجماع موقت",
+    "provisional-hold": "توقف موقت",
+    "judge-none": "بدون‌پیوند داور",
+    "flip-review": "بازبینی نوسان رأی",
+    "prov-review": "بازبینی موقت",
+    "gatesR-REVIEW-A": "دلیل ارجاع به بازبینی",
+    "gatesR-REVIEW-B": "دلیل ارجاع به بازبینی",
     "quarantined-known-false": "قرنطینه خطای شناخته‌شده",
     "twin-pending": "دوقلوی معلق",
     "manual-none": "بدون‌پیوند دستی",
@@ -1378,12 +1411,12 @@ def _flowtrace_status(row, verdict, gate=""):
         return ("twin", _FLOWTRACE_STATUS_COLORS["twin"])
     if method == "JUDGE-REVIEW" or gate == "review":
         return ("REVIEW", _FLOWTRACE_STATUS_COLORS["REVIEW"])
-    if vverdict == "LINK":
-        return ("LINK", _FLOWTRACE_STATUS_COLORS["LINK"])
     if failed or vverdict in ("NONE", "FAILED") or method in (
             "JUDGE-NONE", "MANUAL-NONE"):
         label = "FAILED" if (failed or vverdict == "FAILED") else "NONE"
         return (label, _FLOWTRACE_STATUS_COLORS["FAILED"])
+    if vverdict == "LINK":
+        return ("LINK", _FLOWTRACE_STATUS_COLORS["LINK"])
     if method.startswith("LINK"):
         return ("LINK", _FLOWTRACE_STATUS_COLORS["LINK"])
     if gate == "pending" or method in ("JUDGE-PENDING",):
@@ -1430,6 +1463,35 @@ def _table_pending_note(method):
     if (method or "") in _TABLE_PENDING_METHODS:
         return "جدول هنوز به‌روز نشده · pending-table"
     return ""
+
+
+def _review_gate_reason(row):
+    """JUDGE-REVIEW gate-reason codes recorded on the row (B2 rule).
+
+    Collects ``gatesR-*`` tokens from the evidence string and the
+    ``flip-review`` flag, deduped in order. Codes render verbatim —
+    the gallery states THAT the row was referred and shows the recorded
+    reason code, never a decoded meaning it cannot know.
+
+    >>> _review_gate_reason({"evidence": "Sd:hyp=x+gatesR-REVIEW-B",
+    ...                      "flags": ""})
+    ['gatesR-REVIEW-B']
+    >>> _review_gate_reason({"evidence": "0sig", "flags": "flip-review"})
+    ['flip-review']
+    >>> _review_gate_reason({"evidence": "0sig", "flags": ""})
+    []
+    """
+    row = row or {}
+    reasons = []
+    seen = set()
+    parts = ((row.get("evidence", "") or "").replace("|", "+").split("+")
+             + (row.get("flags", "") or "").split("+"))
+    for tok in parts:
+        tok = tok.strip()
+        if ("gatesR-" in tok or tok == "flip-review") and tok not in seen:
+            seen.add(tok)
+            reasons.append(tok)
+    return reasons
 
 
 _FLOWTRACE_GUIDE = (
@@ -1496,12 +1558,13 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
            _esc(evidence or "0sig")))
 
     # Node 2: candidates with FULL defs/scores/winner flags.
-    rule_fires = [s["alias"] for s in flow["signals"]
-                  if s["fired"] and s["alias"] != "judge"]
+    # Signal count follows the flow model (canonical rule signals only —
+    # never raw evidence tokens; see linker.CANON_RULE_SIGNAL_NAMES).
+    n_rule_fires = flow["n_fires"]
     if winner_key and winner_key != "-":
-        if rule_fires:
+        if n_rule_fires:
             cand_why = ("نامزد برتر با %d سیگنال از فهرست کوتاه انتخاب شد"
-                        % len(rule_fires))
+                        % n_rule_fires)
         elif verdict:
             cand_why = "نامزد برتر از داور آمد (بدون سیگنال قاعده‌ای)"
         else:
@@ -1557,19 +1620,28 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
     elif winner_key and winner_key != "-":
         # Mechanical LINKs carry no candidate pack (0/46 in run20): never
         # a silent empty node — state the missing pack explicitly, then
-        # show the WINNER key + its definition from the row's wordnet
-        # data when present, else an honest gap.
-        wkind, wdef = _winner_def_status(row, verdict)
+        # show the WINNER key + its definition from the single source
+        # (_node5_winner_def: definition fields + pack only); a missing
+        # def renders the labeled support quote, never a bare def.
+        wkind, wdef = _node5_winner_def(row, verdict, winner_key,
+                                        cand_entry)
         if wkind == "def":
             wdef_html = ("تعریف برنده: “<bdi>%s</bdi>”" % _esc(wdef))
-        elif wkind == "example-as-def":
-            wdef_html = ("مثالِ نقل‌شده به‌جای تعریف: “<bdi>%s</bdi>” "
-                         "<span class='code'>(<bdi>example-shown-as-def "
-                         "(upstream)</bdi>)</span>" % _esc(wdef))
         else:
-            wdef_html = ("<span class='wdef-gap'>تعریف برنده در ردیف نیست "
-                         "<span class='code'>(<bdi>winner-def-missing</bdi>)"
-                         "</span></span>")
+            qkind, quote = _support_quote(verdict)
+            if qkind == "example-quote":
+                wdef_html = ("نقل‌قول پشتیبان داور "
+                             "(مثال، نه تعریف): “<bdi>%s</bdi>” "
+                             "<span class='code'>(<bdi>support-quote-example "
+                             "(upstream)</bdi>)</span>" % _esc(quote))
+            elif qkind == "support-quote":
+                wdef_html = ("نقل‌قول پشتیبان داور: “<bdi>%s</bdi>” "
+                             "<span class='code'>(<bdi>support-quote</bdi>)"
+                             "</span>" % _esc(quote))
+            else:
+                wdef_html = ("<span class='wdef-gap'>تعریف برنده در ردیف نیست "
+                             "<span class='code'>(<bdi>winner-def-missing</bdi>)"
+                             "</span></span>")
         node2 = ("<p class='candempty'>کاندیداها در بسته نیست "
                  "<span class='code'>(<bdi>shortlist recompute لازم</bdi>)"
                  "</span></p>"
@@ -1638,11 +1710,22 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
         judge_badge = "تعارض همزاد"
         judge_why = "دوقلوی تکراری بود پس جدا نگه داشته شد"
     elif gate == "review":
-        judge_body = (
-            "<div class='flowtrace-gatebody'>پرچم Flip-Review: نوسان "
-            "غیرمنتظره در رأی مدل زبانی کشف شد؛ پرونده جهت بازبینی "
-            "انسانی علامت‌گذاری شد.</div>"
-            "<div class='flowtrace-tech'>پرچم: flip-review</div>")
+        reasons = _review_gate_reason(row)
+        if reasons:
+            reason_chips = ", ".join(
+                "<span class='code'>(<bdi>%s</bdi>)</span>"
+                % _esc(reason) for reason in reasons)
+            judge_body = (
+                "<div class='flowtrace-gatebody'>برای بازبینی انسانی نگه "
+                "داشته شد؛ دلیل ارجاع ثبت‌شده: %s</div>"
+                "<div class='flowtrace-tech'>دلیل: %s</div>"
+                % (reason_chips, _esc(" + ".join(reasons))))
+        else:
+            judge_body = (
+                "<div class='flowtrace-gatebody'>پرچم Flip-Review: نوسان "
+                "غیرمنتظره در رأی مدل زبانی کشف شد؛ پرونده جهت بازبینی "
+                "انسانی علامت‌گذاری شد.</div>"
+                "<div class='flowtrace-tech'>پرچم: flip-review</div>")
         judge_badge = "هشدار بازبینی"
         judge_why = "بازبینی انسانی لازم شد پس معلق ماند"
     elif verdict:
@@ -1698,17 +1781,35 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
     # honest fallback line when nothing transferred. DIFF-VIEW: the winner
     # definition and the method live ONLY in the winner line (single
     # source); the gap-def row and the decision line cross-reference them
-    # instead of repeating the full strings. Viewer-side winner-def rule:
-    # flow["winner_def"] (linker) may carry a bare upstream example, so
-    # the displayed text always comes from _winner_def_status here.
-    wkind, winner_def = _winner_def_status(row, verdict)
-    if wkind == "example-as-def":
-        winner_line = ("مثالِ نقل‌شده به‌جای تعریف: “<bdi>%s</bdi>” "
-                       "<span class='code'>(<bdi>example-shown-as-def "
-                       "(upstream)</bdi>)</span>" % _esc(winner_def))
+    # instead of repeating the full strings. B1 rule: the displayed
+    # definition comes from definition fields + candidate pack ONLY
+    # (see _node5_winner_def); wordnet_evidence is a support quote and
+    # renders on its own labeled line, never as the definition.
+    wkind, winner_def = _node5_winner_def(row, verdict, winner_key,
+                                          cand_entry)
+    if wkind == "def":
+        winner_line = "“<bdi>%s</bdi>”" % _esc(winner_def)
     else:
-        winner_line = "“<bdi>%s</bdi>”" % _esc(winner_def or "—")
-    gaps = _gap_cells(row, verdict)
+        winner_line = ("<span class='wdef-gap'>تعریف برنده در ردیف نیست "
+                       "<span class='code'>(<bdi>winner-def-missing</bdi>)"
+                       "</span></span>")
+    qkind, quote = _support_quote(verdict)
+    if qkind == "example-quote":
+        quote_line = (
+            "<div class='flowtrace-quote'>نقل‌قول پشتیبان داور "
+            "(مثال، نه تعریف): “<bdi>%s</bdi>” "
+            "<span class='code'>(<bdi>support-quote-example "
+            "(upstream)</bdi>)</span></div>" % _esc(quote))
+    elif qkind == "support-quote":
+        quote_line = (
+            "<div class='flowtrace-quote'>نقل‌قول پشتیبان داور: "
+            "“<bdi>%s</bdi>” "
+            "<span class='code'>(<bdi>support-quote</bdi>)</span></div>"
+            % _esc(quote))
+    else:
+        quote_line = ""
+    gaps = _gap_cells(row, verdict,
+                      winner_def if wkind == "def" else "")
     filled_gaps = [g for g in gaps if g[3] != "—"]
     if filled_gaps:
         gap_items = "".join(
@@ -1737,6 +1838,7 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
         "<div class='flowtrace-winner'>سنس برنده در وردنت: "
         "<bdi class='wkey'>%s</bdi> · سینست: <bdi>%s</bdi><br>"
         "تعریف برنده: %s</div>"
+        "%s"
         "<div class='flowtrace-enrich'><span class='flowtrace-guidelabel'>"
         "تزریق فیلدهای وردنت:</span> تکمیل فیلدها "
         "<span class='code'>(<bdi>gaps</bdi>)</span>"
@@ -1750,7 +1852,7 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
         "<p class='flowtrace-why'>چرا: %s · %d شکاف از %d پر شد</p>"
         % (_esc(winner_key or "—"),
            _esc(_parse_sensekey_locator(winner_key) if winner_key else "—"),
-           winner_line, gap_block,
+           winner_line, quote_line, gap_block,
            _esc(rule_txt), cmp_txt, flag_chips, pending_html,
            _esc(_decision_why(method, n_fires)), filled, len(gaps)))
 
@@ -2022,13 +2124,20 @@ def export_record(row, verdict, cand_entry, row_ref, n=0):
               "cut": _EXPORT_CUT.get(name),
               "fired": name != "no-signal"}
              for name, info in blk.get("signals", {}).items()]
-    wkind, wtext = _winner_def_status(row, verdict)
+    wkind, wtext = _node5_winner_def(
+        row, verdict, winner, cand_entry)
     if wkind == "def":
         export_wdef = wtext
-    elif wkind == "example-as-def":
-        export_wdef = "[example-shown-as-def (upstream)] " + wtext
     else:
-        export_wdef = ""
+        # No definition field and no pack: honest labeled fallback from
+        # the quote classifier (never a silent empty def, never bare def).
+        qkind, qtext = _support_quote(verdict)
+        if qkind == "example-quote":
+            export_wdef = "[support-quote-example (upstream)] " + qtext
+        elif qkind == "support-quote":
+            export_wdef = "[support-quote] " + qtext
+        else:
+            export_wdef = ""
     top3 = (cand_entry or {}).get("top3") or []
     return {
         "kid": row.get("kaikki_sense_id", "") or "",
@@ -2523,6 +2632,9 @@ def build_linker_gallery(rows, verdicts, out_html, candidates=None,
     ``table_label`` feeds export ``row_ref`` (table filename); empty falls
     back to ``"table"``. Writes ``out_html``.
     """
+    # Card id anchors (ft-<card>-<node>) must not depend on process
+    # history: every build restarts the sequence at 1.
+    _render_trace._seq = 1
     rows = list(rows or [])
     verdicts = list(verdicts or [])
     candidates = candidates or {}

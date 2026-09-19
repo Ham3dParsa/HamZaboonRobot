@@ -738,6 +738,23 @@ SIGNAL_VOCAB = {
 # Raw evidence tokens that are aliases of a canonical code (legacy 0sig).
 SIGNAL_ALIAS = {"0sig": "zero-sig"}
 
+# Canonical locked-vocabulary signal names (single source; the viewer
+# reuses these — never a parallel copy). ``CANON_SIGNAL_NAMES`` is the
+# full display vocabulary; ``CANON_RULE_SIGNAL_NAMES`` is the quorum
+# subset that may count toward ``n_fires`` (no-signal never fires,
+# judge-vote is a judge fact, never a rule signal).
+#
+# >>> sorted(CANON_SIGNAL_NAMES) == sorted(
+# ...     entry["name"] for entry in SIGNAL_VOCAB.values())
+# True
+# >>> "judge-vote" in CANON_RULE_SIGNAL_NAMES
+# False
+CANON_SIGNAL_NAMES = frozenset(
+    entry["name"] for entry in SIGNAL_VOCAB.values())
+CANON_RULE_SIGNAL_NAMES = frozenset(
+    name for name in CANON_SIGNAL_NAMES
+    if name not in ("no-signal", "judge-vote"))
+
 JUDGE_VOCAB = {
     "unanimous": {"name": "unanimous", "fa": "اجماعی 3-0"},
     "split": {"name": "split-vote", "fa": "شقه 2-1"},
@@ -979,7 +996,7 @@ def flow_trace_data(row, verdict=None, candidates=None):
         signals = [{"code": "zero-sig", "name": "no-signal",
                     "alias": "0sig", "fired": False}]
     n_fires = sum(1 for s in signals
-                  if s["fired"] and s["alias"] != "judge")
+                  if s["fired"] and s["name"] in CANON_RULE_SIGNAL_NAMES)
 
     top3 = list((candidates or {}).get("top3") or [])
     cand_rows = []
@@ -1110,10 +1127,18 @@ def verdict_wire45(verdict=None, method="", winner_key=""):
     >>> verdict_wire45({}, "twin-pending", "-")
     {'from': 4, 'to': 5, 'label': 'تعلیق پیوند در صف دوقلوها', 'status': 'twin'}
     >>> verdict_wire45({"verdict": "LINK", "vote_status": "FAILED"}, "JUDGE-PENDING", "k")
-    {'from': 4, 'to': 5, 'label': 'تأیید پیوند', 'status': 'success'}
+    {'from': 4, 'to': 5, 'label': 'توقف جهت بازبینی', 'status': 'warn'}
     """
     verdict = verdict or {}
     vverdict = verdict.get("verdict") or ""
+    votes = verdict.get("votes") or []
+    failed = (verdict.get("vote_status") == "FAILED"
+              or any(not (v or {}).get("ok", True) for v in votes))
+    if failed:
+        # A crashed judge run is neither an approval nor a rejection —
+        # hold for review (mirrors _flowtrace_status: failed ≠ LINK).
+        return {"from": 4, "to": 5, "label": "توقف جهت بازبینی",
+                "status": "warn"}
     if vverdict == "LINK":
         return {"from": 4, "to": 5, "label": "تأیید پیوند",
                 "status": "success"}

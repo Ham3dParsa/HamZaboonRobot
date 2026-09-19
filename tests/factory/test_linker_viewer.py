@@ -1448,6 +1448,8 @@ def test_identical_votes_render_once_with_multiplier(tmp_path):
 def test_node5_single_source_winner_def_and_flag_chips(tmp_path):
     # Defect F: flags are COLOR chips; winner_def appears exactly once in
     # node-5 (gap-def cross-references it); gaps are field←source rows.
+    # B1: the def comes from the candidate pack (definition field); the
+    # judge quote renders on its own labeled line, never as the def.
     wdef = "move fast by using one's feet, with one foot off the ground"
     row = {"kaikki_sense_id": "k5", "wordnet_sensekey": "run%2:38:00::",
            "method": "LINK:2-sig", "evidence": "Sa:j=0.40+Sd:hyp=move",
@@ -1457,17 +1459,25 @@ def test_node5_single_source_winner_def_and_flag_chips(tmp_path):
                "run%2:38:00::",
                "wordnet_evidence": wdef + " || words: run",
                "votes": []}
-    flow_def = wdef  # linker.flow_trace_data derives the same gloss
-    assert viewer.parse_wn_parts(
-        verdict["wordnet_evidence"])[0] == flow_def
+    cands = {"top3": [{"sensekey": "run%2:38:00::", "gloss": wdef,
+                       "jaccard": 0.4, "lemmas": ["run"], "fires": []}]}
+    flow_def = wdef  # pack gloss feeds node-5, never the quote
+    assert viewer._node5_winner_def(
+        row, verdict, "run%2:38:00::", cands) == ("def", flow_def)
     out = tmp_path / "gallery.html"
-    viewer.build_linker_gallery([row], [verdict], str(out))
+    viewer.build_linker_gallery(
+        [row], [verdict], str(out), candidates={"k5": cands})
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     node5 = page.split(
         '<section class="flowtrace-node" data-ftnode="5"')[1].split(
         "</section>")[0]
-    # quote-free probe (apostrophes are HTML-escaped by _esc).
-    assert node5.count("with one foot off the ground") == 1
+    # winner line carries the FULL pack definition...
+    assert "تعریف برنده: “<bdi>%s</bdi>”" % viewer._esc(wdef) in node5
+    # ...the quote lives on its own labeled line, never as the def...
+    assert "نقل‌قول پشتیبان داور" in node5
+    assert "support-quote" in node5
+    assert "example-shown-as-def" not in node5
+    # ...and the gap-def row cross-references it instead of repeating.
     assert "همان تعریف برنده (بالا)" in node5
     assert "←" in node5
     assert "flagchip flag-prov" in node5
@@ -1571,10 +1581,10 @@ def test_signal_sentences_and_muted_codes(tmp_path):
 
 
 def test_winner_def_example_fallback_t2XxCWy5(tmp_path):
-    # Item 3 regression: t2XxCWy5-style verdict quotes a BARE example
-    # sentence as wordnet_evidence (upstream judge misquote, no "||"
-    # structure) — the gallery must label it, never show it as a
-    # definition.
+    # Item 3 regression (repurposed: single-source _node5_winner_def):
+    # t2XxCWy5-style verdict quotes a BARE example sentence as
+    # wordnet_evidence (no "||" structure) — the gallery must label it
+    # as a support quote, never show it as a definition.
     row = {"kaikki_sense_id": "en-run-en-verb-t2XxCWy5",
            "wordnet_sensekey": "run%2:38:11::",
            "method": "JUDGE-PENDING", "evidence": "Sd:hyp=move",
@@ -1586,14 +1596,15 @@ def test_winner_def_example_fallback_t2XxCWy5(tmp_path):
                "wordnet_evidence":
                "who are these people running around in the building?",
                "votes": []}
-    assert viewer._winner_def_status(row, verdict) == (
-        "example-as-def",
+    assert viewer._node5_winner_def(
+        row, verdict, "run%2:38:11::", None) == ("missing", "")
+    assert viewer._support_quote(verdict) == (
+        "example-quote",
         "who are these people running around in the building?")
-    assert viewer._winner_def_from_row(row, verdict) == ""
     out = tmp_path / "gallery.html"
     viewer.build_linker_gallery([row], [verdict], str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
-    assert "example-shown-as-def (upstream)" in page
+    assert "support-quote-example" in page
     assert "who are these people running around in the building?" in page
     # never rendered as a winner definition...
     assert "تعریف برنده: “<bdi>who are these people" not in page
@@ -1603,11 +1614,8 @@ def test_winner_def_example_fallback_t2XxCWy5(tmp_path):
         "</section>")[0]
     assert "همان تعریف برنده (بالا)" not in node5
     rec = viewer.export_record(row, verdict, None, "t.tsv#L2", n=1)
-    assert rec["winner_def"].startswith("[example-shown-as-def (upstream)]")
-    # structured evidence still yields a real definition.
-    ok = viewer._winner_def_status(
-        {}, {"wordnet_evidence": "move fast || words: run"})
-    assert ok == ("def", "move fast")
+    assert rec["winner_def"].startswith(
+        "[support-quote-example (upstream)]")
 
 
 def test_gallery_version_and_changelog(tmp_path):
@@ -2013,7 +2021,7 @@ def test_run_version_single_source(tmp_path):
     summary = viewer.build_linker_gallery(rows, [], str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: run20 (v0.6-equiv)" in page
-    assert "viewer: 4.0.0" in page
+    assert "viewer: 4.1.0" in page
     assert summary["run_version"]["status"] == "single"
 
 
@@ -2028,7 +2036,7 @@ def test_run_version_mixed_majority_never_wins(tmp_path):
     viewer.build_linker_gallery(rows, [], str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: mixed" in page
-    assert "viewer: 4.0.0" in page
+    assert "viewer: 4.1.0" in page
     # run20 shape on disk: rules triple rows + inventory rows disagree too.
     mixed2 = linker.run_version(
         [_prov_row("k1", _RUN20_PROV),
@@ -2050,7 +2058,7 @@ def test_run_version_absent_unknown(tmp_path):
     viewer.build_linker_gallery(_rows(), _verdicts(), str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: unknown (absent)" in page
-    assert "viewer: 4.0.0" in page
+    assert "viewer: 4.1.0" in page
 
 
 def test_run_version_help_documents_both(tmp_path):
@@ -2065,3 +2073,214 @@ def test_run_version_help_documents_both(tmp_path):
     # ... gallery version = which viewer renders it.
     assert "gallery version" in help_sec
     assert "which viewer renders it" in help_sec.lower()
+
+
+# --- PR #774 blockers (A1/A2/A3) + neighbor session (B1/B2) ---
+
+def test_n_fires_counts_only_canonical_signals():
+    # A1: edge:obsolete is a non-canonical evidence token — it must not
+    # inflate the rule quorum (node-3 needs 2 REAL signals).
+    row = {"kaikki_sense_id": "k", "lemma": "run",
+           "kaikki_gloss": "To move.", "method": "JUDGE-PENDING",
+           "wordnet_sensekey": "-", "evidence": "edge:obsolete+Sd:hyp=move",
+           "flags": ""}
+    data = linker.flow_trace_data(row, {}, None)
+    assert data["n_fires"] == 1
+    assert linker.CANON_SIGNAL_NAMES >= {
+        "lexical-overlap", "synonym-crossfire", "example-crossfire",
+        "hypernym-topic", "meaning-similarity", "short-definition",
+        "no-signal", "judge-vote"}
+    assert viewer._CANON_SIG_NAMES == linker.CANON_SIGNAL_NAMES
+    # judge-tail tokens never count either.
+    row2 = dict(row, evidence="Sa:j=0.40+judge-first")
+    assert linker.flow_trace_data(row2, {}, None)["n_fires"] == 1
+
+
+def test_verdict_wire45_failed_vote_holds_not_approves():
+    # A2: a LINK verdict with a FAILED judge run must hold (warn),
+    # never approve green — mirroring _flowtrace_status (failed ≠ LINK).
+    held = linker.verdict_wire45(
+        {"verdict": "LINK", "vote_status": "FAILED"},
+        "JUDGE-PENDING", "k")
+    assert (held["status"], held["label"]) == ("warn", "توقف جهت بازبینی")
+    nonok = linker.verdict_wire45(
+        {"verdict": "LINK",
+         "votes": [{"ok": True, "verdict": "LINK", "winner_index": 1},
+                   {"ok": False, "verdict": "LINK", "winner_index": 1}]},
+        "JUDGE-PENDING", "k")
+    assert (nonok["status"], nonok["label"]) == ("warn", "توقف جهت بازبینی")
+    # healthy LINK verdicts still approve.
+    ok = linker.verdict_wire45(
+        {"verdict": "LINK",
+         "votes": [{"ok": True, "verdict": "LINK", "winner_index": 1}]},
+        "JUDGE-PENDING", "k")
+    assert (ok["status"], ok["label"]) == ("success", "تأیید پیوند")
+
+
+def test_gallery_seq_resets_between_builds(tmp_path):
+    # A3: id anchors must not depend on process history — two builds
+    # in the same process yield identical ids starting at ft-1-1.
+    import re as _re
+    rows = _rows()[:2]
+    out1 = tmp_path / "g1.html"
+    viewer.build_linker_gallery(rows, _verdicts(), str(out1))
+    out2 = tmp_path / "g2.html"
+    viewer.build_linker_gallery(rows, _verdicts(), str(out2))
+    ids1 = _re.findall(r'id="ft-(\d+)-(\d)"',
+                       pathlib.Path(str(out1)).read_text(encoding="utf-8"))
+    ids2 = _re.findall(r'id="ft-(\d+)-(\d)"',
+                       pathlib.Path(str(out2)).read_text(encoding="utf-8"))
+    assert ids1 == ids2
+    assert ids1[0] == ("1", "1")
+
+
+def test_node5_example_quote_never_becomes_winner_def(tmp_path):
+    # B1 (t2XxCWy5 shape, v4.1b row en-get-en-verb-~ybLNLQA): the judge
+    # quotes a BARE example as wordnet_evidence while the candidate pack
+    # carries the FULL winner definition. Node-5 must show the pack
+    # definition as the winner def AND label the quote separately —
+    # never the example as the definition.
+    row = {"kaikki_sense_id": "en-get-en-verb-~ybLNLQA",
+           "wordnet_sensekey": "get%2:40:00::",
+           "method": "JUDGE-REVIEW",
+           "evidence": "short-gloss:0sig | judge:kaikki=\"To getter.\" "
+                       "wordnet=\"She got a lot of paintings from her uncle\"",
+           "flags": "judge-v2:3-0", "lemma": "get",
+           "kaikki_pos": "verb", "kaikki_gloss": "To getter."}
+    verdict = {"kid": "en-get-en-verb-~ybLNLQA", "lemma": "get",
+               "verdict": "LINK",
+               "winner_sensekey": "get%2:40:00::",
+               "wordnet_evidence":
+               "She got a lot of paintings from her uncle",
+               "votes": []}
+    pack_def = "come into the possession of something concrete or abstract"
+    cands = {"top3": [
+        {"sensekey": "get%2:40:00::", "gloss": pack_def,
+         "jaccard": -1.0, "lemmas": ["acquire", "get"], "fires": []},
+    ]}
+    assert viewer._node5_winner_def(
+        row, verdict, "get%2:40:00::", cands) == ("def", pack_def)
+    assert viewer._support_quote(verdict) == (
+        "example-quote", "She got a lot of paintings from her uncle")
+    out = tmp_path / "gallery.html"
+    viewer.build_linker_gallery(
+        [row], [verdict], str(out),
+        candidates={"en-get-en-verb-~ybLNLQA": cands})
+    page = pathlib.Path(str(out)).read_text(encoding="utf-8")
+    node5 = page.split(
+        '<section class="flowtrace-node" data-ftnode="5"')[1].split(
+        "</section>")[0]
+    # winner line shows the FULL pack definition...
+    assert "تعریف برنده: “<bdi>%s</bdi>”" % pack_def in node5
+    # ...the example is labeled as a support quote, never as the def.
+    assert "تعریف برنده: “<bdi>She got a lot" not in node5
+    assert "نقل‌قول پشتیبان داور" in node5
+    assert "(مثال، نه تعریف)" in node5
+    assert "support-quote-example" in node5
+    rec = viewer.export_record(
+        row, verdict, cands, "t.tsv#L2", n=1)
+    assert rec["winner_def"] == pack_def
+
+
+def _b2_row(kid, method, evidence, flags):
+    return {"kaikki_sense_id": kid, "wordnet_sensekey": "-",
+            "method": method, "evidence": evidence, "flags": flags,
+            "lemma": "get", "kaikki_pos": "verb",
+            "kaikki_gloss": "To getter."}
+
+
+def test_v41b_methods_flags_badges_meanings_wires(tmp_path):
+    # B2: v4.1b methods/flags render with their OWN badge + one-line FA
+    # meaning — never reduced to plain LINK/NONE. Wire behavior is the
+    # already-defined mapping (asserted, not changed).
+    import re as _re
+    shapes = [
+        # (kid, method, evidence, flags, verdict, badge, fa, wire45)
+        ("b2-review", "JUDGE-REVIEW", "Sd:hyp=x+gatesR-REVIEW-B",
+         "judge-v2:3-0+gatesR-REVIEW-B", {"verdict": "LINK"},
+         "بازبینی داور", "gatesR-REVIEW-B", "success"),
+        ("b2-none", "JUDGE-NONE", "0sig", "judge-none+judge-v2:3-0",
+         {"verdict": "NONE"}, "بدون‌پیوند داور", "judge-none", "fail"),
+        ("b2-prov", "LINK:judge-v2", "Sd:hyp=x",
+         "judge-v2:2-1+provisional_consensus+provisional-hold",
+         {"verdict": "LINK"}, "پیوند با داور", "توقف موقت", "success"),
+        ("b2-quar", "quarantined-known-false", "Sa:j=0.33",
+         "quarantined-known-false", {}, "قرنطینه خطای شناخته‌شده",
+         "quarantined-known-false", "warn"),
+        ("b2-twin", "twin-pending", "Sa:j=0.3", "twin-pending", {},
+         "دوقلوی معلق", "twin-pending", "twin"),
+    ]
+    for kid, method, evidence, flags, verdict, badge, fa, wire in shapes:
+        row = _b2_row(kid, method, evidence, flags)
+        verdict = dict({"kid": kid}, **verdict)
+        out = tmp_path / ("%s.html" % kid)
+        viewer.build_linker_gallery([row], [verdict], str(out))
+        page = pathlib.Path(str(out)).read_text(encoding="utf-8")
+        # distinct badge + method code, never a plain LINK/NONE badge.
+        assert badge in page, kid
+        assert method in page, kid
+        # one-line FA meaning for the method/flag surface.
+        assert fa in page, kid
+        status, _label = _wire45(page)
+        assert status == wire, (kid, status)
+    # gate-reason extractor: codes verbatim, order kept, no invention.
+    assert viewer._review_gate_reason(
+        {"evidence": "Sd:hyp=x+gatesR-REVIEW-B+prov-review",
+         "flags": "judge-v2:3-0+gatesR-REVIEW-B"}) == ["gatesR-REVIEW-B"]
+    assert viewer._review_gate_reason(
+        {"evidence": "0sig", "flags": "flip-review"}) == ["flip-review"]
+    assert viewer._review_gate_reason(
+        {"evidence": "0sig", "flags": ""}) == []
+    # review card shows the recorded reason + human-review frame.
+    out = tmp_path / "b2-review2.html"
+    row = _b2_row("b2-r2", "JUDGE-REVIEW", "Sd:hyp=x+gatesR-REVIEW-A",
+                  "judge-v2:3-0+gatesR-REVIEW-A")
+    viewer.build_linker_gallery([row], [{"kid": "b2-r2"}], str(out))
+    page = pathlib.Path(str(out)).read_text(encoding="utf-8")
+    node4 = page.split(
+        '<section class="flowtrace-node" data-ftnode="4"')[1].split(
+        "</section>")[0]
+    assert "gatesR-REVIEW-A" in node4
+    assert "بازبینی انسانی" in node4
+    # voteless review row: no verdict to follow → the wire holds.
+    status, _label = _wire45(page)
+    assert status == "warn"
+    # provisional pair: consensus + hold each get their amber chip + FA.
+    assert viewer._flag_fa("provisional_consensus") == "اجماع موقت"
+    assert viewer._flag_fa("provisional-hold") == "توقف موقت"
+
+
+def test_flowtrace_status_failed_beats_link_verdict():
+    # FINDING 1: LINK verdict + FAILED judge run must NOT show LINK-green.
+    # Status and wire must agree (FAILED-red + warn hold).
+    row = {"kaikki_sense_id": "k-failed-link", "method": "JUDGE-PENDING",
+           "evidence": "Sd:hyp=move", "flags": ""}
+    verdict = {"verdict": "LINK", "vote_status": "FAILED",
+               "winner_sensekey": "run%2:38:00::",
+               "votes": [{"ok": False, "verdict": "LINK",
+                          "winner_index": 1}]}
+    assert viewer._flowtrace_status(row, verdict) == ("FAILED", "#ef4444")
+    wire = linker.verdict_wire45(verdict, "JUDGE-PENDING",
+                                 "run%2:38:00::")
+    assert (wire["status"], wire["label"]) == ("warn", "توقف جهت بازبینی")
+
+
+def test_packless_example_only_renders_labeled_quote_never_def():
+    # FINDING 2: pack-less row with example-only evidence routes through
+    # _node5_winner_def (missing) + labeled support-quote, never bare def.
+    row = {"kaikki_sense_id": "k-packless", "method": "LINK:2-sig",
+           "evidence": "Sa:j=0.20", "flags": "", "lemma": "run",
+           "kaikki_gloss": "To move.",
+           "wordnet_sensekey": "run%2:38:00::"}
+    verdict = {"wordnet_evidence":
+               "She got a lot of paintings from her uncle"}
+    assert viewer._node5_winner_def(
+        row, verdict, "run%2:38:00::", None) == ("missing", "")
+    html_out = viewer._render_trace(row, verdict, None)
+    assert "support-quote-example" in html_out
+    assert "She got a lot of paintings from her uncle" in html_out
+    assert "تعریف برنده: “<bdi>She got a lot" not in html_out
+    rec = viewer.export_record(row, verdict, None, "t.tsv#L2", n=1)
+    assert rec["winner_def"].startswith(
+        "[support-quote-example (upstream)]")
+    assert rec["winner_def"] != "She got a lot of paintings from her uncle"
