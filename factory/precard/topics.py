@@ -16,6 +16,7 @@ from factory.precard.judge import fanout_picks
 # this leg holds zero model lists and reads chains through it.
 from factory.precard import net as _net
 from factory.precard import prompt_registry as _prompts
+from factory.precard import run_leg as _run_leg
 from factory.precard.prompt_registry import (
     TOPIC_TIEBREAK, TOPUP_USER_TMPL, V15_USER_TMPL, V16B_DEFS)
 
@@ -412,10 +413,11 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "avalai"
-    ordered = [p for p in _net.switch_plan(provider, "topic_label")
-               if p == base_provider
-               or (rings is not None and p in rings)]
+    base_provider, _leg_plan = _run_leg.plan(
+        "topic_label", provider,
+        base_models, rings, ring, key_var)
+    ordered = [s["provider"] for s in _leg_plan]
+    _step_by_provider = {s["provider"]: s for s in _leg_plan}
     limited_all = True  # cleared by any model that is not ROTATE-exhausted
     n_tried = 0
     cool_exc = None
@@ -429,12 +431,11 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                               model_actual=tele_model_actual)
 
     for eff_idx, eff in enumerate(ordered):
-        eff_models = (list(base_models)
-                      if base_models is not None and eff == base_provider
-                      else _net.leg_chain(eff, "topic_label"))
-        eff_ring = (rings or {}).get(eff) or ring
-        eff_target = _net.target_for(eff)
-        eff_key_var = key_var if eff == base_provider else ""
+        _step = _step_by_provider[eff]
+        eff_models = _step["models"]
+        eff_ring = _step["ring"]
+        eff_target = _step["target"]
+        eff_key_var = _step["key_var"]
         eff_cooled = False
         for model in eff_models:
             if isinstance(tried, list) and model not in tried:
@@ -606,7 +607,7 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
             # R6: a free-leg cooldown moves to the next provider's
             # chain (same chunk, that provider's ring); the last —
             # or any paid — provider stops loud for a resume.
-            if eff_idx + 1 < len(ordered):
+            if _run_leg.cooldown_continues(ordered, eff_idx):
                 continue
             raise cool_exc
     if limited_all and n_tried:
@@ -938,10 +939,11 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider = _net.norm_provider(provider) or "avalai"
-    ordered = [p for p in _net.switch_plan(provider, "topic_vectors")
-               if p == base_provider
-               or (rings is not None and p in rings)]
+    base_provider, _leg_plan = _run_leg.plan(
+        "topic_vectors", provider,
+        base_models, rings, ring, key_var)
+    ordered = [s["provider"] for s in _leg_plan]
+    _step_by_provider = {s["provider"]: s for s in _leg_plan}
     limited_all = True  # cleared by any model that is not ROTATE-exhausted
     n_tried = 0
     cool_exc = None
@@ -954,12 +956,11 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                               model_actual=tele_model_actual)
 
     for eff_idx, eff in enumerate(ordered):
-        eff_models = (list(base_models)
-                      if base_models is not None and eff == base_provider
-                      else _net.leg_chain(eff, "topic_vectors"))
-        eff_ring = (rings or {}).get(eff) or ring
-        eff_target = _net.target_for(eff)
-        eff_key_var = key_var if eff == base_provider else ""
+        _step = _step_by_provider[eff]
+        eff_models = _step["models"]
+        eff_ring = _step["ring"]
+        eff_target = _step["target"]
+        eff_key_var = _step["key_var"]
         eff_cooled = False
         for model in eff_models:
             if isinstance(tried, list) and model not in tried:
@@ -1090,7 +1091,7 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
             # R6: a free-leg cooldown moves to the next provider's
             # chain (same batch, that provider's ring); the last —
             # or any paid — provider stops loud for a resume.
-            if eff_idx + 1 < len(ordered):
+            if _run_leg.cooldown_continues(ordered, eff_idx):
                 continue
             raise cool_exc
     if limited_all and n_tried:
