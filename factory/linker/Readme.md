@@ -64,6 +64,21 @@ placeholder until resolved).
 flags mark flip-family LINKs (REPORT_v0_8 JOB5 rule). The verdict JSONs stay
 on `W:` — only the tags ship.
 
+## Gallery viewer (`viewer.py`, stdlib only)
+
+Flowtrace gallery (`GALLERY_VERSION = 4.1.0`): one card per sense — S-flow
+3-col RTL flow (input → signals → gates → judge → decision), verdict-first
+wires + status badges, unanimous/concordant/split tiers, sticky toolbar with
+filter+search panel, per-record export capsule. Footer carries the dated
+gallery changelog (`GALLERY_CHANGELOG` in `viewer.py`).
+
+Regen (run20 paths on `W:`, outputs beside the inputs):
+
+- Full (807 rows):
+  `python -m factory.linker.viewer --table W:\hamzaban_data_factory\proof-linker\run20\link_table_run20_v3.tsv --verdicts W:\hamzaban_data_factory\proof-linker\run20\judge_verdicts_run20.json --candidates W:\hamzaban_data_factory\proof-linker\run20\candidates_run20.json --out W:\hamzaban_data_factory\proof-linker\run20\linker_gallery_run20.html`
+- Sample (331-row subset, `--words get,light,run,take`):
+  same command with `--table ...\run20\link_table_run20.tsv --words get,light,run,take --out W:\hamzaban_data_factory\proof-linker\gallery\linker_gallery_sample.html`
+
 ## History pointer
 
 Full per-version history stays on the drive (READ-ONLY, never imported):

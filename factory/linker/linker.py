@@ -738,6 +738,23 @@ SIGNAL_VOCAB = {
 # Raw evidence tokens that are aliases of a canonical code (legacy 0sig).
 SIGNAL_ALIAS = {"0sig": "zero-sig"}
 
+# Canonical locked-vocabulary signal names (single source; the viewer
+# reuses these — never a parallel copy). ``CANON_SIGNAL_NAMES`` is the
+# full display vocabulary; ``CANON_RULE_SIGNAL_NAMES`` is the quorum
+# subset that may count toward ``n_fires`` (no-signal never fires,
+# judge-vote is a judge fact, never a rule signal).
+#
+# >>> sorted(CANON_SIGNAL_NAMES) == sorted(
+# ...     entry["name"] for entry in SIGNAL_VOCAB.values())
+# True
+# >>> "judge-vote" in CANON_RULE_SIGNAL_NAMES
+# False
+CANON_SIGNAL_NAMES = frozenset(
+    entry["name"] for entry in SIGNAL_VOCAB.values())
+CANON_RULE_SIGNAL_NAMES = frozenset(
+    name for name in CANON_SIGNAL_NAMES
+    if name not in ("no-signal", "judge-vote"))
+
 JUDGE_VOCAB = {
     "unanimous": {"name": "unanimous", "fa": "اجماعی 3-0"},
     "split": {"name": "split-vote", "fa": "شقه 2-1"},
@@ -878,3 +895,353 @@ def machine_block(row):
         "flags": flags,
         "provenance": provenance,
     }
+
+
+# --- Per-card flow-trace model (ADDITIVE, gallery display helper) ---
+#
+# Owner-locked flow-tracer build: one pure ``flow_trace_data`` helper feeds
+# the factory/linker gallery tracer (five nodes + four wires per card).
+# No scoring behavior change; nothing above is consulted by decide().
+
+_FLOW_NONE_METHODS = frozenset({"JUDGE-NONE", "MANUAL-NONE"})
+
+
+def _flow_locator(sensekey):
+    """Synset locator for the flow tracer (``38:00`` style, no invention).
+
+    >>> _flow_locator("run%2:38:00::")
+    '38:00'
+    >>> _flow_locator("-")
+    '—'
+    """
+    text = sensekey or ""
+    if "%" not in text:
+        return "—"
+    tail = text.split("%", 1)[-1].split(":")
+    if len(tail) < 3 or not tail[1].isdigit():
+        return "—"
+    return "%s:%s" % (tail[1], tail[2] or "—")
+
+
+def _flow_signal_code(tok):
+    """Legacy evidence token -> canonical signal code (tracer mapping)."""
+    if tok.startswith("Sa:"):
+        return "Sa"
+    if tok.startswith("Sb:"):
+        return "Sb"
+    if tok.startswith("Sc:"):
+        return "Sc"
+    if tok.startswith("Sd:"):
+        return "Sd"
+    if tok.startswith("Se:"):
+        return "Se"
+    if "short-gloss" in tok:
+        return "short-gloss"
+    if tok in ("0sig", "zero-sig"):
+        return "zero-sig"
+    if "judge:" in tok:
+        return "judge"
+    return tok
+
+
+def flow_trace_data(row, verdict=None, candidates=None):
+    """Per-card flow-trace model from real table + verdict rows (pure).
+
+    Takes a link-table ``row`` dict, a judge ``verdict`` dict (may be
+    empty) and a candidates entry (``{"top3": [...]}``, may be empty).
+    Returns a JSON-safe dict: input sense, candidates with FULL defs /
+    scores / winner flags, signals with exact words/scores, decision,
+    votes, flags, plus four wire specs (from/to/label/status over the
+    success / warn / fail / twin / bypassed palette).
+
+    >>> row = {"kaikki_sense_id": "k", "lemma": "run",
+    ...        "kaikki_gloss": "To move fast.",
+    ...        "method": "LINK:2-sig",
+    ...        "wordnet_sensekey": "run%2:38:00::",
+    ...        "evidence": "Sa:j=0.40+Sd:hyp=move", "flags": ""}
+    >>> d = flow_trace_data(row, {}, {"top3": [
+    ...     {"sensekey": "run%2:38:00::", "gloss": "move fast",
+    ...      "jaccard": 0.40, "lemmas": ["run"], "fires": []}]})
+    >>> (d["method"], d["candidates"][0]["is_winner"])
+    ('LINK:2-sig', True)
+    >>> [w["status"] for w in d["wires"]]
+    ['success', 'success', 'bypassed', 'success']
+    >>> flow_trace_data(dict(row, method="twin-pending"),
+    ...                 {}, None)["wires"][2]["status"]
+    'twin'
+    """
+    row = dict(row or {})
+    verdict = dict(verdict or {})
+    candidates = candidates or {}
+    method = row.get("method", "") or ""
+    evidence = row.get("evidence", "") or ""
+    flags = [f.strip()
+             for f in (row.get("flags", "") or "").split("+") if f.strip()]
+
+    winner = row.get("wordnet_sensekey", "") or ""
+    if method in ("UNMAPPED", "MANUAL-NONE") and verdict.get("winner_sensekey"):
+        winner = verdict.get("winner_sensekey") or winner
+
+    rule, _, _ = evidence.partition("|")
+    signals = []
+    for tok in rule.split("+"):
+        tok = tok.strip()
+        if not tok:
+            continue
+        code = _flow_signal_code(tok)
+        name = signal_vocab(code)["name"]
+        signals.append({"code": code, "name": name, "alias": tok,
+                        "fired": name != "no-signal"})
+    if not signals:
+        signals = [{"code": "zero-sig", "name": "no-signal",
+                    "alias": "0sig", "fired": False}]
+    n_fires = sum(1 for s in signals
+                  if s["fired"] and s["name"] in CANON_RULE_SIGNAL_NAMES)
+
+    top3 = list((candidates or {}).get("top3") or [])
+    cand_rows = []
+    for rank, cand in enumerate(top3, 1):
+        skey = (cand or {}).get("sensekey", "") or ""
+        cand_rows.append({
+            "rank": rank,
+            "key": skey,
+            "locator": _flow_locator(skey),
+            "def": (cand or {}).get("gloss", "") or "",
+            "j": (cand or {}).get("jaccard"),
+            "lemmas": list((cand or {}).get("lemmas") or []),
+            "fires": list((cand or {}).get("fires") or []),
+            "is_winner": bool(winner and winner != "-" and skey == winner),
+        })
+
+    votes = verdict.get("votes") or []
+    ok_votes = [v for v in votes if (v or {}).get("ok")]
+    if len(ok_votes) < 2:
+        agree = "unjudged"
+    else:
+        winners = {(v or {}).get("winner_index") for v in ok_votes}
+        kinds = {(v or {}).get("verdict") for v in ok_votes}
+        agree = ("unanimous" if len(winners) == 1 and len(kinds) == 1
+                 else "split-vote")
+
+    if method == "twin-pending":
+        gate = "twin"
+    elif method == "JUDGE-REVIEW":
+        gate = "review"
+    elif method == "JUDGE-PENDING":
+        gate = "pending"
+    elif method.startswith("LINK:judge-v2") or (
+            method.startswith("LINK") and votes):
+        gate = "judge"
+    elif method.startswith("LINK"):
+        gate = "rule"
+    else:
+        gate = "none"
+
+    has_cands = bool(cand_rows)
+    w1 = {"from": 1, "to": 2, "label": "استخراج کاندیداها",
+          "status": "success" if has_cands else "warn"}
+    w2 = {"from": 2, "to": 3, "label": "ارسال کاندیداها به ارزیابی",
+          "status": "success" if has_cands and n_fires > 0 else "warn"}
+    if gate == "twin":
+        w3 = {"from": 3, "to": 4, "label": "کشف تقاضای همزاد (توقف)",
+              "status": "twin"}
+    elif gate == "rule":
+        w3 = {"from": 3, "to": 4,
+              "label": "عبور از داور (قاعده برنده شد)",
+              "status": "bypassed"}
+    elif gate == "review":
+        w3 = {"from": 3, "to": 4, "label": "ارجاع فوری به داور",
+              "status": "warn"}
+    elif gate == "pending":
+        w3 = {"from": 3, "to": 4, "label": "ارجاع به داور",
+              "status": "warn"}
+    elif gate == "judge":
+        w3 = {"from": 3, "to": 4, "label": "ارجاع به داور",
+              "status": "success" if agree == "unanimous" else "warn"}
+    elif method in _FLOW_NONE_METHODS:
+        w3 = {"from": 3, "to": 4, "label": "ارجاع به داور",
+              "status": "warn"}
+    else:
+        w3 = {"from": 3, "to": 4, "label": "توقف (بدون سیگنال)",
+              "status": "warn"}
+    if method.startswith("LINK"):
+        w4 = {"from": 4, "to": 5, "label": "تأیید پیوند",
+              "status": "success"}
+    elif method == "twin-pending":
+        w4 = {"from": 4, "to": 5, "label": "تعلیق پیوند در صف دوقلوها",
+              "status": "twin"}
+    elif method in _FLOW_NONE_METHODS:
+        w4 = {"from": 4, "to": 5, "label": "رد قطعی داور",
+              "status": "fail"}
+    elif method in ("JUDGE-PENDING", "JUDGE-REVIEW",
+                    "quarantined-known-false", "UNMAPPED"):
+        w4 = {"from": 4, "to": 5, "label": "توقف جهت بازبینی",
+              "status": "warn"}
+    else:
+        w4 = {"from": 4, "to": 5, "label": "توقف جهت بازبینی",
+              "status": "warn"}
+
+    wn_gloss = ((verdict.get("wordnet_evidence", "") or "").split("||")[0]
+                .strip())
+    return {
+        "kid": row.get("kaikki_sense_id", "") or "",
+        "lemma": row.get("lemma", "") or "",
+        "in_def": row.get("kaikki_gloss", "") or "",
+        "method": method,
+        "evidence": evidence,
+        "flags": flags,
+        "winner": winner,
+        "winner_locator": _flow_locator(winner),
+        "winner_def": wn_gloss,
+        "n_fires": n_fires,
+        "gate": gate,
+        "agree": agree,
+        "candidates": cand_rows,
+        "signals": signals,
+        "votes": votes,
+        "verdict": verdict.get("verdict") or "",
+        "winner_sensekey": verdict.get("winner_sensekey") or "",
+        "wires": [w1, w2, w3, w4],
+    }
+
+
+def verdict_wire45(verdict=None, method="", winner_key=""):
+    """Judge-wire (4→5) spec from the VERDICT first, table state second (pure).
+
+    Gallery display rule (owner-locked): the 4→5 wire reflects the judge
+    verdict — LINK verdict → approval (``تأیید پیوند``/success), NONE
+    verdict → rejection (``رد قطعی داور``/fail), no verdict → hold
+    (``توقف جهت بازبینی``/warn). Table-consumption pending (JUDGE-PENDING)
+    is a separate node-5 fact, never a wire label. Verdict-less fallbacks:
+    mechanical rule LINK + winner → approval; twin-pending → twin hold;
+    anything else → hold-for-review.
+
+    >>> verdict_wire45({"verdict": "LINK"}, "JUDGE-PENDING", "run%2:38:00::")
+    {'from': 4, 'to': 5, 'label': 'تأیید پیوند', 'status': 'success'}
+    >>> verdict_wire45({"verdict": "NONE"}, "JUDGE-PENDING", "-")
+    {'from': 4, 'to': 5, 'label': 'رد قطعی داور', 'status': 'fail'}
+    >>> verdict_wire45({}, "JUDGE-PENDING", "run%2:38:11::")
+    {'from': 4, 'to': 5, 'label': 'توقف جهت بازبینی', 'status': 'warn'}
+    >>> verdict_wire45({}, "LINK:2-sig", "run%2:38:00::")
+    {'from': 4, 'to': 5, 'label': 'تأیید پیوند', 'status': 'success'}
+    >>> verdict_wire45({}, "twin-pending", "-")
+    {'from': 4, 'to': 5, 'label': 'تعلیق پیوند در صف دوقلوها', 'status': 'twin'}
+    >>> verdict_wire45({"verdict": "LINK", "vote_status": "FAILED"}, "JUDGE-PENDING", "k")
+    {'from': 4, 'to': 5, 'label': 'توقف جهت بازبینی', 'status': 'warn'}
+    """
+    verdict = verdict or {}
+    vverdict = verdict.get("verdict") or ""
+    votes = verdict.get("votes") or []
+    failed = (verdict.get("vote_status") == "FAILED"
+              or any(not (v or {}).get("ok", True) for v in votes))
+    if failed:
+        # A crashed judge run is neither an approval nor a rejection —
+        # hold for review (mirrors _flowtrace_status: failed ≠ LINK).
+        return {"from": 4, "to": 5, "label": "توقف جهت بازبینی",
+                "status": "warn"}
+    if vverdict == "LINK":
+        return {"from": 4, "to": 5, "label": "تأیید پیوند",
+                "status": "success"}
+    if vverdict == "NONE":
+        return {"from": 4, "to": 5, "label": "رد قطعی داور",
+                "status": "fail"}
+    if (method or "").startswith("LINK") and winner_key and winner_key != "-":
+        return {"from": 4, "to": 5, "label": "تأیید پیوند",
+                "status": "success"}
+    if method == "twin-pending":
+        return {"from": 4, "to": 5,
+                "label": "تعلیق پیوند در صف دوقلوها", "status": "twin"}
+    return {"from": 4, "to": 5, "label": "توقف جهت بازبینی",
+            "status": "warn"}
+
+
+# --- Gallery run-version (ADDITIVE, display helper; no behavior change) ---
+#
+# The gallery shows its OWN version (viewer.GALLERY_VERSION) AND the SOURCE
+# RUN's version — which linker build made the DATA. The run version is
+# derived from rows' provenance strings at gallery build time, never
+# guessed: only ``rules:<tag>:...:seed=<n>:...:build=<name>`` triples count
+# (see run20: ``rules:v0.6-equiv:...:build=run20:...``). Legacy
+# (``linker-v0.6:…``), inventory (``inventory:tsv-twin``) and owner-manual
+# provenances carry no triple and count as absent. Nothing below is
+# consulted by decide/link_stats/machine_block/flow_trace_data.
+
+
+def parse_run_provenance(provenance):
+    """Parse the run-version triple from one row provenance string (pure).
+
+    Returns ``{"rules", "build", "seed"}`` or None when the string carries
+    no triple (absent/unparseable) — never guesses. A judge tail after
+    ``|`` is ignored (same run, verdict facet only).
+
+    >>> parse_run_provenance("rules:v0.6-equiv:se=None:STOP=base:seed=20260918:build=run20:factory-linker=x")
+    {'rules': 'v0.6-equiv', 'build': 'run20', 'seed': '20260918'}
+    >>> parse_run_provenance("rules:v0.6-equiv:se=None:STOP=base:seed=20260918:build=run20|judge-v2:pass1:3-0:LINK/1")
+    {'rules': 'v0.6-equiv', 'build': 'run20', 'seed': '20260918'}
+    >>> parse_run_provenance("linker-v0.6:link_table_v0_7.tsv") is None
+    True
+    >>> parse_run_provenance("inventory:tsv-twin") is None
+    True
+    >>> parse_run_provenance("rules:v0.6-equiv:se=None") is None
+    True
+    >>> parse_run_provenance("") is None
+    True
+    >>> parse_run_provenance(None) is None
+    True
+    """
+    run_half = (provenance or "").split("|", 1)[0]
+    chunks = run_half.split(":")
+    if len(chunks) < 2 or chunks[0] != "rules" or not chunks[1].strip():
+        return None
+    rules = chunks[1].strip()
+    build = seed = ""
+    for chunk in chunks[2:]:
+        if chunk.startswith("build=") and not build:
+            build = chunk[len("build="):].strip()
+        elif chunk.startswith("seed=") and not seed:
+            seed = chunk[len("seed="):].strip()
+    if not build or not seed:
+        return None
+    return {"rules": rules, "build": build, "seed": seed}
+
+
+def run_version(rows):
+    """Gallery run-version over link-table rows (pure, never guesses).
+
+    Takes plain row dicts (``provenance``), returns ``{"status", "label",
+    "build", "rules", "seed"}``:
+
+    - ``single``: every row carries the SAME triple — label is
+      ``"<build> (<rules>)"`` (e.g. ``"run20 (v0.6-equiv)"``);
+    - ``mixed``: triples disagree, or some rows carry one and others
+      don't (majority never wins) — label ``"mixed"``;
+    - ``unknown``: no row carries a triple (or no rows) — label
+      ``"unknown (absent)"``.
+
+    >>> run_version([{"provenance": "rules:v0.6-equiv:se=None:STOP=base:seed=20260918:build=run20"}])["label"]
+    'run20 (v0.6-equiv)'
+    >>> run_version([{"provenance": "rules:v0.6-equiv:se=None:STOP=base:seed=20260918:build=run20"}, {"provenance": "inventory:tsv-twin"}])["label"]
+    'mixed'
+    >>> run_version([{"provenance": ""}, {}])["label"]
+    'unknown (absent)'
+    >>> run_version([])["status"]
+    'unknown'
+    """
+    triples = []
+    untripled = 0
+    for row in rows or []:
+        triple = parse_run_provenance((row or {}).get("provenance", ""))
+        if triple is None:
+            untripled += 1
+        else:
+            triples.append((triple["rules"], triple["build"],
+                            triple["seed"]))
+    if not triples:
+        return {"status": "unknown", "label": "unknown (absent)",
+                "build": "", "rules": "", "seed": ""}
+    if untripled or len(set(triples)) > 1:
+        return {"status": "mixed", "label": "mixed",
+                "build": "", "rules": "", "seed": ""}
+    rules, build, seed = triples[0]
+    return {"status": "single", "label": "%s (%s)" % (build, rules),
+            "build": build, "rules": rules, "seed": seed}

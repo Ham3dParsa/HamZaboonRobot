@@ -60,5 +60,13 @@ LINK counts.
   batching/compression/server-budget-350/0 all REJECTED; llama/granite/
   minicpm/spark/qwen bake-offs — none displace Gemma judge or ministral
   pre-screen). JOB5 rule: LINK on flip-family evidence is
-  `provisional_consensus` (idx16). `REPORT_v0_8.md` verdict: NO-GO on
-  'judge ops production-ready' (per-verdict reasoning cost unreduced).
+   `provisional_consensus` (idx16). `REPORT_v0_8.md` verdict: NO-GO on
+   'judge ops production-ready' (per-verdict reasoning cost unreduced).
+- **Gallery 4.0.0 (2026-09-19):** flowtrace rewrite (S-flow RTL, verdict-first
+  wires/badges, concordant tier, sticky toolbar+close, export redesign,
+  certainty-language removal, candidate fallback, NFKC parity, None-crash
+  guard, single-source vocab).
+- **Gallery 4.1.0 (2026-09-19):** run version display (`viewer` + `data`
+  labels, majority-never-wins), canonical-quorum counting, failed-vote hold
+  (FAILED beats LINK on wires and status), per-record export with row_ref,
+  support-quote fallbacks (never bare def), hermetic font embedding.
