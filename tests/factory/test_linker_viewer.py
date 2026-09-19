@@ -2031,7 +2031,7 @@ def test_run_version_single_source(tmp_path):
     summary = viewer.build_linker_gallery(rows, [], str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: run20 (v0.6-equiv)" in page
-    assert "viewer: 4.1.0" in page
+    assert "viewer: 4.1.1" in page
     assert summary["run_version"]["status"] == "single"
 
 
@@ -2046,7 +2046,7 @@ def test_run_version_mixed_majority_never_wins(tmp_path):
     viewer.build_linker_gallery(rows, [], str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: mixed" in page
-    assert "viewer: 4.1.0" in page
+    assert "viewer: 4.1.1" in page
     # run20 shape on disk: rules triple rows + inventory rows disagree too.
     mixed2 = linker.run_version(
         [_prov_row("k1", _RUN20_PROV),
@@ -2068,7 +2068,7 @@ def test_run_version_absent_unknown(tmp_path):
     viewer.build_linker_gallery(_rows(), _verdicts(), str(out))
     page = pathlib.Path(str(out)).read_text(encoding="utf-8")
     assert "data: unknown (absent)" in page
-    assert "viewer: 4.1.0" in page
+    assert "viewer: 4.1.1" in page
 
 
 def test_run_version_help_documents_both(tmp_path):
@@ -2294,3 +2294,108 @@ def test_packless_example_only_renders_labeled_quote_never_def():
     assert rec["winner_def"].startswith(
         "[support-quote-example (upstream)]")
     assert rec["winner_def"] != "She got a lot of paintings from her uncle"
+
+
+# --- Mechanical LINK winner-def via build-time WordNet (n9BROLz0) ---
+
+def _n9_shape_row():
+    # Owner-reported shape: mechanical LINK:exact-sensekey+2-sig, no
+    # verdict, no candidate pack, no definition fields.
+    return {"kaikki_sense_id": "en-run-en-verb-n9BROLz0",
+            "wordnet_sensekey": "run%2:38:01::",
+            "method": "LINK:exact-sensekey+2-sig",
+            "evidence": "Sa:j=0.20+Sb:flow+Se:0.515",
+            "flags": "", "lemma": "run", "kaikki_pos": "verb",
+            "kaikki_gloss": "To flow rapidly."}
+
+
+def _fake_wordnet_resolver():
+    # Hermetic fake: the 38:01 gloss a real WordNet boot would return.
+    return {"run%2:38:01::": "move along, of liquids || words: run; flow"}
+
+
+def test_mech_wordnet_resolver_src_priority():
+    row = _n9_shape_row()
+    # No resolver: honest missing (today's behavior, unchanged).
+    assert viewer._node5_winner_def(
+        row, {}, "run%2:38:01::", None) == ("missing", "")
+    assert viewer._winner_def_src(
+        row, {}, "run%2:38:01::", None) == "missing"
+    # Fake resolver: def + wordnet provenance.
+    assert viewer._node5_winner_def(
+        row, {}, "run%2:38:01::", None,
+        _fake_wordnet_resolver()) == (
+            "def", "move along, of liquids || words: run; flow")
+    assert viewer._winner_def_src(
+        row, {}, "run%2:38:01::", None,
+        _fake_wordnet_resolver()) == "wordnet"
+    # Callable resolvers work too; hostile resolver output never crashes.
+    assert viewer._resolve_wordnet_def(
+        "run%2:38:01::", lambda k: "callable gloss") == "callable gloss"
+    assert viewer._resolve_wordnet_def(
+        "run%2:38:01::", lambda k: 1 / 0) == ""
+    # Existing sources beat wordnet (priority unchanged).
+    pack = {"top3": [{"sensekey": "run%2:38:01::", "gloss": "pack gloss"}]}
+    assert viewer._winner_def_src(
+        row, {}, "run%2:38:01::", pack,
+        _fake_wordnet_resolver()) == "pack"
+    assert viewer._winner_def_src(
+        row, {"winner_gloss": "verdict gloss"}, "run%2:38:01::", pack,
+        _fake_wordnet_resolver()) == "verdict"
+    assert viewer._winner_def_src(
+        dict(row, wordnet_gloss="row gloss"), {}, "run%2:38:01::", pack,
+        _fake_wordnet_resolver()) == "row"
+
+
+def test_mech_wordnet_node5_and_node2_gallery(tmp_path):
+    row = _n9_shape_row()
+    out = tmp_path / "gallery.html"
+    viewer.build_linker_gallery(
+        [row], [], str(out),
+        winner_def_resolver=_fake_wordnet_resolver())
+    page = pathlib.Path(str(out)).read_text(encoding="utf-8")
+    node5 = page.split(
+        '<section class="flowtrace-node" data-ftnode="5"')[1].split(
+        "</section>")[0]
+    # Node-5 shows the 38:01 definition with its wordnet provenance...
+    assert "move along, of liquids" in node5
+    assert "lblsrc:wordnet" in node5
+    assert "winner-def-missing" not in node5
+    # ...and the gap-def row carries the same source.
+    assert "همان تعریف برنده (بالا)" in node5
+    node2 = page.split(
+        '<section class="flowtrace-node" data-ftnode="2"')[1].split(
+        "</section>")[0]
+    # Node-2 shows winner key + resolved def + method badge, no dead end.
+    assert "candwinner" in node2
+    assert "run%2:38:01::" in node2
+    assert "move along, of liquids" in node2
+    assert "LINK:exact-sensekey+2-sig" in node2
+    assert "lblsrc:wordnet" in node2
+    assert "winner-def-missing" not in node2
+    rec = viewer.export_record(row, {}, None, "t.tsv#L18", n=18,
+                               winner_def_resolver=_fake_wordnet_resolver())
+    assert rec["winner_def"] == "move along, of liquids || words: run; flow"
+    assert rec["winner_def_src"] == "wordnet"
+
+
+def test_mech_wordnet_missing_everywhere_stays_honest(tmp_path):
+    # Resolver covers nothing: the honest missing label stays (existing).
+    row = dict(_n9_shape_row(), wordnet_sensekey="run%2:99:99::")
+    assert viewer._node5_winner_def(
+        row, {}, "run%2:99:99::", None,
+        _fake_wordnet_resolver()) == ("missing", "")
+    out = tmp_path / "gallery.html"
+    viewer.build_linker_gallery(
+        [row], [], str(out),
+        winner_def_resolver=_fake_wordnet_resolver())
+    page = pathlib.Path(str(out)).read_text(encoding="utf-8")
+    node5 = page.split(
+        '<section class="flowtrace-node" data-ftnode="5"')[1].split(
+        "</section>")[0]
+    assert "winner-def-missing" in node5
+    assert "lblsrc:wordnet" not in node5
+    rec = viewer.export_record(row, {}, None, "t.tsv#L18", n=18,
+                               winner_def_resolver=_fake_wordnet_resolver())
+    assert rec["winner_def"] == ""
+    assert rec["winner_def_src"] == "missing"

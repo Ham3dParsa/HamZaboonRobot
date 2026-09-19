@@ -69,7 +69,7 @@ from factory.linker.linker import (
 # Gallery version: MAJOR.MINOR.PATCH-for-viewer — MAJOR = gallery
 # rewrite/redesign, MINOR = new visible block or behavior change,
 # PATCH = wording/fix-only change. Bump on every viewer-visible change.
-GALLERY_VERSION = "4.1.0"
+GALLERY_VERSION = "4.1.1"
 
 # Gallery changelog: one line per shipped round, dated (oldest first).
 # Rendered in the footer collapsible; append (never rewrite) per round.
@@ -95,7 +95,9 @@ GALLERY_CHANGELOG = (
     ("2026-09-19", "canonical quorum: only locked-vocab signals count; "
                     "failed-vote wire holds; stable card ids per build"),
     ("2026-09-19", "node-5 winner def from pack, support quote labeled; "
-                    "v4.1b methods/flags with gate reasons"),
+                     "v4.1b methods/flags with gate reasons"),
+    ("2026-09-19", "mechanical winner defs via build-time WordNet "
+                     "(lblsrc provenance; honest missing stays)"),
 )
 
 _GAP_SLOTS = ("def", "cefr", "syns", "antos", "example")
@@ -455,7 +457,122 @@ def _winner_pack_gloss(winner_key, cand_entry):
     return ""
 
 
-def _node5_winner_def(row, verdict, winner_key="", cand_entry=None):
+def _resolve_wordnet_def(winner_key, winner_def_resolver):
+    """Build-time WordNet fallback for one winner sensekey (pure).
+
+    ``winner_def_resolver`` is None (no resolution — today's behavior),
+    a ``{sensekey: gloss}`` dict (hermetic tests inject a fake), or a
+    ``key -> gloss`` callable (the builder CLI boots a real NLTK one).
+    Never imports nltk itself — that import lives inside
+    :func:`_default_wordnet_resolver` (CLI path only), so repo imports
+    and tests stay light with zero NLTK.
+
+    >>> _resolve_wordnet_def("run%2:38:01::", {"run%2:38:01::": "move along"})
+    'move along'
+    >>> _resolve_wordnet_def("run%2:38:01::", None)
+    ''
+    >>> _resolve_wordnet_def("-", {"run%2:38:01::": "move along"})
+    ''
+    >>> _resolve_wordnet_def("run%2:99:99::", {"run%2:38:01::": "move along"})
+    ''
+    """
+    if not winner_key or winner_key == "-" or winner_def_resolver is None:
+        return ""
+    try:
+        if isinstance(winner_def_resolver, dict):
+            hit = winner_def_resolver.get(winner_key, "")
+        else:
+            hit = winner_def_resolver(winner_key)
+    except Exception:
+        return ""
+    text = (hit or "").strip()
+    return text if text and text != "-" else ""
+
+
+def _default_wordnet_resolver():
+    """NLTK WordNet ``sensekey -> gloss + members`` resolver (CLI boot only).
+
+    Built ONLY in the gallery builder CLI path (:func:`main`); the nltk
+    import lives inside this function so repo imports stay light. A
+    missing nltk install or wordnet-data corpus fails soft to None (no
+    resolution — honest missing labels stay). Never used by tests —
+    they inject fake dicts instead.
+
+    Resolution is ``wn.synset_from_sense_key`` gloss plus member lemmas
+    (``"<gloss> || words: a; b"``); "" when the key is unknown.
+    """
+    try:
+        from nltk.corpus import wordnet as wn
+        if not wn.synsets("run"):
+            return None
+    except Exception:
+        return None
+
+    def _resolve(sensekey):
+        try:
+            syn = wn.synset_from_sense_key(sensekey or "")
+        except Exception:
+            return ""
+        if syn is None:
+            return ""
+        try:
+            gloss = (syn.definition() or "").strip()
+        except Exception:
+            return ""
+        if not gloss or gloss == "-":
+            return ""
+        try:
+            members = [name.replace("_", " ")
+                       for name in syn.lemma_names()]
+        except Exception:
+            members = []
+        members = [m for m in members if m]
+        if members:
+            return "%s || words: %s" % (gloss, "; ".join(members))
+        return gloss
+
+    return _resolve
+
+
+def _winner_def_src(row, verdict, winner_key="", cand_entry=None,
+                    winner_def_resolver=None):
+    """Provenance of the node-5 winner definition (lblsrc single source).
+
+    Mirrors :func:`_node5_winner_def` priority exactly: ``row``
+    (row definition fields), ``verdict`` (verdict definition fields),
+    ``pack`` (candidate-pack gloss), ``wordnet`` (build-time resolver),
+    else ``missing``.
+
+    >>> _winner_def_src({"wordnet_gloss": "g"}, {}, "k%1:01:00::", None)
+    'row'
+    >>> _winner_def_src({}, {"winner_gloss": "g"}, "k%1:01:00::", None)
+    'verdict'
+    >>> cands = {"top3": [{"sensekey": "k%1:01:00::", "gloss": "g"}]}
+    >>> _winner_def_src({}, {}, "k%1:01:00::", cands)
+    'pack'
+    >>> _winner_def_src({}, {}, "k%1:01:00::", None, {"k%1:01:00::": "g"})
+    'wordnet'
+    >>> _winner_def_src({}, {}, "k%1:01:00::", None)
+    'missing'
+    """
+    row = row or {}
+    for key in ("wordnet_gloss", "winner_def"):
+        val = (row.get(key) or "").strip()
+        if val and val != "-":
+            return "row"
+    for key in ("winner_gloss", "winner_def"):
+        val = ((verdict or {}).get(key, "") or "").strip()
+        if val and val != "-":
+            return "verdict"
+    if _winner_pack_gloss(winner_key, cand_entry).strip():
+        return "pack"
+    if _resolve_wordnet_def(winner_key, winner_def_resolver):
+        return "wordnet"
+    return "missing"
+
+
+def _node5_winner_def(row, verdict, winner_key="", cand_entry=None,
+                      winner_def_resolver=None):
     """(kind, text) for the node-5 outcome definition (B1 rule).
 
     The winner definition comes from definition fields ONLY — row
@@ -463,8 +580,13 @@ def _node5_winner_def(row, verdict, winner_key="", cand_entry=None):
     ``winner_gloss``/``winner_def``, then the candidate-pack gloss for
     the winner sensekey — never from ``wordnet_evidence``, which is a
     deliberately-quoted support string (sometimes a bare example).
-    Kinds: ``def`` (a real definition), ``missing`` (honest gap; the
-    caller renders the gap line, never a silent empty node).
+    Mechanical LINKs carry no verdict and no pack, so a build-time
+    WordNet resolver (``winner_def_resolver``: None, a ``{sensekey:
+    gloss}`` dict, or a ``key -> gloss`` callable — see
+    :func:`_resolve_wordnet_def`) is tried LAST, before the honest
+    gap. Kinds: ``def`` (a real definition), ``missing`` (honest gap;
+    the caller renders the gap line, never a silent empty node).
+    Provenance of the chosen text lives in :func:`_winner_def_src`.
 
     >>> row = {"kaikki_sense_id": "en-get-en-verb-~ybLNLQA"}
     >>> verdict = {"wordnet_evidence":
@@ -475,6 +597,9 @@ def _node5_winner_def(row, verdict, winner_key="", cand_entry=None):
     ('def', 'come into the possession of something')
     >>> _node5_winner_def(row, verdict, "get%2:40:00::", None)
     ('missing', '')
+    >>> _node5_winner_def(row, verdict, "run%2:38:01::", None,
+    ...     {"run%2:38:01::": "move along, of liquids"})
+    ('def', 'move along, of liquids')
     """
     row = row or {}
     for key in ("wordnet_gloss", "winner_def"):
@@ -488,6 +613,9 @@ def _node5_winner_def(row, verdict, winner_key="", cand_entry=None):
     pack = _winner_pack_gloss(winner_key, cand_entry).strip()
     if pack:
         return ("def", pack)
+    wn_def = _resolve_wordnet_def(winner_key, winner_def_resolver)
+    if wn_def:
+        return ("def", wn_def)
     return ("missing", "")
 
 
@@ -1045,7 +1173,7 @@ def _render_distinct_reasons(verdict):
             "<ul class='reasonlist'>%s</ul></div>" % "".join(items))
 
 
-def _gap_cells(row, verdict, winner_def=""):
+def _gap_cells(row, verdict, winner_def="", winner_def_src="wordnet"):
     verdict = verdict or {}
     # B1 rule: the def slot fills ONLY from the resolved winner
     # definition passed in (definition fields + candidate pack) — never
@@ -1060,7 +1188,7 @@ def _gap_cells(row, verdict, winner_def=""):
         syns, example = [], ""
     cefr = parse_twin_cefr(row.get("evidence", ""))
     return [
-        ("def", "تعریف", "def", gloss or "—", "wordnet"),
+        ("def", "تعریف", "def", gloss or "—", winner_def_src),
         ("cefr", "سطح", "cefr", cefr or "—", "tsv-cefr"),
         ("syns", "مترادف‌ها", "syns", "; ".join(syns) if syns else "—", "wordnet"),
         ("antos", "متضادها", "antos", "—", "—"),
@@ -1507,7 +1635,8 @@ def _flowtrace_ports():
         for pos in ("top", "bottom", "left", "right"))
 
 
-def _render_trace(row, verdict, cand_entry=None, row_ref=""):
+def _render_trace(row, verdict, cand_entry=None, row_ref="",
+                  winner_def_resolver=None):
     """Per-card flow tracer: 5 nodes + 4 wires from real table+verdicts."""
     row = row or {}
     verdict = verdict or {}
@@ -1621,12 +1750,18 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
         # Mechanical LINKs carry no candidate pack (0/46 in run20): never
         # a silent empty node — state the missing pack explicitly, then
         # show the WINNER key + its definition from the single source
-        # (_node5_winner_def: definition fields + pack only); a missing
-        # def renders the labeled support quote, never a bare def.
+        # (_node5_winner_def: definition fields + pack + build-time
+        # WordNet, never a bare quote) with its method badge and lblsrc
+        # provenance; a missing def renders the labeled support quote,
+        # never a bare def.
         wkind, wdef = _node5_winner_def(row, verdict, winner_key,
-                                        cand_entry)
+                                        cand_entry, winner_def_resolver)
         if wkind == "def":
-            wdef_html = ("تعریف برنده: “<bdi>%s</bdi>”" % _esc(wdef))
+            wsrc = _winner_def_src(row, verdict, winner_key, cand_entry,
+                                   winner_def_resolver)
+            wdef_html = ("تعریف برنده: “<bdi>%s</bdi>” "
+                         "<span class='code'>(<bdi>lblsrc:%s</bdi>)</span>"
+                         % (_esc(wdef), _esc(wsrc)))
         else:
             qkind, quote = _support_quote(verdict)
             if qkind == "example-quote":
@@ -1646,10 +1781,12 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
                  "<span class='code'>(<bdi>shortlist recompute لازم</bdi>)"
                  "</span></p>"
                  "<div class='candwinner'>نامزد برتر: "
-                 "<bdi class='wkey'>%s</bdi> · مکان سینست <bdi>%s</bdi><br>%s</div>"
+                 "<bdi class='wkey'>%s</bdi> · مکان سینست <bdi>%s</bdi> · "
+                 "%s<br>%s</div>"
                  "<p class='flowtrace-why'>چرا: %s</p>"
                  % (_esc(winner_key),
                     _esc(_parse_sensekey_locator(winner_key)),
+                    _method_badge(method),
                     wdef_html, _esc(cand_why)))
     else:
         node2 = ("<p class='candnone'>هیچ کاندیدایی به این مرحله نرسید "
@@ -1782,13 +1919,20 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
     # definition and the method live ONLY in the winner line (single
     # source); the gap-def row and the decision line cross-reference them
     # instead of repeating the full strings. B1 rule: the displayed
-    # definition comes from definition fields + candidate pack ONLY
+    # definition comes from definition fields + candidate pack + the
+    # build-time WordNet resolver ONLY
     # (see _node5_winner_def); wordnet_evidence is a support quote and
-    # renders on its own labeled line, never as the definition.
+    # renders on its own labeled line, never as the definition. The
+    # lblsrc label states WHERE the def came from (row/verdict/pack/
+    # wordnet); the gap-def row carries the same source.
     wkind, winner_def = _node5_winner_def(row, verdict, winner_key,
-                                          cand_entry)
+                                          cand_entry, winner_def_resolver)
+    wsrc = _winner_def_src(row, verdict, winner_key, cand_entry,
+                           winner_def_resolver)
     if wkind == "def":
-        winner_line = "“<bdi>%s</bdi>”" % _esc(winner_def)
+        winner_line = ("“<bdi>%s</bdi>” "
+                       "<span class='code'>(<bdi>lblsrc:%s</bdi>)</span>"
+                       % (_esc(winner_def), _esc(wsrc)))
     else:
         winner_line = ("<span class='wdef-gap'>تعریف برنده در ردیف نیست "
                        "<span class='code'>(<bdi>winner-def-missing</bdi>)"
@@ -1809,7 +1953,7 @@ def _render_trace(row, verdict, cand_entry=None, row_ref=""):
     else:
         quote_line = ""
     gaps = _gap_cells(row, verdict,
-                      winner_def if wkind == "def" else "")
+                      winner_def if wkind == "def" else "", wsrc)
     filled_gaps = [g for g in gaps if g[3] != "—"]
     if filled_gaps:
         gap_items = "".join(
@@ -2100,7 +2244,8 @@ _EXPORT_CUT = {"lexical-overlap": JACCARD_DEFAULT,
                "meaning-similarity": SE_CUT}
 
 
-def export_record(row, verdict, cand_entry, row_ref, n=0):
+def export_record(row, verdict, cand_entry, row_ref, n=0,
+                  winner_def_resolver=None):
     """One per-record export dict with short fixed keys (round 4 schema).
 
     ``winner_def`` and candidate ``def`` values are FULL (never
@@ -2125,12 +2270,15 @@ def export_record(row, verdict, cand_entry, row_ref, n=0):
               "fired": name != "no-signal"}
              for name, info in blk.get("signals", {}).items()]
     wkind, wtext = _node5_winner_def(
-        row, verdict, winner, cand_entry)
+        row, verdict, winner, cand_entry, winner_def_resolver)
     if wkind == "def":
         export_wdef = wtext
+        export_wdef_src = _winner_def_src(
+            row, verdict, winner, cand_entry, winner_def_resolver)
     else:
         # No definition field and no pack: honest labeled fallback from
         # the quote classifier (never a silent empty def, never bare def).
+        export_wdef_src = "missing"
         qkind, qtext = _support_quote(verdict)
         if qkind == "example-quote":
             export_wdef = "[support-quote-example (upstream)] " + qtext
@@ -2149,6 +2297,7 @@ def export_record(row, verdict, cand_entry, row_ref, n=0):
                      "locator": _parse_sensekey_locator(winner)},
         "fires": fires,
         "winner_def": export_wdef,
+        "winner_def_src": export_wdef_src,
         "candidates": [{"rank": rank,
                         "key": cand.get("sensekey", "") or "",
                         "j": cand.get("jaccard"),
@@ -2167,7 +2316,7 @@ def export_record(row, verdict, cand_entry, row_ref, n=0):
 
 
 def _render_card(n, row, verdict, check_keys=(), cand_entry=None,
-                 table_label=""):
+                 table_label="", winner_def_resolver=None):
     verdict = verdict or {}
     method = row.get("method", "") or ""
     kid = row.get("kaikki_sense_id", "") or ""
@@ -2200,7 +2349,8 @@ def _render_card(n, row, verdict, check_keys=(), cand_entry=None,
                                    sort_keys=True))
     mkeys = _render_mkeys(blk)
     trace = _render_trace(row, verdict, cand_entry,
-                          "%s#L%d" % (table_label or "table", n + 1))
+                          "%s#L%d" % (table_label or "table", n + 1),
+                          winner_def_resolver)
     tech = (
         '<details class="tech"><summary>فنی <span lang="en">machine + raw'
         '</span> (scores · thresholds · evidence)</summary>'
@@ -2227,7 +2377,8 @@ def _render_card(n, row, verdict, check_keys=(), cand_entry=None,
             if len(chips) > 1 else "")
     row_ref = "%s#L%d" % (table_label or "table", n + 1)
     payload = _esc(json.dumps(
-        export_record(row, verdict, cand_entry, row_ref, n=n),
+        export_record(row, verdict, cand_entry, row_ref, n=n,
+                      winner_def_resolver=winner_def_resolver),
         ensure_ascii=False))
     return (
         '<tbody class="cardbody %s" id="c-%d" data-keys="%s" data-search="%s">'
@@ -2635,14 +2786,18 @@ def _render_navpanel():
 
 
 def build_linker_gallery(rows, verdicts, out_html, candidates=None,
-                         table_label=""):
+                         table_label="", winner_def_resolver=None):
     """Render a static filterable linker gallery; return the summary dict.
 
     ``rows`` are link-table dicts, ``verdicts`` judge-verdict dicts,
     ``candidates`` an optional ``{kid: {"top3": [...]}}`` mapping feeding
     the per-card candidates-in inputs (both plain data, all may be empty).
     ``table_label`` feeds export ``row_ref`` (table filename); empty falls
-    back to ``"table"``. Writes ``out_html``.
+    back to ``"table"``. ``winner_def_resolver`` (None, a ``{sensekey:
+    gloss}`` dict, or a ``key -> gloss`` callable) is the build-time
+    WordNet fallback for mechanical LINK winner defs (see
+    :func:`_resolve_wordnet_def`); the CLI boots a real NLTK one, tests
+    inject fakes. Writes ``out_html``.
     """
     # Card id anchors (ft-<card>-<node>) must not depend on process
     # history: every build restarts the sequence at 1.
@@ -2775,7 +2930,7 @@ def build_linker_gallery(rows, verdicts, out_html, candidates=None,
             kid = row.get("kaikki_sense_id", "") or ""
             bodies.append(_render_card(
                 n, row, by_kid.get(kid) or {}, violators.get(kid, ()),
-                candidates.get(kid), table_label))
+                candidates.get(kid), table_label, winner_def_resolver))
 
     nav_html = (
         '<nav class="pillnav" id="pillnav" aria-label="بخش‌ها · sections">'
@@ -2967,9 +3122,14 @@ def main(argv=None):
         candidates = {k: v for k, v in candidates.items()
                       if (v or {}).get("lemma", "") in wanted
                       or k in {r.get("kaikki_sense_id", "") for r in rows}}
+    # Build-time WordNet fallback for mechanical LINK winner defs: booted
+    # ONLY here in the builder CLI path (local import inside
+    # _default_wordnet_resolver; fail-soft None when nltk/data absent).
     summary = build_linker_gallery(rows, verdicts, args.out,
                                    candidates=candidates,
-                                   table_label=Path(args.table).name)
+                                   table_label=Path(args.table).name,
+                                   winner_def_resolver=(
+                                       _default_wordnet_resolver()))
     print("gallery: %s (rows=%d words=%d)" % (
         summary["out"], summary["stats"]["total"], summary["words"]))
     return 0
