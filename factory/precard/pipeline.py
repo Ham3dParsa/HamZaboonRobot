@@ -39,11 +39,10 @@ from factory.precard.net import (
     AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL, LEG_FALLBACKS,
     PROVIDER_KEY_VARS)
 from factory.precard.anchor import (
-    PROPER_NOUN_POS, VULGAR_TAGS, anchor_rank_item, build_pos_sets,
+    anchor, build_pos_sets,
     default_zipf, judge_proper_route, kaikki_pos_set,
     preprocess_classify_item, _backfill_candidate_tags, _is_name_gloss,
-    _mother_for_top, _needs_tag_backfill, _reroute_name_gloss_anchor,
-    _reroute_proper_anchor, _target_sense_tags, _preprocess_entry_view)
+    _needs_tag_backfill, _preprocess_entry_view)
 from factory.precard.enrich import (
     LEXICAL_TYPE_DEFAULT, REGISTER_DEFAULT, enrich_item)
 from factory.precard.judge import (
@@ -1522,17 +1521,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                                len(items),
                                                len(inflection_dropped)),
                         "cyan"))
-        # anchor (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
-        # here: when the anchored sense's entry POS is in {name, propn}
-        # (PROPER_NOUN_POS, reused by import — deterministic,
-        # no name lists) the item drops with reason anchor-proper-noun.
-        # R34 v9: unresolvable bare-xref anchors drop here too (reason
-        # no-real-def: no target entry, or the target is also a bare
-        # xref — 1 hop max, no chains).
-        # F2: name-gloss anchor tops (given/surname/place-name) with a
-        # non-proper entry POS reroute to the first non-name sense here
-        # (act-fix pattern, flagged rerouted_from_name) or drop as
-        # anchor-name-gloss when every candidate is a name.
+        # anchor (deterministic, batch-flushed). Q-anchor: the rank +
+        # reroute + drop decision lives in the anchor() view
+        # (factory.precard.anchor — deterministic, no name lists):
+        # proper-noun tops drop as anchor-proper-noun (V7), unresolvable
+        # bare-xref anchors drop as no-real-def (R34 v9, 1 hop max),
+        # name-gloss tops reroute or drop as anchor-name-gloss (F2).
         # The reason rides on the s1 done entry + failed list (drops never
         # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
@@ -1569,128 +1563,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         or needs_name_eval \
                         or needs_tag_backfill:
                     try:
-                        ranked = anchor_rank_item(item, index, read_entry)
-                        if (ranked.get("anchor_pos") or "") in \
-                                PROPER_NOUN_POS:
-                            rerouted = _reroute_proper_anchor(
-                                item, ranked, index, read_entry)
-                            if rerouted is not None:
-                                ranked["top"], ranked["en_def"], \
-                                    ranked["anchor_pos"] = rerouted
-                                ranked["rerouted_from_proper"] = True
-                                # Mirror the name branch: refresh the tag
-                                # carrier from the TARGET sense and re-run
-                                # the vulgar verdict (review: stale
-                                # anchor_tags would leak a vulgar target
-                                # past the gate); empty lookups keep the
-                                # anchor's tags (uncertainty keeps).
-                                fresh = _target_sense_tags(
-                                    item,
-                                    rerouted[0].get("sense_id", ""),
-                                    index, read_entry)
-                                if fresh:
-                                    ranked["anchor_tags"] = sorted(fresh)
-                                fresh_mother = _mother_for_top(
-                                    item,
-                                    rerouted[0].get("sense_id", ""),
-                                    index, read_entry)
-                                if fresh_mother is not None:
-                                    ranked["mother_lemma"], \
-                                        ranked["mother_lemmas"], \
-                                        ranked["mother_multi"] = fresh_mother
-                                if set(ranked.get("anchor_tags")
-                                       or {}) & VULGAR_TAGS:
-                                    ranked.pop("rerouted_from_proper",
-                                               None)
-                                    ranked["dropped"] = "vulgar-anchor"
-                                    if key not in states["anchor_rank"][
-                                            "failed"]:
-                                        states["anchor_rank"]["failed"].append(key)
-                                # R11: warnings go to stderr (stdout is
-                                # human progress).
-                                print(_color(
-                                    "warning: %s re-anchored off proper "
-                                    "top -> %s" % (
-                                        key,
-                                        rerouted[0].get("sense_id", "")),
-                                    "yellow"), file=sys.stderr)
-                            else:
-                                ranked["dropped"] = "anchor-proper-noun"
-                                if key not in states["anchor_rank"]["failed"]:
-                                    states["anchor_rank"]["failed"].append(key)
-                        elif _is_name_gloss(
-                                (ranked.get("top") or {}).get("gloss", "")):
-                            # F2: name-gloss top (given/surname/place-name)
-                            # with a non-proper entry POS — the gloss-based
-                            # sibling of the proper branch above. Reroutes
-                            # to the first non-name sense (act-fix
-                            # pattern, flagged rerouted_from_name by the
-                            # helper), keeps the anchor top on helper
-                            # errors (marked name_eval_error — uncertainty
-                            # keeps, re-armed on resume), else drops as
-                            # anchor-name-gloss. A true reroute refreshes
-                            # the tag carrier from the TARGET sense and
-                            # re-runs the vulgar verdict (review: stale
-                            # anchor_tags would leak a vulgar target past
-                            # the gate below); empty lookups keep the
-                            # anchor's tags (uncertainty keeps).
-                            rerouted = _reroute_name_gloss_anchor(
-                                item, ranked, index, read_entry)
-                            if rerouted is not None:
-                                ranked["top"], ranked["en_def"], \
-                                    ranked["anchor_pos"] = rerouted
-                                if ranked.get("rerouted_from_name"):
-                                    fresh = _target_sense_tags(
-                                        item,
-                                        rerouted[0].get("sense_id", ""),
-                                        index, read_entry)
-                                    if fresh:
-                                        ranked["anchor_tags"] = sorted(
-                                            fresh)
-                                    fresh_mother = _mother_for_top(
-                                        item,
-                                        rerouted[0].get("sense_id", ""),
-                                        index, read_entry)
-                                    if fresh_mother is not None:
-                                        ranked["mother_lemma"], \
-                                            ranked["mother_lemmas"], \
-                                            ranked["mother_multi"] = \
-                                            fresh_mother
-                                    if set(ranked.get("anchor_tags")
-                                           or {}) & VULGAR_TAGS:
-                                        ranked.pop("rerouted_from_name",
-                                                   None)
-                                        ranked["dropped"] = "vulgar-anchor"
-                                        if key not in states["anchor_rank"][
-                                                "failed"]:
-                                            states["anchor_rank"]["failed"].append(
-                                                key)
-                                    else:
-                                        print(_color(
-                                            "warning: %s re-anchored off "
-                                            "name top -> %s" % (
-                                                key,
-                                                rerouted[0].get(
-                                                    "sense_id", "")),
-                                            "yellow"), file=sys.stderr)
-                                elif ranked.get("name_eval_error"):
-                                    print(_color(
-                                        "warning: %s name-eval error, "
-                                        "keeping anchor top" % key,
-                                        "yellow"), file=sys.stderr)
-                            else:
-                                ranked["dropped"] = "anchor-name-gloss"
-                                if key not in states["anchor_rank"]["failed"]:
-                                    states["anchor_rank"]["failed"].append(key)
-                        elif set(ranked.get("anchor_tags") or {}) & \
-                                VULGAR_TAGS:
-                            ranked["dropped"] = "vulgar-anchor"
-                            if key not in states["anchor_rank"]["failed"]:
-                                states["anchor_rank"]["failed"].append(key)
-                        elif ranked.get("xref_unresolvable"):
-                            ranked["dropped"] = "no-real-def"
-                            if key not in states["anchor_rank"]["failed"]:
-                                states["anchor_rank"]["failed"].append(key)
+                        # Q-anchor: rank + reroutes + drops live in the
+                        # anchor() view (score/xref/POS seams stay in
+                        # anchor.py); here only warnings + failed-list
+                        # bookkeeping + persistence remain.
+                        ranked, _anchor_warnings = anchor(
+                            item, index, read_entry)
+                        for _w in _anchor_warnings:
+                            print(_color(_w, "yellow"), file=sys.stderr)
+                        if "dropped" in ranked and key not in \
+                                states["anchor_rank"]["failed"]:
+                            states["anchor_rank"]["failed"].append(key)
                         states["anchor_rank"]["done"][key] = ranked
                     except Exception as exc:
                         states["anchor_rank"]["done"][key] = {
