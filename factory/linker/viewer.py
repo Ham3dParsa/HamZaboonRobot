@@ -475,6 +475,8 @@ def _resolve_wordnet_def(winner_key, winner_def_resolver):
     ''
     >>> _resolve_wordnet_def("run%2:99:99::", {"run%2:38:01::": "move along"})
     ''
+    >>> _resolve_wordnet_def("run%2:38:01::", {"run%2:38:01::": 123})
+    ''
     """
     if not winner_key or winner_key == "-" or winner_def_resolver is None:
         return ""
@@ -485,7 +487,9 @@ def _resolve_wordnet_def(winner_key, winner_def_resolver):
             hit = winner_def_resolver(winner_key)
     except Exception:
         return ""
-    text = (hit or "").strip()
+    if not isinstance(hit, str):
+        return ""
+    text = hit.strip()
     return text if text and text != "-" else ""
 
 
