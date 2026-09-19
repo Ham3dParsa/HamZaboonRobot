@@ -66,7 +66,7 @@ on `W:` — only the tags ship.
 
 ## Gallery viewer (`viewer.py`, stdlib only)
 
-Flowtrace gallery (`GALLERY_VERSION = 4.0.0`): one card per sense — S-flow
+Flowtrace gallery (`GALLERY_VERSION = 4.1.0`): one card per sense — S-flow
 3-col RTL flow (input → signals → gates → judge → decision), verdict-first
 wires + status badges, unanimous/concordant/split tiers, sticky toolbar with
 filter+search panel, per-record export capsule. Footer carries the dated

@@ -66,3 +66,7 @@ LINK counts.
   wires/badges, concordant tier, sticky toolbar+close, export redesign,
   certainty-language removal, candidate fallback, NFKC parity, None-crash
   guard, single-source vocab).
+- **Gallery 4.1.0 (2026-09-19):** run version display (`viewer` + `data`
+  labels, majority-never-wins), canonical-quorum counting, failed-vote hold
+  (FAILED beats LINK on wires and status), per-record export with row_ref,
+  support-quote fallbacks (never bare def), hermetic font embedding.

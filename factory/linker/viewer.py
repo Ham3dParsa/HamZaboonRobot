@@ -2399,8 +2399,20 @@ _FONT_FILES = (
 def _font_face_css():
     """Base64 @font-face block for Vazirmatn Regular(400)+Bold(700).
 
-    >>> css = _font_face_css()
+    Fail-soft (offline law): missing files yield "" — the page falls
+    back to the system font stack unchanged. Hermetic: the live call
+    asserts only ``str`` (fonts exist on Windows, not on Linux CI);
+    the embedded path is covered with mocked ``Path.read_bytes``.
+
+    >>> isinstance(_font_face_css(), str)
+    True
+    >>> from unittest.mock import patch as _patch
+    >>> with _patch("factory.linker.viewer.Path.read_bytes",
+    ...             return_value=b"fake-font-bytes"):
+    ...     css = _font_face_css()
     >>> "@font-face" in css and "Vazirmatn" in css
+    True
+    >>> "ZmFrZS1mb250LWJ5dGVz" in css  # base64(b"fake-font-bytes")
     True
     """
     import base64
