@@ -1,4 +1,4 @@
-"""S1 sense pruner (single owner of the S1 prune chain).
+"""Sense-screening pruner (single owner of the sense-screening prune chain).
 
 Pipeline position: AFTER the Kaikki index read, BEFORE the linker feed.
 Input = one lemma's file-order sense dicts (raw Kaikki shapes tolerated:
@@ -235,7 +235,7 @@ def dedup_twins(senses, lemma=""):
 
 
 def prune_senses(senses, lemma=""):
-    """Full S1 chain R2 -> R4 -> R3. Returns (kept, dropped, stats).
+    """Full sense-screening chain R2 -> R4 -> R3. Returns (kept, dropped, stats).
 
     ``stats`` = {"total", "kept", "dropped", "topics_seen",
     "reason_counts"} (twin drops count under the ``twin-of`` base key).

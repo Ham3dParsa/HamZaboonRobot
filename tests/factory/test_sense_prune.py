@@ -1,4 +1,4 @@
-"""S1 sense pruner: R2 hard drops, R3 twin dedup, R4 niche guard.
+"""Sense-screening pruner: R2 hard drops, R3 twin dedup, R4 niche guard.
 
 Hermetic: synthetic fixtures only (no Kaikki dump, no network).
 """
