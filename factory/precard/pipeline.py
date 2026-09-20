@@ -392,6 +392,41 @@ def _reason_slug(reason):
     return str(reason or "").split(":")[0].strip() or "unknown"
 
 
+def _format_gate_counts(gate_counts):
+    """One-line GATE counter text for the stage box (R3, pure).
+
+    "gates LINK=3 | fires SplitVoteVeto=1 | SQ-would-fire=0".
+    Hostile shapes render as zeros (the summary never crashes).
+    """
+    try:
+        verdicts = (gate_counts or {}).get("verdicts") or {}
+        fires = (gate_counts or {}).get("fires") or {}
+        would = (gate_counts or {}).get("signal_quality_would_fire", 0)
+    except AttributeError:
+        verdicts, fires, would = {}, {}, 0
+    try:
+        verdict_seg = " ".join(
+            "%s=%d" % (name, int(n))
+            for name, n in sorted(verdicts.items()))
+    except (TypeError, ValueError):
+        verdict_seg = ""
+    try:
+        fire_seg = " ".join(
+            "%s=%d" % (name, int(n))
+            for name, n in sorted(fires.items()))
+    except (TypeError, ValueError):
+        fire_seg = ""
+    try:
+        would_n = int(would)
+    except (TypeError, ValueError):
+        would_n = 0
+    parts = ["gates %s" % (verdict_seg or "none")]
+    if fire_seg:
+        parts.append("fires %s" % fire_seg)
+    parts.append("SQ-would-fire=%d" % would_n)
+    return " | ".join(parts)
+
+
 # Issue #730: the entry band is the lemma's pool_level at sampling time
 # (the sample item's pool_level, uppercased). Kept rows already carry it
 # (precard.jsonl pool_level); dropped lemmas carry no senses, so the band
@@ -494,7 +529,7 @@ def survival_per_band(entry_bands, kept_keys):
 
 
 def _stage_summary(stage, states, out_path, quiet=False, counts=None,
-                   entry_bands=None):
+                   entry_bands=None, gate_counts=None):
     """English stage box on stdout + full multilingual details to file.
 
     R11 split: the box is human/stdout (silent under --quiet); the
@@ -504,6 +539,9 @@ def _stage_summary(stage, states, out_path, quiet=False, counts=None,
     ``entry_bands`` (optional {key: band} from build_entry_bands) appends
     the " [entry=BAND]" suffix to drop lines (#730); None keeps the
     legacy "key: reason" lines (old proofs stay readable).
+    ``gate_counts`` (optional _count_enrich_gates output) appends the
+    GATE counter line to the box (enrich only); None keeps the legacy
+    box unchanged.
     """
     from collections import Counter
     done = states.get(stage, {}).get("done", {}) or {}
@@ -572,6 +610,14 @@ def _stage_summary(stage, states, out_path, quiet=False, counts=None,
             "green" if not failed else "yellow"))
         if cache:
             print(_color("CACHE file hits=%d" % cache, "cyan"))
+        if gate_counts is not None:
+            # R3 row-surfacing: enrich gate-fire counters (additive box
+            # line only — nothing dropped, gates annotate). Hostile
+            # shapes render as zeros, never crash the summary.
+            print(_color("[STAGE %s] %s" % (
+                progress.display(stage),
+                _format_gate_counts(gate_counts)),
+                "green" if not failed else "yellow"))
     if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
@@ -2011,7 +2057,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     primary = enrich_item(
                         item, states["sense_judge"]["done"].get(key) or {},
                         index, read_entry, tatoeba_pool,
-                        phrase_entry=phrase_entry)
+                        phrase_entry=phrase_entry,
+                        gate_ctx=_build_gate_ctx(
+                            item,
+                            states["sense_judge"]["done"].get(key) or {},
+                            states["anchor_rank"]["done"].get(key) or {}))
                     # v14.1: every fanned-out pick enriches independently
                     # (own IPA/examples/CEFR/pre_card_id, dataset-only).
                     extras = []
@@ -2021,7 +2071,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             continue
                         extras.append(enrich_item(
                             item, sub, index, read_entry, tatoeba_pool,
-                            phrase_entry=phrase_entry))
+                            phrase_entry=phrase_entry,
+                            gate_ctx=_build_gate_ctx(
+                                item, sub,
+                                states["anchor_rank"]["done"].get(key)
+                                or {})))
                     if extras:
                         primary["extra"] = extras
                     states["enrich"]["done"][key] = primary
@@ -2029,12 +2083,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             # Deterministic stage: <1s per batch, no progress bar by design
             # (LLM stages use _batch_progress for live per-batch feedback).
         _s5_ok = len(states["enrich"]["done"])
+        # R3 row-surfacing: gate-fire counters aggregate over primary +
+        # extras payloads (additive keys only — card content untouched).
+        _gate_counts = _count_enrich_gates(states["enrich"]["done"])
         run_logger.stage_end("enrich", ok=_s5_ok, fail=0)
-        jlog.event("stage_end", stage="enrich", ok=_s5_ok, fail=0)
+        jlog.event("stage_end", stage="enrich", ok=_s5_ok, fail=0,
+                   gate_counts=_gate_counts)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
                                      run_id=run_id)
         _stage_summary("enrich", states, args.out, quiet=quiet,
-                       entry_bands=entry_bands)
+                       entry_bands=entry_bands,
+                       gate_counts=_gate_counts)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         # v14.1 (R1): one row per judged pick — the lemma fans out into
         # N independent precard records (own pre_card_id, topic vector,
@@ -2336,6 +2395,98 @@ def _needs_fanout_reenrich(s5_entry, s2_entry):
         return False
 
 
+def _build_gate_ctx(item, sub_pick, anchor_entry=None):
+    """Honest gate signals for one enrich call (R1 row-surfacing seam).
+
+    Built ONLY from genuinely available data at the pipeline enrich
+    call sites: the item lemma text, the sub pick's gloss/sense_id,
+    and the picked sense's rank among the stored anchor_rank
+    candidates (linear scan of the done entry — no recomputation).
+    Keys NEVER synthesized here (no jaccard/votes/quality fires, no
+    LLM, no network): a missing signal is simply absent, and the
+    enrich gates fail open to LINK on absent keys (F3 lock). Pure,
+    deterministic, never raises.
+    """
+    ctx = {}
+    try:
+        lemma = ((item or {}).get("text") or "").strip()
+    except Exception:
+        lemma = ""
+    if lemma:
+        ctx["lemma"] = lemma
+    try:
+        gloss = ((sub_pick or {}).get("gloss") or "")
+    except Exception:
+        gloss = ""
+    try:
+        if str(gloss or "").strip():
+            ctx["winner_gloss"] = gloss
+    except Exception:
+        pass
+    try:
+        sid = (sub_pick or {}).get("sense_id", "")
+        cands = (anchor_entry or {}).get("candidates") or []
+        if sid and isinstance(cands, list):
+            for pos, cand in enumerate(cands):
+                if isinstance(cand, dict) \
+                        and cand.get("sense_id") == sid:
+                    ctx["rank_index"] = pos
+                    break
+    except Exception:
+        pass
+    return ctx
+
+
+def _count_enrich_gates(enrich_done):
+    """Aggregate gate-fire counters over enrich payloads (R3 telemetry).
+
+    Tallies per-verdict counts, per-gate veto fires, and
+    signal_quality would-fires across primary payloads AND fanned-out
+    extras. Unknown shapes fail open (skipped, never crash the run).
+    Pure, deterministic.
+    """
+    verdicts: dict = {}
+    fires: dict = {}
+    would = 0
+
+    def _tally(payload):
+        nonlocal would
+        if not isinstance(payload, dict):
+            return
+        try:
+            verdict = payload.get("gate_verdict", "LINK")
+        except Exception:
+            return
+        verdicts[str(verdict)] = verdicts.get(str(verdict), 0) + 1
+        try:
+            for fire in payload.get("gate_fires") or []:
+                name = str(fire)
+                fires[name] = fires.get(name, 0) + 1
+        except Exception:
+            pass
+        try:
+            if payload.get("signal_quality_would_fire"):
+                would += 1
+        except Exception:
+            pass
+
+    try:
+        entries = (enrich_done or {}).values()
+    except AttributeError:
+        entries = []
+    for payload in entries:
+        _tally(payload)
+        try:
+            extras = (payload or {}).get("extra") or []
+        except Exception:
+            extras = []
+        if isinstance(extras, list):
+            for extra in extras:
+                _tally(extra)
+    return {"verdicts": verdicts, "fires": fires,
+            "signal_quality_would_fire": would}
+
+
 def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
                        vec3, pick, preprocess_view, s0b, s1r,
                        pos, n, label_calls=None):
@@ -2385,6 +2536,11 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
         or TOPIC_METHOD,
         "topic_path": sub_label.get("topic_path") or "",
         "topic_guarded": bool(sub_label.get("topic_guarded", False)),
+        "gate_verdict": sub_enrich.get("gate_verdict", "LINK"),
+        "gate_fires": list(sub_enrich.get("gate_fires") or []),
+        "gate_reasons": dict(sub_enrich.get("gate_reasons") or {}),
+        "signal_quality_would_fire": bool(
+            sub_enrich.get("signal_quality_would_fire", False)),
         "drop_reason": None,
         "stage_calls": {
             "s0": ("kept:type-pending" if preprocess_view.get("type_pending")
@@ -2406,6 +2562,12 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
         rec["quarantine"] = preprocess_view["quarantine"]
     if (pick.get("proper_route") or ""):
         rec["proper_route"] = pick["proper_route"]
+    if "signal_quality_reason" in sub_enrich:
+        # Annotation-only (SignalQuality never routes): surfaced only
+        # when the enrich payload carries it, so legacy payloads keep
+        # their sparse row shape (R4 resume-compat).
+        rec["signal_quality_reason"] = str(
+            sub_enrich.get("signal_quality_reason") or "")
     return rec
 
 
