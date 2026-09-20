@@ -304,7 +304,7 @@ def se_fires(value, cut=SE_CUT):
     return value >= cut
 
 
-def se_veto(se_value, families, generic_free, is_exact, floor=SE_VETO_FLOOR):
+def operational_signal_veto(se_value, families, generic_free, is_exact, floor=SE_VETO_FLOOR):
     """FIX3 veto: Se<floor demotes only single-family, generic-verb-free,
     non-exact-sensekey LINK candidates.
 
@@ -312,13 +312,13 @@ def se_veto(se_value, families, generic_free, is_exact, floor=SE_VETO_FLOOR):
     multi-family) NOT vetoed; exact-sensekey run-row NOT vetoed; luck
     (Se 0.633) NOT vetoed:
 
-    >>> se_veto(0.305, {"consist", "exist"}, True, False)
+    >>> operational_signal_veto(0.305, {"consist", "exist"}, True, False)
     False
-    >>> se_veto(0.20, {"bring"}, True, True)
+    >>> operational_signal_veto(0.20, {"bring"}, True, True)
     False
-    >>> se_veto(0.633, {"period"}, True, False)
+    >>> operational_signal_veto(0.633, {"period"}, True, False)
     False
-    >>> se_veto(0.30, {"period"}, True, False)
+    >>> operational_signal_veto(0.30, {"period"}, True, False)
     True
     """
     if is_exact:
@@ -520,7 +520,7 @@ def decide(kid, best_key, fires, *, ultra_short=False, is_twin=False,
             | {word for fire in fires if fire.startswith("Sd:") and "=" in fire for word in norm_tokens(fire.split("=", 1)[1])}
         )
         generic_free = not (pre_words & GENERIC_VERBS)
-        if se_veto(se_value, families, generic_free, is_exact):
+        if operational_signal_veto(se_value, families, generic_free, is_exact):
             return {
                 "sensekey": best_key,
                 "method": "JUDGE-PENDING",

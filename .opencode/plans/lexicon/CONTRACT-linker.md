@@ -107,3 +107,32 @@ candidate authority).
    RECORDED 2026-09-18 §(1) stands).
 **Loader explicitly deferred:** no Oxford data source is pinned, so no
 loader ships; the changelog NO-GO stands until a source is locked.
+
+## ADDENDUM 2026-09-20 — LocalArbiterStage implementation location (R3)
+
+**Note:** LocalArbiterStage is the stage name; its implementation lives in
+scratch judge-batch builders outside the repo (no repo class). Do not invent
+a repo class for it.
+
+## ADDENDUM 2026-09-20 — Ubiquitous language + metric formulas (R6)
+
+**Ubiquitous language (locked scope: 5 nodes + 4 definitions):** the
+canonical stage/gate vocabulary is LocalArbiterStage +
+LowRankZeroOverlapVeto / EvidenceGlossMismatchVeto / SplitVoteVeto /
+SignalQualityVeto (ADOPTED 2026-09-19 stands). Node/definition prose beyond
+these locked names was not supplied in this lock — recorded here as scope
+only, no new semantics invented.
+
+**Metric formulas (exact denominators locked):**
+
+- LINK_Retention denominator = 73 (LINK total post-R5)
+- NONE_Containment denominator = 65 (NONE total post-R5)
+- Arbiter_Consensus denominator = 15 (escapes)
+- Queue_Integrity denominator = 15 (escapes)
+
+Recorded inference (NOT locked prose — owner to confirm verbatim
+numerators): LINK_Retention = retained-LINK / 73; NONE_Containment =
+contained-NONE / 65; Arbiter_Consensus and Queue_Integrity are ratios over
+the 15 escapes. Exact numerator semantics need owner verbatim; no formula
+rewrite without a new explicit lock. Append-only; no prior section
+rewritten.
