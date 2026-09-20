@@ -80,3 +80,30 @@ F3 contract is LOCKED: R1–R8 + T1–T5 (prior) + v0.8 gate-core (LowRankZeroOv
 - D-* product rules (plan-precard-quality-141.md): bridge-target 70%+, no-fake-label, sense-id-integrity, quorum pending, trial deferred, zen retired.
 - D-no-fake-label restated for this line: no row ships a label below its evidence; UNMAPPED/NONE are verdicts, not failures.
 Addendum 2026-09-20 (feat/row-surface-gate-ctx): gate_ctx row-surfacing locked — honest signals only at enrich call sites, rows carry gate_verdict/gate_fires/gate_reasons/signal_quality_would_fire(+reason), enrich stage aggregates gate counters, no backfill of legacy states, SignalQuality stays log-only (F3 lock stands).
+
+## LOCKED 2026-09-20 — G6 Oxford bounds (owner: "locked")
+
+**Rule:** Oxford joins as Domain/Topic Validator ONLY — never as an
+independent candidate source (no Oxford-born candidates, no Oxford link
+targets; the WordNet key graph + synonym/antonym network stays the sole
+candidate authority).
+
+1. **oxford-domain-prior:** fires ONLY on an exact Oxford↔Kaikki
+   topic-tag match for the same sense. Near-matches, partial overlaps,
+   and reworded equivalents do NOT fire.
+2. **Register Mismatch Guard:** the guarded register set is exactly
+   {archaic, historical, slang, vulgar, formal} — a WordNet candidate
+   contradicting the sense's listed register is vetoed.
+   Out-of-everyday-domain senses are stopped at pre-screen and NEVER
+   reach the arbiter. Tags outside the listed set are ignored (no
+   veto, no prior).
+3. **No Proxy:** absent Oxford metadata fails OPEN — no synthetic
+   values are ever invented to fill the gap (same preserve rule as the
+   F3 gate-core: missing data never routes).
+4. **TOPIC BOUNDARY (owner-locked):** Oxford signals are internal
+   linker-assist features ONLY and MUST NEVER propagate as precard
+   topic metadata or into learner-facing cards. The precard topic
+   taxonomy stays independent (our topics come only from our judge —
+   RECORDED 2026-09-18 §(1) stands).
+**Loader explicitly deferred:** no Oxford data source is pinned, so no
+loader ships; the changelog NO-GO stands until a source is locked.
