@@ -35,6 +35,7 @@ EXPECTED_KEYS = {
     "head_sha",
     "built_at_commit",
     "fresh",
+    "dirty",
     "changed_symbols",
     "blast_radius",
     "wiring_delta",
@@ -131,6 +132,29 @@ class ReviewBlastRadiusShapeTest(unittest.TestCase):
             self.assertEqual(set(row.keys()),
                              {"symbol", "callers", "callees", "via"})
             self.assertTrue(row["via"].startswith("ast-scan"))
+
+
+    def test_dirty_flag_present_and_boolean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "review-context.json")
+            code = rbr.main(["--base", "HEAD", "--out", out,
+                             "--no-graph", "--no-probes"])
+            self.assertEqual(code, 0)
+            context = json.loads(Path(out).read_text(encoding="utf-8"))
+        self.assertIn("dirty", context)
+        self.assertIsInstance(context["dirty"], bool)
+
+    def test_is_dirty_reads_porcelain(self):
+        from unittest import mock
+
+        with mock.patch.object(rbr, "_run",
+                               return_value=(0, " M foo.py\n", "")):
+            self.assertTrue(rbr._is_dirty())
+        with mock.patch.object(rbr, "_run", return_value=(0, "", "")):
+            self.assertFalse(rbr._is_dirty())
+        with mock.patch.object(rbr, "_run",
+                               return_value=(128, "", "not a repo")):
+            self.assertTrue(rbr._is_dirty())
 
 
 class ChangedSymbolExtractionTest(unittest.TestCase):

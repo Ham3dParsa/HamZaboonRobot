@@ -47,6 +47,8 @@ Findings must include:
 Output contract additions (graphify blast-radius, still read-only):
 - Open with exactly one line: `GRAPH: FRESH` or `GRAPH: STALE` (freshness of
   `review-context.json` against HEAD; no context file means `GRAPH: STALE`).
+  `fresh:true` with `dirty:true` means approximate — treat as STALE for
+  evidence (graph hint only).
 - Include a `Blast-radius:` block (triggers fired plus affected symbols, or
   `Blast-radius: N/A (no trigger)`). A missing `GRAPH:` line or missing
   `Blast-radius:` block means the gate is red.
