@@ -124,7 +124,7 @@ def test_split_vote_veto_missing_votes_preserves():
 
 
 def test_signal_quality_rank2_quality_beats_rank1():
-    would, reason = gates.signal_quality_would_fire(
+    would, reason = gates.shadow_signal_quality_veto(
         rank1_fires=["Sd:hyp=move"],
         rank2_fires=["Sb:source", "Sd:hyp=light"])
     assert would is True
@@ -132,22 +132,22 @@ def test_signal_quality_rank2_quality_beats_rank1():
 
 
 def test_signal_quality_rank1_generic_only():
-    would, _ = gates.signal_quality_would_fire(
+    would, _ = gates.shadow_signal_quality_veto(
         rank1_fires=["Sd:hyp=move"],
         rank2_fires=["Sd:hyp=period"])
     assert would is True
 
 
 def test_signal_quality_clean_pair_quiet():
-    would, _ = gates.signal_quality_would_fire(
+    would, _ = gates.shadow_signal_quality_veto(
         rank1_fires=["Sa:j=0.27", "Sb:source"],
         rank2_fires=["Sd:hyp=move"])
     assert would is False
 
 
 def test_signal_quality_empty_inputs_quiet():
-    assert gates.signal_quality_would_fire([], [])[0] is False
-    assert gates.signal_quality_would_fire(None, None)[0] is False
+    assert gates.shadow_signal_quality_veto([], [])[0] is False
+    assert gates.shadow_signal_quality_veto(None, None)[0] is False
 
 
 def test_apply_enforcing_split_routes_escalate_never_direct_link():

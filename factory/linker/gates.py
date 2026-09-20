@@ -205,7 +205,7 @@ def _is_generic_only(fires):
     return bool(cleaned) and all(f.startswith("Sd:hyp=") for f in cleaned)
 
 
-def signal_quality_would_fire(rank1_fires, rank2_fires):
+def shadow_signal_quality_veto(rank1_fires, rank2_fires):
     """SignalQualityVeto (LOG-ONLY): would-block iff rank-2 beats rank-1.
 
     Fires when rank-2 carries a higher-quality signal (Sb: or
@@ -263,7 +263,7 @@ def apply_v08_gates(ctx):
     if split_fired:
         fires.append(SPLIT_VOTE_VETO)
 
-    would_fire, quality_reason = signal_quality_would_fire(
+    would_fire, quality_reason = shadow_signal_quality_veto(
         ctx.get("rank1_fires"), ctx.get("rank2_fires"))
 
     return {
