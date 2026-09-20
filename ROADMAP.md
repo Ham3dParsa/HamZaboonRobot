@@ -493,10 +493,11 @@ where explicitly noted; everything else in this document stays in force.
   Silent improv answers are banned from the study path.
 - **Push Policy v1 (L1) — BREAKS the old "no push delivery" lock.**
   Sessions are still learner-started, but Duolingo-style return nudges are
-  allowed: max one nudge/day, quiet hours, user opt-out, nudge content only
+  allowed: max 2 nudges/day, max 1 per window, quiet hours, user opt-out,
+  nudge content only
   (streak at risk, backlog) — never card content. Retires: "no push
   delivery" (Locked Product Decisions) and the retired-push list to the
-  extent it bans nudges.
+  extent it bans nudges. (Cap raised 1→2 by owner lock 2026-09-17, #467.)
 - **Pooling deferral (DAU ≥ 50) is OBSOLETE — broken.** The study core is now
   pool-driven; pooling cannot be deferred. The old trigger condition is
   retired.
