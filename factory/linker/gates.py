@@ -148,7 +148,7 @@ def evidence_gloss_mismatch_veto(winner_gloss, wordnet_evidence, j):
     data). Returns (fired, reason).
     """
     overlap = _as_float(j)
-    if overlap is not None and (overlap >= BAILOUT_J or overlap == 1.0):
+    if overlap is not None and overlap >= BAILOUT_J:
         return (False, "bailout:j>=0.20:skip")
     if not winner_gloss or not wordnet_evidence:
         return (False, "missing-gloss-or-evidence:preserve")
