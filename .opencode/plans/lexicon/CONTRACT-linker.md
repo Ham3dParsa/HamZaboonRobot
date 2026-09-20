@@ -170,3 +170,17 @@ covers the enrich-payload keys; the full row additionally carries
 deterministic tag joins this list by
 append-only amendment here — never by silent payload growth.
 Append-only; no prior section rewritten.
+
+## LOCKED 2026-09-20 — Stage foundation (S1–S5 multilingual base)
+
+- **E1 example-supply chain:** Kaikki → lemma → Tatoeba, in that order.
+  Oxford/EVP act ONLY as CEFR signals/metadata; no Oxford example text is
+  ever extracted or stored (license doctrine: benchmark-only).
+- **E2 stage-3 taxonomy:** `card_type ∈ {word, phrase, acronym}` is the
+  official schema triple. The vulgar filter stays a register/drop signal
+  only — never a card type.
+- **E3 standard lists as seed-lists:** lists like Oxford 3000 or TOEFL are
+  lemma seed-lists for the sampler ONLY; the keyword/text store is
+  exclusively Kaikki.
+- Open (explicitly not closed): S5 transfer bridge; tier-3 runtime node;
+  multilingual packs (DE/TR post-beta per ROADMAP).
