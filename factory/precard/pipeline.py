@@ -2030,6 +2030,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("enrich")
         jlog.event("stage_start", stage="enrich")
+        # HQ seam: veto-fired rows enriched in THIS run flush once to
+        # the human queue after the stage (resume-skipped keys are not
+        # re-enriched, so they are not re-flushed — no resume dupes).
+        hq_pending = []
         for batch_no, base in enumerate(
                 _stage_range(selected, "enrich", items), start=1):
             batch = items[base:base + BATCH]
@@ -2079,6 +2083,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if extras:
                         primary["extra"] = extras
                     states["enrich"]["done"][key] = primary
+                    hq_pending.append((item, primary))
+                    for extra in extras:
+                        hq_pending.append((item, extra))
             _flush(progress_dir, states)
             # Deterministic stage: <1s per batch, no progress bar by design
             # (LLM stages use _batch_progress for live per-batch feedback).
@@ -2094,6 +2101,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _stage_summary("enrich", states, args.out, quiet=quiet,
                        entry_bands=entry_bands,
                        gate_counts=_gate_counts)
+        # HQ flush (additive: card rows/states untouched; HQ7 failures
+        # warn via _warn + json-log and never fail the run).
+        try:
+            _hq_sink_arg = (getattr(args, "human_queue_path", "") or "")
+            _hq_sink = (pathlib.Path(_hq_sink_arg) if _hq_sink_arg.strip()
+                        else _default_human_queue_sink(args.out))
+        except Exception as exc:
+            _warn("warning: human queue sink unresolved (%s) — "
+                  "queue skipped, run continues" % exc)
+            _hq_sink = None
+        if _hq_sink is not None:
+            _hq_n = _flush_human_queue(hq_pending, _hq_sink, warn_fn=_warn)
+            if _hq_n:
+                jlog.event("human_queue", sink=str(_hq_sink),
+                           queued=_hq_n)
+                run_logger.log("human queue: %d veto row(s) -> %s"
+                               % (_hq_n, _hq_sink))
         # Assemble output (survivors only; drops live in s0/s1 progress).
         # v14.1 (R1): one row per judged pick — the lemma fans out into
         # N independent precard records (own pre_card_id, topic vector,
@@ -2333,6 +2357,11 @@ def parse_args(argv=None):
                     help="write machine-readable run_events.jsonl beside "
                     "--out (run/stage/batch/warning events, every event "
                     "run_id-joined)")
+    ap.add_argument("--human-queue-path", default="",
+                    help="human escalation queue sink (default: "
+                    "<out-dir>/reports/linker/"
+                    "human_escalation_queue.jsonl; veto-fired enrich rows "
+                    "append one JSONL line each, failures warn only)")
     ap.add_argument("--tele-attempts", action="store_true",
                     help="emit per-try telemetry attempt rows (default off: "
                     "one terminal record per batch, attempt volume "
@@ -2485,6 +2514,129 @@ def _count_enrich_gates(enrich_done):
                 _tally(extra)
     return {"verdicts": verdicts, "fires": fires,
             "signal_quality_would_fire": would}
+
+
+def _default_human_queue_sink(out_path):
+    """Default HQ sink: <out-dir>/reports/linker/human_escalation_queue.jsonl.
+
+    Resolved against the run output root (the ``--out`` parent), never
+    the repo root — hermetic runs and tmp dirs stay self-contained.
+    Pure, deterministic.
+    """
+    return (pathlib.Path(str(out_path)).parent / "reports" / "linker"
+            / "human_escalation_queue.jsonl")
+
+
+def _human_queue_record(item, payload):
+    """HQ record for one veto-fired enrich payload (None when not queued).
+
+    Queued iff ``gate_fires`` is non-empty (veto-fired; a
+    SignalQuality would-fire alone never enqueues while log-only).
+    Identity comes from the item lemma + payload pos/sense_id; the
+    escalation reason joins the fires in stored order. Nullable extras
+    stay empty — the online path carries no jaccard/votes. Never
+    raises (rows missing identity are skipped, never fail the run).
+    """
+    try:
+        if not isinstance(payload, dict):
+            return None
+        fires = [str(f) for f in (payload.get("gate_fires") or [])
+                 if str(f or "").strip()]
+        if not fires:
+            return None
+        lemma = ((item or {}).get("text") or "").strip()
+        sense_id = str(payload.get("sense_id") or "").strip()
+        pos = ""
+        try:
+            tags = payload.get("pos") or []
+            if isinstance(tags, (list, tuple)) and tags:
+                pos = str(tags[0] or "").strip()
+        except Exception:
+            pos = ""
+        if not pos:
+            try:
+                pos = str(((item or {}).get("pos") or "")).strip()
+            except Exception:
+                pos = ""
+        if not lemma or not pos or not sense_id:
+            return None
+        try:
+            reasons = dict(payload.get("gate_reasons") or {})
+        except Exception:
+            reasons = {}
+        try:
+            sq_fire = bool(payload.get("signal_quality_would_fire", False))
+        except Exception:
+            sq_fire = False
+        try:
+            sq_reason = str(payload.get("signal_quality_reason") or "")
+        except Exception:
+            sq_reason = ""
+        try:
+            verdict = str(payload.get("gate_verdict") or "LINK")
+        except Exception:
+            verdict = "LINK"
+        return {
+            "lemma": lemma,
+            "pos": pos,
+            "sense_id": sense_id,
+            "escalation_reason": ",".join(fires),
+            "source_entry": {
+                "lemma": lemma, "pos": pos, "sense_id": sense_id,
+                "gloss": str(payload.get("en_def") or ""),
+            },
+            "candidates": [],
+            "signals_trace": {
+                "gate_verdict": verdict,
+                "gate_reasons": reasons,
+                "signal_quality_would_fire": sq_fire,
+                "signal_quality_reason": sq_reason,
+            },
+            "arbiter_trace": None,
+        }
+    except Exception:
+        return None
+
+
+def _flush_human_queue(pending, sink_path, warn_fn=None):
+    """Append queued veto rows to the HQ sink (HQ7: never fails the run).
+
+    ``pending`` is a list of ``(item, payload)`` pairs enriched in this
+    run (primary + fanned-out extras). Enqueue failures (validation or
+    I/O via :class:`HumanQueueError`, or anything unexpected) warn via
+    ``warn_fn`` and continue. Empty pending writes nothing (no file
+    side-effect for veto-free runs). Returns the queued count.
+    """
+    if not pending:
+        return 0
+    try:
+        from factory.linker import human_queue as _hq
+    except Exception as exc:
+        if warn_fn is not None:
+            try:
+                warn_fn("warning: human queue unavailable (%s)" % exc)
+            except Exception:
+                pass
+        return 0
+    queued = 0
+    for item, payload in pending:
+        record = _human_queue_record(item, payload)
+        if record is None:
+            continue
+        try:
+            _hq.enqueue_escalation(record, sink_path)
+            queued += 1
+        except Exception as exc:
+            if warn_fn is not None:
+                try:
+                    warn_fn("warning: human queue enqueue failed "
+                            "(%s sense %s: %s) — row kept, run continues"
+                            % (record.get("lemma"),
+                               record.get("sense_id"), exc))
+                except Exception:
+                    pass
+            continue
+    return queued
 
 
 def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
