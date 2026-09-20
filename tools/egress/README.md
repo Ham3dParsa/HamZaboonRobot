@@ -42,7 +42,7 @@ itself only cools per-server).
 
 ## Whitelist home (P1)
 
-Rank/choose/guard/writer live in `factory/precard/net.py` (pure,
+Rank/choose/guard/writer live in `factory/precard/provider_lease_policy.py` (pure,
 hermetic): `build_probe_rows` (rank + top-N), `order_pool_by_rank` +
 `order_google_first` (choose), `should_save_whitelist`
 (never-overwrite-empty), `write_pool_file` (the ONLY `egress_pool.json`

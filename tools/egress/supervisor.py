@@ -13,7 +13,8 @@ Endpoints (127.0.0.1 only):
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
                                               egress_ip, provider, target}
   POST /v1/report {lease_id, outcome, provider?} -> {action}
-Targets (TARGETS table, owned by factory/precard/net.py and imported
+Targets (TARGETS table, owned by factory/precard/provider_lease_policy.py
+and imported
 here — this module only attaches its live zen/google probe functions):
 "direct" (no tunnel, provider None),
 "avalai" (domestic: no tunnel, provider avalai), "zen" / "google" /
