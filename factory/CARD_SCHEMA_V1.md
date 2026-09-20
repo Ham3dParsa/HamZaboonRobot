@@ -54,3 +54,27 @@ Current `saved_words` DDL (`services/db/schema.py`) has NO
 `sense_id / cefr / topics / card_type / pack_id` columns — the card payload
 is opaque `card_data TEXT`. MS-1 must add the migration + reader; the column
 names MUST match §1–§3 (single source of truth).
+
+## 6. Pack scope clarification (R-acro, locked 2026-09-20 — additive, §1–§3 frozen lines untouched)
+
+Downstream-reader check 2026-09-20 (`pack_id|origin_pack_id|
+pack_memberships` over `factory/ services/ handlers/ config/ bot.py`):
+zero `.py` readers — `pack_id` appears only in this doc (§3 `pack_id`,
+§5 gap list). No rename of shipped columns is needed; the meaning is
+clarified here without renaming:
+
+- `pack_id` (§3) / precard-row `origin_pack_id` (`factory.precard.
+  pipeline._build_precard_row`) both mean the ORIGIN pack — the pack
+  that introduced the card. A card keeps its origin pack id for life;
+  playlist assignment beyond origin lives in `pack_memberships.jsonl`,
+  never in a renamed column.
+- `pack_memberships.jsonl` (emitted beside the pack-build `--out`
+  when `--pack-id` is given, via `build_pack_memberships` +
+  `write_pack_memberships`): one row per emitted card —
+  `{card_id (= pre_card_id), pack_id, priority (int display order,
+  0-based over emitted rows), section (opaque pack-side string,
+  e.g. "Unit 1"), added_at (UTC `%Y-%m-%dT%H:%M:%SZ`)}`.
+- FSRS INVARIANT (locked): packs are playlists. FSRS state lives on
+  `(user_id, card_id)`; pack membership NEVER affects scheduling,
+  ordering for review, or due-state. No bot-DB pack tables/handlers
+  ship with this change (out of scope by lock).

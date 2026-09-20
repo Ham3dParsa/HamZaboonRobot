@@ -50,6 +50,23 @@ VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
 OBSOLETE_TAGS = {"obsolete", "archaic", "dated", "historical"}
 
 
+# R-acro (locked 2026-09-20): G4 abbreviation-gate dead-tag set. A tagged
+# abbreviation sense carrying one of these Kaikki tags is a
+# calendar/unit/element/currency reading, not a learnable abbreviation —
+# the tag leg drops it. Dataset truth, Kaikki tag spellings, casefolded
+# at match time (callers normalize tags before comparing).
+G4_DEAD_TAGS = frozenset({
+    "calendar", "unit_of_measure", "chemical_element", "currency",
+})
+
+
+# PROVISIONAL (locked 2026-09-20; revisit when phrase-CEFR data exists):
+# wordfreq zipf_frequency(text, "en") >= this passes a tagged
+# abbreviation as a real-word reading (FEB keeps company with frequent
+# words instead of dropping as an abbreviation stub).
+G4_ZIPF_PASS = 3.2
+
+
 REGISTER_META_RX = re.compile(r"^senses relating to\b")
 
 
@@ -1646,7 +1663,8 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             except Exception:
                 view = None
             if view and view.get("senses"):
-                reason, quarantine = _preprocess_input_gates(text, view)
+                reason, quarantine = _preprocess_input_gates(
+                    text, view, zipf_fn=zipf_fn)
                 if reason:
                     return {"kept": False, "reason": reason,
                             "type_pending": False}
@@ -1725,7 +1743,7 @@ def _preprocess_entry_view(item, index, read_entry):
     return {"senses": senses, "poss": poss}
 
 
-def _preprocess_input_gates(text, view):
+def _preprocess_input_gates(text, view, zipf_fn=None):
     """G2..G7 + brand-product input gates. Returns (drop_reason|None, quarantine|None).
 
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
@@ -1735,6 +1753,8 @@ def _preprocess_input_gates(text, view):
     Normalization is enforced HERE (not trusted from the caller): poss
     and per-sense tags are casefolded up front, so any entry_fn casing
     (Abbreviation, Interj) still matches.
+    zipf_fn injects the wordfreq lookup for the G4 leg (hermetic tests);
+    None uses default_zipf live. Lookup errors fail open to keep.
     """
     poss = {str(p or "").strip().casefold() for p in view.get("poss", set())}
     senses = []
@@ -1754,16 +1774,44 @@ def _preprocess_input_gates(text, view):
     _interj = {"interj", "intj", "interjection"}
     if poss and poss <= _interj:
         return "g3-interjection", None
-    # G4: abbreviations. All-caps fires on case-preserving samples
-    # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
-    # lowercased inputs. A lone lowercase single-abbrev sense is
-    # quarantined, not dropped (led).
+    # G4: abbreviations (reworked, locked 2026-09-20). The bulk
+    # all-caps drop is REMOVED — caps alone never carried meaning
+    # (BOOK/PLAY stay; case-preserving samples punished real words).
+    # Two-leg mechanical gate, applies only when at least one sense
+    # carries the "abbreviation" tag:
+    # (a) dead-tag filter: a sense carrying BOTH the "abbreviation"
+    # tag and a G4_DEAD_TAGS Kaikki tag (calendar / unit_of_measure /
+    # chemical_element / currency) drops the item. Scoped to
+    # abbreviation-tagged senses (OC review 2026-09-20) — an unrelated
+    # dead-tagged non-abbrev sense never sinks an abbrev item;
+    # (b) wordfreq standard-library zipf_frequency(text, "en") >=
+    # G4_ZIPF_PASS (3.2, PROVISIONAL — revisit when phrase-CEFR data
+    # exists) passes the item as a real-word reading.
+    # EXPLICIT fail-open: no dead tag + no wordfreq entry (None, or
+    # wordfreq 0.0 which means OOV — never a real score on this leg)
+    # survives; missing data never drops. A KNOWN-infrequent tagged
+    # abbrev (0 < zipf < 3.2) drops. A lone lowercase single-abbrev
+    # sense that survives is quarantined, not dropped (led).
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
-    # Caps alone never drops (BOOK/PLAY stay); caps + at least one abbrev
-    # tag, or every-sense-abbrev (multi-sense), drops.
-    if (re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or \
-            (senses and n_abbr == len(senses) and len(senses) > 1):
-        return "g4-abbrev", None
+    if n_abbr > 0:
+        if any(t in G4_DEAD_TAGS
+               for s in senses if "abbreviation" in s.get("tags", [])
+               for t in s.get("tags", [])):
+            return "g4-abbrev", None
+        try:
+            _g4_zipf = (zipf_fn or default_zipf)(text or "")
+        except Exception:
+            _g4_zipf = None
+        if isinstance(_g4_zipf, bool):
+            _g4_zipf = None
+        try:
+            _g4_z = None if _g4_zipf is None else float(_g4_zipf)
+        except (TypeError, ValueError):
+            _g4_z = None
+        if _g4_z is None or _g4_z <= 0:
+            pass  # fail-open: no wordfreq entry — survives
+        elif _g4_z < G4_ZIPF_PASS:
+            return "g4-abbrev", None
     if senses and len(senses) == 1 and n_abbr == 1:
         return None, "g4-abbrev"
     # G6: every sense obsolete.

@@ -8,6 +8,7 @@ code).
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
@@ -57,6 +58,187 @@ METHOD_POOL_FALLBACK = "pool-fallback"
 
 
 METHOD_UNMAPPED = "unmapped"
+
+
+METHOD_ZIPF_HEURISTIC = "zipf-heuristic"
+
+
+# PROVISIONAL thresholds (locked 2026-09-20; revisit when phrase-CEFR
+# data exists): zipf→CEFR fallback bands for card_type phrase rows ONLY
+# (the word bridge above stays sensekey-official). "acronym" is RESERVED
+# for the future acronym-pack producer — no live pipeline item carries
+# kind="acronym" today (items are "word"/"phrase"), so the set stays
+# phrase-only until that producer ships (OC review 2026-09-20). The locked
+# cut points are 4.2 and 3.2; each outer band names its calibration
+# pair and emits the pair's representative until calibration lands —
+# B1 for the A2/B1 band, C1 for the C1/C2 band. The method tag on every
+# row from this path is ALWAYS "zipf-heuristic", never wn-single,
+# wn-evp-gloss, or any official-sounding label.
+ZIPF_HEURISTIC_HIGH_CUT = 4.2  # >= this -> B1 (A2/B1 band)
+
+ZIPF_HEURISTIC_LOW_CUT = 3.2  # 3.2-4.2 -> B2; below -> C1 (C1/C2 band)
+
+
+ZIPF_HEURISTIC_KINDS = frozenset({"phrase"})
+
+
+# Distribution of rows passing through the zipf→CEFR fallback, counts
+# per band ("A2/B1", "B2", "C1/C2", "missing") — logged by the pipeline
+# enrich summary for future calibration. Process-local only (reset in
+# tests via reset_zipf_heuristic_dist).
+ZIPF_HEURISTIC_DIST: dict = collections.Counter()
+
+
+def reset_zipf_heuristic_dist():
+    """Clear the zipf→CEFR fallback distribution (tests / fresh runs)."""
+    ZIPF_HEURISTIC_DIST.clear()
+
+
+_ALPHA_TOKEN_RX = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+
+
+def phrase_zipf(text, zipf_fn):
+    """Phrase zipf for the heuristic: whole-phrase lookup first.
+
+    Lookups are casefolded before hitting wordfreq (matching
+    anchor.default_zipf) — "Hot Wheels" and "hot wheels" score the
+    same; library casing behavior is never relied on.
+    Returns the whole-phrase zipf when positive; else the min over
+    per-token zipfs (tokens with no wordfreq entry are skipped, never
+    zero-filled — a zero would drag the min to the floor on missing
+    data). None when nothing is known (caller stays unmapped, never
+    fabricates). zipf_fn(text) -> float|None (None/<=0 = no entry).
+    Never raises: hostile input fails open to None.
+    """
+    try:
+        get = zipf_fn
+        if get is None:
+            try:
+                from wordfreq import zipf_frequency
+
+                def get(term):
+                    try:
+                        return float(zipf_frequency(term, "en"))
+                    except Exception:
+                        return None
+            except Exception:
+                return None
+        try:
+            whole = get(str(text or "").strip().casefold())
+        except Exception:
+            whole = None
+        if isinstance(whole, bool):
+            whole = None
+        try:
+            whole_f = None if whole is None else float(whole)
+        except (TypeError, ValueError):
+            whole_f = None
+        if whole_f is not None and whole_f > 0:
+            return whole_f
+        tokens = _ALPHA_TOKEN_RX.findall(str(text or "").casefold())
+        known = []
+        for tok in tokens:
+            try:
+                value = get(tok.casefold())
+            except Exception:
+                continue
+            if isinstance(value, bool):
+                continue
+            try:
+                number = None if value is None else float(value)
+            except (TypeError, ValueError):
+                continue
+            if number is not None and number > 0:
+                known.append(number)
+        if not known:
+            return None
+        return min(known)
+    except Exception:
+        return None
+
+
+def zipf_heuristic_cefr(text, kind, zipf_fn=None):
+    """Zipf→CEFR fallback for phrase rows -> (cefr|None, method).
+
+    kind outside {"phrase"} (or missing data) returns
+    (None, METHOD_UNMAPPED) — the word path is untouched, and
+    kind="acronym" stays unmapped until the acronym-pack producer
+    ships (reserved, see ZIPF_HEURISTIC_KINDS). On the path,
+    method is ALWAYS METHOD_ZIPF_HEURISTIC ("zipf-heuristic", never
+    official). Bands (both cuts PROVISIONAL): >= 4.2 -> B1 (A2/B1
+    band), 3.2-4.2 -> B2, below -> C1 (C1/C2 band). Every call bumps
+    ZIPF_HEURISTIC_DIST[band] ("missing" on no data) for calibration
+    logging. Pure when zipf_fn is passed; None uses wordfreq live.
+    """
+    try:
+        norm_kind = str(kind or "").strip().casefold()
+    except Exception:
+        norm_kind = ""
+    if norm_kind not in ZIPF_HEURISTIC_KINDS:
+        return None, METHOD_UNMAPPED
+    value = phrase_zipf(text, zipf_fn)
+    if value is None:
+        ZIPF_HEURISTIC_DIST["missing"] += 1
+        return None, METHOD_UNMAPPED
+    if value >= ZIPF_HEURISTIC_HIGH_CUT:
+        ZIPF_HEURISTIC_DIST["A2/B1"] += 1
+        return "B1", METHOD_ZIPF_HEURISTIC
+    if value >= ZIPF_HEURISTIC_LOW_CUT:
+        ZIPF_HEURISTIC_DIST["B2"] += 1
+        return "B2", METHOD_ZIPF_HEURISTIC
+    ZIPF_HEURISTIC_DIST["C1/C2"] += 1
+    return "C1", METHOD_ZIPF_HEURISTIC
+
+
+# R4 verdict (locked 2026-09-20): EVP direct-mapping for phrase/acronym
+# rows is DROPPED — no dead path ships. Evidence measured 2026-09-20 on
+# factory/packs/en/evp_sense.json (2000 entries): 32 multiword entries
+# (credit card, dining room, ice cream, face to face, ...) but ZERO
+# overlap with the 500-row factory/packs/en/phrases.csv pool, and the
+# only all-caps entries are 10 rows over 2 ambiguous lemmas (ID —
+# Idaho vs id; DNA) — not acronym-pack coverage. A mapping built on
+# this would serve zero live rows. evp_phrase_acronym_coverage() below
+# re-checks this mechanically; rebuild the mapping ONLY on real
+# coverage hits (pack_hits > 0), never speculatively.
+def evp_phrase_acronym_coverage(evp=None, pack_phrases=()):
+    """Coverage check: does the EVP pack cover phrase/acronym rows?
+
+    evp: {lemma: [(guideword, cefr)]} (same shape as
+    load_evp_guidewords output; None loads the live pack). pack_phrases:
+    iterable of pool phrase strings to hit-test. Returns
+    {"evp_entries", "evp_multiword_entries", "evp_acronym_lemmas",
+    "pack_phrases", "pack_hits", "pack_hit_sample"} — pack_hits == 0
+    means no direct-mapping is justified (R4 DROP). Never raises.
+    """
+    try:
+        mapping = get_evp() if evp is None else evp
+    except Exception:
+        mapping = {}
+    if not isinstance(mapping, dict):
+        mapping = {}
+    try:
+        lemmas = [str(lemma) for lemma in mapping.keys()]
+    except Exception:
+        lemmas = []
+    multi = [lem for lem in lemmas if " " in lem.strip()]
+    acros = sorted({lem.strip() for lem in lemmas
+                    if re.fullmatch(r"[A-Z]{2,6}", lem.strip())})
+    try:
+        phrases = [str(p or "").strip().lower() for p in pack_phrases or ()]
+        phrases = [p for p in phrases if p]
+    except Exception:
+        phrases = []
+    try:
+        lemma_set = {lem.strip().lower() for lem in lemmas}
+    except Exception:
+        lemma_set = set()
+    hits = sorted({p for p in phrases if p in lemma_set})
+    return {"evp_entries": len(lemmas),
+            "evp_multiword_entries": len(multi),
+            "evp_acronym_lemmas": acros,
+            "pack_phrases": len(phrases),
+            "pack_hits": len(hits),
+            "pack_hit_sample": hits[:10]}
 
 
 _CACHE: dict = {}

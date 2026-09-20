@@ -165,7 +165,12 @@ def test_r2_proper_names_drop_with_verdict_not_silently():
         assert (verdict["reason"] or "").strip() != ""
 
 
-def test_r2_abbrevs_drop_with_structured_g4_verdict():
+def test_r2_abbrevs_wordfreq_leg_with_structured_g4_verdict():
+    # R-acro (locked 2026-09-20): the bulk abbrev drop is REMOVED —
+    # the old "FEB/FDR drop" expectation is OBSOLETE. Stub zipf 4.0 >=
+    # G4_ZIPF_PASS 3.2 passes these tagged abbrevs as real-word
+    # readings; the lone single-abbrev sense rides quarantine for
+    # owner review (kept, structured verdict — never silent).
     for text in ("FEB", "FDR"):
         item = {"kind": "word", "text": text, "pool_level": "B1"}
         view = {"poss": {"noun"},
@@ -174,8 +179,8 @@ def test_r2_abbrevs_drop_with_structured_g4_verdict():
         verdict = preprocess_classify_item(
             item, {text.lower(): {"noun"}}, lambda t: 4.0, set(), {},
             False, entry_fn=lambda t: view)
-        assert verdict["kept"] is False
-        assert (verdict["reason"] or "").startswith("g4-abbrev")
+        assert verdict["kept"] is True
+        assert verdict.get("quarantine") == "g4-abbrev"
 
 
 def test_r2_accounting_audit_flags_unaccounted_keys():

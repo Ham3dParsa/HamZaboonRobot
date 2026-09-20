@@ -1932,13 +1932,19 @@ def test_g3_drops_interjections():
     assert v["reason"] == "g3-interjection" and v["kept"] is False
 
 
-def test_g4_drops_allcaps_and_multi_abbrev():
+def test_g4_wordfreq_leg_passes_abbrevs():
+    # R-acro (locked 2026-09-20): the bulk all-caps / every-sense-abbrev
+    # drop is REMOVED — the old "FEB/comp drop as g4-abbrev" expectation
+    # is OBSOLETE (deleted rule, never silently kept). _g_classify stubs
+    # zipf 5.0 >= G4_ZIPF_PASS 3.2, so tagged abbrevs pass as real-word
+    # readings; the lone single-abbrev sense rides quarantine for owner
+    # review (item is NOT dropped).
     v = _g_classify("FEB", _g_view([("February", ["abbreviation"])]))
-    assert v["reason"] == "g4-abbrev" and v["kept"] is False
+    assert v["kept"] is True and v.get("quarantine") == "g4-abbrev"
     v2 = _g_classify("comp", _g_view(
         [("complimentary", ["abbreviation"]),
          ("composition", ["abbreviation"])]))
-    assert v2["reason"] == "g4-abbrev" and v2["kept"] is False
+    assert v2["kept"] is True and "quarantine" not in v2
 
 
 def test_g4_quarantines_single_suspect():
@@ -2191,14 +2197,21 @@ def test_quarantine_reaches_precard_row(tmp_path, monkeypatch):
 
 
 def test_zipf_low_beats_quarantine():
-    """Precedence: low-zipf suspect drops on frequency, never quarantines."""
+    """Precedence: low-zipf suspect drops on frequency, never quarantines.
+
+    R-acro (locked 2026-09-20): the known-infrequent tagged abbrev
+    (stub zipf 1.0 < G4_ZIPF_PASS 3.2) now drops at the G4 wordfreq leg
+    with reason g4-abbrev instead of reaching the R20 floor — the old
+    "r20-zipf-low:1.00" reason is OBSOLETE. Intent preserved: drops,
+    never quarantines.
+    """
     from factory.precard.anchor import preprocess_classify_item
     view = {"senses": [{"gloss": "light-emitting diode",
                         "tags": ["abbreviation"]}],
             "poss": {"noun"}}
     v = preprocess_classify_item(_g_item("led", "A1"), {}, lambda t: 1.0, set(),
                          {}, False, entry_fn=lambda t: view)
-    assert v == {"kept": False, "reason": "r20-zipf-low:1.00",
+    assert v == {"kept": False, "reason": "g4-abbrev",
                  "type_pending": False}
 
 
@@ -2215,13 +2228,15 @@ def test_entry_fn_exception_keeps_at_classify_level():
 
 
 def test_g4_lowercase_tags_path():
-    """Calibration: lowercased multi-abbrev drops via tags (no caps);
-    a lone lowercase abbrev quarantines (feb-like); zipf finishes the
-    truly rare ones downstream."""
+    """Calibration: lowercased multi-abbrev passes via the wordfreq leg
+    (stub zipf 5.0 >= G4_ZIPF_PASS 3.2 — the old tags-drop is OBSOLETE
+    per R-acro 2026-09-20); a lone lowercase abbrev quarantines
+    (feb-like); known-rare abbrevs drop at the leg (see
+    test_zipf_low_beats_quarantine)."""
     v = _g_classify("comp", _g_view(
         [("complimentary", ["abbreviation"]),
          ("composition", ["abbreviation"])]))
-    assert v["reason"] == "g4-abbrev" and v["kept"] is False
+    assert v["kept"] is True and "quarantine" not in v
     v2 = _g_classify("feb", _g_view([("February", ["abbreviation"])]))
     assert v2["kept"] is True and v2.get("quarantine") == "g4-abbrev"
 
@@ -2256,12 +2271,17 @@ def test_g5_boundary_phrasings():
 
 
 def test_gates_normalize_mixed_casing():
-    """Caller-supplied casing (Abbreviation, Interj) still matches."""
+    """Caller-supplied casing (Abbreviation, Interj) still matches.
+
+    R-acro (locked 2026-09-20): mixed-case tags still ENGAGE the G4
+    gate (normalization intact — a no-tag input would skip it, see
+    test_g4_caps_without_tags_stays), but the stub zipf 5.0 passes the
+    wordfreq leg, so the item keeps instead of dropping."""
     v = _g_classify("ahem", _g_view([("hey", [])], poss=["Interj"]))
     assert v["reason"] == "g3-interjection"
     v2 = _g_classify("comp", _g_view(
         [("x", ["Abbreviation"]), ("y", ["ABBREVIATION"])]))
-    assert v2["reason"] == "g4-abbrev"
+    assert v2["kept"] is True
 
 
 def test_g3_multi_pos_survives():
