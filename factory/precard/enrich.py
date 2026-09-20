@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from factory.linker import gates as _v08_gates
 from factory.precard import anchor as _anchor_home
 from factory.precard.cefr import METHOD_UNMAPPED
 from factory.precard.cefr import sense_cefr_for
@@ -640,8 +641,66 @@ _CIRCULAR_HEAD_RX = re.compile(
     re.IGNORECASE)
 
 
+def _gate_annotations(item, judge_pick, gate_ctx, local_rank):
+    """F3 v0.8 gate verdict annotations for one enrich payload (additive).
+
+    gate_ctx keys are all optional (rank_index, winner_jaccard, lemma,
+    winner_fires, winner_gloss, wordnet_evidence, votes_for,
+    votes_total, failed, rank1_fires, rank2_fires); missing signals
+    fail open to LINK. lemma defaults to the item text and
+    winner_gloss to the pick gloss; rank_index falls back to the local
+    score-order position (local_rank) when the caller supplies none.
+    SignalQualityVeto is annotation-only here and never routes — the
+    enforcing verdict lives in gate_verdict/gate_fires. Never raises:
+    any error fails open to a LINK annotation.
+    """
+    fallback = {"gate_verdict": _v08_gates.LINK, "gate_fires": [],
+                "gate_reasons": {},
+                "signal_quality_would_fire": False,
+                "signal_quality_reason": "gate-error:preserve"}
+    try:
+        ctx = dict(gate_ctx) if isinstance(gate_ctx, dict) else {}
+    except Exception:
+        return dict(fallback)
+    try:
+        if not str(ctx.get("lemma") or "").strip():
+            ctx["lemma"] = (item.get("text") or "").strip()
+    except Exception:
+        pass
+    try:
+        if "winner_gloss" not in ctx:
+            ctx["winner_gloss"] = (judge_pick or {}).get("gloss", "")
+    except Exception:
+        pass
+    try:
+        rank = ctx.get("rank_index")
+        rank_ok = not isinstance(rank, bool)
+        if rank_ok:
+            try:
+                int(rank)
+            except (TypeError, ValueError):
+                rank_ok = False
+        if not rank_ok and local_rank is not None:
+            ctx["rank_index"] = local_rank
+    except Exception:
+        pass
+    try:
+        out = _v08_gates.apply_v08_gates(ctx)
+        return {
+            "gate_verdict": out.get("verdict", _v08_gates.LINK),
+            "gate_fires": list(out.get("fires") or []),
+            "gate_reasons": dict(out.get("reasons") or {}),
+            "signal_quality_would_fire": bool(
+                out.get("signal_quality_would_fire", False)),
+            "signal_quality_reason": str(
+                out.get("signal_quality_reason") or ""),
+        }
+    except Exception:
+        return dict(fallback)
+
+
 def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
-                   zipf_fn=None, phrase_entry=None):
+                   zipf_fn=None, phrase_entry=None, gate_ctx=None):
     """Enrichment (s5) from the judge-chosen sense (card_pilot helpers).
 
     R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
@@ -678,6 +737,13 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     R4: also returns circular_def (per-sense FLAG only, never drop) —
     True when en_def defines the lemma with itself ("The act or
     process of revegetating" for revegetation); see is_circular_def.
+    F3: also returns v0.8 gate annotations (gate_verdict, gate_fires,
+    gate_reasons, signal_quality_would_fire, signal_quality_reason)
+    from the optional gate_ctx (all keys optional, missing signals
+    fail open to LINK; SignalQualityVeto log-only, never routes) —
+    see _gate_annotations. rank_index falls back to the local
+    score-order position of the picked sense when the caller supplies
+    none; the shared _resolve_pick_entries seam is reused unchanged.
     """
     sid = (judge_pick or {}).get("sense_id", "")
     gloss = (judge_pick or {}).get("gloss", "")
@@ -686,7 +752,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     if not sid:
         sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
             lemma, item.get("pos") or "", gloss or "")
-        return {"sense_id": "", "en_def": gloss or "",
+        payload = {"sense_id": "", "en_def": gloss or "",
                 "circular_def": is_circular_def(lemma, gloss or ""),
                 "ipa": "", "ipa_src": _anchor_home.IPA_SRC_MODEL,
                 "dataset_examples": [], "example_fallback": "synthetic-needed",
@@ -700,6 +766,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 "register": REGISTER_DEFAULT,
                 "pre_card_id": compute_pre_card_id(
                     lemma, item.get("pos", ""), gloss or "")}
+        payload.update(_gate_annotations(item, judge_pick, gate_ctx, None))
+        return payload
     try:
         want_idx = int(sid.split("#")[-1])
     except (TypeError, ValueError):
@@ -711,6 +779,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
         else ""
     entries, pos = _anchor_home._resolve_pick_entries(item, sid, index)
     entry = sense = None
+    local_rank = None
     if want_idx is not None:
         try:
             scored = _anchor_home.score_senses(
@@ -718,9 +787,11 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 read_entry)
         except Exception:
             scored = []
-        for _score, idx, cand_entry, cand_sense, _gloss in scored:
+        for _pos, (_score, idx, cand_entry, cand_sense, _gloss) in enumerate(
+                scored):
             if idx == want_idx:
                 entry, sense = cand_entry, cand_sense
+                local_rank = _pos
                 break
     ipa = _anchor_home.first_entry_ipa(entry) if entry else ""
     headword = item.get("text", "")
@@ -779,7 +850,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
     sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
         lemma, id_pos, gloss or "")
-    return {"sense_id": sid, "en_def": gloss or "",
+    payload = {"sense_id": sid, "en_def": gloss or "",
             "circular_def": is_circular_def(lemma, gloss or ""),
             "ipa": ipa,
             "ipa_src": _anchor_home.IPA_SRC_DATASET if ipa
@@ -799,3 +870,6 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
             "register": register_for(sense_tags),
             "pre_card_id": compute_pre_card_id(lemma, id_pos,
                                                gloss or "")}
+    payload.update(
+        _gate_annotations(item, judge_pick, gate_ctx, local_rank))
+    return payload
