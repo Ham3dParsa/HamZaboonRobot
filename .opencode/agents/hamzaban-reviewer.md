@@ -68,6 +68,15 @@ Uncovered-input rule: per changed function, name one input the tests do not
 cover (`{}`, `None`, `NaN`, mixed-case, negative, ...). A function row with no
 named uncovered input stays `hold` — it is never PASS by tests alone.
 
+Output budget (brevity keeps findings visible — the whole review stays under
+~120 lines):
+- REV-4: one line per function naming the single most valuable uncovered
+  input; skip reads that are N/A; functions with nothing new collapse into
+  one summary line. Cap 20 lines for the whole REV-4 section.
+- "What the plan missed" and focus checks: one line per item; state only
+  what the table and REV-4 do not already state.
+- A missing rule row still means the gate is red — brevity never drops a rule.
+
 Verification tools (read-only):
 - Focused tests, greps, wiring scans (`tests/test_wiring.py`, `tests/test_dead_code_guard.py`)
 - No production DB writes; use test snapshots only
