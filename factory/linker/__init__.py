@@ -9,6 +9,9 @@ its pins in ``table.meta.json``.
 Public surface (everything else is private-by-convention):
 
 - :data:`LINK_METHOD_VOCAB` — frozen method vocabulary.
+- :mod:`factory.linker.gates` — v0.8 gate-core for the enrich path
+  (F3: LowRankZeroOverlapVeto / EvidenceGlossMismatchVeto /
+  SplitVoteVeto enforcing, SignalQualityVeto log-only).
 - :func:`validate_table_rows` — pure vendor-table guard (re-exported).
 - :func:`build_link_index` / :func:`lookup_link` — thin pure TSV-row
   index helpers for the CLI (new in M1-M3; no scoring logic).
@@ -25,11 +28,12 @@ feat/linker-viewer worker owns it) — see the M1-M3 report viewer-move
 debt note.
 """
 
-from factory.linker import linker
+from factory.linker import gates, linker
 from factory.linker.linker import LINK_METHOD_VOCAB, validate_table_rows
 
 __all__ = [
     "LINK_METHOD_VOCAB",
+    "gates",
     "linker",
     "validate_table_rows",
     "build_link_index",
