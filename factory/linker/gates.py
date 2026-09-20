@@ -33,6 +33,7 @@ Enforcement (locked):
 
 from __future__ import annotations
 
+import math
 import re
 
 LINK = "LINK"
@@ -61,12 +62,18 @@ def _as_int(value):
 
 
 def _as_float(value):
-    """float(value) or None (bools and hostile shapes never count)."""
+    """float(value) or None (bools, non-finite and out-of-range never count).
+
+    Jaccard lives in 0.0..1.0 — nan/inf/negative/>1.0 inputs are invalid
+    signals, so they map to None and every gate fails OPEN to LINK.
+    """
     if isinstance(value, bool):
         return None
     try:
         result = float(value)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result) or not 0.0 <= result <= 1.0:
         return None
     return result
 
@@ -145,10 +152,13 @@ def evidence_gloss_mismatch_veto(winner_gloss, wordnet_evidence, j):
 
     MANDATORY BAILOUT: j>=0.20 (j==1.0 subsumed) -> skip B entirely.
     Missing gloss/evidence preserves LINK (never route on missing
-    data). Returns (fired, reason).
+    data). Invalid j (missing/non-finite/out-of-range) also preserves
+    LINK per the locked fail-open rule. Returns (fired, reason).
     """
     overlap = _as_float(j)
-    if overlap is not None and overlap >= BAILOUT_J:
+    if overlap is None:
+        return (False, "invalid-j:preserve")
+    if overlap >= BAILOUT_J:
         return (False, "bailout:j>=0.20:skip")
     if not winner_gloss or not wordnet_evidence:
         return (False, "missing-gloss-or-evidence:preserve")

@@ -207,3 +207,27 @@ def test_shipped_method_vocab_untouched_no_silent_rename():
     assert "JUDGE-REVIEW" in LINK_METHOD_VOCAB
     assert "JUDGE-PENDING" in LINK_METHOD_VOCAB
     assert gates.ESCALATE not in LINK_METHOD_VOCAB
+
+
+def test_as_float_rejects_nonfinite_and_out_of_range():
+    for bad in (float("nan"), "nan", float("inf"), "-inf", -1.0, 1.5):
+        assert gates._as_float(bad) is None
+    assert gates._as_float(0.0) == 0.0
+    assert gates._as_float(1.0) == 1.0
+    assert gates._as_float("0.27") == 0.27
+
+
+def test_invalid_jaccard_fails_open_to_link():
+    assert gates.low_rank_zero_overlap_veto(2, float("nan"), "apple", [])[0] is False
+    assert gates.low_rank_zero_overlap_veto(2, -1.0, "apple", [])[0] is False
+    assert gates.evidence_gloss_mismatch_veto(
+        "a round fruit", "totally unrelated text", float("nan"))[0] is False
+    out = gates.apply_v08_gates({
+        "rank_index": 2, "winner_jaccard": float("nan"),
+        "winner_gloss": "a round fruit",
+        "wordnet_evidence": "totally unrelated text",
+        "winner_fires": [],
+        "votes_for": 3, "votes_total": 3, "failed": 0,
+        "rank1_fires": [], "rank2_fires": [],
+    })
+    assert out["verdict"] == gates.LINK
