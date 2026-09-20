@@ -146,7 +146,8 @@ dropped downstream. The exact keys that travel (via
 payload + topic legs) are:
 
 - `sense_cefr`, `sense_cefr_method` (bridge value, `zipf-heuristic`
-  fallback for acronym/phrase only, or `""`/`unmapped` — never a
+  fallback for phrase rows only — `acronym` kind reserved until its
+  producer ships (OC review 2026-09-20) — or `""`/`unmapped` — never a
   pool_level copy);
 - `pos`, `pos_src` (anchored entry POS tag list + `dataset`/`none`
   provenance);
@@ -163,6 +164,9 @@ payload + topic legs) are:
   propagate per G6).
 
 Tier-3 consumers (card build / selector stratification / viewer)
-read these keys as-is. Any new deterministic tag joins this list by
+read these keys as-is. Scope note (OC review 2026-09-20): this list
+covers the enrich-payload keys; the full row additionally carries
+`origin_pack_id` (R5 pack scope) — not an enrich tag. Any new
+deterministic tag joins this list by
 append-only amendment here — never by silent payload growth.
 Append-only; no prior section rewritten.

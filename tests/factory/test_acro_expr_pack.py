@@ -175,10 +175,13 @@ def test_r3_bands_and_boundaries():
         assert method == "zipf-heuristic"
 
 
-def test_r3_acronym_kind_on_path_word_off_path():
-    cefr, method = cefr_home.zipf_heuristic_cefr(
-        "DNA", "acronym", zipf_fn=lambda t: 3.5)
-    assert (cefr, method) == ("B2", "zipf-heuristic")
+def test_r3_acronym_kind_reserved_off_path():
+    # OC review 2026-09-20: no live producer emits kind="acronym"
+    # (items are "word"/"phrase"), so the acronym kind stays RESERVED
+    # and unmapped until the acronym-pack producer ships — the
+    # heuristic live-serves phrase rows only.
+    assert cefr_home.zipf_heuristic_cefr(
+        "DNA", "acronym", zipf_fn=lambda t: 3.5) == (None, "unmapped")
     assert cefr_home.zipf_heuristic_cefr(
         "apple", "word", zipf_fn=lambda t: 6.0) == (None, "unmapped")
 
@@ -191,6 +194,21 @@ def test_r3_whole_phrase_lookup_first():
         return 5.0 if term == "hot wheels" else 1.0
 
     assert cefr_home.phrase_zipf("hot wheels", _fn) == 5.0
+
+
+def test_r3_lookups_casefolded_like_default_zipf():
+    # OC review 2026-09-20: "Hot Wheels" must score exactly like
+    # "hot wheels" — lookups are casefolded, never library-cased.
+    def _whole(term):
+        return 5.0 if term == "hot wheels" else 1.0
+
+    assert cefr_home.phrase_zipf("Hot Wheels", _whole) == 5.0
+    assert cefr_home.phrase_zipf("HOT WHEELS", _whole) == 5.0
+
+    def _tokens(term):
+        return {"hot": 4.0, "wheels": 3.0}.get(term, 0.0)
+
+    assert cefr_home.phrase_zipf("Hot Wheels", _tokens) == 3.0
 
 
 def test_r3_zero_whole_falls_to_min_tokens():
@@ -284,6 +302,8 @@ def test_r4_synthetic_hit_detected():
 def test_r4_real_pack_zero_hits_mapping_dropped():
     # The check is real, not vacuous: the pack HAS multiword entries,
     # but NONE of the live 500-phrase pool hits — so no mapping ships.
+    # Exact counts below are INTENTIONAL tripwires: pack growth must
+    # force a re-read of the DROP verdict, not slide past it.
     raw = _real_evp()
     rep = cefr_home.evp_phrase_acronym_coverage(
         _evp_map(raw), _real_phrases())

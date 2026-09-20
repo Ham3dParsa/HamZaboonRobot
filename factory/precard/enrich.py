@@ -539,10 +539,12 @@ def _sense_cefr_or_unmapped(lemma, pos, gloss, kind="word", text="",
     Returns (sense_cefr, method): the bridge value when non-empty, else
     ("", "unmapped"). The item pool_level is never copied into
     sense_cefr — pool_level stays on the pipeline row alongside
-    sense_cefr for stratification/display. For card_type acronym/phrase
-    rows ONLY (kind), a bridge miss falls through to the
+    sense_cefr for stratification/display. For card_type phrase rows
+    ONLY (kind), a bridge miss falls through to the
     zipf-heuristic fallback (method ALWAYS "zipf-heuristic", never
     official; thresholds PROVISIONAL — see factory.precard.cefr);
+    kind="acronym" is reserved for the future acronym-pack producer
+    (no live item carries it) and stays unmapped until then;
     a heuristic miss stays ("", "unmapped"). Never returns None, never
     raises on hostile items.
     """
@@ -553,7 +555,7 @@ def _sense_cefr_or_unmapped(lemma, pos, gloss, kind="word", text="",
         norm_kind = str(kind or "").strip().casefold()
     except Exception:
         norm_kind = ""
-    if norm_kind in ("acronym", "phrase"):
+    if norm_kind in ("phrase",):  # "acronym" reserved (see cefr.py)
         try:
             from factory.precard.cefr import zipf_heuristic_cefr
         except Exception:

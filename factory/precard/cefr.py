@@ -64,8 +64,11 @@ METHOD_ZIPF_HEURISTIC = "zipf-heuristic"
 
 
 # PROVISIONAL thresholds (locked 2026-09-20; revisit when phrase-CEFR
-# data exists): zipf→CEFR fallback bands for card_type acronym/phrase
-# rows ONLY (the word bridge above stays sensekey-official). The locked
+# data exists): zipf→CEFR fallback bands for card_type phrase rows ONLY
+# (the word bridge above stays sensekey-official). "acronym" is RESERVED
+# for the future acronym-pack producer — no live pipeline item carries
+# kind="acronym" today (items are "word"/"phrase"), so the set stays
+# phrase-only until that producer ships (OC review 2026-09-20). The locked
 # cut points are 4.2 and 3.2; each outer band names its calibration
 # pair and emits the pair's representative until calibration lands —
 # B1 for the A2/B1 band, C1 for the C1/C2 band. The method tag on every
@@ -76,7 +79,7 @@ ZIPF_HEURISTIC_HIGH_CUT = 4.2  # >= this -> B1 (A2/B1 band)
 ZIPF_HEURISTIC_LOW_CUT = 3.2  # 3.2-4.2 -> B2; below -> C1 (C1/C2 band)
 
 
-ZIPF_HEURISTIC_KINDS = frozenset({"acronym", "phrase"})
+ZIPF_HEURISTIC_KINDS = frozenset({"phrase"})
 
 
 # Distribution of rows passing through the zipf→CEFR fallback, counts
@@ -97,6 +100,9 @@ _ALPHA_TOKEN_RX = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 def phrase_zipf(text, zipf_fn):
     """Phrase zipf for the heuristic: whole-phrase lookup first.
 
+    Lookups are casefolded before hitting wordfreq (matching
+    anchor.default_zipf) — "Hot Wheels" and "hot wheels" score the
+    same; library casing behavior is never relied on.
     Returns the whole-phrase zipf when positive; else the min over
     per-token zipfs (tokens with no wordfreq entry are skipped, never
     zero-filled — a zero would drag the min to the floor on missing
@@ -118,7 +124,7 @@ def phrase_zipf(text, zipf_fn):
             except Exception:
                 return None
         try:
-            whole = get(str(text or ""))
+            whole = get(str(text or "").strip().casefold())
         except Exception:
             whole = None
         if isinstance(whole, bool):
@@ -129,11 +135,11 @@ def phrase_zipf(text, zipf_fn):
             whole_f = None
         if whole_f is not None and whole_f > 0:
             return whole_f
-        tokens = _ALPHA_TOKEN_RX.findall(str(text or ""))
+        tokens = _ALPHA_TOKEN_RX.findall(str(text or "").casefold())
         known = []
         for tok in tokens:
             try:
-                value = get(tok)
+                value = get(tok.casefold())
             except Exception:
                 continue
             if isinstance(value, bool):
@@ -152,10 +158,12 @@ def phrase_zipf(text, zipf_fn):
 
 
 def zipf_heuristic_cefr(text, kind, zipf_fn=None):
-    """Zipf→CEFR fallback for acronym/phrase rows -> (cefr|None, method).
+    """Zipf→CEFR fallback for phrase rows -> (cefr|None, method).
 
-    kind outside {"acronym", "phrase"} (or missing data) returns
-    (None, METHOD_UNMAPPED) — the word path is untouched. On the path,
+    kind outside {"phrase"} (or missing data) returns
+    (None, METHOD_UNMAPPED) — the word path is untouched, and
+    kind="acronym" stays unmapped until the acronym-pack producer
+    ships (reserved, see ZIPF_HEURISTIC_KINDS). On the path,
     method is ALWAYS METHOD_ZIPF_HEURISTIC ("zipf-heuristic", never
     official). Bands (both cuts PROVISIONAL): >= 4.2 -> B1 (A2/B1
     band), 3.2-4.2 -> B2, below -> C1 (C1/C2 band). Every call bumps
