@@ -11,10 +11,20 @@ both the correctness gate and the RAM gate in one command.
 Budget: 2600 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
 measured cap (16 approaches the limit); do not raise workers without re-running
 this gate.
+
+Preflight (R1 serialize rule): the full -n 14 suite and the LM-Studio model
+server must never run together. Before launching pytest, the wrapper refuses
+(exit 1) when a model server answers on 127.0.0.1:1234 while workers > 4, or
+when free system RAM is below the 6GB floor. Escape hatch for CI/exotic
+runners: `--skip-preflight` or `HAMZABAN_SKIP_PREFLIGHT=1` (default: enforce).
+CI safety: CI runners have no :1234 listener, run with -n 2 (below the
+workers > 4 trigger), and have >6GB free — so the preflight cannot fire there;
+the escape hatch covers the rest.
 """
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -26,6 +36,68 @@ except ImportError:  # pragma: no cover - fail-closed handled in main()
 
 RAM_BUDGET_MB = 2600
 SAMPLE_INTERVAL = 0.2
+
+MODEL_SERVER_HOST = "127.0.0.1"
+MODEL_SERVER_PORT = 1234
+MODEL_SERVER_TIMEOUT_S = 1.0
+SERIALIZE_WORKER_THRESHOLD = 4
+MIN_FREE_RAM_BYTES = 6 * 1024**3
+SKIP_PREFLIGHT_ENV_VAR = "HAMZABAN_SKIP_PREFLIGHT"
+
+
+def _preflight_skip_requested(cli_skip: bool) -> bool:
+    if cli_skip:
+        return True
+    return os.environ.get(SKIP_PREFLIGHT_ENV_VAR, "") == "1"
+
+
+def _model_server_is_up() -> bool:
+    try:
+        with socket.create_connection(
+            (MODEL_SERVER_HOST, MODEL_SERVER_PORT),
+            timeout=MODEL_SERVER_TIMEOUT_S,
+        ):
+            return True
+    except OSError:
+        return False
+
+
+def _free_ram_bytes():
+    if psutil is None:
+        return None
+    try:
+        return psutil.virtual_memory().available
+    except Exception:
+        return None
+
+
+def run_preflight_checks(workers: int):
+    """Fail-fast serialize guard (R1). Returns 1 on refusal, else None.
+
+    Refuses when (a) a model server answers on 127.0.0.1:1234 while
+    workers > 4, or (b) free system RAM is below the 6GB floor.
+    psutil missing -> RAM check skipped here (main() still fails closed
+    with exit 2 after the run). Never suggests lowering workers (R4).
+    """
+    if _model_server_is_up() and workers > SERIALIZE_WORKER_THRESHOLD:
+        print(
+            f"[RAM-GATE] REFUSE: model server detected on "
+            f"{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} while requesting "
+            f"{workers} workers. Stop the model server, then re-run. "
+            "The full -n 14 suite and the model server must never run together.",
+            file=sys.stderr,
+        )
+        return 1
+    free = _free_ram_bytes()
+    if free is not None and free < MIN_FREE_RAM_BYTES:
+        print(
+            f"[RAM-GATE] REFUSE: free system RAM is {free / (1024 ** 3):.1f}GB, "
+            "below the 6GB floor. Free RAM (stop the model server / heavy apps), "
+            "then re-run.",
+            file=sys.stderr,
+        )
+        return 1
+    return None
 
 
 def _peak_rss_mb(pid: int) -> float:
@@ -51,10 +123,27 @@ def _peak_rss_mb(pid: int) -> float:
     return total / (1024 * 1024)
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--workers", default="14")
-    args, rest = parser.parse_known_args()
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Bypass the RAM-preflight serialize guard (CI/exotic runners; "
+        "also via HAMZABAN_SKIP_PREFLIGHT=1). Default: enforce.",
+    )
+    args, rest = parser.parse_known_args(argv)
+
+    if _preflight_skip_requested(args.skip_preflight):
+        print("[RAM-GATE] preflight skipped via escape hatch.", file=sys.stderr)
+    else:
+        try:
+            workers = int(args.workers)
+        except (TypeError, ValueError):
+            workers = 0
+        refusal = run_preflight_checks(workers)
+        if refusal is not None:
+            return refusal
 
     cmd = [sys.executable, "-m", "pytest", "tests/", "-n", args.workers, "-q"]
     cmd += rest

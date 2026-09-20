@@ -29,6 +29,8 @@ python -m ruff check --select F821,F811
 git diff --check
 ```
 
+Local full-suite runs must go through `python scripts/run_with_ram_gate.py [-n 14]` (not bare `pytest -n 14`): the wrapper enforces the RAM budget plus a fail-fast preflight that serializes the full -n 14 suite against the LM-Studio model server — the two must never run together, so stop the model server before re-running.
+
 ### Lightweight path (non-behavioral changes)
 Changes that touch only: docs, skill files, agent definitions, plan files, formatting, comments, or test files that do not change production logic.
 
