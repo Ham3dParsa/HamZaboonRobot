@@ -54,12 +54,18 @@ def test_preprocess_structured_verdicts():
     view = {"poss": {"noun"},
             "senses": [{"gloss": "Abbreviation of February.",
                         "tags": ["abbreviation"]}]}
+    # R-acro (locked 2026-09-20): the bulk all-caps drop is REMOVED —
+    # the old "FEB drops as g4-abbrev" expectation is OBSOLETE (bulk
+    # caps-drop deleted, never silently kept). FEB is a tagged abbrev
+    # with stub zipf 4.0 >= G4_ZIPF_PASS 3.2, so the wordfreq leg
+    # passes it as a real-word reading; the lone single-abbrev sense
+    # rides quarantine for owner review (item is NOT dropped).
     feb = anchor.preprocess_classify_item(
         {"kind": "word", "text": "FEB", "pool_level": "B1"},
         pos_sets, lambda t: 4.0, set(), {}, False,
         entry_fn=lambda t: view)
-    assert feb["kept"] is False
-    assert feb["reason"].startswith("g4-abbrev")
+    assert feb["kept"] is True
+    assert feb.get("quarantine") == "g4-abbrev"
 
 
 def test_stage_ids_are_real_words():

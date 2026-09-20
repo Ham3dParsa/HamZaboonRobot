@@ -532,18 +532,39 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 
 
-def _sense_cefr_or_unmapped(lemma, pos, gloss):
+def _sense_cefr_or_unmapped(lemma, pos, gloss, kind="word", text="",
+                           zipf_fn=None):
     """Bridge sense-CEFR with the never-None unmapped fallback.
 
     Returns (sense_cefr, method): the bridge value when non-empty, else
     ("", "unmapped"). The item pool_level is never copied into
     sense_cefr — pool_level stays on the pipeline row alongside
-    sense_cefr for stratification/display. Never returns None, never
+    sense_cefr for stratification/display. For card_type acronym/phrase
+    rows ONLY (kind), a bridge miss falls through to the
+    zipf-heuristic fallback (method ALWAYS "zipf-heuristic", never
+    official; thresholds PROVISIONAL — see factory.precard.cefr);
+    a heuristic miss stays ("", "unmapped"). Never returns None, never
     raises on hostile items.
     """
     sense_cefr, method = sense_cefr_for(lemma, pos, gloss)
     if sense_cefr:
         return sense_cefr, method
+    try:
+        norm_kind = str(kind or "").strip().casefold()
+    except Exception:
+        norm_kind = ""
+    if norm_kind in ("acronym", "phrase"):
+        try:
+            from factory.precard.cefr import zipf_heuristic_cefr
+        except Exception:
+            return "", METHOD_UNMAPPED
+        try:
+            heur_cefr, heur_method = zipf_heuristic_cefr(
+                text or lemma, norm_kind, zipf_fn)
+        except Exception:
+            return "", METHOD_UNMAPPED
+        if heur_cefr:
+            return heur_cefr, heur_method
     return "", METHOD_UNMAPPED
 
 
@@ -751,7 +772,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     lemma = (item.get("text") or "").strip()
     if not sid:
         sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
-            lemma, item.get("pos") or "", gloss or "")
+            lemma, item.get("pos") or "", gloss or "",
+            kind, lemma, zipf_fn)
         payload = {"sense_id": "", "en_def": gloss or "",
                 "circular_def": is_circular_def(lemma, gloss or ""),
                 "ipa": "", "ipa_src": _anchor_home.IPA_SRC_MODEL,
@@ -849,7 +871,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     sense_tags = _anchor_home._sense_tag_set(sense)
     id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
     sense_cefr, sense_cefr_method = _sense_cefr_or_unmapped(
-        lemma, id_pos, gloss or "")
+        lemma, id_pos, gloss or "", kind, lemma, zipf_fn)
     payload = {"sense_id": sid, "en_def": gloss or "",
             "circular_def": is_circular_def(lemma, gloss or ""),
             "ipa": ipa,

@@ -126,11 +126,15 @@ def reservoir_need(quota, survival):
 
 
 def sample(rows, quotas=None, survival=None, drop_tags=frozenset(),
-           other_quota=0):
+           other_quota=None):
     """Stratified budget selection.
 
     Filters (tag policy) run pre-reservoir; quotas apply post-filter on
     score order (score desc, key asc — fully deterministic, no RNG).
+    OTHER rows (unmapped / phrase rows with no CEFR stratum) are
+    keep-all by default (other_quota=None): locked 2026-09-20, they
+    must never be silently eaten by a quota default of 0. Pass an
+    explicit int to cap them (the CLI --other-quota path).
     Returns (selected, summary): summary reports per-level quota /
     candidates / selected / shortfall / reservoir_need plus drop counts
     by reason, so shortfalls are observable, never silent.
@@ -154,7 +158,12 @@ def sample(rows, quotas=None, survival=None, drop_tags=frozenset(),
     per_level = {}
     for level in LEVELS + ("OTHER",):
         cands = buckets[level]
-        quota = quotas.get(level, 0) if level != "OTHER" else other_quota
+        if level != "OTHER":
+            quota = quotas.get(level, 0)
+        elif other_quota is None:
+            quota = len(cands)  # keep-all: unmapped never quota-eaten
+        else:
+            quota = other_quota
         ordered = sorted(cands,
                          key=lambda r: (-score_row(r),
                                         str((r or {}).get("key", ""))))
@@ -213,7 +222,10 @@ def build_parser():
     parser.add_argument("--exclude-colloquial", action="store_true")
     parser.add_argument("--exclude-vulgar", action="store_true")
     parser.add_argument("--exclude-obsolete", action="store_true")
-    parser.add_argument("--other-quota", type=int, default=0)
+    parser.add_argument("--other-quota", type=int, default=None,
+                        help="cap for unmapped/other-stratum rows "
+                        "(default: keep all — unmapped rows are never "
+                        "silently quota-eaten)")
     return parser
 
 
@@ -243,7 +255,7 @@ def main(argv=None):
         quotas = parse_mix(args.mix)
     except ValueError as exc:
         parser.error(str(exc))
-    if args.other_quota < 0:
+    if args.other_quota is not None and args.other_quota < 0:
         parser.error("--other-quota must be >= 0 (got %r)"
                      % (args.other_quota,))
     try:

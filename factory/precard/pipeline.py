@@ -53,6 +53,7 @@ from factory.precard.anchor import IPA_SRC_MODEL
 from factory.precard.topics import (
     LABEL_BATCH, TOPIC_METHOD, _needs_fanout_relabel, label_batch,
     vectors_batch)
+from factory.precard import cefr as _cefr_home
 from factory.precard import prompt_registry as _prompts
 from factory.core.telemetry import write_summary as _tele_write
 from factory.precard.transport import (
@@ -2093,9 +2094,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # R3 row-surfacing: gate-fire counters aggregate over primary +
         # extras payloads (additive keys only — card content untouched).
         _gate_counts = _count_enrich_gates(states["enrich"]["done"])
+        # R-acro (locked 2026-09-20): log the zipf→CEFR fallback
+        # distribution (counts per band) for future calibration —
+        # machine log (json-log event) + run.log, never stdout cards.
+        _zipf_dist = dict(_cefr_home.ZIPF_HEURISTIC_DIST)
         run_logger.stage_end("enrich", ok=_s5_ok, fail=0)
+        run_logger.log("zipf-heuristic CEFR fallback dist: %s"
+                       % (sorted(_zipf_dist.items()),))
         jlog.event("stage_end", stage="enrich", ok=_s5_ok, fail=0,
-                   gate_counts=_gate_counts)
+                   gate_counts=_gate_counts,
+                   zipf_heuristic=_zipf_dist)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed,
                                      run_id=run_id)
         _stage_summary("enrich", states, args.out, quiet=quiet,
@@ -2160,7 +2168,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 rec = _build_precard_row(
                     item, key, sub, sub_enrich, sub_label, sub_vec,
                     vec3, pick, preprocess_view, s0b, s1r,
-                    pos, len(subs), label_calls)
+                    pos, len(subs), label_calls,
+                    pack_id=(getattr(args, "pack_id", "") or ""))
                 rows.append(rec)
             if key not in precards:
                 precards[key] = rows
@@ -2239,6 +2248,30 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 handle.write(json.dumps(
                     rec, ensure_ascii=False) + "\n")
     os.replace(_tmp, out_path)
+    # R-acro (locked 2026-09-20): factory-side pack scope. When
+    # --pack-id is given, emit pack_memberships.jsonl beside --out
+    # (rows: card_id, pack_id, priority, section, added_at). No
+    # bot-DB tables/handlers — out of scope by lock.
+    _pack_id = str(getattr(args, "pack_id", "") or "")
+    if _pack_id:
+        _pack_section = str(getattr(args, "pack_section", "") or "")
+        _added_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _member_recs = []
+        _seen_member: set = set()
+        for item in items:
+            key = item_key(item)
+            if key in _seen_member:
+                continue
+            _seen_member.add(key)
+            for rec in precards.get(key) or []:
+                _member_recs.append(rec)
+        _memberships = build_pack_memberships(
+            _member_recs, _pack_id, _pack_section, _added_at)
+        _member_path = write_pack_memberships(out_path, _memberships)
+        _say("pack memberships: %d row(s) -> %s (pack_id=%s)"
+             % (len(_memberships), _member_path, _pack_id))
+        jlog.event("pack_memberships", sink=_member_path,
+                   rows=len(_memberships), pack_id=_pack_id)
     if dup_redirect:
         _say("duplicate-redirect drops (merged into base, FSRS-safe): %s"
              % ", ".join(sorted(set(dup_redirect))))
@@ -2277,6 +2310,14 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Pre-card pipeline (R22-R25).")
     ap.add_argument("--sample", default=DEFAULT_SAMPLE)
     ap.add_argument("--out", default=DEFAULT_OUT)
+    ap.add_argument("--pack-id", default="",
+                    help="origin pack id stamped on rows "
+                    "(origin_pack_id) and emitted to "
+                    "pack_memberships.jsonl beside --out "
+                    "(empty = no pack scope, no membership file)")
+    ap.add_argument("--pack-section", default="",
+                    help="opaque pack-side section string "
+                    "(e.g. 'Unit 1') for membership rows")
     ap.add_argument("--progress-dir", default=DEFAULT_PROGRESS_DIR)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
@@ -2527,6 +2568,64 @@ def _default_human_queue_sink(out_path):
             / "human_escalation_queue.jsonl")
 
 
+def build_pack_memberships(records, pack_id, section="", added_at=""):
+    """Pack-membership rows for one pack build (R-acro, locked 2026-09-20).
+
+    records: emitted precard rows in display order. Returns a list of
+    {"card_id", "pack_id", "priority", "section", "added_at"} —
+    priority is the int display order (0-based over emitted rows),
+    section is an opaque pack-side string (e.g. "Unit 1"), added_at is
+    the caller-supplied UTC stamp ("" when the caller passes none).
+    Rows without a card_id (pre_card_id) are skipped, never fabricated.
+    Packs are playlists: membership never affects FSRS scheduling
+    (FSRS state lives on (user_id, card_id)). Pure, deterministic.
+    """
+    try:
+        stamp = str(added_at or "")
+    except Exception:
+        stamp = ""
+    try:
+        scope = str(section or "")
+    except Exception:
+        scope = ""
+    out = []
+    try:
+        ordered = list(records or [])
+    except TypeError:
+        return out
+    for rec in ordered:
+        try:
+            card_id = str((rec or {}).get("pre_card_id") or "")
+        except Exception:
+            continue
+        if not card_id:
+            continue
+        out.append({"card_id": card_id, "pack_id": str(pack_id or ""),
+                    "priority": len(out), "section": scope,
+                    "added_at": stamp})
+    return out
+
+
+def write_pack_memberships(out_path, memberships):
+    """Atomic write of pack_memberships.jsonl beside the pack-build --out.
+
+    Path: <out-dir>/pack_memberships.jsonl (tmp+os.replace, same crash
+    safety as precard.jsonl). Returns the written path string. Never
+    raises on hostile rows (skips non-dicts); OSError propagates to the
+    caller (fail-closed like the precard write).
+    """
+    target = pathlib.Path(str(out_path)).parent / "pack_memberships.jsonl"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = str(target) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        for row in memberships or []:
+            if not isinstance(row, dict):
+                continue
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(tmp, target)
+    return str(target)
+
+
 def _human_queue_record(item, payload):
     """HQ record for one veto-fired enrich payload (None when not queued).
 
@@ -2641,13 +2740,16 @@ def _flush_human_queue(pending, sink_path, warn_fn=None):
 
 def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
                        vec3, pick, preprocess_view, s0b, s1r,
-                       pos, n, label_calls=None):
+                       pos, n, label_calls=None, pack_id=""):
     """One precard row for one fanned-out pick (R1 assembly helper).
 
     sub_enrich/sub_label carry the per-sense S5/S4 payloads (primary
     payloads for pos 0); sub_vec is the resolved per-sense topic
     vector. Row shape matches the pre-fan-out single row plus
-    pick_index/fanout_n and the R3 example flags.
+    pick_index/fanout_n and the R3 example flags. pack_id (R-acro,
+    locked 2026-09-20) stamps the row's origin_pack_id — the pack that
+    introduced the card (playlist tag only; FSRS state lives on
+    (user_id, card_id) and membership never affects scheduling).
     """
     sub_enrich = sub_enrich if isinstance(sub_enrich, dict) else {}
     sub_label = sub_label if isinstance(sub_label, dict) else {}
@@ -2679,6 +2781,7 @@ def _build_precard_row(item, key, sub, sub_enrich, sub_label, sub_vec,
         "sense_cefr_method": sub_enrich.get("sense_cefr_method",
                                             "unmapped"),
         "pre_card_id": sub_enrich.get("pre_card_id", ""),
+        "origin_pack_id": str(pack_id or ""),
         "pick_index": pos, "fanout_n": n,
         "mother_lemma": (s1r.get("mother_lemma", "") or ""),
         "mother_lemmas": list(s1r.get("mother_lemmas") or []),

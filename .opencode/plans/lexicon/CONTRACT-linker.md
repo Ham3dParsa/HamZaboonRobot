@@ -136,3 +136,33 @@ contained-NONE / 65; Arbiter_Consensus and Queue_Integrity are ratios over
 the 15 escapes. Exact numerator semantics need owner verbatim; no formula
 rewrite without a new explicit lock. Append-only; no prior section
 rewritten.
+
+## ADDENDUM 2026-09-20 — Deterministic tags travel with row (R-acro R6, owner: "locked")
+
+**Rule:** deterministic tags built in enrich MUST reach tier-3
+consumers on every precard row — no tag is recomputed, re-guessed, or
+dropped downstream. The exact keys that travel (via
+`factory.precard.pipeline._build_precard_row` from the `enrich_item`
+payload + topic legs) are:
+
+- `sense_cefr`, `sense_cefr_method` (bridge value, `zipf-heuristic`
+  fallback for acronym/phrase only, or `""`/`unmapped` — never a
+  pool_level copy);
+- `pos`, `pos_src` (anchored entry POS tag list + `dataset`/`none`
+  provenance);
+- `register` (`neutral`/`informal`/`slang_vulgar` — the vulgar-implicit
+  signal; `slang_vulgar` fires on vulgar/offensive dataset tags);
+- `lexical_type` (`word` default; `slang`/`colloquial`/`idiomatic`
+  from sense tags, or the phrase-type log value for phrases —
+  carries the vulgar-implicit nuance alongside `register`);
+- `pre_card_id` (stable EN-content id — the join key tier-3 reads);
+- `abbrev_expansion` (dataset-first parse of the chosen gloss);
+- `circular_def` (per-sense FLAG only, never a drop);
+- `topic_vector`, `topic_method`, `topic_path`, `topic_guarded`
+  (topic legs S3/S4 — judge-built topics, Oxford signals never
+  propagate per G6).
+
+Tier-3 consumers (card build / selector stratification / viewer)
+read these keys as-is. Any new deterministic tag joins this list by
+append-only amendment here — never by silent payload growth.
+Append-only; no prior section rewritten.
