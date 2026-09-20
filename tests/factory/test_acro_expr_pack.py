@@ -50,6 +50,21 @@ def test_r1_dead_tag_casefolded():
     assert reason == "g4-abbrev"
 
 
+def test_r1_dead_tag_scoped_to_abbrev_senses():
+    # OC review 2026-09-20: an unrelated dead-tagged NON-abbrev sense
+    # must not sink an abbrev item — the dead-tag leg is scoped to
+    # abbreviation-tagged senses (two senses here, so no quarantine).
+    view = {"poss": {"noun"},
+            "senses": [{"gloss": "Abbreviation of February.",
+                        "tags": ["abbreviation"]},
+                       {"gloss": "A calendar month.",
+                        "tags": ["calendar"]}]}  # dead tag, no abbrev tag
+    reason, quar = anchor._preprocess_input_gates(
+        "FEB", view, zipf_fn=lambda t: 5.0)
+    assert reason is None
+    assert quar is None
+
+
 def test_r1_wordfreq_pass_ge_threshold():
     reason, quar = anchor._preprocess_input_gates(
         "FEB", _view(["abbreviation"]), zipf_fn=lambda t: 3.2)
@@ -347,6 +362,18 @@ def test_r5_membership_emission_shape(tmp_path):
     back = [json.loads(line) for line in
             Path(written).read_text(encoding="utf-8").splitlines()]
     assert back == rows
+
+
+def test_r5_stale_sidecar_pruned_without_pack_id(tmp_path):
+    # OC review 2026-09-20: a rebuild without --pack-id must not leave
+    # a membership file attributing the previous pack.
+    out = tmp_path / "precard.jsonl"
+    out.write_text("", encoding="utf-8")
+    stale = tmp_path / "pack_memberships.jsonl"
+    stale.write_text('{"card_id": "old"}\n', encoding="utf-8")
+    assert pipeline_home.prune_stale_pack_memberships(out) is True
+    assert not stale.exists()
+    assert pipeline_home.prune_stale_pack_memberships(out) is False
 
 
 def test_r5_fsrs_invariant_documented():

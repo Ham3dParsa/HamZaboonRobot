@@ -2272,6 +2272,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
              % (len(_memberships), _member_path, _pack_id))
         jlog.event("pack_memberships", sink=_member_path,
                    rows=len(_memberships), pack_id=_pack_id)
+    else:
+        # No --pack-id: never leave a stale sidecar attributing a
+        # previous pack build (OC review 2026-09-20).
+        if prune_stale_pack_memberships(out_path):
+            _say("pack memberships: stale sidecar removed (no --pack-id)")
+            jlog.event("pack_memberships_pruned",
+                       sink=str(out_path))
     if dup_redirect:
         _say("duplicate-redirect drops (merged into base, FSRS-safe): %s"
              % ", ".join(sorted(set(dup_redirect))))
@@ -2604,6 +2611,32 @@ def build_pack_memberships(records, pack_id, section="", added_at=""):
                     "priority": len(out), "section": scope,
                     "added_at": stamp})
     return out
+
+
+def prune_stale_pack_memberships(out_path):
+    """Remove a stale pack_memberships.jsonl beside the pack-build --out.
+
+    A rebuild WITHOUT --pack-id must not leave a membership file from
+    a previous pack build attributing the wrong pack (OC review
+    2026-09-20). Returns True when a stale sidecar was removed, False
+    otherwise (absent, unreadable, or unremovable). Never raises:
+    OSError fails open to False — a stale factory artifact is never
+    a build failure.
+    """
+    try:
+        target = pathlib.Path(str(out_path)).parent / "pack_memberships.jsonl"
+    except Exception:
+        return False
+    try:
+        if not target.is_file() and not target.is_symlink():
+            return False
+    except OSError:
+        return False
+    try:
+        target.unlink()
+    except OSError:
+        return False
+    return True
 
 
 def write_pack_memberships(out_path, memberships):

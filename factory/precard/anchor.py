@@ -1779,9 +1779,11 @@ def _preprocess_input_gates(text, view, zipf_fn=None):
     # (BOOK/PLAY stay; case-preserving samples punished real words).
     # Two-leg mechanical gate, applies only when at least one sense
     # carries the "abbreviation" tag:
-    # (a) dead-tag filter: a sense carrying a G4_DEAD_TAGS Kaikki tag
-    # (calendar / unit_of_measure / chemical_element / currency)
-    # drops the item;
+    # (a) dead-tag filter: a sense carrying BOTH the "abbreviation"
+    # tag and a G4_DEAD_TAGS Kaikki tag (calendar / unit_of_measure /
+    # chemical_element / currency) drops the item. Scoped to
+    # abbreviation-tagged senses (OC review 2026-09-20) — an unrelated
+    # dead-tagged non-abbrev sense never sinks an abbrev item;
     # (b) wordfreq standard-library zipf_frequency(text, "en") >=
     # G4_ZIPF_PASS (3.2, PROVISIONAL — revisit when phrase-CEFR data
     # exists) passes the item as a real-word reading.
@@ -1793,7 +1795,8 @@ def _preprocess_input_gates(text, view, zipf_fn=None):
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
     if n_abbr > 0:
         if any(t in G4_DEAD_TAGS
-               for s in senses for t in s.get("tags", [])):
+               for s in senses if "abbreviation" in s.get("tags", [])
+               for t in s.get("tags", [])):
             return "g4-abbrev", None
         try:
             _g4_zipf = (zipf_fn or default_zipf)(text or "")
