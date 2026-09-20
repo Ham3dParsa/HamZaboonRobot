@@ -171,7 +171,7 @@ deterministic tag joins this list by
 append-only amendment here — never by silent payload growth.
 Append-only; no prior section rewritten.
 
-## LOCKED 2026-09-20 — Stage foundation (S1–S5 multilingual base)
+## LOCKED 2026-09-20 — Stage foundation (screening → transfer multilingual base)
 
 - **E1 example-supply chain:** Kaikki → lemma → Tatoeba, in that order.
   Oxford/EVP act ONLY as CEFR signals/metadata; no Oxford example text is
