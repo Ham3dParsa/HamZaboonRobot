@@ -6,14 +6,14 @@ row or a structured drop verdict. Pure function, stdlib only.
 
 from __future__ import annotations
 
-from factory.precard.progress import normalize_stage
+from factory.precard.progress import resolve_candidate_stage
 
 
-def item_key(item):
+def source_item_key(item):
     """Vendored from factory/pipeline/card_pilot (provenance: precard
     line R1-R6, 2026-09-14) — "w:"+text for words, "p:"+text for
     phrases. Copied so this package imports nothing project-owned.
-    Pilot-line copy at card_pilot.item_key kept by design until T6
+    Pilot-line copy at card_pilot.source_item_key kept by design until T6
     (identity-141 R5)."""
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
@@ -36,14 +36,14 @@ def audit_sample_accounting(items, precards, states):
         states = {}
         for stage_key, bucket in raw_states.items():
             try:
-                norm_key = normalize_stage(stage_key)
+                norm_key = resolve_candidate_stage(stage_key)
             except Exception:
                 continue
             states.setdefault(norm_key, bucket)
         missing = []
         for item in items or []:
             try:
-                key = item_key(item)
+                key = source_item_key(item)
             except Exception:
                 continue
             rows = rows_of.get(key)

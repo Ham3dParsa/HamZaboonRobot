@@ -2,8 +2,8 @@
 
 import pathlib
 
-from factory.linker import linker
-from factory.linker import viewer as viewer
+from factory.linking import linker
+from factory.linking import viewer as viewer
 
 
 def _rows():
@@ -532,8 +532,8 @@ def test_naming_locked_strings(tmp_path):
 
 
 def test_link_method_vocab_single_source():
-    import factory.linker as pkg
-    from factory.linker import linker as core
+    import factory.linking as pkg
+    from factory.linking import linker as core
     assert pkg.LINK_METHOD_VOCAB is core.LINK_METHOD_VOCAB
     assert len(core.LINK_METHOD_VOCAB) == 13
 
@@ -599,7 +599,7 @@ def test_trace_cand_why_no_verdict_row_winner():
 
 
 def test_stage_mapping_single_source():
-    from factory.linker.linker import _stats_stage, LINK_METHOD_VOCAB
+    from factory.linking.linker import _stats_stage, LINK_METHOD_VOCAB
     assert viewer._stage_of is _stats_stage
     for method in list(LINK_METHOD_VOCAB) + [None, "", "WAT"]:
         assert viewer._stage_of(method) == _stats_stage(method)

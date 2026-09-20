@@ -47,7 +47,7 @@ from factory.core.llm_json import AuthError, extract_json, raise_for_auth  # noq
 from factory.core.telemetry import extract_usage as _tele_usage  # noqa: E402
 from factory.core.telemetry import record_call as _tele_record  # noqa: E402
 from factory.core.telemetry import write_summary as _tele_write  # noqa: E402
-from factory.precard.transport import KeyRing  # noqa: E402  (P0 net core: single owner)
+from factory.precard.provider_transport import KeyRing  # noqa: E402  (P0 net core: single owner)
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 

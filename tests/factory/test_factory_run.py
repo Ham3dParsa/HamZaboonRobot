@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from factory.precard import transport as T
+from factory.precard import provider_transport as T
 from factory import run as RUN
 
 
@@ -156,7 +156,7 @@ def test_list_models_output(capsys):
 
 def test_list_models_prints_per_entry_cost_labels(capsys):
     """P2 (R3): every table entry prints with its cost label."""
-    from factory.precard import net as NET
+    from factory.precard import provider_lease_policy as NET
     code = RUN.run(["--list-models"], env_map={},
                    health_fn=_no_network, spawn_fn=_no_spawn,
                    pipeline_main_fn=_no_pipeline)
@@ -620,7 +620,7 @@ def test_direct_probe_loader_preserves_shared_probes(monkeypatch):
     """OC round-7: a cold exec snapshots + restores pre-exec probes,
     so a prior importer's attachments survive untouched."""
     import sys as _sys
-    from factory.precard import net as _net
+    from factory.precard import provider_lease_policy as _net
     _zen = object()
     _google = object()
     monkeypatch.delitem(_sys.modules, "egress_supervisor",
@@ -820,7 +820,7 @@ def test_spawn_defaults_keep_supervisor_default_cache():
                    sleep_fn=lambda s: None)
     assert code == 0
     assert seen["cache_path"] is None
-    from factory.precard import net as NET
+    from factory.precard import provider_lease_policy as NET
     assert seen["clean_ttl"] == NET.CLEAN_CACHE_TTL_S
 
 
@@ -1217,7 +1217,7 @@ def test_kill_mid_run_resume_changed_chain(tmp_path, monkeypatch, capsys):
     """Kill at item k (429 in judge batch 2), resume with a different
     chain: batch-1 items skipped, k retried on the new model, zero
     re-billing of done items, per-item actual models kept."""
-    from factory.precard.net import LEG_FALLBACKS
+    from factory.precard.provider_lease_policy import LEG_FALLBACKS
     monkeypatch.setenv("GOOGLE_AI_API_KEY", "test-google-key")
     monkeypatch.setenv("AVALAI_API_KEY", "test-avalai-key")
     sample = _write_resume_sample(tmp_path, _WORDS14)

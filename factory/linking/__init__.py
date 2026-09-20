@@ -1,21 +1,21 @@
 """Offline build-time Kaikki -> WordNet sense-linker (own package identity).
 
 Moved verbatim from ``factory/precard/linker.py`` (origin/main, M1-M3 move):
-the scoring core stays in :mod:`factory.linker.linker` with zero logic
+the scoring core stays in :mod:`factory.linking.linker` with zero logic
 change — stdlib only, no I/O, no network, no model, no embeddings. The
-shipped vendor table moved verbatim to ``factory/linker/table.tsv`` with
+shipped vendor table moved verbatim to ``factory/linking/table.tsv`` with
 its pins in ``table.meta.json``.
 
 Public surface (everything else is private-by-convention):
 
 - :data:`LINK_METHOD_VOCAB` — frozen method vocabulary.
-- :mod:`factory.linker.gates` — v0.8 gate-core for the enrich path
+- :mod:`factory.linking.gates` — v0.8 gate-core for the enrich path
   (F3: LowRankZeroOverlapVeto / EvidenceGlossMismatchVeto /
   SplitVoteVeto enforcing, SignalQualityVeto log-only).
 - :func:`validate_table_rows` — pure vendor-table guard (re-exported).
 - :func:`build_link_index` / :func:`lookup_link` — thin pure TSV-row
   index helpers for the CLI (new in M1-M3; no scoring logic).
-- :mod:`factory.linker.linker` — full scoring core (``decide``,
+- :mod:`factory.linking.linker` — full scoring core (``arbitrate_link``,
   ``signal_sa/sb/sc/sd``, ``match_exact``, ...).
 
 Deliberately NOT here (deferred, not invented): ``link`` / ``lookup`` /
@@ -28,8 +28,8 @@ feat/linker-viewer worker owns it) — see the M1-M3 report viewer-move
 debt note.
 """
 
-from factory.linker import gates, linker
-from factory.linker.linker import LINK_METHOD_VOCAB, validate_table_rows
+from factory.linking import gates, linker
+from factory.linking.linker import LINK_METHOD_VOCAB, validate_table_rows
 
 __all__ = [
     "LINK_METHOD_VOCAB",

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 
-from factory.precard.accounting import item_key
+from factory.precard.accounting import source_item_key
 
 ANCHOR_STAGES = ("preprocess", "anchor_rank")
 
@@ -1131,7 +1131,7 @@ def anchor(item, index, read_entry):
     (kept out of the dict so progress files stay byte-identical).
     anchor_item_en itself never drops; THIS view is where S1 drops.
     """
-    key = item_key(item)
+    key = source_item_key(item)
     warnings = []
     ranked = anchor_rank_item(item, index, read_entry)
     if (ranked.get("anchor_pos") or "") in PROPER_NOUN_POS:
@@ -1381,7 +1381,7 @@ def _backfill_candidate_tags(batch, anchor_map, index, read_entry):
     per-batch progress flush.
     """
     for item in batch:
-        entry = (anchor_map or {}).get(item_key(item))
+        entry = (anchor_map or {}).get(source_item_key(item))
         if not _needs_tag_backfill(entry):
             continue
         try:

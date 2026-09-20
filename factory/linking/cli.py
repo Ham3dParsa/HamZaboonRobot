@@ -1,11 +1,11 @@
 """Offline linker CLI — stdlib only, no model, no network, no embeddings.
 
-Wired as ``python -m factory.linker.cli``. All commands work offline over a
-TSV link table (default: the shipped ``factory/linker/table.tsv``).
+Wired as ``python -m factory.linking.cli``. All commands work offline over a
+TSV link table (default: the shipped ``factory/linking/table.tsv``).
 
 - ``link``     — select shipped-table rows for a wordlist, write a subset
                 TSV. (Fresh candidate scoring needs injected Kaikki/WordNet
-                data via the :mod:`factory.linker.linker` core — the CLI
+                data via the :mod:`factory.linking.linker` core — the CLI
                 never calls a model; it filters the frozen vendor table.)
 - ``lookup``   — print the row(s) for one ``kaikki_sense_id``.
 - ``stats``    — method distribution + flag counts for a table.
@@ -19,7 +19,7 @@ import csv
 import sys
 from pathlib import Path
 
-from factory.linker import build_link_index, lookup_link, validate_table_rows
+from factory.linking import build_link_index, lookup_link, validate_table_rows
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_TABLE = PACKAGE_DIR / "table.tsv"
@@ -134,7 +134,7 @@ def cmd_validate(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="python -m factory.linker.cli",
+        prog="python -m factory.linking.cli",
         description="Offline Kaikki->WordNet link-table tools.")
     sub = parser.add_subparsers(dest="command", required=True)
 

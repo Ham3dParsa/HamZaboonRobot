@@ -7,11 +7,11 @@ LINKed, FALSE rows park, and the shipped vendor table validates clean.
 import csv
 import pathlib
 
-from factory.linker import linker
+from factory.linking import linker
 
 
 TABLE = (pathlib.Path(__file__).resolve().parents[2]
-         / "factory" / "linker" / "table.tsv")
+         / "factory" / "linking" / "table.tsv")
 
 
 def test_sa_move_only_overlap_never_fires():
@@ -37,39 +37,39 @@ def test_match_exact_join():
     assert linker.match_exact(["a%1:01:00::"], ["b%1:02:00::"]) == []
 
 
-def test_decide_true_link_stays():
-    d = linker.decide(
+def test_arbitrate_link_true_link_stays():
+    d = linker.arbitrate_link(
         "en-light-en-noun-en:source_of_illumination",
         "light_source%1:06:00::", ["Sa:j=0.27", "Sb:source"],
         se_value=0.677, sa_words={"source"})
     assert (d["method"], d["flags"]) == ("LINK:2-sig", [])
 
 
-def test_decide_single_signal_parks():
-    d = linker.decide(
+def test_arbitrate_link_single_signal_parks():
+    d = linker.arbitrate_link(
         "en-arrival-en-noun-X", "become%2:38:00::", ["Sa:j=0.27"])
     assert (d["sensekey"], d["method"]) == (
         "become%2:38:00::", "JUDGE-PENDING")
 
 
-def test_decide_ultra_short_parks_with_best_cand():
-    d = linker.decide(
+def test_arbitrate_link_ultra_short_parks_with_best_cand():
+    d = linker.arbitrate_link(
         "en-mistake-en-noun-kjZERp8U", "mistake%1:04:00::",
         ["Sb:error,fault"], ultra_short=True)
     assert (d["method"], d["evidence"]) == (
         "JUDGE-PENDING", "short-gloss:Sb:error,fault")
 
 
-def test_decide_twin_suppresses():
-    d = linker.decide(
+def test_arbitrate_link_twin_suppresses():
+    d = linker.arbitrate_link(
         "en-outside-en-adv-E7dgXPoq", "outside%4:02:00::", ["Sa:j=0.40"],
         is_twin=True, twin_cefr=("A1", "A2"))
     assert (d["method"], d["evidence"], d["flags"]) == (
         "twin-pending", "best-cand-twinned;tsv-cefr=A1,A2", ["twin-pending"])
 
 
-def test_decide_quarantine_holds():
-    d = linker.decide(
+def test_arbitrate_link_quarantine_holds():
+    d = linker.arbitrate_link(
         "en-book-en-verb-hoaZwz7Y", "book%2:41:00::",
         ["Sa:j=0.33", "Sd:hyp=record"], se_value=0.437,
         sa_words={"record"})
@@ -77,8 +77,8 @@ def test_decide_quarantine_holds():
         "quarantined-known-false", ["quarantined-known-false"])
 
 
-def test_decide_manual_none():
-    d = linker.decide(
+def test_arbitrate_link_manual_none():
+    d = linker.arbitrate_link(
         "en-light-en-noun-en:Q12969754", "visible_radiation%1:19:00::",
         ["Sa:j=0.29", "Sb:radiation"],
         manual_none="owner-locked:E1")

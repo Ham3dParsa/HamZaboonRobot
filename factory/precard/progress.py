@@ -73,7 +73,7 @@ TOPUP_NEW_NAME = "label_topup_cache.json"
 TOPUP_OLD_NAME = "s4_topup_cache.json"
 
 
-def normalize_stage(pick):
+def resolve_candidate_stage(pick):
     """New stage id from any legacy id, domain name, or new id."""
     if pick is None:
         return ""
@@ -88,14 +88,14 @@ def normalize_stage(pick):
 def display(stage):
     """Console/log display name: the id itself (real words, no tags)."""
     try:
-        return normalize_stage(stage) or stage
+        return resolve_candidate_stage(stage) or stage
     except Exception:
         return stage
 
 
 def stage_file(progress_dir, stage):
     """Default (new) progress path for a stage."""
-    return pathlib.Path(progress_dir) / FILES[normalize_stage(stage)]
+    return pathlib.Path(progress_dir) / FILES[resolve_candidate_stage(stage)]
 
 
 def find_stage_file(progress_dir, stage):

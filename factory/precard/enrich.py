@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from factory.linker import gates as _v08_gates
+from factory.linking import gates as _v08_gates
 from factory.precard import anchor as _anchor_home
 from factory.precard.cefr import METHOD_UNMAPPED
 from factory.precard.cefr import sense_cefr_for

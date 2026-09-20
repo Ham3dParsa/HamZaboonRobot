@@ -378,7 +378,7 @@ def _http_429():
 def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
     """S2 429 on key1 rotates to key2 (5s pause) and retries the SAME call."""
     import pytest
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     sample = write_sample(tmp_path, ITEMS[:1])
     prog_state = {"done": {}, "failed": [], "backoffs": []}
     sleeps = []
@@ -400,8 +400,8 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
               "pool_level": "A1"}]
     ring = KeyRing(["k1", "k2"])
     tele = []
-    from factory.precard.judge import judge_batch
-    out = judge_batch(batch, anchor_map, "k1", flaky, sleeps.append,
+    from factory.precard.judge import arbiter_batch
+    out = arbiter_batch(batch, anchor_map, "k1", flaky, sleeps.append,
                          prog_state, telemetry=tele, tele_batch=1,
                          ring=ring)
     assert out["w:apple"]["sense_id"] == "apple#0"
@@ -443,7 +443,7 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
 
 def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
     """S3 429 rotates keys with a 5s pause and retries the same call."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     index = make_index()
@@ -477,8 +477,8 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
     """S4 wrapper rotates on 429; all-keys-429 raises RateLimited with a
     provider-neutral message (per-stage STOP wrappers add VPN/quota hints)."""
     import pytest
-    from factory.precard.transport import KeyRing
-    from factory.precard.transport import _rotating_llm_transport
+    from factory.precard.provider_transport import KeyRing
+    from factory.precard.provider_transport import _rotating_llm_transport
     # Rotate-then-succeed.
     sleeps, seen = [], []
     state = {"done": {}, "failed": [], "backoffs": []}
@@ -498,7 +498,7 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
     def always_429(api_key, model, user_text):
         raise _http_429()
 
-    from factory.precard.transport import RateLimited
+    from factory.precard.provider_transport import RateLimited
     wrap2 = _rotating_llm_transport(always_429, sleeps.append,
                                     {"done": {}, "failed": [],
                                      "backoffs": []},
@@ -596,7 +596,7 @@ def test_resume_oldest_sx_names_for_renamed_stages(tmp_path, monkeypatch):
     LLM rework for the three renamed stages (s0b/s2/s4)."""
     import shutil
     from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
-    from factory.precard.progress import normalize_stage, STAGES
+    from factory.precard.progress import resolve_candidate_stage, STAGES
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     oldest = {}
@@ -604,7 +604,7 @@ def test_resume_oldest_sx_names_for_renamed_stages(tmp_path, monkeypatch):
         stem = old.rsplit(".", 1)[0]
         if new in (STAGE_FILES["s0b"], STAGE_FILES["s2"],
                    STAGE_FILES["s4"]) \
-                and normalize_stage(stem) in STAGES:
+                and resolve_candidate_stage(stem) in STAGES:
             oldest[new] = old
     assert set(oldest) == {STAGE_FILES["s0b"], STAGE_FILES["s2"],
                            STAGE_FILES["s4"]}
@@ -655,7 +655,7 @@ def test_needs_tag_backfill_predicate():
 
 def test_google_payload_locks_temperature_zero():
     """H5: google transport is deterministic (temperature 0.0)."""
-    from factory.precard.transport import _google_payload
+    from factory.precard.provider_transport import _google_payload
     payload = _google_payload("hi")
     assert payload["generationConfig"]["temperature"] == 0.0
     assert payload["contents"][0]["parts"][0]["text"] == "hi"
@@ -1214,7 +1214,7 @@ def test_telemetry_history_vendored_with_provenance(tmp_path, monkeypatch):
     # F7 (superseded by identity self-containment): the precard line no
     # longer reuses card_pilot's function by import — the package vendors
     # a frozen copy, and the freeze source must stay labeled.
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     doc = precard_transport.append_telemetry_history.__doc__ or ""
     assert "card_pilot" in doc and "provenance" in doc.lower()
     rc, out, _prog, _sleeps = run_pipeline(
@@ -1228,9 +1228,9 @@ def test_telemetry_history_vendored_with_provenance(tmp_path, monkeypatch):
 
 def test_s2_tuple_usage_recorded():
     """T1: tuple (text, usage) judge transports surface tokens (None-tolerated)."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
-    from factory.precard.judge import judge_batch
+    from factory.precard.judge import arbiter_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
@@ -1241,7 +1241,7 @@ def test_s2_tuple_usage_recorded():
                 {"input_tokens": 11, "output_tokens": 5})
 
     tele = []
-    out = judge_batch([item], anchor_map, "k", tuple_judge, lambda s: None,
+    out = arbiter_batch([item], anchor_map, "k", tuple_judge, lambda s: None,
                          {"done": {}, "failed": [], "backoffs": []},
                          telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
     assert out["w:apple"]["sense_id"] == "apple#0"
@@ -1250,7 +1250,7 @@ def test_s2_tuple_usage_recorded():
     assert ok[0]["completion_tokens"] == 5
     # Plain-text transports record None tokens without failing.
     tele2 = []
-    judge_batch([item], anchor_map, "k", fake_judge, lambda s: None,
+    arbiter_batch([item], anchor_map, "k", fake_judge, lambda s: None,
                    {"done": {}, "failed": [], "backoffs": []},
                    telemetry=tele2, tele_batch=1, ring=KeyRing(["k"]))
     ok2 = [r for r in tele2 if r.get("outcome") == "ok"]
@@ -1260,7 +1260,7 @@ def test_s2_tuple_usage_recorded():
 
 def test_s3_tuple_usage_recorded():
     """T1: tuple (text, usage) topic transports surface tokens."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     index = make_index()
@@ -1291,7 +1291,7 @@ def test_s3_tuple_usage_recorded():
 def test_s4_unlabelled_path_counted(tmp_path):
     """T1 (R3 locked): S4 LLM failure leaves the row UNLABELLED (never
     Other); the chunk-level fallback telemetry record is unchanged."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.topics import label_item
     state = {"done": {}, "failed": [], "backoffs": []}
     item = {"kind": "word", "text": "zzqx", "pool_level": "B1"}
@@ -1371,8 +1371,8 @@ def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
     """OC must-fix: all-keys-429 in S4 must flush via RateLimited (not a
     SystemExit that bypasses the caller flush)."""
     import urllib.error
-    from factory.precard.transport import _rotating_llm_transport, RateLimited
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import _rotating_llm_transport, RateLimited
+    from factory.precard.provider_transport import KeyRing
     import pytest
 
     def transport_429(api_key, model, user_text):
@@ -1388,8 +1388,8 @@ def test_label_item_reraises_ratelimited():
     import urllib.error
     import pytest
     from factory.precard.topics import label_item
-    from factory.precard.transport import RateLimited
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import RateLimited
+    from factory.precard.provider_transport import KeyRing
 
     def transport_429(api_key, model, user_text):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
@@ -1406,7 +1406,7 @@ def test_avalai_transport_shape(monkeypatch):
     """AvalAI chain: effort-low posted, model honored, usage surfaced."""
     import io as _io
     import urllib.request
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     seen = {}
 
     class FakeResp:
@@ -1449,7 +1449,7 @@ def test_avalai_transport_http_error_propagates(monkeypatch):
     import urllib.error
     import urllib.request
     import pytest
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
 
     def boom_429(req, timeout=120):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {},
@@ -1472,9 +1472,9 @@ def test_avalai_transport_http_error_propagates(monkeypatch):
 
 def test_s2_models_override_used():
     """AvalAI chain: explicit models list replaces the table chain."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
-    from factory.precard.judge import judge_batch
+    from factory.precard.judge import arbiter_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
@@ -1485,7 +1485,7 @@ def test_s2_models_override_used():
         seen.append(model)
         return fake_judge(api_key, model, user_text)
 
-    out = judge_batch([item], anchor_map, "k", rec, lambda s: None,
+    out = arbiter_batch([item], anchor_map, "k", rec, lambda s: None,
                          {"done": {}, "failed": [], "backoffs": []},
                          ring=KeyRing(["k"]), models=["glm-5.3-flash"])
     assert out["w:apple"]["model"] == "glm-5.3-flash"
@@ -1668,7 +1668,7 @@ def test_full_avalai_needs_only_its_key(tmp_path, monkeypatch):
 def test_avalai_remap_substitutes_model():
     """Full-line mode: requested loop names are replaced by the precard
     model; extra sys text is prepended, never dropped."""
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     seen = {}
 
     def rec(api_key, model, user_text):
@@ -1690,7 +1690,7 @@ def test_avalai_remap_substitutes_model():
 def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
     """Full-line mode: S3 vector batch calls the precard model (override),
     not the net-table fallback chain."""
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
     index = make_index()
@@ -2399,7 +2399,7 @@ def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
              "vector": [{"topic_id": 13, "topic_label": "Other / Abstract",
                          "weight": 1.0}]}]}]}), None)
 
-    monkeypatch.setattr("factory.precard.transport._avalai_chat_transport",
+    monkeypatch.setattr("factory.precard.provider_transport._avalai_chat_transport",
                         rec_topic)
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog,
@@ -2499,15 +2499,15 @@ def test_stage_labels_cover_all_ids_ascii_only():
         "topic_vectors", "topic_label", "enrich")
     for stage in progress.STAGES:
         assert progress.display(stage).isascii()
-        assert progress.normalize_stage(stage) == stage
-    assert progress.normalize_stage("sx") == "sx"
+        assert progress.resolve_candidate_stage(stage) == stage
+    assert progress.resolve_candidate_stage("sx") == "sx"
     assert progress.display("sx") == "sx"
 
 
 def test_stage_selection_accepts_names():
     """v1.4.1 identity: --only/--stages take real-word ids; legacy s-ids,
     dashed names and domain names still resolve (read shim)."""
-    from factory.precard.progress import normalize_stage as ns
+    from factory.precard.progress import resolve_candidate_stage as ns
     assert ns("sense_judge") == "sense_judge"
     assert ns("topic_label") == "topic_label"
     assert ns("inflection_review") == "inflection_review"
@@ -2524,32 +2524,32 @@ def test_stage_selection_accepts_names():
     assert ns(None) == ""
 
 
-def test_judge_prompt_renders_tags_and_hierarchy():
+def test_arbiter_prompt_renders_tags_and_hierarchy():
     """Locked R4: candidate lines carry [tags] when present; the prompt
     states the everyday-first hierarchy with the C1/C2 exception."""
     batch = [{"kind": "word", "text": "boil", "pool_level": "B1"}]
-    from factory.precard.judge import judge_prompt
+    from factory.precard.judge import arbiter_prompt
     anchor_map = {"w:boil": {"candidates": [
         {"sense_id": "boil#2", "gloss": "to heat liquid",
          "tags": ["colloquial"]},
         {"sense_id": "boil#5", "gloss": "a swelling",
          "tags": []},
     ]}}
-    prompt = judge_prompt(batch, anchor_map)
+    prompt = arbiter_prompt(batch, anchor_map)
     assert "- boil#2 [colloquial] to heat liquid" in prompt
     assert "- boil#5 a swelling" in prompt
     assert "UNLESS the item's pool_level is C1/C2" in prompt
     assert "ALWAYS pick the independent lexical meaning" in prompt
 
 
-def test_judge_prompt_hotfix_modal_precedence():
+def test_arbiter_prompt_hotfix_modal_precedence():
     """Hotfix round: modal auxiliaries keep their grammatical main sense."""
     batch = [{"kind": "word", "text": "would", "pool_level": "A1"}]
-    from factory.precard.judge import judge_prompt
+    from factory.precard.judge import arbiter_prompt
     anchor_map = {"w:would": {"candidates": [
         {"sense_id": "would#0", "gloss": "past of will", "tags": []},
     ]}}
-    prompt = judge_prompt(batch, anchor_map)
+    prompt = arbiter_prompt(batch, anchor_map)
     assert "absolute precedence" in prompt
     assert "would" in prompt
 
@@ -3310,13 +3310,13 @@ def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
 def test_label_batch_16_items_single_call():
     """B1: 16 items share exactly 1 LLM call; prompt holds all 16."""
     from factory.precard.topics import label_batch, LABEL_BATCH
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
 
     assert LABEL_BATCH == 16
     items = [{"kind": "word", "text": "w%02d" % i, "pool_level": "B1"}
              for i in range(16)]
-    from factory.precard.accounting import item_key
-    picks = {item_key(it): {"sense_id": "%s#0" % it["text"],
+    from factory.precard.accounting import source_item_key
+    picks = {source_item_key(it): {"sense_id": "%s#0" % it["text"],
                             "gloss": "gloss %s" % it["text"]}
              for it in items}
     calls = []
@@ -3346,20 +3346,20 @@ def test_label_batch_16_items_single_call():
         assert ("%s#0" % it["text"]) in calls[0]
     assert len(out) == 16
     for it in items:
-        row = out[item_key(it)]
+        row = out[source_item_key(it)]
         assert row["label"] == "Work & Careers"
         assert row["topic_path"] == "llm"
 
 
 def test_label_batch_salvages_valid_rows():
     """B1: one malformed row leaves only its own item unlabelled."""
-    from factory.precard.accounting import item_key
+    from factory.precard.accounting import source_item_key
     from factory.precard.topics import label_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
 
     items = [{"kind": "word", "text": "good", "pool_level": "B1"},
              {"kind": "word", "text": "bad", "pool_level": "B1"}]
-    picks = {item_key(it): {"sense_id": "%s#0" % it["text"],
+    picks = {source_item_key(it): {"sense_id": "%s#0" % it["text"],
                             "gloss": "gloss %s" % it["text"]}
              for it in items}
 
@@ -3381,23 +3381,23 @@ def test_label_batch_salvages_valid_rows():
     out = label_batch(
         items, picks, None, "k", fake_transport, lambda s: None, state,
         None, {}, ring=KeyRing(["k"]))
-    assert out[item_key(items[0])]["topic_path"] == "llm"
-    assert out[item_key(items[0])]["label"] == "Work & Careers"
-    assert out[item_key(items[1])]["topic_path"] == "unlabelled"
-    assert out[item_key(items[1])]["label"] is None
+    assert out[source_item_key(items[0])]["topic_path"] == "llm"
+    assert out[source_item_key(items[0])]["label"] == "Work & Careers"
+    assert out[source_item_key(items[1])]["topic_path"] == "unlabelled"
+    assert out[source_item_key(items[1])]["label"] is None
 
 
 def test_label_batch_duplicate_lemma_text():
     """B1: word+phrase sharing a lemma text both resolve (no collapse)."""
-    from factory.precard.accounting import item_key
+    from factory.precard.accounting import source_item_key
     from factory.precard.topics import label_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
 
     items = [{"kind": "word", "text": "run", "pool_level": "B1"},
              {"kind": "phrase", "text": "run", "pool_level": "B1"}]
-    assert item_key(items[0]) != item_key(items[1])
-    picks = {item_key(it): {"sense_id": "run#0",
-                            "gloss": "gloss %s" % item_key(it)}
+    assert source_item_key(items[0]) != source_item_key(items[1])
+    picks = {source_item_key(it): {"sense_id": "run#0",
+                            "gloss": "gloss %s" % source_item_key(it)}
              for it in items}
     calls = []
 
@@ -3423,7 +3423,7 @@ def test_label_batch_duplicate_lemma_text():
         None, {}, ring=KeyRing(["k"]))
     assert len(calls) == 1
     for it in items:
-        row = out[item_key(it)]
+        row = out[source_item_key(it)]
         assert row["label"] == "Sports & Leisure"
         assert row["topic_path"] == "llm"
 
@@ -3445,7 +3445,7 @@ class _GoogleResp:
 def test_google_transport_envelope(monkeypatch):
     """Google leg: key in x-goog-api-key header, MINIMAL thinking, JSON mime."""
     import urllib.request
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     seen = {}
 
     def fake_urlopen(req, timeout=120):
@@ -3476,7 +3476,7 @@ def test_google_transport_http_error_propagates(monkeypatch):
     import urllib.error
     import urllib.request
     import pytest
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
 
     def boom_429(req, timeout=120):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {},
@@ -3497,7 +3497,7 @@ def test_google_remap_substitutes_model(monkeypatch):
         seen["model"] = model
         return "{}", None
 
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     monkeypatch.setattr(precard_transport, "_google_chat_transport",
                         fake_google)
     wrap = precard_transport._google_remap_transport(
@@ -3519,7 +3519,7 @@ def test_google_429_hint_says_quota_reset(tmp_path, monkeypatch):
     import urllib.error
     import pytest
     import urllib.request
-    from factory.precard import transport as precard_transport
+    from factory.precard import provider_transport as precard_transport
     monkeypatch.setenv("GOOGLE_AI_API_KEY", "google-key")
 
     def boom_429(api_key, model, user_text):
@@ -3542,7 +3542,7 @@ def test_google_429_hint_says_quota_reset(tmp_path, monkeypatch):
 
 def test_google_key_falls_back_to_egress_env(tmp_path, monkeypatch):
     """Google leg: factory/.env first, tools/egress/.env fallback."""
-    from factory.precard.transport import _read_egress_env_key
+    from factory.precard.provider_transport import _read_egress_env_key
 
     egress = tmp_path / ".env"
     egress.write_text("GOOGLE_AI_API_KEY=egress-key\n", encoding="utf-8")

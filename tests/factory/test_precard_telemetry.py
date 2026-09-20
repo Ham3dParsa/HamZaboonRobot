@@ -15,7 +15,7 @@ import time
 import urllib.error
 
 from factory.core import telemetry as core_tele
-from factory.precard import transport as precard_transport
+from factory.precard import provider_transport as precard_transport
 
 
 def _idx():
@@ -151,8 +151,8 @@ def _http_429():
 def test_terminal_record_real_latency_and_key(tmp_path):
     """R10: terminal rows carry the measured latency and the real
     ring.idx (a 429 rotates k1 -> k2, so key_idx == 1, latency > 0)."""
-    from factory.precard.judge import judge_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.judge import arbiter_batch
+    from factory.precard.provider_transport import KeyRing
     calls = []
 
     def fake(api_key, model, text):
@@ -166,7 +166,7 @@ def test_terminal_record_real_latency_and_key(tmp_path):
 
     batch, anchor = _judge_anchor()
     store = []
-    out = judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
+    out = arbiter_batch(batch, anchor, "k1", fake, lambda s: None, {},
                       telemetry=store, tele_stage="sense_judge",
                       tele_batch=1, ring=KeyRing(["k1", "k2"]),
                       models=["req-name"], provider="avalai",
@@ -188,8 +188,8 @@ def test_terminal_record_real_latency_and_key(tmp_path):
 
 def test_model_actual_vs_requested_on_remap_leg():
     """R10: the remap-name lie is gone — requested vs really-hit."""
-    from factory.precard.judge import judge_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.judge import arbiter_batch
+    from factory.precard.provider_transport import KeyRing
 
     def fake(api_key, model, text):
         return (json.dumps({"results": [
@@ -197,7 +197,7 @@ def test_model_actual_vs_requested_on_remap_leg():
 
     batch, anchor = _judge_anchor()
     store = []
-    judge_batch(batch, anchor, "k", fake, lambda s: None, {},
+    arbiter_batch(batch, anchor, "k", fake, lambda s: None, {},
                 telemetry=store, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k"]),
                 models=["req-name"], provider="avalai",
@@ -230,8 +230,8 @@ def test_google_none_usage_cost_unknown_never_zero():
 
 def test_attempt_rows_behind_flag_default_off():
     """R10: per-try attempt rows only with tele_attempts=True."""
-    from factory.precard.judge import judge_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.judge import arbiter_batch
+    from factory.precard.provider_transport import KeyRing
 
     def fake(api_key, model, text):
         if not fake.seen:
@@ -243,7 +243,7 @@ def test_attempt_rows_behind_flag_default_off():
 
     batch, anchor = _judge_anchor()
     plain = []
-    judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
+    arbiter_batch(batch, anchor, "k1", fake, lambda s: None, {},
                 telemetry=plain, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k1", "k2"]),
                 models=["m"], provider="avalai", tele_run_id="r1")
@@ -251,7 +251,7 @@ def test_attempt_rows_behind_flag_default_off():
 
     fake.seen = []
     flagged = []
-    judge_batch(batch, anchor, "k1", fake, lambda s: None, {},
+    arbiter_batch(batch, anchor, "k1", fake, lambda s: None, {},
                 telemetry=flagged, tele_stage="sense_judge",
                 tele_batch=1, ring=KeyRing(["k1", "k2"]),
                 models=["m"], provider="avalai", tele_run_id="r1",
@@ -365,7 +365,7 @@ def test_label_counters_one_bump_per_entry(tmp_path):
     once (cache entries continue past the chunk loop, so no entry
     is ever double-counted; transport=None unlabelled counts as hit)."""
     from factory.precard.topics import label_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     batch = [{"kind": "word", "text": "t1", "pos": "noun",
               "pool_level": "A1"},
              {"kind": "word", "text": "t2", "pos": "noun",
@@ -405,8 +405,8 @@ def test_error_row_stamps_last_attempt_latency():
     measured try latency, not a hardcoded 0.0."""
     import time
     import pytest
-    from factory.precard.judge import judge_batch
-    from factory.precard.transport import KeyRing
+    from factory.precard.judge import arbiter_batch
+    from factory.precard.provider_transport import KeyRing
 
     def always_429(api_key, model, text):
         time.sleep(0.002)
@@ -415,7 +415,7 @@ def test_error_row_stamps_last_attempt_latency():
     batch, anchor = _judge_anchor()
     store = []
     with pytest.raises(Exception):
-        judge_batch(batch, anchor, "k1", always_429, lambda s: None, {},
+        arbiter_batch(batch, anchor, "k1", always_429, lambda s: None, {},
                     telemetry=store, tele_stage="sense_judge",
                     tele_batch=1, ring=KeyRing(["k1", "k2"]),
                     models=["m"], provider="avalai", tele_run_id="r1")
@@ -532,7 +532,7 @@ def test_auth_abort_flushes_stage_telemetry(tmp_path, monkeypatch):
     (like quota-STOP) instead of losing them."""
     import pytest
     from factory.precard import pipeline as pipe
-    from factory.precard.transport import AuthError
+    from factory.precard.provider_transport import AuthError
     items = [{"kind": "word", "text": "apple", "pos": "noun",
               "pool_level": "A1"}]
     sample = tmp_path / "sample.json"
@@ -560,7 +560,7 @@ def test_no_double_attempt_entry_on_raise_paths():
     one attempt_log entry per try."""
     import pytest
     from factory.core.llm_json import AuthError
-    from factory.precard.transport import (
+    from factory.precard.provider_transport import (
         KeyRing, RateLimited, _call_with_rotation)
     state = {"done": {}, "failed": [], "backoffs": []}
     ring = KeyRing(["k1"])

@@ -21,7 +21,7 @@ loading, the TSV-twin inventory sweep, and attach gap-fill (F3).
 
 Deviation note (equivalent outcomes): the frozen ``exact_keys`` filtered
 twins inside the exact join; here :func:`match_exact` is a total join and
-twin suppression lives solely in :func:`decide` (``is_twin``), so every
+twin suppression lives solely in :func:`arbitrate_link` (``is_twin``), so every
 twinned best candidate still surfaces as ``twin-pending``, never LINK.
 """
 
@@ -390,7 +390,7 @@ def edge_reason(pos, kid, lemma, gloss, tags=frozenset()):
     return None
 
 
-def decide(kid, best_key, fires, *, ultra_short=False, is_twin=False,
+def arbitrate_link(kid, best_key, fires, *, ultra_short=False, is_twin=False,
            twin_cefr=(), is_exact=False, se_value=None,
            sa_words=frozenset(), self_form_set=frozenset(), link_min=LINK_MIN_DEFAULT,
            edge=None, manual_none=None, judge_link=None, manual_override=None,
@@ -406,59 +406,59 @@ def decide(kid, best_key, fires, *, ultra_short=False, is_twin=False,
     Witness TRUE-must-link (REPORT_v0_5 E2 erratum + FIX2): occ0
     source_of_illumination -> light_source LINK ``Sa:j=0.27+Sb:source``:
 
-    >>> d = decide("en-light-en-noun-en:source_of_illumination", "light_source%1:06:00::", ["Sa:j=0.27", "Sb:source"], se_value=0.677, sa_words={"source"})
+    >>> d = arbitrate_link("en-light-en-noun-en:source_of_illumination", "light_source%1:06:00::", ["Sa:j=0.27", "Sb:source"], se_value=0.677, sa_words={"source"})
     >>> (d["method"], d["flags"])
     ('LINK:2-sig', [])
 
     Witness FALSE-must-park (REPORT_v0_5 FIX2): arrival-become
     ``Sa:j=0.27`` alone -> PENDING, never LINK:
 
-    >>> d = decide("en-arrival-en-noun-X", "become%2:38:00::", ["Sa:j=0.27"])
+    >>> d = arbitrate_link("en-arrival-en-noun-X", "become%2:38:00::", ["Sa:j=0.27"])
     >>> (d["sensekey"], d["method"])
     ('become%2:38:00::', 'JUDGE-PENDING')
 
     Witness ultra-short (REPORT_v0_5 FIX1): mistake kjZERp8U "An error."
     -> JUDGE-PENDING short-gloss, best-cand mistake%1:04:00:::
 
-    >>> d = decide("en-mistake-en-noun-kjZERp8U", "mistake%1:04:00::", ["Sb:error,fault"], ultra_short=True)
+    >>> d = arbitrate_link("en-mistake-en-noun-kjZERp8U", "mistake%1:04:00::", ["Sb:error,fault"], ultra_short=True)
     >>> (d["method"], d["evidence"])
     ('JUDGE-PENDING', 'short-gloss:Sb:error,fault')
 
     Witness twin-suppress (link_table_v0_7.tsv): outside-E7dgXPoq:
 
-    >>> d = decide("en-outside-en-adv-E7dgXPoq", "outside%4:02:00::", ["Sa:j=0.40"], is_twin=True, twin_cefr=("A1", "A2"))
+    >>> d = arbitrate_link("en-outside-en-adv-E7dgXPoq", "outside%4:02:00::", ["Sa:j=0.40"], is_twin=True, twin_cefr=("A1", "A2"))
     >>> (d["method"], d["evidence"], d["flags"])
     ('twin-pending', 'best-cand-twinned;tsv-cefr=A1,A2', ['twin-pending'])
 
     Witness quarantine (link_table_v0_7.tsv): book-hoaZwz7Y:
 
-    >>> d = decide("en-book-en-verb-hoaZwz7Y", "book%2:41:00::", ["Sa:j=0.33", "Sd:hyp=record"], se_value=0.437, sa_words={"record"})
+    >>> d = arbitrate_link("en-book-en-verb-hoaZwz7Y", "book%2:41:00::", ["Sa:j=0.33", "Sd:hyp=record"], se_value=0.437, sa_words={"record"})
     >>> (d["method"], d["flags"])
     ('quarantined-known-false', ['quarantined-known-false'])
 
     Witness exact-sensekey (link_table_v0_7.tsv): call-f7fqB9u1:
 
-    >>> d = decide("en-call-en-noun-f7fqB9u1", "call%1:04:03::", ["Sa:j=0.33", "Sd:hyp=visit"], is_exact=True, se_value=0.709, sa_words={"visit"})
+    >>> d = arbitrate_link("en-call-en-noun-f7fqB9u1", "call%1:04:03::", ["Sa:j=0.33", "Sd:hyp=visit"], is_exact=True, se_value=0.709, sa_words={"visit"})
     >>> d["method"]
     'LINK:exact-sensekey+2-sig'
 
     Witness MANUAL-NONE (link_table_v0_7.tsv): E1 Q12969754:
 
-    >>> d = decide("en-light-en-noun-en:Q12969754", "visible_radiation%1:19:00::", ["Sa:j=0.29", "Sb:radiation"], manual_none="owner-locked:E1-any-wavelength-neq-visible+was-LINK:visible_radiation%1:19:00::")
+    >>> d = arbitrate_link("en-light-en-noun-en:Q12969754", "visible_radiation%1:19:00::", ["Sa:j=0.29", "Sb:radiation"], manual_none="owner-locked:E1-any-wavelength-neq-visible+was-LINK:visible_radiation%1:19:00::")
     >>> (d["sensekey"], d["method"], d["flags"])
     ('-', 'MANUAL-NONE', ['manual-none'])
 
     Witness judge-v2 + provisional (REPORT_v0_7 + REPORT_v0_8 JOB5):
     idx16 convey1->wear LINK:judge-v2, 1-signal Sd-only -> flagged:
 
-    >>> d = decide("en-bear-en-verb-en:convey1", "wear%2:29:04::", ["Sd:hyp=feature"], judge_link={"sensekey": "wear%2:29:04::", "tag": "judge-v2:idx16:3/3:wear%2:29:04::"}, provisional=True)
+    >>> d = arbitrate_link("en-bear-en-verb-en:convey1", "wear%2:29:04::", ["Sd:hyp=feature"], judge_link={"sensekey": "wear%2:29:04::", "tag": "judge-v2:idx16:3/3:wear%2:29:04::"}, provisional=True)
     >>> (d["method"], d["evidence"], d["flags"])
     ('LINK:judge-v2', 'Sd:hyp=feature+judge-v2:idx16:3/3:wear%2:29:04::', ['provisional_consensus'])
 
     Witness manual override (REPORT_v0_7 pass-2): luck lQEeVMDo HIT at
     rank 6 -> streak%1:14:00:: ("an unbroken series of events"):
 
-    >>> d = decide("en-run-en-noun-lQEeVMDo", "run%1:28:00::", ["Sa:j=0.25", "Sd:hyp=period"], manual_override={"sensekey": "streak%1:14:00::", "evidence": "pass-2-LINK:streak%1:14:00::+was-LINK:run%1:28:00::"})
+    >>> d = arbitrate_link("en-run-en-noun-lQEeVMDo", "run%1:28:00::", ["Sa:j=0.25", "Sd:hyp=period"], manual_override={"sensekey": "streak%1:14:00::", "evidence": "pass-2-LINK:streak%1:14:00::+was-LINK:run%1:28:00::"})
     >>> (d["sensekey"], d["method"])
     ('streak%1:14:00::', 'LINK:manual-override')
     """
@@ -723,7 +723,7 @@ def link_stats(rows):
 # Locked gallery vocabulary (owner round 2): every gauge/chip/telemetry key
 # uses these names everywhere. Legacy Sa..Se / short-gloss / 0sig codes
 # survive ONLY as parenthetical aliases inside evidence strings, so old
-# tables stay readable. Nothing below is consulted by decide/link_stats.
+# tables stay readable. Nothing below is consulted by arbitrate_link/link_stats.
 SIGNAL_VOCAB = {
     "Sa": {"name": "lexical-overlap", "fa": "هم‌پوشانی واژگان تعریف"},
     "Sb": {"name": "synonym-crossfire", "fa": "آتش متقابل هم‌معنی‌ها"},
@@ -900,8 +900,8 @@ def machine_block(row):
 # --- Per-card flow-trace model (ADDITIVE, gallery display helper) ---
 #
 # Owner-locked flow-tracer build: one pure ``flow_trace_data`` helper feeds
-# the factory/linker gallery tracer (five nodes + four wires per card).
-# No scoring behavior change; nothing above is consulted by decide().
+# the factory/linking gallery tracer (five nodes + four wires per card).
+# No scoring behavior change; nothing above is consulted by arbitrate_link().
 
 _FLOW_NONE_METHODS = frozenset({"JUDGE-NONE", "MANUAL-NONE"})
 
@@ -1164,7 +1164,7 @@ def verdict_wire45(verdict=None, method="", winner_key=""):
 # (see run20: ``rules:v0.6-equiv:...:build=run20:...``). Legacy
 # (``linker-v0.6:…``), inventory (``inventory:tsv-twin``) and owner-manual
 # provenances carry no triple and count as absent. Nothing below is
-# consulted by decide/link_stats/machine_block/flow_trace_data.
+# consulted by arbitrate_link/link_stats/machine_block/flow_trace_data.
 
 
 def parse_run_provenance(provenance):

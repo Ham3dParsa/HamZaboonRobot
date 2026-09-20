@@ -10,7 +10,7 @@ rules. Table v4.x builds untouched; pipeline row assembly untouched
 follow-up, not invented here).
 """
 
-from factory.linker import gates
+from factory.linking import gates
 from factory.precard import enrich as new_enrich
 
 

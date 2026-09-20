@@ -183,4 +183,31 @@ Append-only; no prior section rewritten.
   lemma seed-lists for the sampler ONLY; the keyword/text store is
   exclusively Kaikki.
 - Open (explicitly not closed): S5 transfer bridge; tier-3 runtime node;
-  multilingual packs (DE/TR post-beta per ROADMAP).
+   multilingual packs (DE/TR post-beta per ROADMAP).
+
+## ADDENDUM 2026-09-20 — P0 rename FREEZE-list (feat/ddd-p0p1-coderenames)
+
+**Rule:** the P0+P1 code-only renames MUST NOT alter any item below.
+Frozen forever = identity/data/persisted surface + voted names. A rename
+that touches one is a scope violation: stop + report, never "fix forward".
+(Code identifiers rename; values/keys/strings/flags below stay
+byte-identical.)
+
+- `lemma_key` / `pre_card_id` identity shape; kaikki/wordnet vocab + TSV
+  join keys; CEFR/POS/zipf/Tatoeba/AWL/EVP standards.
+- Values: LINK / ESCALATE:HUMAN_QUEUE / PENDING / UNMAPPED /
+  JUDGE-PENDING / twin-pending / quarantined-known-false / MANUAL-NONE.
+- `esc-*` minted ids; FINAL-*-tickets; run_ids; Finglish display values;
+  `w:`/`p:` prefixes; old `edge:*` evidence readability.
+- Veto/prune/esc names per votes V1/V2/V3 (V1: veto fn names
+  `operational_signal_veto` / `shadow_signal_quality_veto`; V2: ALL
+  `prune.*` names; V3: `esc-` ids).
+- Every persisted value/key/string: evidence `Sa:`/`Sb:`/`Sc:`/`Sd:`/`Se:`
+  strings, payload keys (`winner_jaccard`, `fires`,
+  `signal_quality_would_fire`), trace keys, progress filenames + `sX.json`
+  fallbacks, precard row keys (incl. the `"item_key"` entry-dict field),
+  queue records, telemetry keys, TSV columns/values, registry/pack keys.
+- ALL CLI flags (`--s1` / `--glm-s2` / `--only` values included — P2,
+  not now); log/telemetry/console keys; provider/model names.
+
+Append-only; no prior section rewritten.

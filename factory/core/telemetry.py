@@ -1,7 +1,7 @@
 """Factory LLM-call telemetry (stdlib only, hermetic).
 
 Single owner of the precard line's telemetry record shape (R10):
-``factory.precard.transport`` only re-exports these recorders, and every
+``factory.precard.provider_transport`` only re-exports these recorders, and every
 leg module (judge/topics/pipeline) imports them from here.
 
 Every record carries ``key_idx`` (the keyring index, an int) — never the

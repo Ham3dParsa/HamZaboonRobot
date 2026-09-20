@@ -16,7 +16,7 @@ T2 on-disk progress files, T4 telemetry keys, T5 reason slugs.
 
 # Old stage ids, kept as history + shim keys (never emitted anywhere
 # a human looks after the rename tickets land).
-STAGE_IDS = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
+LEGACY_STAGE_CODES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
 
 # Canonical domain names, one per stage. New code, logs, console,
 # telemetry, and files speak these.
@@ -177,24 +177,6 @@ OLD_GATE_TO_NEW = dict(GATE_NAMES)
 # so neither literal is embedded outside this module).
 TOPUP_OLD_NAME = "s4_topup_cache.json"
 TOPUP_NEW_NAME = OLD_PROGRESS_FILE_TO_NEW[TOPUP_OLD_NAME]
-
-
-def normalize_stage(pick):
-    """Stage id from an old id or a domain name (case-insensitive).
-
-    Both directions resolve here: "s2" -> "s2" and "judge" -> "s2".
-    Unknown strings fall back to their stripped/lowered form (live-shim
-    parity); None becomes ""; other non-string input passes through
-    untouched (callers fail closed).
-    """
-    if pick is None:
-        pick = ""
-    if not isinstance(pick, str):
-        return pick
-    key = pick.strip().lower()
-    if key in STAGE_IDS:
-        return key
-    return NEW_STAGE_TO_OLD.get(key, key)
 
 
 def stage_label(stage):

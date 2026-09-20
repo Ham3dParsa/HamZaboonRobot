@@ -15,10 +15,10 @@ from collections import OrderedDict
 from pathlib import Path
 
 from factory.precard import __version__ as _LINE_VERSION
-from factory.precard.accounting import item_key
+from factory.precard.accounting import source_item_key
 from factory.precard.cefr import CEFR_ORDER
 from factory.precard.pipeline import DEFAULT_OUT, DEFAULT_SAMPLE
-from factory.precard.progress import normalize_stage
+from factory.precard.progress import resolve_candidate_stage
 from factory.precard.topics import LABELS as _TOPIC_LABELS
 
 _PROPER_RE = re.compile(r"w:([A-Za-z]+):pick-proper-noun/([^\s,)]+)")
@@ -2757,7 +2757,7 @@ def _load_order(sample_path, limit):
         return order
     for item in seq:
         try:
-            key = item_key(item)
+            key = source_item_key(item)
         except Exception:
             key = item.get("key") if isinstance(item, dict) else None
         if key and key not in order:
@@ -3683,7 +3683,7 @@ def _build(run_dir=None, precard=None, sample=None, dropped=None,
                                                ensure_ascii=False)))
     page = page.replace("__STAGE_NAMES__",
                         _neutralise(json.dumps(
-                            {sid: normalize_stage(sid) for sid in _STAGE_IDS},
+                            {sid: resolve_candidate_stage(sid) for sid in _STAGE_IDS},
                             ensure_ascii=False)))
     if lang == "fa":
         page = _apply_fa_chrome(page)

@@ -55,7 +55,7 @@ maps keep every path testable with no network, no keys, and no W: drive.
   leaseless-then-fallback telemetry shape; format_cache_line owns the
   CACHE HIT/MISS console text (ids only, never keys/links).
 
-Stdlib + factory.precard.transport only (precard self-containment:
+Stdlib + factory.precard.provider_transport only (precard self-containment:
 no factory.archive / factory.pipeline / factory.lexicon imports).
 Leases carry server ids and provider names, never key strings.
 """
@@ -71,7 +71,7 @@ import secrets
 import threading
 import time
 
-from factory.precard.transport import (
+from factory.precard.provider_transport import (
     AuthError,
     KeyRing,
     ProviderCooldown,

@@ -32,10 +32,10 @@ if REPO_ROOT not in sys.path:
 from factory.core.env_loader import load_factory_env
 from factory.core.telemetry import new_run_id
 from factory.precard import progress
-from factory.precard import transport
+from factory.precard import provider_transport
 from factory.precard.accounting import audit_sample_accounting
-from factory.precard.accounting import item_key
-from factory.precard.net import (
+from factory.precard.accounting import source_item_key
+from factory.precard.provider_lease_policy import (
     AVALAI_PRECARD_MODEL, GOOGLE_PRECARD_MODEL, LEG_FALLBACKS,
     PROVIDER_KEY_VARS)
 from factory.precard.anchor import (
@@ -46,8 +46,8 @@ from factory.precard.anchor import (
 from factory.precard.enrich import (
     LEXICAL_TYPE_DEFAULT, REGISTER_DEFAULT, enrich_item)
 from factory.precard.judge import (
-    JUDGE_BATCH, fanout_picks, inflection_needs_review,
-    inflection_review, judge_batch, judge_fallback,
+    JUDGE_BATCH, arbiter_fanout_picks, inflection_needs_review,
+    inflection_review, arbiter_batch, arbiter_fallback,
     parse_superlative_base)
 from factory.precard.anchor import IPA_SRC_MODEL
 from factory.precard.topics import (
@@ -56,10 +56,10 @@ from factory.precard.topics import (
 from factory.precard import cefr as _cefr_home
 from factory.precard import prompt_registry as _prompts
 from factory.core.telemetry import write_summary as _tele_write
-from factory.precard.transport import (
+from factory.precard.provider_transport import (
     AuthError, KeyRing, RateLimited, append_telemetry_history,
     extract_json, raise_for_auth,
-    _note_backoff, _tele_tokens, RunLogger, write_progress,
+    _note_backoff, _tele_tokens, LegRunLogger, write_progress,
     _avalai_chat_transport, _google_chat_transport,
     _avalai_remap_transport, _google_remap_transport,
     _read_egress_env_key)
@@ -143,13 +143,13 @@ def _selected_stages(args):
     if only and stages:
         raise SystemExit("--only and --stages are mutually exclusive")
     if only:
-        only = progress.normalize_stage(only)
+        only = progress.resolve_candidate_stage(only)
         if only not in progress.STAGES:
             raise SystemExit("--only must be one of %s (got %r)"
                              % (", ".join(progress.STAGES), args.only))
         return {only}
     if stages:
-        picks = [progress.normalize_stage(s)
+        picks = [progress.resolve_candidate_stage(s)
                  for s in stages.split(",") if s.strip()]
         bad = [s for s in picks if s not in progress.STAGES]
         if not picks or bad:
@@ -229,7 +229,7 @@ def _dry_run_needs(progress_dir, items, selected, rekeyed, resume):
     Counts are upper bounds (s0/s1 drops are only known after the real
     run). Nothing is read except progress JSON; nothing is written.
     """
-    keys = [item_key(i) for i in items]
+    keys = [source_item_key(i) for i in items]
     rekeyed_set = set(rekeyed or [])
     needs = {}
     for stage in progress.STAGES:
@@ -456,12 +456,12 @@ def entry_band(item):
 
 
 def build_entry_bands(items):
-    """Snapshot {item_key: entry band} at sampling time (call before any
+    """Snapshot {source_item_key: entry band} at sampling time (call before any
     stage filters the item list, so dropped keys keep their band)."""
     bands = {}
     for item in items or []:
         try:
-            bands[item_key(item)] = entry_band(item)
+            bands[source_item_key(item)] = entry_band(item)
         except Exception:
             continue
     return bands
@@ -677,7 +677,7 @@ def _parse_stage_map(values, allowed_values=None):
                              % raw)
         stage, _, value = raw.partition("=")
         raw_stage = stage.strip().lower()
-        stage, value = progress.normalize_stage(raw_stage), value.strip()
+        stage, value = progress.resolve_candidate_stage(raw_stage), value.strip()
         if stage not in LLM_LEGS:
             raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
                 raw_stage, ", ".join(
@@ -793,7 +793,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # key-level rate limits, never auth). Never fails the run;
         # never logs secrets (lease id only, same as the lease line).
         try:
-            from factory.precard.transport import ProviderCooldown
+            from factory.precard.provider_transport import ProviderCooldown
         except Exception:
             return
         if not isinstance(exc, ProviderCooldown):
@@ -893,7 +893,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         rekeyed = _load_rekey_keys(args.rekey)
     except SystemExit as exc:
         _preflight_exit(exc.code)
-    sample_order = [item_key(i) for i in items]
+    sample_order = [source_item_key(i) for i in items]
     if rekeyed:
         sample_keys = set(sample_order)
         unknown = [k for k in rekeyed if k not in sample_keys]
@@ -951,7 +951,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # T-RUN-B: resolved prompt map (built pre-file above) at run start
     # so two --prompt-variant runs are distinguishable in run.log +
     # run_events.
-    run_logger = RunLogger(
+    run_logger = LegRunLogger(
         str(pathlib.Path(args.out).parent / "run.log"),
         namer=progress.display, run_id=run_id)
     run_logger.log("prompts %s %s" % (
@@ -1033,7 +1033,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _stage_range(selected, "preprocess", items), start=1):
         batch = items[base:base + BATCH]
         for item in batch:
-            key = item_key(item)
+            key = source_item_key(item)
             if key not in states["preprocess"]["done"]:
                 verdict = preprocess_classify_item(
                     item, pos_sets, zipf_fn, awl_set, type_map,
@@ -1057,7 +1057,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     for key, verdict in states["preprocess"]["done"].items():
         preprocess_info[key] = verdict
     dropped = {k for k, v in preprocess_info.items() if not v.get("kept")}
-    items = [i for i in items if item_key(i) not in dropped]
+    items = [i for i in items if source_item_key(i) not in dropped]
     if dropped:
         # Details live in dropped.log (written by _stage_summary);
         # console stays a single short line (no 80-item spam).
@@ -1092,7 +1092,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     def _provider_key_var(provider):
         """Primary key variable for a provider (auth errors name it).
 
-        Single pairing lives in net.PROVIDER_KEY_VARS; "" falls back
+        Single pairing lives in provider_lease_policy.PROVIDER_KEY_VARS; "" falls back
         to the wrapper's generic "keys" hint.
         """
         vars_ = PROVIDER_KEY_VARS.get(provider or "", ("",))
@@ -1380,7 +1380,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _t0 = time.perf_counter()
             batch = items[base:base + BATCH]
             todo = [i for i in batch
-                    if item_key(i) not in states["inflection_review"]["done"]]
+                    if source_item_key(i) not in states["inflection_review"]["done"]]
             s0b_bar["hits"] += len(batch) - len(todo)
             review = []
             # R8 wiring: every-gloss pre-check needs the sense list.
@@ -1390,7 +1390,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             # lemmas without a view review via LLM unchanged.
             s0b_anchor_map = {}
             for item in todo:
-                key = item_key(item)
+                key = source_item_key(item)
                 try:
                     view = _cached_view(item.get("text", ""))
                 except Exception:
@@ -1403,7 +1403,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             for s in (view.get("senses") or [])
                             if isinstance(s, dict)]}
             for item in todo:
-                key = item_key(item)
+                key = source_item_key(item)
                 try:
                     needs, gloss = inflection_needs_review(
                         item, index, read_entry)
@@ -1517,7 +1517,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _flush(progress_dir, states)
             failed_here = sum(
                 1 for i in batch
-                if not (states["inflection_review"]["done"].get(item_key(i)) or {}).get(
+                if not (states["inflection_review"]["done"].get(source_item_key(i)) or {}).get(
                     "kept", True))
             s0b_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("inflection_review", batch_no, n_inflection_batches,
@@ -1546,14 +1546,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        entry_bands=entry_bands)
         inflection_dropped = {k for k, v in states["inflection_review"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
-        items = [i for i in items if item_key(i) not in inflection_dropped]
+        items = [i for i in items if source_item_key(i) not in inflection_dropped]
         # R44 v12: propagate superlative redirects onto the in-memory
         # items AND merge into the base lemma (Gemini: avoid FSRS
         # fragmentation across best/good). The item becomes the base form
         # (redirected_from recorded); downstream stages key off the new
         # text, so fresh keys are resume-safe by construction.
         for item in items:
-            s0b = states["inflection_review"]["done"].get(item_key(item)) or {}
+            s0b = states["inflection_review"]["done"].get(source_item_key(item)) or {}
             if s0b.get("redirect_to"):
                 item["redirect_to"] = s0b["redirect_to"]
                 item["s0b_reason"] = s0b.get("reason", "")
@@ -1583,7 +1583,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 _stage_range(selected, "anchor_rank", items), start=1):
             batch = items[base:base + BATCH]
             for item in batch:
-                key = item_key(item)
+                key = source_item_key(item)
                 # V7 resume-compat: v6-era s1 entries lack anchor_pos, so
                 # they are re-ranked deterministically (same scores plus
                 # anchor_pos/drop verdict) instead of skipped. R34 v9
@@ -1650,12 +1650,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             # Details live in dropped.log; console stays one short line.
             _say(_color("%s: kept=%d dropped=%d "
                         "(see dropped.log)" % (progress.display("anchor_rank"),
-                            len(items) - len(anchor_dropped & {item_key(i)
+                            len(items) - len(anchor_dropped & {source_item_key(i)
                                                            for i in items}),
-                            len(anchor_dropped & {item_key(i)
+                            len(anchor_dropped & {source_item_key(i)
                                               for i in items})),
                         "cyan"))
-        items = [i for i in items if item_key(i) not in anchor_dropped]
+        items = [i for i in items if source_item_key(i) not in anchor_dropped]
         # judge (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
         run_logger.stage_start("sense_judge")
@@ -1667,7 +1667,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _t0 = time.perf_counter()
             batch = items[base:base + JUDGE_BATCH]
             todo = [i for i in batch
-                    if item_key(i) not in states["sense_judge"]["done"]]
+                    if source_item_key(i) not in states["sense_judge"]["done"]]
             s2_bar["hits"] += len(batch) - len(todo)
             if todo:
                 s2_bar["misses"] += len(todo)
@@ -1678,7 +1678,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 _backfill_candidate_tags(
                     todo, states["anchor_rank"]["done"], index, read_entry)
                 try:
-                    verdicts = judge_batch(
+                    verdicts = arbiter_batch(
                         todo, states["anchor_rank"]["done"],
                         judge_api_key or api_key,
                         judge_transport, sleep_fn, states["sense_judge"],
@@ -1715,10 +1715,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         "%s" % (batch_no, exc, hint),
                         "red", stream=sys.stderr))
                 for item in todo:
-                    key = item_key(item)
+                    key = source_item_key(item)
                     verdict = verdicts.get(key)
                     if verdict is None:
-                        verdict = judge_fallback(
+                        verdict = arbiter_fallback(
                             item, states["anchor_rank"]["done"].get(key))
                     states["sense_judge"]["done"][key] = verdict
                     if (verdict.get("model") or "").startswith("s1-") \
@@ -1728,7 +1728,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _flush(progress_dir, states)
             fail = sum(
                 1 for i in batch
-                if ((states["sense_judge"]["done"].get(item_key(i)) or {}).get(
+                if ((states["sense_judge"]["done"].get(source_item_key(i)) or {}).get(
                     "model", "") or "").startswith("s1-"))
             s2_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("sense_judge", batch_no, n_judge_batches,
@@ -1762,7 +1762,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # markers, flushed when the pass evaluates anything).
         evaluated = 0
         for item in items:
-            key = item_key(item)
+            key = source_item_key(item)
             entry = states["sense_judge"]["done"].get(key)
             if not isinstance(entry, dict):
                 continue
@@ -1781,18 +1781,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         judge_proper_dropped = {
             k for k, v in states["sense_judge"]["done"].items()
             if isinstance(v, dict) and v.get("proper_drop")}
-        judge_proper_here = judge_proper_dropped & {item_key(i) for i in items}
+        judge_proper_here = judge_proper_dropped & {source_item_key(i) for i in items}
         if evaluated or judge_proper_here:
             _say("%s proper-route: routed=%d dropped=%d%s" % (
                 progress.display("sense_judge"),
                 sum(1 for i in items
-                    if (states["sense_judge"]["done"].get(item_key(i)) or {}).get(
+                    if (states["sense_judge"]["done"].get(source_item_key(i)) or {}).get(
                         "proper_route")),
                 len(judge_proper_here),
                 " (%s)" % ", ".join(sorted(
                     "%s:%s" % (k, states["sense_judge"]["done"][k].get("proper_drop"))
                     for k in judge_proper_here)) if judge_proper_here else ""))
-        items = [i for i in items if item_key(i) not in judge_proper_dropped]
+        items = [i for i in items if source_item_key(i) not in judge_proper_dropped]
         # vectors (vector batches). ok = model vectors, fail = deterministic
         # (fail-closed) fallbacks.
         run_logger.stage_start("topic_vectors")
@@ -1804,7 +1804,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _t0 = time.perf_counter()
             batch = items[base:base + BATCH]
             todo = [i for i in batch
-                    if item_key(i) not in states["topic_vectors"]["done"]]
+                    if source_item_key(i) not in states["topic_vectors"]["done"]]
             s3_bar["hits"] += len(batch) - len(todo)
             if todo:
                 s3_bar["misses"] += len(todo)
@@ -1847,8 +1847,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 "switch VPN server then re-run"),
                         "red", stream=sys.stderr))
                 for item in todo:
-                    key = item_key(item)
-                    picks = fanout_picks(
+                    key = source_item_key(item)
+                    picks = arbiter_fanout_picks(
                         item, states["sense_judge"]["done"].get(key) or {})
                     sid = picks[0].get("sense_id", "") if picks else ""
                     hit = vecs.get(sid) if sid else None
@@ -1875,7 +1875,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _flush(progress_dir, states)
             fail = sum(
                 1 for i in batch
-                if (states["topic_vectors"]["done"].get(item_key(i)) or {}).get(
+                if (states["topic_vectors"]["done"].get(source_item_key(i)) or {}).get(
                     "model") == "deterministic")
             s3_bar["durs"].append(time.perf_counter() - _t0)
             _batch_progress("topic_vectors", batch_no, n_vectors_batches,
@@ -1933,25 +1933,25 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             _t0 = time.perf_counter()
             batch = items[base:base + LABEL_BATCH]
             todo = [i for i in batch
-                    if item_key(i) not in states["topic_label"]["done"]
+                    if source_item_key(i) not in states["topic_label"]["done"]
                     or _needs_fanout_relabel(
-                        states["topic_label"]["done"].get(item_key(i)),
-                        states["sense_judge"]["done"].get(item_key(i)))]
+                        states["topic_label"]["done"].get(source_item_key(i)),
+                        states["sense_judge"]["done"].get(source_item_key(i)))]
             s4_bar["hits"] += len(batch) - len(todo)
             if todo:
                 picks = {}
                 for i in todo:
-                    key = item_key(i)
+                    key = source_item_key(i)
                     s2entry = states["sense_judge"]["done"].get(key) or {}
                     picks[key] = {
                         "sense_id": s2entry.get("sense_id", ""),
                         "gloss": s2entry.get("gloss", ""),
-                        "picks": fanout_picks(i, s2entry)}
+                        "picks": arbiter_fanout_picks(i, s2entry)}
                 lookups = {}
                 for i in todo:
-                    key = item_key(i)
+                    key = source_item_key(i)
                     per_sid = {}
-                    for sub in fanout_picks(
+                    for sub in arbiter_fanout_picks(
                             i, states["sense_judge"]["done"].get(key) or {}):
                         sid = sub.get("sense_id", "")
                         if sid and sid in vec_lookup:
@@ -2001,8 +2001,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             "switch VPN server then re-run"),
                         "red", stream=sys.stderr))
                 for item in todo:
-                    states["topic_label"]["done"][item_key(item)] = assigned_map[
-                        item_key(item)]
+                    states["topic_label"]["done"][source_item_key(item)] = assigned_map[
+                        source_item_key(item)]
                 pace_fn(SLEEP)
             _flush(progress_dir, states)
             s4_bar["durs"].append(time.perf_counter() - _t0)
@@ -2039,7 +2039,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 _stage_range(selected, "enrich", items), start=1):
             batch = items[base:base + BATCH]
             for item in batch:
-                key = item_key(item)
+                key = source_item_key(item)
                 done = states["enrich"]["done"].get(key)
                 # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
                 # re-enrich deterministically (no LLM) instead of skipping.
@@ -2070,7 +2070,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     # v14.1: every fanned-out pick enriches independently
                     # (own IPA/examples/CEFR/pre_card_id, dataset-only).
                     extras = []
-                    for sub in fanout_picks(
+                    for sub in arbiter_fanout_picks(
                             item, states["sense_judge"]["done"].get(key) or {})[1:]:
                         if not sub.get("sense_id"):
                             continue
@@ -2131,7 +2131,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # N independent precard records (own pre_card_id, topic vector,
         # CEFR, IPA, examples each).
         for item in items:
-            key = item_key(item)
+            key = source_item_key(item)
             enrich = states["enrich"]["done"].get(key) or {}
             label = states["topic_label"]["done"].get(key) or {}
             vec3 = states["topic_vectors"]["done"].get(key) or {}
@@ -2151,7 +2151,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             for extra_row in enrich_extras:
                 if isinstance(extra_row, dict) and extra_row.get("sense_id"):
                     enrich_by_sid[extra_row["sense_id"]] = extra_row
-            subs = fanout_picks(item, pick) or [
+            subs = arbiter_fanout_picks(item, pick) or [
                 {"sense_id": "", "gloss": ""}]
             rows = []
             for pos, sub in enumerate(subs):
@@ -2238,7 +2238,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     _tmp = str(out_path) + ".tmp"
     with open(_tmp, "w", encoding="utf-8") as handle:
         for item in items:
-            key = item_key(item)
+            key = source_item_key(item)
             if key in seen_keys:
                 dup_redirect.append("%s(redirected_from=%s)" % (
                     key, item.get("redirected_from", "?")))
@@ -2259,7 +2259,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _member_recs = []
         _seen_member: set = set()
         for item in items:
-            key = item_key(item)
+            key = source_item_key(item)
             if key in _seen_member:
                 continue
             _seen_member.add(key)
@@ -2467,7 +2467,7 @@ def _needs_fanout_reenrich(s5_entry, s2_entry):
             return False
         if "extra" in s5_entry:
             return False
-        return len(fanout_picks({}, s2_entry)) > 1
+        return len(arbiter_fanout_picks({}, s2_entry)) > 1
     except Exception:
         return False
 
@@ -2742,7 +2742,7 @@ def _flush_human_queue(pending, sink_path, warn_fn=None):
     if not pending:
         return 0
     try:
-        from factory.linker import human_queue as _hq
+        from factory.linking import human_queue as _hq
     except Exception as exc:
         if warn_fn is not None:
             try:
