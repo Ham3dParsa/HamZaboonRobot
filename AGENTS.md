@@ -14,9 +14,11 @@ _Last updated: 2026-09-05._
 Telegram language-learning assistant for Persian speakers. MVP: AI-generated
 vocabulary cards + grammar tips; pull-based study sessions with saved-word
 spaced repetition (FSRS-6); language/goal/level preferences; Free/Bronze/Silver/
-Gold/Emerald session limits; owner-only admin. Push Policy v1 (2026-09-16):
-sessions stay learner-started; return nudges allowed (max 1/day, quiet hours,
-opt-out, nudge content only — never card content). Study cards must be
+ Gold/Emerald session limits; owner-only admin. Push Policy v1 (2026-09-16,
+ amended 2026-09-17):
+ sessions stay learner-started; return nudges allowed (max 2/day, max 1 per
+ window, quiet hours,
+ opt-out, nudge content only — never card content). Study cards must be
 factory-gated (sense-level CEFR/topics); silent live-prompt cards are banned
 from the study path. See ROADMAP.md "Locked Direction: Closed Beta via
 Factory-First English (2026-09-16)".
