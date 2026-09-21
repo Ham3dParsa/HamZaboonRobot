@@ -8,6 +8,12 @@ Input = one lemma's file-order sense dicts (raw Kaikki shapes tolerated:
 reason codes per drop.
 
 Legs (locked, in order):
+- R1 proper-noun leg: ``pos`` casefolded == ``"name"`` drops with
+  ``DROP_PROPER_NOUN``; the organizational-acronym shape (gloss matching
+  ``^initialism of`` + proper-name ``pos`` context + abbreviation-family
+  tags) drops with ``DROP_OBSCURE_ACRONYM`` (shape rule, never word
+  lists; checked before the plain proper drop so the acronym reason
+  wins). Runs FIRST so proper names never twin-match.
 - R2 hard drops: tags hitting the frozen ``OBSOLETE_TAGS`` set imported
   from :mod:`factory.precard.anchor` (never redefined here), plus
   referential stubs with no independent definition via anchor's existing
@@ -23,10 +29,26 @@ Legs (locked, in order):
   (most examples, then most example text, then file order); drops the
   rest with reason ``twin-of:<kept_id>``.
 
+R2 dialectal signal is NEVER a drop: every KEPT sense of the full chain
+carries an additive ``"flags"`` list including ``"dialectal"`` when its
+tags hit the frozen ``DIALECTAL_TAGS`` set (casefolded). Other keys of
+kept rows stay byte-identical; dropped rows carry reason only.
+
+Known consensus deviations (pinned, owner decision pending): the chain
+keeps 28 senses the 204-row golden fixture drops — 8 ``DROP_DIALECTAL``
+(explicit-dialectal senses kept+flagged under the never-drop doctrine),
+19 ``DROP_HYPER_NICHE`` (the R4 guard only judges topics/categories, so
+topic-less niche senses survive), 1 ``DROP_FORM_OF`` (R1 acronym shape
+needs ``pos == "name"``). The chain NEVER drops a consensus-KEEP sense
+(zero over-drops). Exact positions pinned in
+``tests/factory/test_sense_prune.py::test_chain_golden_conformance``.
+
 Standalone: no caller changes anywhere (R6). Pure functions, no I/O.
 """
 
 from __future__ import annotations
+
+import re
 
 from factory.precard.anchor import OBSOLETE_TAGS, _is_formof_sense, detect_xref
 
@@ -40,7 +62,32 @@ REASON_OBSOLETE = "obsolete"
 REASON_FORMOF = "form-of"
 REASON_XREF = "xref"
 REASON_NICHE = "niche"
+REASON_PROPER_NOUN = "DROP_PROPER_NOUN"
+REASON_OBSCURE_ACRONYM = "DROP_OBSCURE_ACRONYM"
 TWIN_OF_PREFIX = "twin-of:"
+
+# R2 dialectal signal (frozen, locked): NEVER a drop, only a kept-row flag.
+# Casefolded at match time against sense_tags() output. Bare "uk" is
+# deliberately NOT a member: the pinned consensus converts UK-only senses
+# to KEEP_STANDARD_UK (golden rows 196/198), so "UK" alone marks standard
+# national use, not regional use. Explicit "dialectal" + genuinely
+# regional tags stay members.
+DIALECTAL_TAGS = frozenset({
+    "dialectal", "northern-england", "midwestern-us",
+    "southern-us", "scotland",
+})
+
+DIALECTAL_FLAG = "dialectal"
+
+# R1 acronym shape (general rule by shape, not by word): anchored
+# ``Initialism of ...`` gloss in a proper-name (pos == "name") context.
+_INITIALISM_RX = re.compile(r"(?i)^\s*initialism\s+of\b")
+
+# Abbreviation-family tags carrying the acronym shape (Kaikki spellings,
+# casefolded at match time). Required alongside the gloss + pos legs so a
+# bare "Initialism of" prose gloss without dataset abbreviation signal
+# falls through to the plain proper-noun drop (still dropped).
+_ACRONYM_SHAPE_TAGS = frozenset({"abbreviation", "initialism", "alt-of"})
 
 
 def normalize_gloss(gloss):
@@ -113,6 +160,75 @@ def example_richness(sense):
     return (count, chars)
 
 
+def sense_pos(sense):
+    """Casefolded POS value(s) of a sense ([]-tolerant).
+
+    Kaikki senses carry ``pos`` as a plain string; a list/tuple is
+    tolerated (any element matching counts). Returns a list of
+    casefolded non-empty values.
+    """
+    if not isinstance(sense, dict):
+        return []
+    raw = sense.get("pos")
+    if isinstance(raw, (list, tuple)):
+        out = []
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip().casefold())
+            elif item is not None and str(item).strip():
+                out.append(str(item).strip().casefold())
+        return out
+    if isinstance(raw, str):
+        return [raw.strip().casefold()] if raw.strip() else []
+    if raw is not None and str(raw).strip():
+        return [str(raw).strip().casefold()]
+    return []
+
+
+def _pos_is_name(sense):
+    return "name" in sense_pos(sense)
+
+
+def _is_obscure_acronym(sense, gloss):
+    """True on the organizational-acronym shape (R1, general, not word-list).
+
+    Shape = anchored ``Initialism of ...`` gloss + proper-name ``pos``
+    context + at least one abbreviation-family tag. Tag spellings are
+    Kaikki dataset truth, casefolded at match time.
+    """
+    if not _INITIALISM_RX.match(gloss or ""):
+        return False
+    if not _pos_is_name(sense):
+        return False
+    return bool(set(sense_tags(sense)) & _ACRONYM_SHAPE_TAGS)
+
+
+def needs_dialectal_flag(sense):
+    """True when a sense's tags hit the frozen DIALECTAL_TAGS set."""
+    return bool(set(sense_tags(sense)) & DIALECTAL_TAGS)
+
+
+def with_dialectal_flags(sense):
+    """Additive ``flags`` copy of a sense (input never mutated).
+
+    Existing ``flags`` entries are preserved order-first; ``"dialectal"``
+    is appended when needs_dialectal_flag() holds and not already
+    present. All other keys keep their identical values.
+    """
+    flagged = dict(sense) if isinstance(sense, dict) else {}
+    existing = flagged.get("flags")
+    if isinstance(existing, (list, tuple)):
+        merged = list(existing)
+    elif existing is None:
+        merged = []
+    else:
+        merged = [existing]
+    if needs_dialectal_flag(sense) and DIALECTAL_FLAG not in merged:
+        merged.append(DIALECTAL_FLAG)
+    flagged["flags"] = merged
+    return flagged
+
+
 def _sense_id(sense, index, lemma=""):
     """Stable id: the sense's own, else ``<lemma>#<index>`` (``#<index>``)."""
     if isinstance(sense, dict):
@@ -129,6 +245,26 @@ def _drop(sid, reason, gloss):
 
 def _obsolete_set():
     return {str(t or "").strip().casefold() for t in OBSOLETE_TAGS}
+
+
+def _proper_pairs(pairs):
+    """R1 on (sid, sense) pairs. Returns (kept_pairs, dropped).
+
+    Acronym shape is checked before the plain proper drop so the
+    ``DROP_OBSCURE_ACRONYM`` reason wins on overlap (both require
+    pos == "name"; acronyms additionally match the initialism shape).
+    """
+    kept_p, dropped = [], []
+    for sid, sense in pairs:
+        gloss = sense_gloss(sense)
+        if _is_obscure_acronym(sense, gloss):
+            dropped.append(_drop(sid, REASON_OBSCURE_ACRONYM, gloss))
+            continue
+        if _pos_is_name(sense):
+            dropped.append(_drop(sid, REASON_PROPER_NOUN, gloss))
+            continue
+        kept_p.append((sid, sense))
+    return kept_p, dropped
 
 
 def _hard_pairs(pairs):
@@ -192,6 +328,13 @@ def _pair_up(senses, lemma=""):
     return [(_sense_id(s, pos, lemma), s) for pos, s in enumerate(senses)]
 
 
+def prune_proper_nouns(senses, lemma=""):
+    """R1: proper-noun + obscure-acronym drops. Returns (kept, dropped)."""
+    pairs = _pair_up(senses, lemma)
+    kept_p, dropped = _proper_pairs(pairs)
+    return [s for _, s in kept_p], dropped
+
+
 def prune_hard_drops(senses, lemma=""):
     """R2: obsolete-tag + referential-stub drops. Returns (kept, dropped)."""
     pairs = _pair_up(senses, lemma)
@@ -235,23 +378,31 @@ def dedup_twins(senses, lemma=""):
 
 
 def prune_senses(senses, lemma=""):
-    """Full sense-screening chain R2 -> R4 -> R3. Returns (kept, dropped, stats).
+    """Full sense-screening chain R1 -> R2 -> R4 -> R3. Returns (kept, dropped, stats).
 
     ``stats`` = {"total", "kept", "dropped", "topics_seen",
-    "reason_counts"} (twin drops count under the ``twin-of`` base key).
+    "reason_counts", "example_counts"} (twin drops count under the
+    ``twin-of`` base key; ``example_counts`` = {"with_example", n,
+    "zero_example", m} counted over the INPUT senses, no drops involved).
     Fallback sense ids (``<lemma>#<file-order>``) stay stable across legs.
+    Kept rows carry the additive ``"flags"`` list (``"dialectal"`` when
+    the sense's tags hit ``DIALECTAL_TAGS`` — never a drop); all other
+    kept keys stay identical, dropped rows carry reason only.
     Pure: no I/O, inputs never mutated.
     """
     pairs = _pair_up(senses, lemma)
 
     topics_seen = collect_topic_stats([s for _, s in pairs])
-    kept_p, all_dropped = _hard_pairs(pairs)
+    with_example = sum(1 for _, s in pairs if example_richness(s)[0] > 0)
+    kept_p, all_dropped = _proper_pairs(pairs)
+    kept_p, hard_dropped = _hard_pairs(kept_p)
+    all_dropped += hard_dropped
     kept_p, niche_dropped = _niche_pairs(kept_p)
     all_dropped += niche_dropped
     kept_p, twin_dropped = _twins_pairs(kept_p)
     all_dropped += twin_dropped
 
-    kept = [s for _, s in kept_p]
+    kept = [with_dialectal_flags(s) for _, s in kept_p]
     reason_counts = {}
     for drop in all_dropped:
         reason = drop["reason"]
@@ -259,5 +410,7 @@ def prune_senses(senses, lemma=""):
         reason_counts[base] = reason_counts.get(base, 0) + 1
     stats = {"total": len(pairs), "kept": len(kept),
              "dropped": len(all_dropped), "topics_seen": topics_seen,
-             "reason_counts": reason_counts}
+             "reason_counts": reason_counts,
+             "example_counts": {"with_example": with_example,
+                                "zero_example": len(pairs) - with_example}}
     return kept, all_dropped, stats
