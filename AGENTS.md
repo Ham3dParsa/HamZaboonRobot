@@ -193,7 +193,7 @@ Load the relevant skill by trigger (see §9). Core discipline:
    one exists, else state `No tracking issue`. Each issue carries exactly one
    milestone; never close another milestone's issue to inflate progress.
 5. Owner merges **Squash and merge**; agent may `gh pr merge --squash` only on
-   explicit "merge it" after CI passes. Cleanup worktree, delete branch, release
+   explicit "merge it" after CI passes. Merge only on OC APPROVED + green checks + MERGEABLE; Kilo is off and its comments are ignored. Cleanup worktree, delete branch, release
    parallel claim, update issues/ROADMAP.
 6. Don't combine unrelated features/refactors/issue-cleanup in one PR.
 
@@ -240,7 +240,7 @@ branches).
 | `parallel-work-guard` | Working in parallel / creating a branch or worktree. |
 | `git-protocol` | Any git or gh command. |
 | `hamzaban-validation` | Preparing to commit or open a PR. |
-| `kilo-ci-loop` | After PR push or before merge — poll Kilo + OpenCode deltas (token-efficient `id->h`), CI checks, and merge conflicts. |
+| `oc-merge-loop` | After PR push or before merge — چرخه مرج: poll OpenCode deltas (token-efficient `id->h`), CI checks, and merge conflicts. |
 | `pre-commit-gate` | Immediately before a commit. |
 | `integration-test-proto` | Behavioral change: callbacks/handlers/DB/quota/AI. |
 | `callback-wiring` | Adding/changing a callback prefix or keyboard. |
