@@ -27,7 +27,11 @@ Legs (locked, in order):
 - R3 twin dedup: clusters senses with identical normalized gloss within
   the lemma; keeps the sense with the richest examples
   (most examples, then most example text, then file order); drops the
-  rest with reason ``twin-of:<kept_id>``.
+  rest with reason ``twin-of:<kept_id>``. AFTER winner selection the
+  losers' ``topics`` + ``categories`` merge into a COPY of the winner
+  (winner-first, losers in file order; empty/duplicate entries deduped;
+  dict and string category shapes preserved as-is). Inputs never
+  mutated; dropped rows carry reason only.
 
 R2 dialectal signal is NEVER a drop: every KEPT sense of the full chain
 carries an additive ``"flags"`` list including ``"dialectal"`` when its
@@ -44,6 +48,12 @@ needs ``pos == "name"``). The chain NEVER drops a consensus-KEEP sense
 ``tests/factory/test_sense_prune.py::test_chain_golden_conformance``.
 
 Standalone: no caller changes anywhere (R6). Pure functions, no I/O.
+
+``screen_for_linking()`` runs this same chain and returns
+``(link_inputs, screening_drops, stats)`` for the offline linking feed:
+``link_inputs`` = kept senses (union-enriched, flag-carrying) ready for
+candidate building; ``screening_drops`` = ``[{"sense_id", "reason"}]``
+per dropped sense. Additive only — ``prune_senses`` is byte-compatible.
 """
 
 from __future__ import annotations
@@ -298,8 +308,98 @@ def _niche_pairs(pairs):
     return kept_p, dropped
 
 
+def _union_topics(base, extras):
+    """Order-stable union of topic string lists (winner-first, exact dedup).
+
+    Non-string and blank entries are dropped; surviving values keep
+    their original shape. Non-list inputs count as absent.
+    """
+    merged, seen = [], set()
+    sources = [base] + list(extras or [])
+    for source in sources:
+        if not isinstance(source, (list, tuple)):
+            continue
+        for value in source:
+            if not isinstance(value, str) or not value.strip():
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+    return merged
+
+
+def _union_categories(base, extras):
+    """Order-stable union of category lists (winner-first, exact dedup).
+
+    Dicts dedup by their ``name`` value, bare strings by value, sharing
+    one namespace (first shape wins, never stringified). Blank entries
+    (``""`` / ``{"name": ""}``) are dropped; entries with no
+    extractable value are preserved with equality dedup. Non-list
+    inputs count as absent.
+    """
+    merged, seen_values, seen_blobs = [], set(), []
+    sources = [base] + list(extras or [])
+    for source in sources:
+        if not isinstance(source, (list, tuple)):
+            continue
+        for value in source:
+            if isinstance(value, dict):
+                name = value.get("name")
+                if isinstance(name, str) and name.strip():
+                    if name in seen_values:
+                        continue
+                    seen_values.add(name)
+                    merged.append(value)
+                elif not any(value == prev for prev in seen_blobs):
+                    seen_blobs.append(value)
+                    merged.append(value)
+            elif isinstance(value, str):
+                if not value.strip() or value in seen_values:
+                    continue
+                seen_values.add(value)
+                merged.append(value)
+            elif not any(value == prev for prev in seen_blobs):
+                seen_blobs.append(value)
+                merged.append(value)
+    return merged
+
+
+def _twin_union_copy(winner_sense, loser_senses):
+    """COPY of the winner enriched with losers' topics+categories.
+
+    A key is (re)written only when the winner carries it as a list (or
+    a loser does); otherwise the copied original is left untouched, so
+    rows with no topic/category signal stay byte-identical.
+    """
+    enriched = dict(winner_sense)
+    loser_topics = [s.get("topics") if isinstance(s, dict) else None
+                    for s in loser_senses]
+    if isinstance(winner_sense.get("topics"), (list, tuple)) or any(
+            isinstance(topics, (list, tuple)) for topics in loser_topics):
+        enriched["topics"] = _union_topics(
+            winner_sense.get("topics"), loser_topics)
+    loser_cats = [s.get("categories") if isinstance(s, dict) else None
+                  for s in loser_senses]
+    if isinstance(winner_sense.get("categories"), (list, tuple)) or any(
+            isinstance(cats, (list, tuple)) for cats in loser_cats):
+        enriched["categories"] = _union_categories(
+            winner_sense.get("categories"), loser_cats)
+    return enriched
+
+
 def _twins_pairs(pairs):
-    """R3 on (sid, sense) pairs. Returns (kept_pairs, dropped)."""
+    """R3 on (sid, sense) pairs. Returns (kept_pairs, dropped).
+
+    Winner selection is richest-examples (count, then chars), file order
+    breaking ties. AFTER the winner is picked, the losers' ``topics`` +
+    ``categories`` merge into a COPY of the winner (inputs never
+    mutated; dropped rows keep ``twin-of:<id>`` only). Merge order is
+    winner-first, then losers in file order; empty entries dropped and
+    duplicates deduped (exact match); category dicts dedup by their
+    ``name`` value sharing one namespace with bare strings, both shapes
+    preserved as-is (first shape wins, never stringified).
+    """
     clusters = {}
     for at, (sid, sense) in enumerate(pairs):
         key = normalize_gloss(sense_gloss(sense))
@@ -307,6 +407,7 @@ def _twins_pairs(pairs):
             continue
         clusters.setdefault(key, []).append(at)
     drop_at = {}
+    union_at = {}
     for positions in clusters.values():
         if len(positions) < 2:
             continue
@@ -317,7 +418,18 @@ def _twins_pairs(pairs):
         winner = ranked[0]
         for at in ranked[1:]:
             drop_at[at] = TWIN_OF_PREFIX + pairs[winner][0]
-    kept_p = [p for at, p in enumerate(pairs) if at not in drop_at]
+        winner_sense = pairs[winner][1]
+        if isinstance(winner_sense, dict):
+            losers = [pairs[at][1] for at in sorted(ranked[1:])]
+            union_at[winner] = _twin_union_copy(winner_sense, losers)
+    kept_p = []
+    for at, pair in enumerate(pairs):
+        if at in drop_at:
+            continue
+        if at in union_at:
+            kept_p.append((pair[0], union_at[at]))
+        else:
+            kept_p.append(pair)
     dropped = [_drop(pairs[at][0], drop_at[at], sense_gloss(pairs[at][1]))
                for at in sorted(drop_at)]
     return kept_p, dropped
@@ -370,6 +482,9 @@ def dedup_twins(senses, lemma=""):
 
     Winner per cluster = richest examples (count, then chars), file order
     breaks ties. Senses with an empty normalized gloss never cluster.
+    AFTER winner selection the losers' topics+categories merge into a
+    COPY of the winner (winner-first, losers in file order; empty/dup
+    entries deduped; category dict/string shapes preserved as-is).
     Input list is never mutated. Drops carry ``twin-of:<kept_id>``.
     """
     pairs = _pair_up(senses, lemma)
@@ -386,8 +501,10 @@ def prune_senses(senses, lemma=""):
     "zero_example", m} counted over the INPUT senses, no drops involved).
     Fallback sense ids (``<lemma>#<file-order>``) stay stable across legs.
     Kept rows carry the additive ``"flags"`` list (``"dialectal"`` when
-    the sense's tags hit ``DIALECTAL_TAGS`` — never a drop); all other
-    kept keys stay identical, dropped rows carry reason only.
+    the sense's tags hit ``DIALECTAL_TAGS`` — never a drop); twin-winner
+    kept rows additionally carry the union of their losers'
+    ``topics``/``categories`` (R3); all other kept keys stay identical,
+    dropped rows carry reason only.
     Pure: no I/O, inputs never mutated.
     """
     pairs = _pair_up(senses, lemma)
@@ -414,3 +531,19 @@ def prune_senses(senses, lemma=""):
              "example_counts": {"with_example": with_example,
                                 "zero_example": len(pairs) - with_example}}
     return kept, all_dropped, stats
+
+
+def screen_for_linking(senses, lemma=""):
+    """Full chain for the offline linking feed.
+
+    Runs :func:`prune_senses` unchanged and repackages the result as
+    ``(link_inputs, screening_drops, stats)``: ``link_inputs`` = kept
+    senses (twin-union enriched, flag-carrying) ready for candidate
+    building; ``screening_drops`` = ``[{"sense_id", "reason"}]`` for
+    every dropped sense, in chain order. Pure: no I/O, inputs never
+    mutated.
+    """
+    kept, dropped, stats = prune_senses(senses, lemma=lemma)
+    screening_drops = [{"sense_id": drop["sense_id"],
+                        "reason": drop["reason"]} for drop in dropped]
+    return kept, screening_drops, stats

@@ -290,6 +290,119 @@ _ALLOWED_DEVIATIONS = (_DIALECTAL_DEVIATIONS | _HYPER_NICHE_DEVIATIONS
                        | _FORM_OF_DEVIATIONS)
 
 
+def test_r3_twin_union_merges_topics_and_categories():
+    # Winner = richest examples; union is winner-first, losers in file
+    # order; empty/dup entries deduped; dict+string shapes preserved.
+    senses = [
+        _sense("w#0", "To gain.", topics=["beta", "alpha", ""],
+               categories=["BetaCat", {"name": "AlphaCat"}]),
+        _sense("w#1", "  to   GAIN.  ", topics=["gamma"],
+               categories=[{"name": "GammaCat"}, "BetaCat"],
+               examples=[{"text": "She gains daily."}]),
+        _sense("w#2", "To gain.", topics=["alpha"],
+               categories=[{"name": "AlphaCat"}],
+               examples=[{"text": "a"}, {"text": "b"}]),
+        _sense("w#3", "To keep."),
+    ]
+    kept, dropped = prune.dedup_twins(senses)
+    assert [s["sense_id"] for s in kept] == ["w#2", "w#3"]
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "twin-of:w#2"), ("w#1", "twin-of:w#2")]
+    winner = kept[0]
+    assert winner["topics"] == ["alpha", "beta", "gamma"]
+    assert winner["categories"] == [
+        {"name": "AlphaCat"}, "BetaCat", {"name": "GammaCat"}]
+    # Dict and string shapes preserved as-is (no stringification).
+    assert isinstance(winner["categories"][0], dict)
+    assert isinstance(winner["categories"][1], str)
+
+
+def test_r3_twin_union_winner_copy_purity():
+    senses = [
+        _sense("w#0", "To gain.", topics=["beta"],
+               categories=["BetaCat"]),
+        _sense("w#1", "To gain.", topics=["alpha"],
+               categories=[{"name": "AlphaCat"}],
+               examples=[{"text": "a"}, {"text": "b"}]),
+        _sense("w#2", "To keep."),
+    ]
+    before = [{"sid": s["sense_id"], "topics": list(s.get("topics", [])),
+               "categories": [dict(c) if isinstance(c, dict) else c
+                              for c in s.get("categories", [])]}
+              for s in senses]
+    kept, dropped = prune.dedup_twins(senses)
+    assert [s["sense_id"] for s in kept] == ["w#1", "w#2"]
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "twin-of:w#1")]
+    # Winner is an enriched COPY: input rows (incl. nested lists) unmutated.
+    winner = kept[0]
+    assert winner is not senses[1]
+    assert winner["topics"] == ["alpha", "beta"]
+    assert senses[1]["topics"] == ["alpha"]
+    assert senses[0]["topics"] == ["beta"]
+    assert senses[1]["categories"] == [{"name": "AlphaCat"}]
+    for snap, sense in zip(before, senses):
+        assert sense["sense_id"] == snap["sid"]
+        assert list(sense.get("topics", [])) == snap["topics"]
+        assert sense.get("categories", []) == snap["categories"]
+    # No-drop rows unaffected: same object, byte-identical content.
+    assert kept[1] is senses[2]
+    assert kept[1] == senses[2]
+
+
+def test_r3_twin_union_missing_keys():
+    # Winner without topics/categories gains them from losers; rows with
+    # no signal anywhere keep their sparse shape (no empty lists added).
+    senses = [
+        _sense("w#0", "To gain.", topics=["beta"],
+               categories=["BetaCat"]),
+        _sense("w#1", "To gain.",
+               examples=[{"text": "a"}, {"text": "b"}]),
+    ]
+    kept, dropped = prune.dedup_twins(senses)
+    assert [s["sense_id"] for s in kept] == ["w#1"]
+    assert kept[0]["topics"] == ["beta"]
+    assert kept[0]["categories"] == ["BetaCat"]
+    assert "topics" not in senses[1] and "categories" not in senses[1]
+    # All-empty: key present on winner collapses to [], absent stays absent.
+    senses = [_sense("w#0", "To gain.", topics=[""]),
+              _sense("w#1", "To gain.", topics=[""],
+                     examples=[{"text": "a"}])]
+    kept, _ = prune.dedup_twins(senses)
+    assert kept[0]["topics"] == []
+    assert senses[1]["topics"] == [""]  # input unmutated
+
+
+def test_screen_for_linking_returns_link_ready_kept_and_drops():
+    senses = [
+        _sense("w#0", "To gain.", tags=["obsolete"]),
+        _sense("w#1", "To keep.", topics=["sports"],
+               examples=[{"text": "Keep it."}]),
+        _sense("w#2", "To  KEEP.", topics=["games"]),
+        _sense("w#3", "To rest."),
+    ]
+    before = [dict(s) for s in senses]
+    link_inputs, screening_drops, stats = prune.screen_for_linking(
+        senses, lemma="w")
+    kept, dropped, stats2 = prune.prune_senses(senses, lemma="w")
+    # Link-ready kept == full-chain kept (union-enriched twin winner).
+    assert link_inputs == kept
+    assert [s["sense_id"] for s in link_inputs] == ["w#1", "w#3"]
+    assert link_inputs[0]["topics"] == ["sports", "games"]
+    assert link_inputs[0]["flags"] == []
+    # Drops metadata: exactly {sense_id, reason} per drop, chain order.
+    assert screening_drops == [
+        {"sense_id": "w#0", "reason": "obsolete"},
+        {"sense_id": "w#2", "reason": "twin-of:w#1"}]
+    for drop in screening_drops:
+        assert set(drop) == {"sense_id", "reason"}
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "obsolete"), ("w#2", "twin-of:w#1")]
+    assert stats == stats2
+    # Pure: inputs never mutated.
+    assert senses == before
+
+
 def test_chain_golden_conformance():
     # Every fixture row through prune_senses, per lemma in file order.
     with open(_GOLDEN, encoding="utf-8") as fh:
