@@ -15,19 +15,19 @@ TABLE = (pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_sa_move_only_overlap_never_fires():
-    j, fires = linker.signal_sa(
+    j, fires = linker.gloss_overlap_signal(
         {"rumor", "move", "report", "hearsay"},
         {"run", "move", "flow", "stream"})
     assert (round(j, 2), fires) == (0.0, False)
 
 
 def test_sb_cause_dead_under_cause_rule():
-    assert linker.signal_sb(
+    assert linker.synonym_crossfire_signal(
         {"cause", "come", "go", "move"}, set(), {"stimulate"}) == []
 
 
 def test_sb_bear_support_stays():
-    assert linker.signal_sb(
+    assert linker.synonym_crossfire_signal(
         {"support", "hold"}, set(), {"hold", "carry", "bear"}) == ["hold"]
 
 
