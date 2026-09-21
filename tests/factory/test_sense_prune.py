@@ -1,4 +1,4 @@
-"""Sense-screening pruner: R2 hard drops, R3 twin dedup, R4 niche guard.
+"""Sense-screening pruner: R1 proper, R2 hard, R3 twin, R4 niche.
 
 Hermetic: synthetic fixtures only (no Kaikki dump, no network).
 """
@@ -7,7 +7,7 @@ from factory.precard import anchor, prune
 
 
 def _sense(sid, gloss, tags=None, topics=None, categories=None,
-           examples=None, form_of=None):
+           examples=None, form_of=None, pos=None, flags=None):
     sense = {"sense_id": sid, "glosses": [gloss]}
     if tags is not None:
         sense["tags"] = tags
@@ -19,6 +19,10 @@ def _sense(sid, gloss, tags=None, topics=None, categories=None,
         sense["examples"] = examples
     if form_of is not None:
         sense["form_of"] = form_of
+    if pos is not None:
+        sense["pos"] = pos
+    if flags is not None:
+        sense["flags"] = flags
     return sense
 
 
@@ -117,6 +121,109 @@ def test_r4_niche_only_drops_mixed_or_empty_survive():
     assert stats["heraldry"] == 1
 
 
+def test_r1_proper_noun_drops_casefolded():
+    senses = [
+        _sense("w#0", "A surname.", pos="name"),
+        _sense("w#1", "A village in England.", pos="Name"),
+        _sense("w#2", "A river.", pos="NAME"),
+        _sense("w#3", "To gain.", pos="verb"),
+        _sense("w#4", "To gain."),
+    ]
+    kept, dropped = prune.prune_proper_nouns(senses)
+    assert [s["sense_id"] for s in kept] == ["w#3", "w#4"]
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "DROP_PROPER_NOUN"), ("w#1", "DROP_PROPER_NOUN"),
+        ("w#2", "DROP_PROPER_NOUN")]
+
+
+def test_r1_obscure_acronym_shape_wins_over_proper():
+    senses = [
+        _sense("w#0", "Initialism of Strategic Energy Board.",
+               tags=["abbreviation", "alt-of", "initialism"], pos="name"),
+        _sense("w#1", "Initialism of Stock Exchange of Nowhere.",
+               tags=["Abbreviation", "Initialism"], pos="NAME"),
+        _sense("w#2", "A surname.", pos="name"),
+    ]
+    kept, dropped = prune.prune_proper_nouns(senses)
+    assert kept == []
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "DROP_OBSCURE_ACRONYM"),
+        ("w#1", "DROP_OBSCURE_ACRONYM"),
+        ("w#2", "DROP_PROPER_NOUN")]
+
+
+def test_r1_initialism_without_name_context_survives_proper_leg():
+    # Same gloss shape under a common pos is NOT an obscure acronym
+    # (and not a proper drop either) — the shape rule needs pos == name.
+    senses = [
+        _sense("w#0", "Initialism of Simulated Emergency Test.",
+               tags=["abbreviation", "alt-of", "initialism"], pos="noun"),
+        _sense("w#1", "Initialism of Something.", pos="name"),
+    ]
+    kept, dropped = prune.prune_proper_nouns(senses)
+    assert [s["sense_id"] for s in kept] == ["w#0"]
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#1", "DROP_PROPER_NOUN")]
+
+
+def test_r2_dialectal_flag_on_kept_never_a_drop():
+    senses = [
+        _sense("w#0", "To sit.", tags=["UK", "dialectal"]),
+        _sense("w#1", "To suit.", tags=["Scotland"]),
+        _sense("w#2", "To rest.", tags=["Midwestern-US", "dialectal"]),
+        _sense("w#3", "A class group.", tags=["UK"]),
+        _sense("w#4", "To gain.", tags=["transitive"]),
+    ]
+    before = [dict(s) for s in senses]
+    kept, dropped, stats = prune.prune_senses(senses, lemma="w")
+    # Nothing drops on dialect alone.
+    assert [s["sense_id"] for s in kept] == [
+        "w#0", "w#1", "w#2", "w#3", "w#4"]
+    assert dropped == []
+    by_id = {s["sense_id"]: s for s in kept}
+    for sid in ("w#0", "w#1", "w#2", "w#3"):
+        assert "dialectal" in by_id[sid]["flags"]
+    assert by_id["w#4"]["flags"] == []
+    # Additive only: every other key byte-identical to the input row.
+    for orig in before:
+        row = by_id[orig["sense_id"]]
+        for key, value in orig.items():
+            assert row[key] == value
+    # Inputs never mutated (no flags leaked into callers).
+    assert senses == before
+    assert all("flags" not in s for s in senses)
+
+
+def test_r2_dialectal_flag_preserves_existing_flags():
+    senses = [_sense("w#0", "To sit.", tags=["UK"], flags=["kept-audit"])]
+    kept, _, _ = prune.prune_senses(senses, lemma="w")
+    assert kept[0]["flags"] == ["kept-audit", "dialectal"]
+
+
+def test_r4_example_counts_over_input():
+    senses = [
+        _sense("w#0", "To gain.", examples=[{"text": "She gains."}]),
+        _sense("w#1", "To keep."),
+        _sense("w#2", "A rope.", topics=["nautical"],
+               examples=[{"text": "Rope."}]),
+    ]
+    _, _, stats = prune.prune_senses(senses, lemma="w")
+    assert stats["example_counts"] == {"with_example": 2, "zero_example": 1}
+
+
+def test_chain_proper_leg_wins_over_twin():
+    # Identical glosses where one twin is a proper name: the proper leg
+    # drops it FIRST, so the common sense survives with no twin drop.
+    senses = [
+        _sense("w#0", "A surname.", pos="name"),
+        _sense("w#1", "A surname.", pos="noun"),
+    ]
+    kept, dropped, _ = prune.prune_senses(senses, lemma="w")
+    assert [s["sense_id"] for s in kept] == ["w#1"]
+    assert [(d["sense_id"], d["reason"]) for d in dropped] == [
+        ("w#0", "DROP_PROPER_NOUN")]
+
+
 def test_full_chain_order_and_stats():
     senses = [
         _sense("w#0", "To gain.", tags=["obsolete"]),
@@ -134,10 +241,17 @@ def test_full_chain_order_and_stats():
     assert stats["reason_counts"] == {
         "obsolete": 1, "niche": 1, "twin-of": 1}
     assert stats["topics_seen"] == {"nautical": 1}
+    assert stats["example_counts"] == {"with_example": 1, "zero_example": 3}
+    assert kept[0]["flags"] == []
 
 
 def test_chain_is_pure_no_io():
     senses = [_sense("w#0", "To gain.", tags=["slang"])]
+    before = [dict(s) for s in senses]
     kept, dropped, stats = prune.prune_senses(senses, lemma="w")
-    assert kept == senses and dropped == []
+    assert [s["sense_id"] for s in kept] == ["w#0"]
+    assert dropped == []
+    assert kept[0]["flags"] == []
+    assert senses == before  # inputs never mutated
     assert stats["total"] == 1
+    assert stats["example_counts"] == {"with_example": 0, "zero_example": 1}
