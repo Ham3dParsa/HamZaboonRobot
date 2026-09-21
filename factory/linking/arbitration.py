@@ -12,6 +12,7 @@ reads env/config); no model calls at import time; imports outside
 """
 
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Literal, Optional, Protocol
@@ -19,6 +20,16 @@ from typing import Literal, Optional, Protocol
 
 class ArbitrationTransportError(Exception):
     """Transport failure from :class:`LocalGemmaAdapter` (never swallowed)."""
+
+
+class ArbitrationPayloadError(ValueError):
+    """Malformed response envelope from :class:`LocalGemmaAdapter`.
+
+    Raised for payload shape/key/content failures (invalid JSON, missing
+    ``choices``/``message``/``content`` keys, non-``str`` content) — never
+    for transport failures, so callers retrying on transport never
+    pointlessly retry a shape bug.
+    """
 
 
 class ArbitrationProviderPort(Protocol):
@@ -92,11 +103,17 @@ class LocalGemmaAdapter:
         try:
             with self._opener(request, timeout=self.timeout) as response:
                 raw = response.read()
-                if isinstance(raw, bytes):
-                    raw = raw.decode("utf-8")
-                data = json.loads(raw)
-                return data["choices"][0]["message"]["content"]
-        except ArbitrationTransportError:
-            raise
-        except Exception as exc:
-            raise ArbitrationTransportError(str(exc)) from exc
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise ArbitrationTransportError(f"{type(exc).__name__}: {exc}") from exc
+        try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            data = json.loads(raw)
+            content = data["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise ArbitrationPayloadError(f"{type(exc).__name__}: {exc}") from exc
+        if not isinstance(content, str):
+            raise ArbitrationPayloadError(
+                f"content is {type(content).__name__}, expected str"
+            )
+        return content
