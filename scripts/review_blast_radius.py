@@ -105,11 +105,12 @@ def _head_sha() -> str | None:
 
 
 def _is_dirty() -> bool:
-    """True when the working tree has uncommitted changes.
+    """True when the working tree has uncommitted `.py` changes.
 
-    Any `git status --porcelain` output (tracked modifications or
-    untracked files) means a HEAD-pinned graph cannot represent the
-    review target, so the context is approximate even when fresh.
+    Any `git status --porcelain -- *.py` output (tracked `.py`
+    modifications or untracked `.py` files) means a HEAD-pinned graph
+    cannot represent the review target, so the context is approximate
+    even when fresh.
     """
     rc, out, _ = _run(["git", "status", "--porcelain", "--", "*.py"])
     if rc != 0:
