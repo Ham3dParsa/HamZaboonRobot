@@ -10,4 +10,4 @@ scope: factory precard/pilot lines, datasets, CEFR/topic/sense quality
 | `plan-precard-quality-141.md` | 0/6, awaiting owner (D-brand/D-semcor/order) | `plan-precard-identity-141.md` | `in-progress` |
 | `plan-network-home.md` | locked R1..R8, P0→P1→P2 after 697 | `plan-precard-identity-141.md` | `locked` |
 | `plan-network-run-ux.md` | 3/6 in-progress, R1..R11 (waves 1a+1b+2 merged: PR 710+711+713; PR-B table next) | `plan-network-home.md` | `in-progress` |
-| `plan-async-cloud-judge.md` | 1/4 RED tests in progress, R1..R6 (branch feat/async-cloud-judge) | — | `in-progress` |
+| `plan-async-cloud-judge.md` | 4/4 REVIEW+PR, R1..R7 (branch feat/async-cloud-judge, PR #789 OPEN/CONFLICTING — rebase needed) | — | `in-progress` |
