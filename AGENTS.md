@@ -110,6 +110,7 @@ not in prose.
   - `handlers/study_handler.py`: study-session handler.
 - `config/`: `__init__.py` env/deployment settings (not a second registry), `catalog.py` (facade re-export shim over the `catalog_*` leaves: `catalog_languages.py` language/goal/level metadata + namespaces, `catalog_toggles.py` display toggles, `catalog_card_types.py` card types/modes/gates, `catalog_settings_keys.py` SETTINGS_KEYS + resolver, `catalog_validation.py` validators), `plan_identity.py` (canonical plan-set membership + premium tiering), `themes.py` (canonical learner-facing theme catalog: `THEMES`, `DEFAULT_THEME_ID`, `get_theme`, `validate_themes`; frozen registry, fail-closed reads), `keyboards/__init__.py + keyboards/*.py` (menus + callback identifiers).
 - `factory/linking/human_queue.py`: human escalation queue sink + reader; owner of ESCALATE:HUMAN_QUEUE records.
+- `factory/linking/arbitration.py`: raw arbitration provider port + service + local-Gemma adapter; no tally/vote/gate (verdicts assembled by gate layer).
 - `factory/precard/prune.py`: sense-screening pruner (R2 hard drops → R4 niche guard → R3 twin dedup); single owner of the sense-screening prune chain.
 - `tests/test_integration/`: handler-level integration tests.
 
