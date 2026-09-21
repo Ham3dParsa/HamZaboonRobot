@@ -27,7 +27,7 @@
 - [ ] Integration tests (per AGENTS.md §6):
 - [ ] Migration covered on BOTH fresh DB and upgraded-from-prior-schema DB: yes/no/na
 - [ ] Full validation: pytest / compile_all / ruff F821,F811 / git diff --check
-- [ ] Linked issue carries exactly one milestone (or `No linked issue: <reason>` per §6.4)
+- [ ] Linked issue carries exactly one milestone (or `No tracking issue` per AGENTS.md §6)
 
 <details>
 <summary>Dependency & Wiring Map (required if applicable)</summary>
