@@ -509,9 +509,107 @@ def run_graph_queries(
     return ok
 
 
-def callers_of(symbol: str) -> tuple[list[str], bool]:
-    """AST-derived call sites ``path:line`` for *symbol* (exact, HEAD-fresh)."""
+def _import_maps(tree: ast.AST) -> tuple[dict[str, str], dict[str, str]]:
+    """Absolute-import maps for one module: ``(from_names, import_names)``.
+
+    Each maps the local name to the dotted module it comes from. Only
+    absolute imports (``level == 0``) resolve; relative imports need package
+    context and are skipped, so call sites relying on them stay
+    unqualified (documented limitation, stdlib only). Instance-method calls
+    (``obj.close()``/``self.close()``) never qualify -- no type info, so an
+    empty caller list means "no qualified callers found", not "no callers".
+    """
+    from_map: dict[str, str] = {}
+    import_map: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                from_map[alias.asname or alias.name] = node.module
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    import_map[alias.asname] = alias.name
+                else:
+                    top = alias.name.split(".")[0]
+                    import_map.setdefault(top, alias.name)
+    return from_map, import_map
+
+
+def _call_base_name(func: ast.AST) -> str | None:
+    """Leftmost ``Name`` of a call func (``a.b.c()`` -> ``a``), else None."""
+    node = func
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
+def _is_qualified_call(
+    func: ast.AST,
+    caller_rel: str,
+    def_file: str | None,
+    from_map: dict[str, str],
+    import_map: dict[str, str],
+    sym_module: str | None,
+    bare: str,
+) -> bool:
+    """True when a bare-name call site resolves to the symbol's module."""
+    if def_file is not None and caller_rel == def_file:
+        return True
+    if sym_module is None:
+        return False
+    if isinstance(func, ast.Name):
+        return func.id == bare and from_map.get(func.id) == sym_module
+    if isinstance(func, ast.Attribute):
+        if func.attr != bare:
+            return False
+        base = _call_base_name(func)
+        if base is None:
+            return False
+        if from_map.get(base) == sym_module:
+            return True
+        # `from <pkg> import <mod>`: the local name resolves to
+        # `<pkg>.<mod>`, which may be a parent of the symbol's module
+        # (e.g. `from services import db` + `db.get_user()` for
+        # `services.db.users`; `from services.db import users` +
+        # `users.get_user()`).
+        from_base = from_map.get(base)
+        if from_base is not None:
+            candidate = f"{from_base}.{base}"
+            if sym_module == candidate \
+                    or sym_module.startswith(candidate + "."):
+                return True
+        # `import <dotted> [as <alias>]`: the alias resolves to the full
+        # dotted path, which may be a parent of the symbol's module
+        # (e.g. `import services.db` + `services.db.get_user()`).
+        full = import_map.get(base)
+        if full is not None and (
+            sym_module == full or sym_module.startswith(full + ".")
+        ):
+            return True
+        return False
+    return False
+
+
+def callers_of(
+    symbol: str, def_file: str | None = None
+) -> tuple[list[str], bool]:
+    """AST-derived call sites ``path:line`` for *symbol* (exact, HEAD-fresh).
+
+    Module-aware: when *def_file* is known, only call sites that resolve
+    to the symbol's module count -- same file, ``from <mod> import <name>``,
+    or ``<alias>.<name>(`` with the alias mapped to the module via imports.
+    Without *def_file* every bare-name hit is returned (approx fallback);
+    :func:`build_blast_radius` records which case applied in the row's
+    ``via`` suffix (``(qualified)`` vs ``(approx)``).
+    """
     bare = symbol.split(".")[-1]
+    sym_module = _module_for_relpath(def_file) if def_file else None
     callers: list[str] = []
     capped = False
     for filepath in _iter_production_files():
@@ -520,6 +618,10 @@ def callers_of(symbol: str) -> tuple[list[str], bool]:
         except (OSError, SyntaxError, ValueError, UnicodeDecodeError):
             continue
         rel = str(filepath.relative_to(REPO_ROOT)).replace("\\", "/")
+        if sym_module is not None and rel != def_file:
+            from_map, import_map = _import_maps(tree)
+        else:
+            from_map, import_map = {}, {}
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -527,7 +629,11 @@ def callers_of(symbol: str) -> tuple[list[str], bool]:
             hit = (isinstance(func, ast.Name) and func.id == bare) or (
                 isinstance(func, ast.Attribute) and func.attr == bare
             )
-            if hit:
+            if not hit:
+                continue
+            if sym_module is None or _is_qualified_call(
+                func, rel, def_file, from_map, import_map, sym_module, bare
+            ):
                 callers.append(f"{rel}:{node.lineno}")
                 if len(callers) >= MAX_CALLERS:
                     capped = True
@@ -576,19 +682,26 @@ def build_blast_radius(
         truncated = True
     for sym in targets:
         name = sym["name"]
-        callers, callers_capped = callers_of(name)
+        def_file = sym.get("file")
+        callers, callers_capped = callers_of(name, def_file)
         if callers_capped:
             truncated = True
         if name in query_ok:
-            via = "query+ast" if query_ok[name] else "ast-scan (query failed)"
+            base_via = "query+ast" if query_ok[name] else "ast-scan (query failed)"
         elif queried:
-            via = "ast-scan (over query cap)"
+            base_via = "ast-scan (over query cap)"
         else:
-            via = "ast-scan (no graph)"
+            base_via = "ast-scan (no graph)"
+        qualified = (
+            def_file is not None
+            and _module_for_relpath(def_file) is not None
+            and len(callers) > 0
+        )
+        via = f"{base_via} (qualified)" if qualified else f"{base_via} (approx)"
         rows.append({
             "symbol": name,
             "callers": callers,
-            "callees": callees_of(name, sym.get("file")),
+            "callees": callees_of(name, def_file),
             "via": via,
         })
     return rows, truncated

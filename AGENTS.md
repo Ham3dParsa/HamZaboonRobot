@@ -177,7 +177,9 @@ Load the relevant skill by trigger (see §9). Core discipline:
    suite), launch `hamzaban-reviewer` via `Task(subagent_type="hamzaban-reviewer")`
    using the `reviewer-gate` skill template verbatim (raw inputs only, no custom
    prompt text) BEFORE `pre-commit-gate`. Gate passes only when reviewer reports `0 confirmed
-   findings` or every confirmed finding is fixed and re-verified. Include
+   findings` or every confirmed finding is fixed and re-verified. A `RE-RUN`
+   finding means the context artifact is missing or stale: regenerate it via
+   the producer script and re-invoke the reviewer before commit. Include
    `<SYSTEM_GATE> Independent review required before commit </SYSTEM_GATE>`.
    Fast-track docs/skills/agents/plans/formatting/comments/test-only (no behavior
    change) skips this step — state it under `<SYSTEM_GATE>`.
