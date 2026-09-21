@@ -211,3 +211,20 @@ byte-identical.)
   not now); log/telemetry/console keys; provider/model names.
 
 Append-only; no prior section rewritten.
+
+## LOCKED 2026-09-21 — Certainty boundary + ticket closure (anti-overfit)
+
+- **B1 unanimous + high-certainty → `status: auto-linked`.** Splits,
+  uncertainty, or vote ties → `status: routed-to-human-review` with full
+  sense id. Fake NONE conversion is forbidden.
+- **B2 split-to-NONE permanently rejected** (destroys healthy links).
+  Rejected with it: Guarded-D substitution gate (both phrasings fail —
+  literal kills true figurative senses, functional kills 5/14 true links),
+  verb-POS margin floor 0.03, verb confidence gates. None of this ships;
+  TEMP spike files deleted; repo verified clean of remnants.
+- **B3 closed on honest baseline:** TICK-01 (clean screening input),
+  TICK-02 + TICK-04 (parser repair + targeted re-ask: 107/107 decided,
+  0 parser errors) are proven foundations. TICK-03 closes with NO magic:
+  retention ~89%, recall ~56% (76% with human-queue containment).
+  Guarded-D autopsy evidence kept at `Temp/repair7_/` + `Temp/reask_/`
+  (measurements, not code).
