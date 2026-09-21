@@ -6,8 +6,8 @@ untouched. Reuses the sync domain exceptions (KeyRing, RateLimited,
 ProviderCooldown, AuthError), the shared prompt builder
 (judge.arbiter_prompt — prompt parity by construction), the shared validator
 (judge.arbiter_validate_multi), the F4 inflection veto, and the terminal
-telemetry shape (factory.core.telemetry.record_call). Route modes mirror
-provider_lease_policy.TARGETS tunnel flags. Backoff sleeps with the semaphore slot RELEASED
+telemetry shape (factory.core.telemetry.record_call). Route modes read
+provider_registry rows (F2). Backoff sleeps with the semaphore slot RELEASED
 (head-of-line rule). Rotation is compare-and-rotate (no double-rotate under
 contention). Telemetry attempt rows carry key_idx:int only — key strings
 never recorded. Per-row failures fail closed; a bad row never aborts a run.
@@ -19,7 +19,6 @@ import asyncio
 import json
 import urllib.error
 
-from factory.precard import provider_lease_policy as lease_policy
 from factory.precard import provider_transport as sync_transport
 from factory.core.llm_json import (
     ABORT,
@@ -50,14 +49,15 @@ def clamp_concurrency(n):
 
 
 def resolve_route(provider):
-    """direct|tunnel mirror of provider_lease_policy.TARGETS.
+    """direct|tunnel from the provider registry row (F2: data, not code).
 
-    Unknown providers go direct.
+    Unknown providers go direct (fail-closed to the simplest path).
     """
-    spec = lease_policy.target_spec(provider)
-    if spec is None:
+    from factory.precard import provider_registry as registry
+    row = registry.resolve_provider(provider)
+    if row is None:
         return "direct"
-    return "tunnel" if spec.get("tunnel") else "direct"
+    return row.get("route", "direct")
 
 
 def to_thread_adapter(sync_fn):

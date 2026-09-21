@@ -8,6 +8,7 @@ KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
 
 def load_factory_env(required=()):
     env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
+    wanted = set(KEYS) | set(required or ())
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -15,10 +16,11 @@ def load_factory_env(required=()):
                 continue
             k, v = line.split("=", 1)
             k, v = k.strip(), v.strip().strip("'\"")
-            if k in KEYS and v and k not in os.environ:
+            if k in wanted and v and k not in os.environ:
                 os.environ[k] = v
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise KeyError("factory/.env missing keys: " + ", ".join(missing)
                        + " (copy factory/.env.example to factory/.env and fill values)")
-    return {k: os.environ.get(k, "") for k in KEYS}
+    names = list(KEYS) + [k for k in required if k not in KEYS]
+    return {k: os.environ.get(k, "") for k in names}

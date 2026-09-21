@@ -698,10 +698,13 @@ class TestEdgeAsync(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(pipeline.use_async_judge(
             pipeline.parse_args(["--async-judge-provider", "google"])))
 
-    def test_async_judge_provider_rejects_unknown(self):
+    def test_async_judge_provider_accepts_registry_names(self):
         from factory.precard.pipeline import parse_args
-        with self.assertRaises(SystemExit):
+        # F4: choices are registry-driven — groq parses (preflight gate
+        # decides at run time, loudly on unknown names).
+        self.assertEqual(
             parse_args(["--async-judge-provider", "groq"])
+            .async_judge_provider, "groq")
 
 
 def _anchor_map():

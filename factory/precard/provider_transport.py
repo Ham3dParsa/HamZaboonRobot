@@ -139,6 +139,34 @@ def _google_chat_transport(api_key, model, user_text):
     return text or "", None
 
 
+def openai_compat_transport(api_key, model, user_text, *, base_url,
+                            extra=None):
+    """Generic OpenAI-compatible chat transport: (text, usage|None).
+
+    Same envelope as _avalai_chat_transport but with caller-supplied
+    base_url (registry row) and optional extra body fields merged in
+    (registry row request_extras, e.g. AvalAI reasoning knobs — Groq/
+    OpenRouter rows pass none, since unknown fields risk HTTP 400).
+    HTTP errors propagate untouched (shared classify owns meaning).
+    """
+    payload = {"model": model,
+               "messages": [{"role": "user", "content": user_text}],
+               "temperature": 0}
+    if extra:
+        payload.update(dict(extra))
+    req = urllib.request.Request(
+        base_url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.load(resp)
+    msg = ((data.get("choices") or [{}])[0].get("message", {})
+           if isinstance(data, dict) else {})
+    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+    return (msg.get("content") or ""), (usage if isinstance(usage, dict)
+                                        else None)
+
+
 def _avalai_remap_transport(default_model):
     """Adapter letting precard loops run unchanged on AvalAI.
 

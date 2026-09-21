@@ -185,6 +185,145 @@ class TestAsyncJudgePipelineBranch(unittest.TestCase):
                 self.assertFalse((verdict.get("model", "") or "").startswith(
                     "s1-"))
 
+    def _hermetic_env(self):
+        """Environ-only load_factory_env: file-backed keys can never flip
+        these tests off their fail-closed paths (hermetic on any box)."""
+        from unittest import mock
+
+        def _fake_load_factory_env(required=()):
+            missing = [k for k in required if not os.environ.get(k)]
+            if missing:
+                raise KeyError("factory/.env missing keys: "
+                               + ", ".join(missing))
+            return {k: os.environ.get(k, "") for k in required}
+
+        return mock.patch(
+            "factory.precard.pipeline.load_factory_env",
+            side_effect=_fake_load_factory_env)
+
+    def test_groq_without_key_fails_closed_naming_var(self):
+        # F4 gate: registry-known provider with no key exits loudly naming
+        # the convention var (no network, no keys on disk asserted).
+        # Env hygiene: a real GROQ key on this machine must not flip the
+        # test into the keyed path — pop both vars, restore after.
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        _saved = {}
+        for _var in ("GROQ_API_KEY_G1", "GROQ_API_KEY"):
+            _saved[_var] = os.environ.pop(_var, None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                sample = os.path.join(tmp, "sample.json")
+                with open(sample, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        [{"kind": "word", "text": "apple", "pos": "noun",
+                          "pool_level": "A1"}], fh)
+                out = os.path.join(tmp, "precard.jsonl")
+                prog = os.path.join(tmp, "prog")
+                with self._hermetic_env():
+                    with self.assertRaises(SystemExit) as ctx:
+                        # NOTE: no _judge_transport override — the default
+                        # sentinel forces real provider wiring (None would
+                        # mean skipped leg).
+                        precard_main(
+                            ["--sample", sample, "--out", out,
+                             "--progress-dir", prog, "--no-resume",
+                             "--llm-provider", "groq",
+                             "--async-judge-provider", "groq",
+                             "--concurrency", "2", "--quiet"],
+                            _topic_transport=None, _assign_transport=None,
+                            _inflect_transport=None,
+                            _sleep_fn=lambda s: None,
+                            _index=_hermetic_index(("apple",)),
+                            _read_entry=lambda row: row["entry"],
+                            _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                            _awl_set=set(), _type_map={},
+                            _type_log_available=False)
+        finally:
+            for _var, _val in _saved.items():
+                if _val is None:
+                    os.environ.pop(_var, None)
+                else:
+                    os.environ[_var] = _val
+        self.assertIn("GROQ_API_KEY_G1", str(ctx.exception.code))
+
+    def test_groq_on_non_judge_leg_rejected(self):
+        # Per-leg gate: registry names ride ONLY sense_judge; a default
+        # topic leg on groq exits naming avalai|google (no network).
+        # NOTE: _topic_transport left default (not None) so the leg is
+        # really gated; injected-None legs are exempt by design.
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = os.path.join(tmp, "sample.json")
+            with open(sample, "w", encoding="utf-8") as fh:
+                json.dump(
+                    [{"kind": "word", "text": "apple", "pos": "noun",
+                      "pool_level": "A1"}], fh)
+            with self.assertRaises(SystemExit) as ctx:
+                precard_main(
+                    ["--sample", sample,
+                     "--out", os.path.join(tmp, "precard.jsonl"),
+                     "--progress-dir", os.path.join(tmp, "prog"),
+                     "--no-resume", "--llm-provider", "groq",
+                     "--concurrency", "2", "--quiet"],
+                    _assign_transport=None,
+                    _inflect_transport=None,
+                    _sleep_fn=lambda s: None,
+                    _index={}, _read_entry=lambda row: row,
+                    _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                    _awl_set=set(), _type_map={},
+                    _type_log_available=False)
+        msg = str(ctx.exception.code)
+        self.assertIn("avalai|google", msg)
+        self.assertIn("topic_vectors", msg)
+
+    def test_groq_default_model_demands_explicit_judge_model(self):
+        # Registry provider + key present but avalai-default model would be
+        # sent verbatim to a foreign API: loud exit, no network.
+        import os as _os
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        _saved_g1 = _os.environ.get("GROQ_API_KEY_G1")
+        _saved_base = _os.environ.get("GROQ_API_KEY")
+        _os.environ["GROQ_API_KEY_G1"] = "test-groq-key"
+        _os.environ.pop("GROQ_API_KEY", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                sample = os.path.join(tmp, "sample.json")
+                with open(sample, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        [{"kind": "word", "text": "apple", "pos": "noun",
+                          "pool_level": "A1"}], fh)
+                with self._hermetic_env():
+                    with self.assertRaises(SystemExit) as ctx:
+                        precard_main(
+                            ["--sample", sample,
+                             "--out", os.path.join(tmp, "precard.jsonl"),
+                             "--progress-dir", os.path.join(tmp, "prog"),
+                             "--no-resume",
+                             "--llm-provider", "groq",
+                             "--async-judge-provider", "groq",
+                             "--concurrency", "2", "--quiet"],
+                            _topic_transport=None, _assign_transport=None,
+                            _inflect_transport=None,
+                            _sleep_fn=lambda s: None,
+                            _index=_hermetic_index(("apple",)),
+                            _read_entry=lambda row: row["entry"],
+                            _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                            _awl_set=set(), _type_map={},
+                            _type_log_available=False)
+        finally:
+            if _saved_g1 is None:
+                _os.environ.pop("GROQ_API_KEY_G1", None)
+            else:
+                _os.environ["GROQ_API_KEY_G1"] = _saved_g1
+            if _saved_base is None:
+                _os.environ.pop("GROQ_API_KEY", None)
+            else:
+                _os.environ["GROQ_API_KEY"] = _saved_base
+        self.assertIn("--judge-model", str(ctx.exception.code))
+
 
 if __name__ == "__main__":
     unittest.main()
