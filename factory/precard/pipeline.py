@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import pathlib
@@ -33,6 +34,7 @@ from factory.core.env_loader import load_factory_env
 from factory.core.telemetry import new_run_id
 from factory.precard import progress
 from factory.precard import provider_transport
+from factory.precard import transport_async as async_judge
 from factory.precard.accounting import audit_sample_accounting
 from factory.precard.accounting import source_item_key
 from factory.precard.provider_lease_policy import (
@@ -1124,6 +1126,30 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                  "topic_vectors": _topic_transport, "topic_label": _assign_transport}
     providers = {leg: _leg_provider(leg) for leg in LLM_LEGS}
     models = {leg: _leg_model(leg) for leg in LLM_LEGS}
+    if use_async_judge(args):
+        # R7: the async flag names the sense_judge provider explicitly; it
+        # flows through the SAME preflight gate below (unknown names exit
+        # exactly like sync — no gate widening in this contract).
+        # Contradictory explicit flags fail closed (never silent
+        # precedence): effective provider is stage > judge > llm, same as
+        # _leg_provider below.
+        want = str(args.async_judge_provider).strip().lower()
+        _stage_map = {}
+        try:
+            _stage_map = _parse_stage_map(
+                getattr(args, "stage_provider", []),
+                ("avalai", "google")) or {}
+        except SystemExit:
+            pass
+        effective = _stage_map.get(
+            "sense_judge", getattr(args, "judge_provider", None)
+            or getattr(args, "llm_provider", None))
+        if effective and str(effective).strip().lower() != want:
+            _preflight_exit(
+                "conflicting judge providers: resolved %s vs "
+                "--async-judge-provider %s (pick one)"
+                % (effective, want))
+        providers["sense_judge"] = want
     # Fail-closed provider gate (no default provider): every leg the
     # caller left on the pipeline default must resolve to avalai|google
     # via --llm-provider (or --judge-provider for sense_judge, or
@@ -1662,6 +1688,77 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         jlog.event("stage_start", stage="sense_judge")
         n_judge_batches = (len(items) + JUDGE_BATCH - 1) // JUDGE_BATCH or 1
         s2_bar = {"durs": [], "hits": 0, "misses": 0}
+        async_verdicts, async_terminal, async_first = None, None, None
+        if use_async_judge(args):
+            # R7: precompute every todo batch concurrently, then run the
+            # IDENTICAL merge/flush/bar loop below (single behavior delta:
+            # verdicts arrive precomputed). Prompts identical
+            # (judge.arbiter_prompt), single model = judge_models[0]
+            # (multi-model chains stay sync-only: documented limitation).
+            # Backfill runs here AND in the loop (idempotent: attaches only
+            # missing tags); no awaits between, so todo sets match exactly.
+            async_verdicts = {}
+            _units = []
+            for _bno, _base in enumerate(
+                    _stage_range(selected, "sense_judge", items,
+                                 JUDGE_BATCH), start=1):
+                _batch = items[_base:_base + JUDGE_BATCH]
+                _todo = [i for i in _batch
+                         if source_item_key(i) not in states["sense_judge"]["done"]]
+                if _todo:
+                    _backfill_candidate_tags(
+                        _todo, states["anchor_rank"]["done"], index,
+                        read_entry)
+                    if async_first is None:
+                        async_first = _bno
+                    _units.append({"batch_no": _bno, "batch_items": _todo})
+            _shared_ring = judge_ring or ring
+            _ring_keys = (list(_shared_ring.keys)
+                          if _shared_ring is not None
+                          else [judge_api_key or api_key])
+            _amodel = (judge_models[0] if judge_models
+                       else models["sense_judge"])
+            _sem = asyncio.BoundedSemaphore(async_judge.clamp_concurrency(
+                args.concurrency))
+            _rlock = asyncio.Lock()
+
+            def _async_sink(_idx, _mapping):
+                # F4: kill-safe persistence DURING the gather (not after):
+                # merge each settled unit into states + flush immediately,
+                # so a kill loses only in-flight units like sync's
+                # per-batch flush. Exceptions propagate loud.
+                for _key, _verdict in _mapping.items():
+                    states["sense_judge"]["done"][_key] = _verdict
+                _flush(progress_dir, states)
+
+            _maps, async_terminal = asyncio.run(
+                async_judge.run_batches_async(
+                    [{"batch_items": u["batch_items"],
+                      "anchor_map": states["anchor_rank"]["done"],
+                      "tele_batch": u["batch_no"]} for u in _units],
+                    transport=async_judge.to_thread_adapter(
+                        judge_transport),
+                    model=_amodel, semaphore=_sem,
+                    ring=KeyRing(list(_ring_keys)),
+                    ring_lock=_rlock, timeout_s=150.0, sleep_fn=None,
+                    state={}, telemetry=tele_store, tele_stage="s2",
+                    tele_run_id=run_id,
+                    provider=providers["sense_judge"],
+                    model_actual=_leg_actual("sense_judge"),
+                    tele_attempts=args.tele_attempts, tried=s2_tried,
+                    key_var=_provider_key_var(providers["sense_judge"]),
+                    file_label=_leg_file_label(providers["sense_judge"]),
+                    progress_sink=_async_sink))
+            async_verdicts = {u["batch_no"]: _maps[i]
+                              for i, u in enumerate(_units) if i in _maps}
+            # F3: merge everything judged BEFORE the loop, so a terminal
+            # error raised below still persists completed work (the shared
+            # abort handlers flush states verbatim like sync). Accounting
+            # note: pre-merged rows count as loop "hits" below — they were
+            # judged this run, just earlier.
+            for _mapping in async_verdicts.values():
+                for _key, _verdict in _mapping.items():
+                    states["sense_judge"]["done"][_key] = _verdict
         for batch_no, base in enumerate(
                 _stage_range(selected, "sense_judge", items, JUDGE_BATCH), start=1):
             _t0 = time.perf_counter()
@@ -1678,7 +1775,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 _backfill_candidate_tags(
                     todo, states["anchor_rank"]["done"], index, read_entry)
                 try:
-                    verdicts = arbiter_batch(
+                    if async_verdicts is not None or \
+                            async_terminal is not None:
+                        # R7: precomputed + pre-merged above; terminal errors
+                        # surface at the first todo batch so the shared
+                        # handlers below (abort/flush/SystemExit) run
+                        # verbatim like sync. .get() can never KeyError:
+                        # missing keys fall back per item in shared code.
+                        if async_terminal is not None and \
+                                batch_no == async_first:
+                            raise async_terminal
+                        verdicts = async_verdicts.get(batch_no, {})
+                    else:
+                        verdicts = arbiter_batch(
                         todo, states["anchor_rank"]["done"],
                         judge_api_key or api_key,
                         judge_transport, sleep_fn, states["sense_judge"],
@@ -2312,6 +2421,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     return 0
 
 
+def use_async_judge(args):
+    """True iff an async cloud-judge provider is named (contract R7).
+
+    The name must still satisfy the preflight provider gate (avalai|google
+    for default legs); anything else exits there exactly like sync.
+    """
+    return bool(getattr(args, "async_judge_provider", None))
+
+
 def parse_args(argv=None):
     """CLI: sample/out/progress-dir/dry-run/limit (+ kaikki/tatoeba paths)."""
     ap = argparse.ArgumentParser(description="Pre-card pipeline (R22-R25).")
@@ -2397,6 +2515,16 @@ def parse_args(argv=None):
                     help="pause between LLM batches (default %.1f; 0 = no "
                     "pacing sleep — faster but easier to hit 429s; the "
                     "429-rotation backoff always stays on)" % SLEEP)
+    ap.add_argument("--concurrency", type=int, default=8,
+                    help="async judge workers (clamped 1..10; default 8; "
+                    "only used by the async cloud-judge path, the sync "
+                    "path ignores it)")
+    ap.add_argument("--async-judge-provider", default=None,
+                    choices=("avalai", "google"),
+                    help="run the sense_judge stage through the async "
+                    "cloud-judge path on this provider (avalai|google; "
+                    "must satisfy the same preflight gate; absent = "
+                    "sync path, zero behavior change)")
     ap.add_argument("--quiet", action="store_true",
                     help="suppress human stdout progress (bars/boxes); "
                     "warnings/errors still go to stderr, files still "

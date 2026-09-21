@@ -1,0 +1,190 @@
+"""RED Phase 1 (contract R1/R6/R7 + integration-test-proto): async cloud-judge flow.
+
+Behavior: 3 rows through run_judge_async with a MOCKED async transport
+(zero tokens, zero network) produce frozen-shape votes, telemetry attempt
+rows with key_idx only, and a progress file that makes the second run skip
+done rows (resume, no duplicate votes). DB snapshot isolation per protocol
+(engine takes its KeyRing directly — zero production writes).
+
+A second class drives the REAL pipeline main() end-to-end (hermetic harness
+mirroring tests/factory/test_factory_run.py: injected legs, fake index,
+monkeypatched fake keys never asserted) with --async-judge-provider and
+asserts the async stage branch ran (wrapper spy), verdicts landed, and the
+run completed with 0 tokens and 0 network.
+
+MUST FAIL until factory.precard.transport_async exists (TDD red).
+"""
+
+import asyncio
+import json
+import os
+import re
+import tempfile
+import unittest
+
+from tests.test_integration import helpers
+from factory.precard import transport_async
+
+
+def _vote_text():
+    return json.dumps({
+        "verdict": "LINK", "winner_index": 1,
+        "kaikki_evidence": "to heat liquid",
+        "wordnet_evidence": "to heat liquid boil#2",
+    })
+
+
+async def _mock_transport(key, model, prompt):
+    return _vote_text(), {"tokens": 7}
+
+
+def _validate_ok(text):
+    return "ok", {"verdict": "LINK", "winner_index": 1}
+
+
+class TestAsyncCloudJudgeFlow(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # Snapshot isolation per integration-test-proto: the engine takes its
+        # KeyRing directly, so no DB writes happen at all (R3 rows-only path
+        # is exercised through the existing preset_registry in GREEN wiring).
+        self._tmpdir, self._db = helpers.fresh_db_from_snapshot()
+        self._progress = tempfile.mkdtemp(prefix="asyncjudge_")
+
+    async def asyncTearDown(self):
+        self._tmpdir.cleanup()
+        helpers.cleanup_session()
+
+    async def test_three_rows_vote_telemetry_and_resume(self):
+        from factory.precard import provider_transport as sync_transport
+        rows = [{"key": "w:a"}, {"key": "w:b"}, {"key": "w:c"}]
+        first = await transport_async.run_judge_async(
+            rows, transport=_mock_transport, model="test-model",
+            prompt_fn=lambda row: "PROMPT", validate_fn=_validate_ok,
+            ring=sync_transport.KeyRing(["tk1"]),
+            concurrency=2, timeout_s=25,
+            progress_path=os.path.join(self._progress, "progress.jsonl"))
+        self.assertEqual(len(first), 3)
+        for key, vote in first.items():
+            self.assertEqual(vote["verdict"], "LINK")
+        second = await transport_async.run_judge_async(
+            rows, transport=_mock_transport, model="test-model",
+            prompt_fn=lambda row: "PROMPT", validate_fn=_validate_ok,
+            ring=sync_transport.KeyRing(["tk1"]),
+            concurrency=2, timeout_s=25,
+            progress_path=os.path.join(self._progress, "progress.jsonl"))
+        self.assertEqual(first, second)
+
+    async def test_telemetry_carries_key_idx_never_key_strings(self):
+        from factory.precard import provider_transport as sync_transport
+        secret = "TEST-ONLY-SECRET-qqq"
+        rows = [{"key": "w:a"}]
+
+        async def echo_key(key, model, prompt):
+            self.assertEqual(key, secret)
+            return _vote_text(), {"tokens": 1}
+
+        votes = await transport_async.run_judge_async(
+            rows, transport=echo_key, model="test-model",
+            prompt_fn=lambda row: "PROMPT", validate_fn=_validate_ok,
+            ring=sync_transport.KeyRing([secret]),
+            concurrency=1, timeout_s=25,
+            progress_path=os.path.join(self._progress, "p.jsonl"))
+        blob = json.dumps(votes)
+        for root, _, files in os.walk(self._progress):
+            for name in files:
+                with open(os.path.join(root, name), encoding="utf-8") as fh:
+                    blob += fh.read()
+        self.assertNotIn(secret, blob)
+
+
+def _hermetic_rows(word):
+    return [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [{"ipa": "/x/"}],
+                       "senses": [{"glosses": ["a %s fruit" % word],
+                                   "tags": [], "examples": []}]}}]
+
+
+def _hermetic_index(words):
+    return {w: _hermetic_rows(w) for w in words}
+
+
+def _hermetic_judge(api_key, model, user_text):
+    """S2-shape reply: first candidate id per KEY section (mocked, 0 tk).
+
+    Returns the sync-transport tuple (text, usage) like the production
+    _avalai/_google_chat_transport functions do.
+    """
+    keys, cands, cur = [], {}, None
+    for line in user_text.splitlines():
+        hit = re.match(r"^KEY (\S+)", line)
+        if hit:
+            cur = hit.group(1)
+            keys.append(cur)
+            cands[cur] = []
+        pick = re.match(r"^- (\S+#\d+)", line)
+        if pick and cur:
+            cands[cur].append(pick.group(1))
+    return json.dumps({"results": [
+        {"key": k, "picks": cands[k][:1]} for k in keys]}), None
+
+
+class TestAsyncJudgePipelineBranch(unittest.TestCase):
+    def test_async_branch_runs_end_to_end_mocked(self):
+        from unittest import mock
+        from factory.precard.pipeline import main as precard_main
+        from factory.precard import transport_async as async_mod
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = os.path.join(tmp, "sample.json")
+            with open(sample, "w", encoding="utf-8") as fh:
+                json.dump(
+                    [{"kind": "word", "text": w, "pos": "noun",
+                      "pool_level": "A1"} for w in ("apple", "pear")], fh)
+            out = os.path.join(tmp, "precard.jsonl")
+            prog = os.path.join(tmp, "prog")
+            called = {}
+            real_run_batches = async_mod.run_batches_async
+
+            async def _spy(*args, **kwargs):
+                called["n"] = called.get("n", 0) + 1
+                return await real_run_batches(*args, **kwargs)
+
+            with mock.patch.object(
+                    async_mod, "run_batches_async",
+                    side_effect=_spy, autospec=True):
+                import os as _os
+                _os.environ["AVALAI_API_KEY"] = "test-avalai-key"
+                try:
+                    rc = precard_main(
+                        ["--sample", sample, "--out", out,
+                         "--progress-dir", prog, "--no-resume",
+                         "--stages",
+                         "preprocess,inflection_review,anchor_rank,"
+                         "sense_judge",
+                         "--llm-provider", "avalai",
+                         "--async-judge-provider", "avalai",
+                         "--concurrency", "2", "--quiet"],
+                        _judge_transport=_hermetic_judge,
+                        _topic_transport=None, _assign_transport=None,
+                        _inflect_transport=None,
+                        _sleep_fn=lambda s: None,
+                        _index=_hermetic_index(("apple", "pear")),
+                        _read_entry=lambda row: row["entry"],
+                        _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                        _awl_set=set(), _type_map={},
+                        _type_log_available=False)
+                finally:
+                    del _os.environ["AVALAI_API_KEY"]
+            self.assertEqual(rc, 0)
+            self.assertGreaterEqual(called.get("n", 0), 1)
+            from factory.precard import progress as PROG
+            with open(os.path.join(
+                    prog, PROG.FILES["sense_judge"]), encoding="utf-8") as fh:
+                done = json.load(fh)["done"]
+            self.assertEqual(len(done), 2)
+            for verdict in done.values():
+                self.assertFalse((verdict.get("model", "") or "").startswith(
+                    "s1-"))
+
+
+if __name__ == "__main__":
+    unittest.main()
