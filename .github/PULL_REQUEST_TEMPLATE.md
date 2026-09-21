@@ -15,13 +15,19 @@
 
 <!-- User-visible outcome. "None" if test/docs-only. -->
 
+## Readability & depth
+
+- [ ] New names carry domain meaning (REVIEW.md naming rules; no counters/abbreviations)
+- [ ] No duplicated logic — single definition + reuse (AGENTS.md §3)
+- [ ] New module/class/function stays deep: small interface, no god module, no single-adapter seam
+
 ## Tests
 
 - [ ] Focused unit tests:
 - [ ] Integration tests (per AGENTS.md §6):
 - [ ] Migration covered on BOTH fresh DB and upgraded-from-prior-schema DB: yes/no/na
 - [ ] Full validation: pytest / compile_all / ruff F821,F811 / git diff --check
-- [ ] Linked issue carries exactly one milestone
+- [ ] Linked issue carries exactly one milestone (or `No tracking issue` per AGENTS.md §6)
 
 <details>
 <summary>Dependency & Wiring Map (required if applicable)</summary>
