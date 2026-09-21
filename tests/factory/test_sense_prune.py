@@ -403,6 +403,94 @@ def test_screen_for_linking_returns_link_ready_kept_and_drops():
     assert senses == before
 
 
+def _bare_sense(gloss, **kwargs):
+    # Sense WITHOUT any sense_id key (fallback-resolver path).
+    sense = {"glosses": [gloss]}
+    sense.update(kwargs)
+    assert "sense_id" not in sense
+    return sense
+
+
+def test_screen_for_linking_stamps_fallback_ids_on_all_link_inputs():
+    # SID-1/SID-2: rows without sense_id get the SAME fallback ids the
+    # drops path uses (<lemma>#<file-order>); all other keys untouched.
+    senses = [
+        _bare_sense("To gain.", tags=["obsolete"]),
+        _bare_sense("To keep.", topics=["sports"],
+                    examples=[{"text": "Keep it."}]),
+        _bare_sense("To  KEEP.", topics=["games"]),
+        _bare_sense("To rest."),
+    ]
+    before = [dict(s) for s in senses]
+    link_inputs, screening_drops, stats = prune.screen_for_linking(
+        senses, lemma="w")
+    assert [s["sense_id"] for s in link_inputs] == ["w#1", "w#3"]
+    for row in link_inputs:
+        assert isinstance(row["sense_id"], str) and row["sense_id"].strip()
+    # Drops joinable to link_inputs by sense_id, both ways: disjoint and
+    # jointly covering the full resolved input id set.
+    pairs = prune._pair_up(senses, "w")
+    all_ids = {sid for sid, _ in pairs}
+    link_ids = {s["sense_id"] for s in link_inputs}
+    drop_ids = {d["sense_id"] for d in screening_drops}
+    assert link_ids & drop_ids == set()
+    assert link_ids | drop_ids == all_ids
+    # All other keys untouched: strip sense_id and compare against the
+    # twin-union/flagged prune_senses kept rows.
+    kept, _, _ = prune.prune_senses(senses, lemma="w")
+    assert len(link_inputs) == len(kept)
+    for stamped, plain in zip(link_inputs, kept):
+        assert {k: v for k, v in stamped.items()
+                if k != "sense_id"} == dict(plain)
+    assert stats["kept"] == len(link_inputs)
+    # Pure: inputs never mutated (no sense_id leaked into callers).
+    assert senses == before
+    assert all("sense_id" not in s for s in senses)
+
+
+def test_screen_for_linking_preserves_preexisting_ids_byte_identical():
+    # SID-1: pre-existing sense_id values pass through byte-identical,
+    # including through the twin-union winner copy.
+    senses = [
+        _sense("w#0", "To gain.", tags=["obsolete"]),
+        _sense("keep-1", "To keep.", topics=["sports"],
+               examples=[{"text": "Keep it."}]),
+        _sense("keep-2", "To  KEEP.", topics=["games"]),
+        _sense("rest-9", "To rest."),
+    ]
+    link_inputs, screening_drops, _ = prune.screen_for_linking(
+        senses, lemma="w")
+    assert [s["sense_id"] for s in link_inputs] == [
+        "keep-1", "rest-9"]
+    # Twin drop references the winner's pre-existing id (joinable).
+    assert screening_drops == [
+        {"sense_id": "w#0", "reason": "obsolete"},
+        {"sense_id": "keep-2", "reason": "twin-of:keep-1"}]
+    link_ids = {s["sense_id"] for s in link_inputs}
+    drop_ids = {d["sense_id"] for d in screening_drops}
+    assert link_ids & drop_ids == set()
+    assert "keep-2" in drop_ids and "keep-1" in link_ids
+
+
+def test_screen_for_linking_fallback_covers_blank_and_missing_ids():
+    # Blank/whitespace/non-string sense_id counts as missing and takes
+    # the fallback; valid ids (even with surrounding content) survive.
+    senses = [
+        _bare_sense("To gain."),
+        {"sense_id": "   ", "glosses": ["To keep."]},
+        {"sense_id": "", "glosses": ["To hold."]},
+        {"sense_id": 42, "glosses": ["To rest."]},
+        _sense("w#4", "To sit."),
+    ]
+    link_inputs, screening_drops, _ = prune.screen_for_linking(
+        senses, lemma="w")
+    assert [s["sense_id"] for s in link_inputs] == [
+        "w#0", "w#1", "w#2", "w#3", "w#4"]
+    assert screening_drops == []
+    assert all(isinstance(s["sense_id"], str) and s["sense_id"].strip()
+               for s in link_inputs)
+
+
 def test_chain_golden_conformance():
     # Every fixture row through prune_senses, per lemma in file order.
     with open(_GOLDEN, encoding="utf-8") as fh:
