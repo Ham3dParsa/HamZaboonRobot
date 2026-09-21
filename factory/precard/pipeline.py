@@ -33,6 +33,8 @@ if REPO_ROOT not in sys.path:
 from factory.core.env_loader import load_factory_env
 from factory.core.telemetry import new_run_id
 from factory.precard import progress
+from factory.precard import provider_lease_policy
+from factory.precard import provider_registry
 from factory.precard import provider_transport
 from factory.precard import transport_async as async_judge
 from factory.precard.accounting import audit_sample_accounting
@@ -670,7 +672,8 @@ def _flush_telemetry(tele_dir, tele_store, flushed, run_id=""):
 def _parse_stage_map(values, allowed_values=None):
     """Parse ["sense_judge=avalai"] into {sense_judge: avalai}. Bad entries raise SystemExit
     (fail-fast: a typo must not silently burn paid calls on the wrong leg).
-    Legs accept new ids (legacy s-ids still work).
+    Legs accept new ids (legacy s-ids still work). Values normalize here
+    (lower+strip) so every downstream consumer sees canonical names.
     """
     out = {}
     for raw in values or []:
@@ -679,7 +682,7 @@ def _parse_stage_map(values, allowed_values=None):
                              % raw)
         stage, _, value = raw.partition("=")
         raw_stage = stage.strip().lower()
-        stage, value = progress.resolve_candidate_stage(raw_stage), value.strip()
+        stage, value = progress.resolve_candidate_stage(raw_stage), value.strip().lower()
         if stage not in LLM_LEGS:
             raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
                 raw_stage, ", ".join(
@@ -1078,27 +1081,43 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # master --llm-provider/--precard-model. There is no default
     # provider: every _USE_DEFAULT leg must resolve to avalai|google.
     try:
-        stage_prov = _parse_stage_map(args.stage_provider,
-                                      ("avalai", "google"))
+        stage_prov = _parse_stage_map(
+            args.stage_provider,
+            tuple(provider_registry.provider_names()))
         stage_model = _parse_stage_map(args.stage_model)
     except SystemExit as exc:
         _preflight_exit(exc.code)
 
+    def _norm_provider_name(value):
+        # Single normalization point for flag-derived provider names
+        # (F1: stage map already normalizes; judge/llm flags normalize
+        # here so every downstream consumer sees canonical names).
+        if value is None:
+            return None
+        cleaned = str(value).strip().lower()
+        return cleaned or None
+
     def _leg_provider(leg):
         if leg in stage_prov:
             return stage_prov[leg]
-        if leg == "sense_judge" and args.judge_provider in ("avalai", "google"):
-            return args.judge_provider
-        return args.llm_provider
+        if leg == "sense_judge" and provider_registry.resolve_provider(
+                args.judge_provider) is not None:
+            return _norm_provider_name(args.judge_provider)
+        return _norm_provider_name(args.llm_provider)
 
     def _provider_key_var(provider):
         """Primary key variable for a provider (auth errors name it).
 
-        Single pairing lives in provider_lease_policy.PROVIDER_KEY_VARS; "" falls back
-        to the wrapper's generic "keys" hint.
+        Single pairing lives in provider_lease_policy.PROVIDER_KEY_VARS;
+        registry-known providers without a legacy pairing fall back to
+        the F3 convention ref; "" falls back to the wrapper's generic
+        "keys" hint.
         """
         vars_ = PROVIDER_KEY_VARS.get(provider or "", ("",))
-        return vars_[0] if vars_ else ""
+        if vars_ and vars_[0]:
+            return vars_[0]
+        refs = provider_registry.key_ref_for(provider or "", "G1")
+        return refs[0] if refs else ""
 
     def _leg_file_label(provider):
         """Env-file label for a leg's auth errors (never a value).
@@ -1138,7 +1157,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         try:
             _stage_map = _parse_stage_map(
                 getattr(args, "stage_provider", []),
-                ("avalai", "google")) or {}
+                tuple(provider_registry.provider_names())) or {}
         except SystemExit:
             pass
         effective = _stage_map.get(
@@ -1151,20 +1170,28 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 % (effective, want))
         providers["sense_judge"] = want
     # Fail-closed provider gate (no default provider): every leg the
-    # caller left on the pipeline default must resolve to avalai|google
-    # via --llm-provider (or --judge-provider for sense_judge, or
-    # per-leg --stage-provider). Caller-owned legs (injected transport
-    # or None) are exempt — they run no provider transport.
+    # caller left on the pipeline default must resolve. Registry providers
+    # (groq/openrouter/...) are accepted ONLY on sense_judge (the row-driven
+    # judge leg); every other leg stays avalai|google. Caller-owned legs
+    # (injected transport or None) are exempt — they run no provider
+    # transport.
     for _leg in LLM_LEGS:
+        _known = provider_registry.resolve_provider(
+            providers[_leg]) is not None
+        _judge_registry_ok = (
+            _leg == "sense_judge" and _known)
         if _injected[_leg] is _USE_DEFAULT \
-                and providers[_leg] not in ("avalai", "google"):
-            _extra = (" (or --judge-provider avalai|google)"
+                and providers[_leg] not in ("avalai", "google") \
+                and not _judge_registry_ok:
+            _extra = (" (or --judge-provider %s)"
+                      % "|".join(provider_registry.provider_names())
                       if _leg == "sense_judge" else "")
             _preflight_exit(
-                "no provider for %s: pass --llm-provider avalai|google%s "
-                "(or per-leg --stage-provider %s=avalai|google) — "
+                "no provider for %s: pass --llm-provider %s%s "
+                "(or per-leg --stage-provider %s=<provider>) — "
                 "the run line has no default provider" % (
-                    _leg, _extra, _leg))
+                    _leg, "|".join(provider_registry.provider_names()),
+                    _extra, _leg))
 
     def _leg_avalai(leg):
         # None = caller-skipped leg (fallback path, transport never
@@ -1275,13 +1302,72 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_ring = google_ring
             judge_transport = _google_chat_transport
             judge_models = [models["sense_judge"]]
+    if _judge_transport is _USE_DEFAULT and judge_transport is None \
+            and (providers.get("sense_judge") or "") not in (
+                "avalai", "google"):
+        # F1/F3: registry-driven judge leg (groq, openrouter, ...). No
+        # per-provider branches anywhere: protocol adapter + convention
+        # key refs straight from the provider row. AvalAI/Google keep
+        # their hand-wired blocks above untouched.
+        _jprov = providers["sense_judge"]
+        _row = provider_registry.resolve_provider(_jprov)
+        if _row is None:
+            _preflight_exit(
+                "unknown judge provider %r (known: %s)" % (
+                    _jprov, "|".join(
+                        provider_registry.provider_names())))
+        _jkey, _jvar = "", ""
+        for _var in provider_registry.key_ref_for(_jprov, "G1"):
+            try:
+                _env = load_factory_env(required=(_var,))
+            except KeyError:
+                continue
+            if _env.get(_var):
+                _jkey, _jvar = _env[_var], _var
+                break
+        if not _jkey:
+            _preflight_exit(
+                "no %s in factory/.env (%s provider needs one)" % (
+                    "/".join(
+                        provider_registry.key_ref_for(_jprov, "G1")),
+                    _jprov))
+        try:
+            judge_ring = KeyRing([_jkey])
+        except ValueError as exc:
+            _preflight_exit("no %s keys: %s" % (_jprov, exc))
+        judge_api_key = _jkey
+        _adapter = provider_registry.transport_for(
+            _row.get("protocol"))
+        if _adapter is None:
+            _preflight_exit("no transport for protocol %r (provider %s)" % (
+                _row.get("protocol"), _jprov))
+
+        def _bound(api_key, model, user_text, _fn=_adapter,
+                   _bu=_row.get("base_url"),
+                   _ex=_row.get("request_extras") or None):
+            if _bu:
+                return _fn(api_key, model, user_text, base_url=_bu,
+                           extra=_ex)
+            return _fn(api_key, model, user_text)
+
+        judge_transport = _bound
+        judge_models = [models["sense_judge"]]
+        if _jprov != "avalai" and judge_models == [AVALAI_PRECARD_MODEL]:
+            # The avalai default model name would be sent verbatim to a
+            # foreign API (HTTP 400 on Groq): demand an explicit model.
+            _preflight_exit(
+                "registry provider %s needs explicit --judge-model "
+                "(default %s is avalai-only)" % (
+                    _jprov, AVALAI_PRECARD_MODEL))
     if _judge_transport is _USE_DEFAULT and judge_transport is None:
-        # Unreachable post-gate (default judge is always avalai|google
-        # and wired above); fail closed instead of running unconfigured.
-        _preflight_exit("no transport for sense_judge: pass "
-                        "--llm-provider avalai|google (or --judge-provider "
-                        "avalai|google, or --stage-provider "
-                        "sense_judge=avalai|google)")
+        # Unreachable post-gate (registry-known judge is always wired
+        # above); fail closed instead of running unconfigured.
+        _preflight_exit(
+            "no transport for sense_judge: pass --llm-provider %s "
+            "(or --judge-provider %s, or --stage-provider "
+            "sense_judge=<provider>)" % (
+                "|".join(provider_registry.provider_names()),
+                "|".join(provider_registry.provider_names())))
     # R6 switch rings: every loaded provider ring by provider name.
     # Every run provider is paid, so a cooled leg stops for a resume;
     # providers without a loaded ring are simply not attempted.
@@ -2424,8 +2510,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 def use_async_judge(args):
     """True iff an async cloud-judge provider is named (contract R7).
 
-    The name must still satisfy the preflight provider gate (avalai|google
-    for default legs); anything else exits there exactly like sync.
+    The name must still satisfy the preflight provider gate (any
+    registry-known provider; unknown names exit there exactly like sync).
     """
     return bool(getattr(args, "async_judge_provider", None))
 
@@ -2474,20 +2560,21 @@ def parse_args(argv=None):
                     help="AWL families JSON (missing file = no academic tags "
                     "from AWL, never fails)")
     ap.add_argument("--judge-provider", default=None,
-                    choices=("avalai", "google"),
-                    help="judge transport: avalai (paid chain — locked "
-                    "2026-09-06; requires AVALAI_API_KEY) or google "
-                    "(Gemini direct, free tier; requires "
-                    "GOOGLE_AI_API_KEY). DEPRECATED "
+                    help="judge transport: any registry provider name "
+                    "(avalai paid chain — locked 2026-09-06; google "
+                    "Gemini direct free tier; groq/openrouter registry "
+                    "rows). Unknown names exit at the preflight gate. "
+                    "DEPRECATED "
                     "alias: use --llm-provider (covers all precard legs).")
     ap.add_argument("--llm-provider", default=None,
-                    choices=("avalai", "google"),
                     help="ALL precard LLM legs "
                     "(inflection/judge/vectors/label) — REQUIRED, no "
-                    "default: avalai (paid chain, no Persian needed — "
-                    "locked 2026-09-06; requires AVALAI_API_KEY) or "
-                    "google (Gemini direct free tier; requires "
-                    "GOOGLE_AI_API_KEY). A run without --llm-provider "
+                    "default: avalai (paid chain) or google (direct) for "
+                    "every leg; registry names (groq/openrouter) are "
+                    "accepted ONLY for the sense_judge leg via "
+                    "--async-judge-provider (other legs stay "
+                    "avalai|google). Unknown names exit at the preflight "
+                    "gate. A run without --llm-provider "
                     "(or per-leg --stage-provider cover) stops "
                     "fail-closed.")
     ap.add_argument("--precard-model", default="",
@@ -2520,10 +2607,9 @@ def parse_args(argv=None):
                     "only used by the async cloud-judge path, the sync "
                     "path ignores it)")
     ap.add_argument("--async-judge-provider", default=None,
-                    choices=("avalai", "google"),
                     help="run the sense_judge stage through the async "
-                    "cloud-judge path on this provider (avalai|google; "
-                    "must satisfy the same preflight gate; absent = "
+                    "cloud-judge path on this provider (any registry name; "
+                    "unknown names exit at the preflight gate; absent = "
                     "sync path, zero behavior change)")
     ap.add_argument("--quiet", action="store_true",
                     help="suppress human stdout progress (bars/boxes); "

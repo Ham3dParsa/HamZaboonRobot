@@ -185,6 +185,73 @@ class TestAsyncJudgePipelineBranch(unittest.TestCase):
                 self.assertFalse((verdict.get("model", "") or "").startswith(
                     "s1-"))
 
+    def test_groq_without_key_fails_closed_naming_var(self):
+        # F4 gate: registry-known provider with no key exits loudly naming
+        # the convention var (no network, no keys on disk asserted).
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = os.path.join(tmp, "sample.json")
+            with open(sample, "w", encoding="utf-8") as fh:
+                json.dump(
+                    [{"kind": "word", "text": "apple", "pos": "noun",
+                      "pool_level": "A1"}], fh)
+            out = os.path.join(tmp, "precard.jsonl")
+            prog = os.path.join(tmp, "prog")
+            with self.assertRaises(SystemExit) as ctx:
+                # NOTE: no _judge_transport override — the default sentinel
+                # forces real provider wiring (None would mean skipped leg).
+                precard_main(
+                    ["--sample", sample, "--out", out,
+                     "--progress-dir", prog, "--no-resume",
+                     "--llm-provider", "groq",
+                     "--async-judge-provider", "groq",
+                     "--concurrency", "2", "--quiet"],
+                    _topic_transport=None, _assign_transport=None,
+                    _inflect_transport=None,
+                    _sleep_fn=lambda s: None,
+                    _index=_hermetic_index(("apple",)),
+                    _read_entry=lambda row: row["entry"],
+                    _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                    _awl_set=set(), _type_map={},
+                    _type_log_available=False)
+        self.assertIn("GROQ_API_KEY_G1", str(ctx.exception.code))
+
+    def test_groq_default_model_demands_explicit_judge_model(self):
+        # Registry provider + key present but avalai-default model would be
+        # sent verbatim to a foreign API: loud exit, no network.
+        import os as _os
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        _os.environ["GROQ_API_KEY_G1"] = "test-groq-key"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                sample = os.path.join(tmp, "sample.json")
+                with open(sample, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        [{"kind": "word", "text": "apple", "pos": "noun",
+                          "pool_level": "A1"}], fh)
+                with self.assertRaises(SystemExit) as ctx:
+                    precard_main(
+                        ["--sample", sample,
+                         "--out", os.path.join(tmp, "precard.jsonl"),
+                         "--progress-dir", os.path.join(tmp, "prog"),
+                         "--no-resume",
+                         "--llm-provider", "groq",
+                         "--async-judge-provider", "groq",
+                         "--concurrency", "2", "--quiet"],
+                        _topic_transport=None, _assign_transport=None,
+                        _inflect_transport=None,
+                        _sleep_fn=lambda s: None,
+                        _index=_hermetic_index(("apple",)),
+                        _read_entry=lambda row: row["entry"],
+                        _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                        _awl_set=set(), _type_map={},
+                        _type_log_available=False)
+        finally:
+            del _os.environ["GROQ_API_KEY_G1"]
+        self.assertIn("--judge-model", str(ctx.exception.code))
+
 
 if __name__ == "__main__":
     unittest.main()
