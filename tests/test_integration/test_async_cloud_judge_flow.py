@@ -255,9 +255,15 @@ class TestAsyncJudgePipelineBranch(unittest.TestCase):
         from factory.precard.pipeline import main as precard_main
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
+            sample = os.path.join(tmp, "sample.json")
+            with open(sample, "w", encoding="utf-8") as fh:
+                json.dump(
+                    [{"kind": "word", "text": "apple", "pos": "noun",
+                      "pool_level": "A1"}], fh)
             with self.assertRaises(SystemExit) as ctx:
                 precard_main(
-                    ["--out", os.path.join(tmp, "precard.jsonl"),
+                    ["--sample", sample,
+                     "--out", os.path.join(tmp, "precard.jsonl"),
                      "--progress-dir", os.path.join(tmp, "prog"),
                      "--no-resume", "--llm-provider", "groq",
                      "--concurrency", "2", "--quiet"],
