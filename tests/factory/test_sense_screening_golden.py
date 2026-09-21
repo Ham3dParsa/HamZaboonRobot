@@ -78,6 +78,12 @@ def test_golden_status_and_adjudication():
             f"row {i} adjudicated_by={row['adjudicated_by']!r}")
 
 
+def test_golden_verdict_reason_agreement():
+    for i, row in enumerate(_load()):
+        assert row["reason"].startswith(row["verdict"].split("-")[0] + "_"), (
+            f"row {i} {row['verdict']}/{row['reason']}")
+
+
 def test_golden_global_lemma_order():
     rows = _load()
     blocks = [(0, 7, "achieve"), (7, 41, "book"), (41, 62, "wear"),
