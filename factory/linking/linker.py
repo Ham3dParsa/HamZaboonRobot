@@ -146,7 +146,7 @@ def match_exact(candidate_keys, table_keys):
     return [key for key in candidate_keys if key in table]
 
 
-def signal_sa(gloss_toks, cand_toks, stopwords=frozenset(), jaccard=JACCARD_DEFAULT):
+def gloss_overlap_signal(gloss_toks, cand_toks, stopwords=frozenset(), jaccard=JACCARD_DEFAULT):
     """Sa: jaccard overlap of deweighted gloss/definition token sets.
 
     Returns ``(j, fires)``. Ultra-short guard: either side under 3
@@ -155,11 +155,11 @@ def signal_sa(gloss_toks, cand_toks, stopwords=frozenset(), jaccard=JACCARD_DEFA
     Witness FALSE-must-park (REPORT_v0_5 FIX2): rumor-run keeps only
     ``Sd:hyp=move`` — a move-only overlap never fires Sa:
 
-    >>> j, fires = signal_sa({"rumor", "move", "report", "hearsay"}, {"run", "move", "flow", "stream"})
+    >>> j, fires = gloss_overlap_signal({"rumor", "move", "report", "hearsay"}, {"run", "move", "flow", "stream"})
     >>> (round(j, 2), fires)
     (0.0, False)
 
-    >>> j, fires = signal_sa({"an"}, {"mistake", "error", "fault"})
+    >>> j, fires = gloss_overlap_signal({"an"}, {"mistake", "error", "fault"})
     >>> (j, fires)
     (-1.0, False)
     """
@@ -175,7 +175,7 @@ def signal_sa(gloss_toks, cand_toks, stopwords=frozenset(), jaccard=JACCARD_DEFA
     return jacc, False
 
 
-def signal_sb(gloss_toks, kaikki_syns, cand_lemmas, self=frozenset(),
+def synonym_crossfire_signal(gloss_toks, kaikki_syns, cand_lemmas, self=frozenset(),
               stopwords=frozenset()):
     """Sb: synonym cross-fire, ONE signal (both directions, same family).
 
@@ -185,13 +185,13 @@ def signal_sb(gloss_toks, kaikki_syns, cand_lemmas, self=frozenset(),
     Witness MUST-DEMOTE (REPORT_v0_6): IC5yKMhe "To cause to come or go or
     move." — Sb:cause dies under the cause-rule, row drops below 2-sig:
 
-    >>> signal_sb({"cause", "come", "go", "move"}, set(), {"stimulate"})
+    >>> synonym_crossfire_signal({"cause", "come", "go", "move"}, set(), {"stimulate"})
     []
 
     Witness TRUE-must-stay (REPORT_v0_5 FIX2): bear-support keeps
     ``Sa:j=0.40+Sb:hold``:
 
-    >>> signal_sb({"support", "hold"}, set(), {"hold", "carry", "bear"})
+    >>> synonym_crossfire_signal({"support", "hold"}, set(), {"hold", "carry", "bear"})
     ['hold']
     """
     self_set = set(self)
@@ -207,7 +207,7 @@ def signal_sb(gloss_toks, kaikki_syns, cand_lemmas, self=frozenset(),
     return sorted(deweight_toks(words))[:6]
 
 
-def signal_sc(kaikki_ex_toks, cand_ex_toks, kaikki_lemmas, cand_lemmas,
+def example_crossfire_signal(kaikki_ex_toks, cand_ex_toks, kaikki_lemmas, cand_lemmas,
               sb_words, self=frozenset()):
     """Sc: example cross-fire minus words already counted in Sb.
 
@@ -216,7 +216,7 @@ def signal_sc(kaikki_ex_toks, cand_ex_toks, kaikki_lemmas, cand_lemmas,
     Witness (REPORT_v0_5 FIX2): the only convey1->deport LINK left is the
     behave-TRUE ``Sa:j=0.20+Sb:behave,conduct`` — Sc stays silent there:
 
-    >>> signal_sc({"behave"}, {"conduct"}, {"behave"}, {"behave", "conduct"}, {"behave", "conduct"})
+    >>> example_crossfire_signal({"behave"}, {"conduct"}, {"behave"}, {"behave", "conduct"}, {"behave", "conduct"})
     []
     """
     self_set = set(self)
@@ -235,7 +235,7 @@ def signal_sc(kaikki_ex_toks, cand_ex_toks, kaikki_lemmas, cand_lemmas,
     return hits[:4]
 
 
-def signal_sd(hyp_lemmas, gloss_toks, sb_tok_set, topics=(),
+def hypernym_topic_signal(hyp_lemmas, gloss_toks, sb_tok_set, topics=(),
               cand_def_toks=frozenset(), cand_lexname=""):
     """Sd: hypernym/topic fire (UNTOUCHED by generic deweight by verdict scope).
 
@@ -246,16 +246,16 @@ def signal_sd(hyp_lemmas, gloss_toks, sb_tok_set, topics=(),
     Witness FALSE-must-park (REPORT_v0_5 FIX2): rumor-run survives on
     ``Sd:hyp=move`` only:
 
-    >>> signal_sd({"move", "run"}, {"rumor", "move"}, set())
+    >>> hypernym_topic_signal({"move", "run"}, {"rumor", "move"}, set())
     'Sd:hyp=move'
 
     Witness TRUE-must-stay (REPORT_v0_6 fate table): spring-leap keeps
     firing alongside Sa:
 
-    >>> signal_sd({"leap", "jump"}, {"leap", "spring"}, set())
+    >>> hypernym_topic_signal({"leap", "jump"}, {"leap", "spring"}, set())
     'Sd:hyp=leap'
 
-    >>> signal_sd({"run"}, {"error"}, set()) is None
+    >>> hypernym_topic_signal({"run"}, {"error"}, set()) is None
     True
     """
     sb_toks = set(sb_tok_set)

@@ -141,12 +141,12 @@ REASON_SLUGS = (
 # --- Read shims (old -> new; new code writes new, reads old) ---
 
 # Old stage id -> domain name (progress resume, telemetry backfill).
-OLD_STAGE_TO_NEW = dict(STAGE_NAMES)
+LEGACY_OLD_STAGE_TO_NEW = dict(STAGE_NAMES)
 
 # Domain name -> old stage id (accept names where ids were required).
 # Legacy v13 short names stay accepted (read shim, never written).
-NEW_STAGE_TO_OLD = {name: sid for sid, name in STAGE_NAMES.items()}
-NEW_STAGE_TO_OLD.update({
+LEGACY_NEW_STAGE_TO_OLD = {name: sid for sid, name in STAGE_NAMES.items()}
+LEGACY_NEW_STAGE_TO_OLD.update({
     "inflection": "s0b",
     "judge": "s2",
     "label": "s4",
@@ -155,7 +155,7 @@ NEW_STAGE_TO_OLD.update({
 # Old progress filename -> new filename (prefer new, fallback old).
 # Intermediate v13 names (inflection/judge/label.json) sit in the chain
 # too: resume walks new -> intermediate -> sX.json, oldest last.
-OLD_PROGRESS_FILE_TO_NEW = {
+LEGACY_OLD_PROGRESS_FILE_TO_NEW = {
     "s0.json": "preprocess.json",
     "s0b.json": "inflection-review.json",
     "s1.json": "anchor.json",
@@ -170,13 +170,13 @@ OLD_PROGRESS_FILE_TO_NEW = {
 }
 
 # Old gate id -> domain slug (log/telemetry backfill).
-OLD_GATE_TO_NEW = dict(GATE_NAMES)
+LEGACY_OLD_GATE_TO_NEW = dict(GATE_NAMES)
 
 # Old/new on-disk names of the S4 label top-up cache (T2 reads the old
 # name as a resume fallback and writes the new one; callers import these
 # so neither literal is embedded outside this module).
 TOPUP_OLD_NAME = "s4_topup_cache.json"
-TOPUP_NEW_NAME = OLD_PROGRESS_FILE_TO_NEW[TOPUP_OLD_NAME]
+TOPUP_NEW_NAME = LEGACY_OLD_PROGRESS_FILE_TO_NEW[TOPUP_OLD_NAME]
 
 
 def stage_label(stage):

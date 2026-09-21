@@ -568,12 +568,12 @@ def test_resume_old_only_progress_names(tmp_path, monkeypatch):
     New domain files are written; the old files are read as fallback and
     never written again (byte-identical after the run)."""
     import shutil
-    from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
+    from factory.core.stage_glossary import LEGACY_OLD_PROGRESS_FILE_TO_NEW
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     # Old-only dir: every new domain file renamed back to its old name.
     new_to_old = {new: old
-                  for old, new in OLD_PROGRESS_FILE_TO_NEW.items()}
+                  for old, new in LEGACY_OLD_PROGRESS_FILE_TO_NEW.items()}
     old_dir = tmp_path / "prog_old"
     shutil.copytree(tmp_path / "prog", old_dir)
     for path in list(old_dir.iterdir()):
@@ -595,12 +595,12 @@ def test_resume_oldest_sx_names_for_renamed_stages(tmp_path, monkeypatch):
     """Descriptive rename: the oldest sX.json leg still resumes with zero
     LLM rework for the three renamed stages (s0b/s2/s4)."""
     import shutil
-    from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW
+    from factory.core.stage_glossary import LEGACY_OLD_PROGRESS_FILE_TO_NEW
     from factory.precard.progress import resolve_candidate_stage, STAGES
     rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
     assert [r["key"] for r in rows] == ["w:apple"]
     oldest = {}
-    for old, new in OLD_PROGRESS_FILE_TO_NEW.items():
+    for old, new in LEGACY_OLD_PROGRESS_FILE_TO_NEW.items():
         stem = old.rsplit(".", 1)[0]
         if new in (STAGE_FILES["s0b"], STAGE_FILES["s2"],
                    STAGE_FILES["s4"]) \

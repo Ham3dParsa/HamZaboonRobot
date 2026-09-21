@@ -6,8 +6,8 @@ def test_stage_ids_match_names_both_directions():
     assert set(g.LEGACY_STAGE_CODES) == set(g.STAGE_NAMES)
     for sid in g.LEGACY_STAGE_CODES:
         name = g.STAGE_NAMES[sid]
-        assert g.NEW_STAGE_TO_OLD[name] == sid
-        assert g.OLD_STAGE_TO_NEW[sid] == name
+        assert g.LEGACY_NEW_STAGE_TO_OLD[name] == sid
+        assert g.LEGACY_OLD_STAGE_TO_NEW[sid] == name
 
 
 def test_resolve_candidate_stage_old_id_direction():
@@ -44,7 +44,7 @@ def test_gates_have_names_and_sentences():
         assert slug.isascii() and " " not in slug
         sentence = g.GATE_RULES[gid]
         assert sentence and sentence.isascii()
-        assert g.OLD_GATE_TO_NEW[gid] == slug
+        assert g.LEGACY_OLD_GATE_TO_NEW[gid] == slug
 
 
 def test_rules_have_names_and_sentences():
@@ -108,7 +108,7 @@ def test_stage_names_match_live_pipeline():
     assert len(live.STAGES) == len(g.LEGACY_STAGE_CODES) == 7
     for sid in g.LEGACY_STAGE_CODES:
         assert live.resolve_candidate_stage(sid) in live.STAGES
-    for name in g.NEW_STAGE_TO_OLD:
+    for name in g.LEGACY_NEW_STAGE_TO_OLD:
         assert live.resolve_candidate_stage(name) in live.STAGES
     for stage in live.STAGES:
         assert live.resolve_candidate_stage(stage) == stage
@@ -121,12 +121,12 @@ def test_progress_shim_covers_every_stage_plus_topup():
     assert g.STAGE_FILES["s0b"] == "inflection-review.json"
     assert g.STAGE_FILES["s2"] == "sense-judge.json"
     assert g.STAGE_FILES["s4"] == "topic-label.json"
-    assert set(g.OLD_PROGRESS_FILE_TO_NEW) == {
+    assert set(g.LEGACY_OLD_PROGRESS_FILE_TO_NEW) == {
         "s0.json", "s0b.json", "s1.json", "s2.json",
         "s3.json", "s4.json", "s5.json", "s4_topup_cache.json",
         "inflection.json", "judge.json", "label.json",
     }
-    assert (g.OLD_PROGRESS_FILE_TO_NEW["s4_topup_cache.json"]
+    assert (g.LEGACY_OLD_PROGRESS_FILE_TO_NEW["s4_topup_cache.json"]
             == "label_topup_cache.json")
 
 
