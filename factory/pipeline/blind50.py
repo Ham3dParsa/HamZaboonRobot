@@ -1,7 +1,7 @@
 """Blind 4-way judge test: GLM (recorded) vs 2x Gemini Lite (direct)
 vs Cohere North Mini (OpenRouter :free) on the frozen accept50 set.
 
-Same prompt for every contender (precard_judge.judge_prompt), one
+Same prompt for every contender (precard_judge.arbiter_prompt), one
 retry on invalid JSON only, three consecutive 429s abort the run
 (owner rule: stop, never long-backoff). GLM needs no new calls:
 its picks are read from the recorded pilot200glm judge baseline.
@@ -28,7 +28,7 @@ from factory.pipeline import card_pilot
 from factory.precard import judge as precard_judge
 from factory.precard import anchor as precard_anchor
 from factory.precard import accounting as precard_accounting
-from factory.precard.transport import RETRY_PREFIX
+from factory.precard.provider_transport import RETRY_PREFIX
 from factory.core import llm_json  # noqa: E402
 GOOGLE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
               "models/%s:generateContent")
@@ -220,7 +220,7 @@ def fill_missing_windows(items, anchor_map, kaikki_index=None,
     from the recorded anchor windows (dropped/proper items) via the pipeline
     anchor ranker. rank_fn(item, index, read_entry) injectable (tests)."""
     missing = [it for it in items
-               if precard_accounting.item_key(it) not in anchor_map]
+               if precard_accounting.source_item_key(it) not in anchor_map]
     if not missing:
         return dict(anchor_map)
     rank = rank_fn or precard_anchor.anchor_rank_item
@@ -237,10 +237,10 @@ def fill_missing_windows(items, anchor_map, kaikki_index=None,
     out = dict(anchor_map)
     for item in missing:
         try:
-            out[precard_accounting.item_key(item)] = rank(
+            out[precard_accounting.source_item_key(item)] = rank(
                 item, index, read_entry)
         except Exception:
-            out[precard_accounting.item_key(item)] = {"candidates": []}
+            out[precard_accounting.source_item_key(item)] = {"candidates": []}
     return out
 
 
@@ -276,7 +276,7 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
         progress = {}
     done = dict(progress.get(tag, {}))
     todo = [it for it in items
-            if precard_accounting.item_key(it) not in done]
+            if precard_accounting.source_item_key(it) not in done]
     total = len(items)
     print("[blind50 %s] start: %d items (%d todo, %d kept)" % (
         tag, total, len(todo), total - len(todo)), flush=True)
@@ -286,7 +286,7 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
     batch_no = 0
     while queue:
         chunk, queue = queue[:batch], queue[batch:]
-        prompt = precard_judge.judge_prompt(chunk, anchor_map)
+        prompt = precard_judge.arbiter_prompt(chunk, anchor_map)
         try:
             valid = judge_fn(chunk, prompt)
         except urllib.error.HTTPError as exc:
@@ -318,7 +318,7 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
         batch_no += 1
         strikes = 0
         for item in chunk:
-            key = precard_accounting.item_key(item)
+            key = precard_accounting.source_item_key(item)
             done[key] = valid.get(key, {"sense_id": "", "gloss": ""})
         progress[tag] = done
         _atomic_write(progress_path, progress)

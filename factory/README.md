@@ -110,7 +110,7 @@ Keys: env vars win, then `factory\.env`, then `tools\egress\.env` (owner layout)
 Three consecutive 429s stop the run — rotate key/server, re-run, resume
 continues from `progress/*.json` (per-stage files named by stable id).
 
-Whitelist home (P1): `precard/net.py` owns probe rank/choose/guard/writer
+Whitelist home (P1): `precard/provider_lease_policy.py` owns probe rank/choose/guard/writer
 (`build_probe_rows`, `order_pool_by_rank`, `order_google_first`,
 `should_save_whitelist`, `write_pool_file` — the ONLY `egress_pool.json`
 writer) + the `supervisor_health` hook (`healthy` iff servers pooled).

@@ -2,7 +2,7 @@
 
 Vendored frozen with provenance (precard line R1-R6, 2026-09-14):
 KeyRing/RateLimited/write_progress from factory/lexicon/phrase_judge;
-telemetry recorders from factory/core/telemetry; RunLogger +
+telemetry recorders from factory/core/telemetry; LegRunLogger +
 _unwrap_transport_result from factory/pipeline/card_pilot; rotation,
 consts, and AvalAI/Google transports from factory/pipeline/
 precard_pipeline. D-retire PR-A removed the retired-provider leg
@@ -31,15 +31,15 @@ from factory.core.llm_json import (
     ABORT, COOLDOWN_SWITCH, ROTATE, AuthError, classify,
     extract_json, raise_for_auth)
 # AuthError/extract_json/raise_for_auth are re-exported here so the
-# existing ``from factory.precard.transport import ...`` seams in
-# topics/judge/pipeline/net keep working on the single llm_json class.
+# existing ``from factory.precard.provider_transport import ...`` seams in
+# topics/judge/pipeline/provider_lease_policy keep working on the single llm_json class.
 
 
-# P2 (R5): the precard/avalai/google consts live in factory.precard.net
+# P2 (R5): the precard/avalai/google consts live in factory.precard.provider_lease_policy
 # (single owner). They stay importable from here through the module
 # __getattr__ below (same re-export-shim precedent as the telemetry
 # recorders above), so every existing
-# ``from factory.precard.transport import AVALAI_PRECARD_MODEL`` seam
+# ``from factory.precard.provider_transport import AVALAI_PRECARD_MODEL`` seam
 # keeps working. Function bodies resolve them lazily for the same
 # reason (net imports this module: a top-level import back would
 # cycle).
@@ -48,9 +48,9 @@ _MOVED_TO_NET = ("GOOGLE_PRECARD_MODEL", "GOOGLE_MODELS_URL",
 
 
 def __getattr__(name):
-    """Lazy re-export of the consts moved to factory.precard.net."""
+    """Lazy re-export of the consts moved to factory.precard.provider_lease_policy."""
     if name in _MOVED_TO_NET:
-        from factory.precard import net as _net
+        from factory.precard import provider_lease_policy as _net
         return getattr(_net, name)
     raise AttributeError(
         "module %r has no attribute %r" % (__name__, name))
@@ -68,7 +68,7 @@ MAX_ATTEMPTS = 2
 
 # Telemetry recorders are SINGLE-OWNED by factory.core.telemetry (R10):
 # this module only re-exports the exact names it used to define, so the
-# existing ``from factory.precard.transport import record_call`` seams
+# existing ``from factory.precard.provider_transport import record_call`` seams
 # keep working. New code imports from factory.core.telemetry directly.
 from factory.core.telemetry import (  # noqa: E402,F401 (re-export shim)
     OUTCOMES, extract_usage, now_ts, record_call, summarize,
@@ -124,7 +124,7 @@ def _google_chat_transport(api_key, model, user_text):
     rotation fuel; the shared classify table owns meaning). No usage
     counters on this API shape -> None (telemetry records latency).
     """
-    from factory.precard.net import GOOGLE_MODELS_URL as _models_url
+    from factory.precard.provider_lease_policy import GOOGLE_MODELS_URL as _models_url
     payload = json.dumps(_google_payload(user_text)).encode("utf-8")
     req = urllib.request.Request(
         _models_url % model, data=payload,
@@ -160,7 +160,7 @@ def _avalai_remap_transport(default_model):
 
 
 def _avalai_chat_transport(api_key, model, user_text):
-    from factory.precard.net import AVALAI_CHAT_URL as _chat_url
+    from factory.precard.provider_lease_policy import AVALAI_CHAT_URL as _chat_url
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": user_text}],
@@ -192,7 +192,7 @@ def _unwrap_transport_result(res):
     return res, None
 
 
-class RunLogger:
+class LegRunLogger:
     """V7 compact run.log writer (stage start/end + counts + timings).
 
     Machine file (R11): the first line is always the header
@@ -497,7 +497,7 @@ class KeyRing:
 
     Single owner for the precard line (P0 net core):
     factory.lexicon.phrase_judge imports this class instead of keeping
-    its own copy; factory.precard.net builds its leg rings from it."""
+    its own copy; factory.precard.provider_lease_policy builds its leg rings from it."""
 
     def __init__(self, keys):
         self.keys = [k for k in keys if k]

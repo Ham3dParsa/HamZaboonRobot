@@ -72,7 +72,7 @@ from factory.pipeline.card_pilot import (
     translation_fidelity_ok,
     validate_card_obj,
     validate_delta_response,
-    RunLogger,
+    LegRunLogger,
 )
 from factory.core.llm_json import AuthError
 
@@ -1119,7 +1119,7 @@ def test_batch_log_line_format():
 
 
 def test_run_logger_writes_stage_lines(tmp_path):
-    logger = RunLogger(str(tmp_path / "run.log"))
+    logger = LegRunLogger(str(tmp_path / "run.log"))
     logger.stage_start("generate")
     logger.stage_end("generate", ok=1, fail=0)
     logger.close()
@@ -2217,7 +2217,7 @@ def test_atomic_write_no_truncated_file(tmp_path):
 
 def test_run_logger_close_idempotent_and_reopen(tmp_path):
     log = tmp_path / "run.log"
-    logger = RunLogger(log)
+    logger = LegRunLogger(log)
     logger.stage_start("sample")
     logger.stage_end("sample", ok=1, fail=0)
     logger.close()

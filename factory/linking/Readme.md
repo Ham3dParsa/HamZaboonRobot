@@ -1,8 +1,8 @@
-# factory/linker — offline build-time sense linker
+# factory/linking — offline build-time sense linker
 
 ## What / why
 
-`factory/linker` is the linker's own identity (M1-M3 structural move): the
+`factory/linking` is the linker's own identity (M1-M3 structural move): the
 Kaikki → WordNet sense-link core plus its frozen vendor table, moved verbatim
 out of `factory/precard/` with zero logic change. The precard line keeps its
 pipeline; the linker keeps its truth — one owner per concept.
@@ -28,12 +28,12 @@ Input (injected by the caller, never loaded here):
 - Optional: `se_value` float per candidate, `judge_link` verdict rows,
   `manual_none` / `manual_override` owner locks
 
-Output (per sense): `decide(...)` → `{sensekey, method, evidence, flags}` —
+Output (per sense): `arbitrate_link(...)` → `{sensekey, method, evidence, flags}` —
 `method` ∈ `LINK_METHOD_VOCAB` (see `__init__.py`), `flags` ⊆
 `twin-pending / quarantined-known-false / manual-none /
 provisional_consensus`.
 
-CLI (offline table tools, `python -m factory.linker.cli`):
+CLI (offline table tools, `python -m factory.linking.cli`):
 
 - `link --words WORDS --out OUT [--table T] [--progress]` — subset the
   vendor table to a wordlist (headword or exact-kid lines).
@@ -75,7 +75,7 @@ gallery changelog (`GALLERY_CHANGELOG` in `viewer.py`).
 Regen (run20 paths on `W:`, outputs beside the inputs):
 
 - Full (807 rows):
-  `python -m factory.linker.viewer --table W:\hamzaban_data_factory\proof-linker\run20\link_table_run20_v3.tsv --verdicts W:\hamzaban_data_factory\proof-linker\run20\judge_verdicts_run20.json --candidates W:\hamzaban_data_factory\proof-linker\run20\candidates_run20.json --out W:\hamzaban_data_factory\proof-linker\run20\linker_gallery_run20.html`
+  `python -m factory.linking.viewer --table W:\hamzaban_data_factory\proof-linker\run20\link_table_run20_v3.tsv --verdicts W:\hamzaban_data_factory\proof-linker\run20\judge_verdicts_run20.json --candidates W:\hamzaban_data_factory\proof-linker\run20\candidates_run20.json --out W:\hamzaban_data_factory\proof-linker\run20\linker_gallery_run20.html`
 - Sample (331-row subset, `--words get,light,run,take`):
   same command with `--table ...\run20\link_table_run20.tsv --words get,light,run,take --out W:\hamzaban_data_factory\proof-linker\gallery\linker_gallery_sample.html`
 

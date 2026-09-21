@@ -2676,7 +2676,7 @@ def sample_phrases(judged, n_phrases=6, seed=SEED):
 # NOTE (identity-141 R5, deferred to T6): dual-owned by design — this
 # copy serves the pilot line; factory/precard/accounting.py vendored its
 # own for the precard line. Unify at T6 pilot versioning.
-def item_key(item):
+def source_item_key(item):
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
 
@@ -2859,7 +2859,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
         # next item (never aborts the whole run; SystemExit is a
         # BaseException and would escape the loop's error handling).
         reason = "bad-pool-level: %s" % str(exc)[:200]
-        return {"key": item_key(item), "kind": item.get("kind", "word"),
+        return {"key": source_item_key(item), "kind": item.get("kind", "word"),
                 "text": item.get("text", ""),
                 "pool_level": item.get("pool_level", ""),
                 "bot_level": "", "sense_id": item.get("sense_id", ""),
@@ -2903,7 +2903,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     pos_list = [t for t in (pos_tags if isinstance(pos_tags, list)
                             else ([pos_tags] if pos_tags else []))
                 if isinstance(t, str) and t.strip()]
-    record = {"key": item_key(item), "kind": item["kind"], "text": item["text"],
+    record = {"key": source_item_key(item), "kind": item["kind"], "text": item["text"],
               "pool_level": item["pool_level"], "bot_level": bot_level,
               "sense_id": item.get("sense_id", ""),
               "en_def": item.get("en_def", ""),
@@ -3765,13 +3765,13 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
     todo = [i for i in items or []
             if [e for e in (i.get("dataset_examples") or [])
                 if isinstance(e, str) and e.strip()]
-            and item_key(i) not in done]
+            and source_item_key(i) not in done]
     flagged_total = 0
     for base in range(0, len(todo), CONTENT_REVIEW_BATCH):
         batch = todo[base:base + CONTENT_REVIEW_BATCH]
         try:
             verdicts = review_dataset_examples(
-                [{"key": item_key(i),
+                [{"key": source_item_key(i),
                   "examples": [e for e in (i.get("dataset_examples") or [])
                                if isinstance(e, str) and e.strip()]}
                  for i in batch],
@@ -3783,7 +3783,7 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
         except Exception:
             verdicts = {}
         for item in batch:
-            key = item_key(item)
+            key = source_item_key(item)
             verdict = verdicts.get(key) or {}
             flags = {e: (verdict.get("reason") or "content-flag")
                      for e in (verdict.get("flagged") or [])}
@@ -3981,7 +3981,7 @@ def batch_log_line(stage, batch_no, n_batches, ok, fail, calls):
             % (stage, batch_no, n_batches, ok, fail, total))
 
 
-class RunLogger:
+class LegRunLogger:
     """V7 compact run.log writer (stage start/end + counts + timings)."""
 
     def __init__(self, path, namer=None):
@@ -5458,7 +5458,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     # V7: compact run.log in the out dir (stage start/end + counts).
-    run_logger = RunLogger(out_dir / "run.log")
+    run_logger = LegRunLogger(out_dir / "run.log")
     run_logger.stage_start("sample")
     if precard_sample is not None:
         # R22-R25: sampling/anchor/topic/enrichment SKIPPED — items come
@@ -5568,7 +5568,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                                     start=1):
         batch_ok = batch_fail = 0
         for item in sample[base:base + GEN_BATCH]:
-            key = item_key(item)
+            key = source_item_key(item)
             if key in done:
                 if done[key].get("valid"):
                     batch_ok += 1
@@ -5598,7 +5598,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         ok=sum(1 for v in done.values() if v.get("valid")),
         fail=sum(1 for v in done.values() if not v.get("valid")))
 
-    records = [done[item_key(item)] for item in sample]
+    records = [done[source_item_key(item)] for item in sample]
     # R30 v8 grammar fact-review (post-step): batched check of valid
     # records' tips; rejected tips get 1 focused regen of the tip field
     # only, then the outcome is recorded on rec["grammar_review"].
@@ -5636,7 +5636,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         s_checked, s_rejected = 0, 0
     run_logger.stage_end("sense-review", ok=s_checked, fail=s_rejected)
     for item in sample:
-        key = item_key(item)
+        key = source_item_key(item)
         if key in done:
             done[key] = next(
                 (r for r in records if r.get("key") == key), done[key])

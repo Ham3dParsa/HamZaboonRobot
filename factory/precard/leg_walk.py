@@ -2,7 +2,7 @@
 
 Pure resolution of the walk every R6 leg repeats: ordered providers,
 per-provider models, ring, target, key_var — plus the cooldown-walk
-decision. Read-only over factory.precard.net policy (switch_plan /
+decision. Read-only over factory.precard.provider_lease_policy policy (switch_plan /
 leg_chain / target_for / norm_provider); no I/O, no network, no keys.
 
 Legs (judge inflection_review/sense_judge, topics topic_label/
@@ -13,10 +13,10 @@ model, prompt, or cost change — byte-identical behavior by construction.
 
 from __future__ import annotations
 
-from factory.precard import net as _net
+from factory.precard import provider_lease_policy as _net
 
 
-def plan(leg, provider, base_models, rings, ring, key_var):
+def resolve_leg_walk(leg, provider, base_models, rings, ring, key_var):
     """Resolve one leg's walk.
 
     Returns (base_provider, steps) where each step is a dict with

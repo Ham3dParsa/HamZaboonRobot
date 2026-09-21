@@ -4,9 +4,9 @@ Composes three seams, moves no logic (wiring only):
 
 - supervisor client: ``/v1/health`` check + auto-spawn of
   ``tools/egress/supervisor.py`` for tunnel presets (shape owned by
-  ``factory.precard.net.supervisor_health``; spawn target owned by the
-  supervisor's own ``--port`` CLI).
-- home probe table: ``factory.precard.net.TARGETS`` decides direct vs
+   ``factory.precard.provider_lease_policy.supervisor_health``; spawn target owned by the
+   supervisor's own ``--port`` CLI).
+- home probe table: ``factory.precard.provider_lease_policy.TARGETS`` decides direct vs
   tunnel; ``PROVIDER_KEY_VARS`` names missing-key errors (never values).
 - line runner: ``factory.precard.pipeline.main`` does the real work.
 
@@ -42,7 +42,7 @@ from factory.precard.pipeline import (  # noqa: E402 (path bootstrap above)
     SLEEP,
     main as pipeline_main,
 )
-from factory.precard.net import (  # noqa: E402
+from factory.precard.provider_lease_policy import (  # noqa: E402
     AVALAI_CHAT_URL,
     AVALAI_PRECARD_MODEL,
     CLEAN_CACHE_TTL_S,
@@ -533,7 +533,7 @@ def _validate(cfg):
 
 def _sup_http_health(url, token, timeout=HEALTH_TIMEOUT_S):
     """GET <url>/v1/health (loopback contract owned by the supervisor;
-    shape owned by net.supervisor_health). Returns the payload dict,
+    shape owned by provider_lease_policy.supervisor_health). Returns the payload dict,
     ``{"auth_error": ...}`` on HTTP 401/403 (wrong EGRESS_SUP_TOKEN),
     or None when the supervisor is down/unreachable."""
     import json as _json
@@ -763,7 +763,7 @@ def _load_supervisor_tcp_ping():
     written, so a third-party package of that name can neither
     collide nor be shadowed. A resident same-file ``supervisor``
     module is adopted instead of re-executing. Probe identity still
-    holds with a single shared net.TARGETS table: a cold exec
+    holds with a single shared provider_lease_policy.TARGETS table: a cold exec
     snapshots the pre-exec probes and restores them afterwards, so
     whatever a prior importer attached (including a package-style
     supervisor import) survives untouched for the later plain
@@ -786,7 +786,7 @@ def _load_supervisor_tcp_ping():
         else:
             # Supervisor-shared seam (out of scope): the egress
             # supervisor attaches its live probes to the shared
-            # net.TARGETS table, so the cold-exec snapshot covers the
+            # provider_lease_policy.TARGETS table, so the cold-exec snapshot covers the
             # "zen" row too and restores it afterwards.
             prev = (NET_TARGETS["zen"].get("probe"),
                     NET_TARGETS["google"].get("probe"))

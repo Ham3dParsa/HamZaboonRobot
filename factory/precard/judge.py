@@ -2,32 +2,32 @@
 
 Moved verbatim from factory/pipeline/precard_pipeline (provenance:
 precard line R1-R6/F4, 2026-09-14); only the imports changed (intra-
-package) and two names went public (judge_prompt, apply_inflection_veto).
+package) and two names went public (arbiter_prompt, apply_inflection_veto).
 Vendored with it: LEVEL_N + validate_picks (frozen copy from
 factory/archive/v14_v16/run_v14_phase3_judge) and the inflection /
 superlative stub predicates (frozen copy from factory/pipeline/card_pilot).
-Model attempts route through net.call_leg (single-model + KeyRing
+Model attempts route through provider_lease_policy.call_leg (single-model + KeyRing
 rotation); each leg walks its net-table chain (steps down only on
 ROTATE-exhausted) and stops for a resume on COOLDOWN_SWITCH via
-net.switch_plan (R6: every run provider is paid).
+provider_lease_policy.switch_plan (R6: every run provider is paid).
 """
 
 from __future__ import annotations
 
 import re
 
-from factory.precard.accounting import item_key
+from factory.precard.accounting import source_item_key
 from factory.precard import anchor as _anchor_home
 from factory.precard.anchor import _is_name_row
 from factory.precard.ids import normalize_id_part
-from factory.precard import net as _net
+from factory.precard import provider_lease_policy as _net
 from factory.precard import prompt_registry as _prompts
-from factory.precard import run_leg as _run_leg
+from factory.precard import leg_walk as _run_leg
 
-# Model attempts route through net.call_leg (single-model + KeyRing
+# Model attempts route through provider_lease_policy.call_leg (single-model + KeyRing
 # rotation). Each leg walks its net-table chain (steps down only on
 # ROTATE-exhausted) and stops for a resume on COOLDOWN_SWITCH
-# via net.switch_plan (R6: every run provider is paid).
+# via provider_lease_policy.switch_plan (R6: every run provider is paid).
 
 MAX_FANOUT = 4
 
@@ -69,7 +69,7 @@ def is_superlative_gloss(gloss):
     return bool(_SUPERLATIVE_RX.search(gloss or ""))
 
 
-def judge_fallback(item, anchor_res):
+def arbiter_fallback(item, anchor_res):
     """Fail-closed pick: anchor-top first candidate.
 
     The old home routed scoreless pseudo-entries through the archive
@@ -87,12 +87,12 @@ def judge_fallback(item, anchor_res):
             "picks": [{"sense_id": first, "gloss": gloss}]}
 
 
-def judge_prompt(batch, anchor_map):
+def arbiter_prompt(batch, anchor_map):
     # T-RUN-B: head lines live in factory.precard.prompt_registry
     # (verbatim default); per-item KEY blocks appended unchanged.
     lines = list(_prompts.get_prompt_lines("judge_head"))
     for item in batch:
-        key = item_key(item)
+        key = source_item_key(item)
         cands = (anchor_map.get(key) or {}).get("candidates", [])
         lines.append("KEY %s (%s, pool %s):" % (
             key, item.get("kind", "?"), item.get("pool_level", "?")))
@@ -106,7 +106,7 @@ def judge_prompt(batch, anchor_map):
     return "\n".join(lines)
 
 
-def judge_validate_multi(data, batch, anchor_map):
+def arbiter_validate_multi(data, batch, anchor_map):
     """Validate ordered multi-pick {"key","picks":[...]} rows (R1).
 
     Each pick must be one of the item's candidate ids; unknown ids are
@@ -129,7 +129,7 @@ def judge_validate_multi(data, batch, anchor_map):
             by_key[row["key"]] = row
     out = {}
     for item in batch:
-        key = item_key(item)
+        key = source_item_key(item)
         row = by_key.get(key)
         cands = (anchor_map.get(key) or {}).get("candidates", [])
         ids = [c["sense_id"] for c in cands]
@@ -170,7 +170,7 @@ def judge_validate_multi(data, batch, anchor_map):
             continue
         out[key] = {"sense_id": picks[0]["sense_id"],
                     "gloss": picks[0]["gloss"], "picks": picks}
-    want = {item_key(i) for i in batch}
+    want = {source_item_key(i) for i in batch}
     if set(out) != want:
         return None
     return out
@@ -179,18 +179,18 @@ def judge_validate_multi(data, batch, anchor_map):
 def _judge_validate(data, batch, anchor_map):
     """Accept single {"key","pick"} rows (plus lemma-style "picks" rows).
 
-    Thin single-pick view over judge_validate_multi: multi-pick rows
+    Thin single-pick view over arbiter_validate_multi: multi-pick rows
     collapse to their primary pick. Returns {key: {"sense_id","gloss"}}
     for valid rows only; invalid rows are left out (caller fails closed).
     """
-    multi = judge_validate_multi(data, batch, anchor_map)
+    multi = arbiter_validate_multi(data, batch, anchor_map)
     if multi is None:
         return None
     return {k: {"sense_id": v["sense_id"], "gloss": v["gloss"]}
             for k, v in multi.items()}
 
 
-def fanout_picks(item, pick_entry):
+def arbiter_fanout_picks(item, pick_entry):
     """Ordered [{sense_id, gloss}] for one item's precard rows (R1).
 
     Primary first, then judged secondaries (capped at MAX_FANOUT);
@@ -290,9 +290,9 @@ def _review_has_independent_sense(key, anchor_map):
 
 
 def apply_inflection_veto(out, batch, anchor_map):
-    """F4: veto every stub pick in a judge_batch result dict, in place."""
+    """F4: veto every stub pick in an arbiter_batch result dict, in place."""
     for item in batch:
-        key = item_key(item)
+        key = source_item_key(item)
         if key in out:
             sid, gloss = _veto_inflection_pick(
                 out[key], (anchor_map or {}).get(key))
@@ -324,7 +324,7 @@ import urllib.error
 from factory.core.telemetry import (
     emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
     resolve_cost)
-from factory.precard.transport import (
+from factory.precard.provider_transport import (
     AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
     raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
@@ -422,7 +422,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     mismatch) fails closed to {keep: True, uncertain: True} flagged
     review-uncertain (never drop on uncertainty). Auth aborts loudly.
     Hermetic with an injected transport. Every attempt routes through
-    net.call_leg (single-model + KeyRing rotation, so a 429 rotates
+    provider_lease_policy.call_leg (single-model + KeyRing rotation, so a 429 rotates
     to the next key on the same model); a ROTATE-exhausted model
     steps down to the next chain model, and a cooled leg stops for a
     resume (R6: every run provider is paid). Tuple (text, usage)
@@ -432,7 +432,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     attempt rows only when ``tele_attempts`` is on).
     R8: deterministic every-gloss pre-check (no model call). When
     ``anchor_map`` is given ({key: {"candidates": [{sense_id, gloss,
-    ...}]}} — the same shape judge_batch reads), a lemma with >=1
+    ...}]}} — the same shape arbiter_batch reads), a lemma with >=1
     non-stub non-name candidate sense keeps immediately (reason
     review-has-independent-sense, model review-precheck, uncertain
     False) and never enters a prompt batch — the "listed" case (verb
@@ -455,7 +455,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider, _leg_plan = _run_leg.plan(
+    base_provider, _leg_plan = _run_leg.resolve_leg_walk(
         "inflection_review", tele_provider or "avalai",
         base_models, rings, ring, key_var)
     ordered = [s["provider"] for s in _leg_plan]
@@ -680,7 +680,7 @@ def inflection_review(items, transport, api_key="", model_calls=None,
     return out
 
 
-def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
+def arbiter_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None, provider="avalai", key_var="",
                    file_label="factory/.env", tele_run_id="",
@@ -697,7 +697,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     flushes and STOPS); a cooled leg (ProviderCooldown) stops for a
     resume (R6: every run provider is paid),
     anything else fail-closed to the S1 top pick per item. v14.1: the
-    judge returns 1-4 ordered picks per item (judge_validate_multi —
+    judge returns 1-4 ordered picks per item (arbiter_validate_multi —
     legacy single "pick" rows still validate as one pick); the ordered
     list rides on "picks" with sense_id/gloss = the primary. F4: every
     pick (judge-model AND s1-fallback, primary AND secondaries) passes
@@ -716,7 +716,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     # P2: default chain from the net table (avalai single paid model);
     # explicit models (e.g. google single-model legs) win.
     base_models = list(models) if models else None
-    prompt = judge_prompt(batch, anchor_map)
+    prompt = arbiter_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
@@ -725,7 +725,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     # only its base provider (a cooldown stops for a resume).
     # Providers without a ring are not attempted.
     # Explicit models only ever run on the base provider.
-    base_provider, _leg_plan = _run_leg.plan(
+    base_provider, _leg_plan = _run_leg.resolve_leg_walk(
         "sense_judge", provider,
         base_models, rings, ring, key_var)
     ordered = [s["provider"] for s in _leg_plan]
@@ -755,10 +755,10 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else RETRY_PREFIX + prompt
                 label = "%s/%s#%d" % (model, "+".join(
-                    item_key(i) for i in batch), attempt)
+                    source_item_key(i) for i in batch), attempt)
                 usage = None
                 try:
-                    # P2: every attempt routes through net.call_leg (same
+                    # P2: every attempt routes through provider_lease_policy.call_leg (same
                     # ring, same rotation — the leg holds no model lists).
                     raw, usage = _net.call_leg(
                         None, eff_target, text, transport=transport,
@@ -831,7 +831,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 except Exception:
                     continue
                 try:
-                    valid = judge_validate_multi(data, batch, anchor_map)
+                    valid = arbiter_validate_multi(data, batch, anchor_map)
                 except Exception:
                     valid = None
                 if valid is not None:
@@ -876,7 +876,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
         raise RateLimited(
             "all sense_judge models 429 (provider quotas exhausted) — "
             "re-run later (progress flushed, resume safe)")
-    out = {item_key(i): {**judge_fallback(i, anchor_map.get(item_key(i))),
+    out = {source_item_key(i): {**arbiter_fallback(i, anchor_map.get(source_item_key(i))),
                          } for i in batch}
     apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:
     # the anchor top itself can be a stub when inflection kept it)

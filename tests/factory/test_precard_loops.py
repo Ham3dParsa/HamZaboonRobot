@@ -1,6 +1,6 @@
 """Identity T4b: network loops live in the new home, parity-pinned.
 
-judge_batch/vectors_batch/label_batch/inflection_review run from
+arbiter_batch/vectors_batch/label_batch/inflection_review run from
 factory.precard with injected transports; archive validators agree
 byte-for-byte with the new copies.
 """
@@ -9,7 +9,7 @@ import json
 import re
 import urllib.error
 
-from factory.precard import judge, topics, transport
+from factory.precard import judge, topics, provider_transport
 
 
 def _anchor(*senses):
@@ -33,7 +33,7 @@ def fake_judge(api_key, model, user_text):
         for k in keys]})
 
 
-def test_judge_batch_fallback_shape_in_new_home():
+def test_arbiter_batch_fallback_shape_in_new_home():
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     amap = _anchor(("call#0", "a telephone conversation"))
 
@@ -41,16 +41,16 @@ def test_judge_batch_fallback_shape_in_new_home():
         raise urllib.error.HTTPError(
             "u", 500, "x", {}, None)
 
-    out = judge.judge_batch(batch, amap, "k", boom, lambda s: None, {})
+    out = judge.arbiter_batch(batch, amap, "k", boom, lambda s: None, {})
     assert out["w:call"]["model"] == "s1-fallback"
     assert out["w:call"]["sense_id"] == "call#0"
 
 
-def test_judge_batch_model_shape_in_new_home():
+def test_arbiter_batch_model_shape_in_new_home():
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     amap = _anchor(("call#0", "a telephone conversation"))
-    out = judge.judge_batch(batch, amap, "k", fake_judge,
-                            lambda s: None, {})
+    out = judge.arbiter_batch(batch, amap, "k", fake_judge,
+                             lambda s: None, {})
     assert out["w:call"]["sense_id"] == "call#0"
     assert not out["w:call"]["model"].startswith("s1-")
 
@@ -304,6 +304,6 @@ def test_r8_savings_all_skip_no_batch():
 def test_live_labels_match_archive_registry():
     from factory.archive.v14_v16 import run_v16b_topup as topup
     assert topics.LABELS == topup.LABELS16
-    assert transport.RETRY_PREFIX  # shared retry line present
+    assert provider_transport.RETRY_PREFIX  # shared retry line present
     assert topics.LABEL_BATCH == 16
     assert judge.JUDGE_BATCH == 12

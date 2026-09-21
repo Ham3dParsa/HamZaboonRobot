@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from factory.linker import human_queue as hq
+from factory.linking import human_queue as hq
 from factory.precard import pipeline
 
 

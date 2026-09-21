@@ -209,7 +209,7 @@ def test_type_pass_dry_run_writes_nothing(tmp_path):
 
 def test_backoff_rotates_keys_then_succeeds(monkeypatch):
     import urllib.error
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     calls = []
     sleeps = []
     monkeypatch.setattr(phrase_judge.time, "sleep", sleeps.append)
@@ -231,7 +231,7 @@ def test_backoff_non_consecutive_429s_do_not_exhaust(monkeypatch):
     # non-consecutive 429s on two keys must NOT raise RateLimited
     # (without the reset the second 429 completes the circle and raises).
     import urllib.error
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
     script = iter(["429", "ok-k2", "429", "ok-k1"])
 
@@ -249,7 +249,7 @@ def test_backoff_non_consecutive_429s_do_not_exhaust(monkeypatch):
 def test_backoff_stops_when_all_keys_429(monkeypatch):
     import urllib.error
     import pytest
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
 
     def transport(api_key, model, prompt, sys_text=None):
@@ -262,7 +262,7 @@ def test_backoff_stops_when_all_keys_429(monkeypatch):
 def test_cefr_grade_propagates_ratelimited():
     import urllib.error
     import pytest
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     from factory.lexicon.phrase_judge import RateLimited, grade_batch
 
     def transport(api_key, model, prompt, sys_text=None):
@@ -277,7 +277,7 @@ def test_keyring_empty_keys_fail_loud_not_zero_division():
     # OPENCODE critical (a): KeyRing([]) used to ZeroDivisionError in
     # rotate() (and IndexError in current). Must fail with a clear error.
     import pytest
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
     with pytest.raises(ValueError):
         KeyRing([])
     with pytest.raises(ValueError):

@@ -34,11 +34,11 @@ def test_files_keep_resume_compatible_names():
 
 
 def test_legacy_ids_still_normalize():
-    assert progress.normalize_stage("s2") == "sense_judge"
-    assert progress.normalize_stage("sense-judge") == "sense_judge"
-    assert progress.normalize_stage("judge") == "sense_judge"
-    assert progress.normalize_stage("s0b") == "inflection_review"
-    assert progress.normalize_stage("bogus") == "bogus"
+    assert progress.resolve_candidate_stage("s2") == "sense_judge"
+    assert progress.resolve_candidate_stage("sense-judge") == "sense_judge"
+    assert progress.resolve_candidate_stage("judge") == "sense_judge"
+    assert progress.resolve_candidate_stage("s0b") == "inflection_review"
+    assert progress.resolve_candidate_stage("bogus") == "bogus"
 
 
 def test_accounting_lives_in_new_home():

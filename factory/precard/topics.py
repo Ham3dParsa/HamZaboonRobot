@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import re
 
-from factory.precard.judge import fanout_picks
-# P2 (R5): model chains live in factory.precard.net (single owner);
+from factory.precard.judge import arbiter_fanout_picks
+# P2 (R5): model chains live in factory.precard.provider_lease_policy (single owner);
 # this leg holds zero model lists and reads chains through it.
-from factory.precard import net as _net
+from factory.precard import provider_lease_policy as _net
 from factory.precard import prompt_registry as _prompts
-from factory.precard import run_leg as _run_leg
+from factory.precard import leg_walk as _run_leg
 from factory.precard.prompt_registry import (
     TOPIC_TIEBREAK, TOPUP_USER_TMPL, V15_USER_TMPL, V16B_DEFS)
 
@@ -152,7 +152,7 @@ def vectors_pseudo_records(batch, judge_map, anchor_map):
         lemma = (item.get("text") or "").strip()
         rec = groups.setdefault(
             lemma, {"lemma": lemma, "ranked_senses": []})
-        for sub in fanout_picks(item, pick):
+        for sub in arbiter_fanout_picks(item, pick):
             sid = sub.get("sense_id", "")
             if not sid:
                 continue
@@ -188,8 +188,8 @@ import urllib.error
 from factory.core.telemetry import (
     emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
     resolve_cost)
-from factory.precard.accounting import item_key
-from factory.precard.transport import (
+from factory.precard.accounting import source_item_key
+from factory.precard.provider_transport import (
     AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
     raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
 
@@ -413,7 +413,7 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider, _leg_plan = _run_leg.plan(
+    base_provider, _leg_plan = _run_leg.resolve_leg_walk(
         "topic_label", provider,
         base_models, rings, ring, key_var)
     ordered = [s["provider"] for s in _leg_plan]
@@ -448,7 +448,7 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 label = "%s/s4-label#%d" % (model, attempt)
                 usage = None
                 try:
-                    # P2: every attempt routes through net.call_leg (same
+                    # P2: every attempt routes through provider_lease_policy.call_leg (same
                     # ring, same rotation — the leg holds no model lists).
                     raw, usage = _net.call_leg(
                         None, eff_target, text, transport=transport,
@@ -688,11 +688,11 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
     # resolves (the chunk matcher keys on sense_id, never on key).
     expanded = []
     for item in batch:
-        key = item_key(item)
+        key = source_item_key(item)
         pick = (picks or {}).get(key) or {}
         text = item.get("text", "")
         vector_lookup = (vector_lookups or {}).get(key)
-        subs = fanout_picks(item, pick) or [
+        subs = arbiter_fanout_picks(item, pick) or [
             {"sense_id": "", "gloss": ""}]
         for pos, sub in enumerate(subs):
             gloss = sub.get("gloss", "")
@@ -858,7 +858,7 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
     """
     if ring is None:
         ring = KeyRing([api_key])
-    key = item_key(item)
+    key = source_item_key(item)
     try:
         out = label_batch(
             [item], {key: {"sense_id": sense_id, "gloss": gloss or ""}},
@@ -896,7 +896,7 @@ def _needs_fanout_relabel(s4_entry, s2_entry):
             return False
         if "extra" in s4_entry:
             return False
-        return len(fanout_picks({}, s2_entry)) > 1
+        return len(arbiter_fanout_picks({}, s2_entry)) > 1
     except Exception:
         return False
 
@@ -939,7 +939,7 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
     # provider is paid, so the leg tries only its base provider (a
     # cooldown stops for a resume). Providers without a ring are not
     # attempted. Explicit models only ever run on the base provider.
-    base_provider, _leg_plan = _run_leg.plan(
+    base_provider, _leg_plan = _run_leg.resolve_leg_walk(
         "topic_vectors", provider,
         base_models, rings, ring, key_var)
     ordered = [s["provider"] for s in _leg_plan]
@@ -971,7 +971,7 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                 label = "%s/v15#%d" % (model, attempt)
                 usage = None
                 try:
-                    # P2: every attempt routes through net.call_leg (same
+                    # P2: every attempt routes through provider_lease_policy.call_leg (same
                     # ring, same rotation — the leg holds no model lists).
                     raw, usage = _net.call_leg(
                         None, eff_target, text, transport=transport,

@@ -127,7 +127,7 @@ def test_topup_tiebreak_distinguishes_leisure_from_sport():
 def test_r3_pink_like_resolves_via_llm():
     """R3 locked: a pink-like sense resolves via the LLM path (transport)."""
     import json
-    from factory.precard.transport import KeyRing
+    from factory.precard.provider_transport import KeyRing
 
     batch = [{"kind": "word", "text": "pink", "pool_level": "A1"}]
     picks = {"w:pink": {"sense_id": "pink#0",

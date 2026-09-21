@@ -9,8 +9,8 @@ import csv
 
 import pytest
 
-from factory.linker import cli
-from factory.linker.cli import TABLE_FIELDNAMES, main
+from factory.linking import cli
+from factory.linking.cli import TABLE_FIELDNAMES, main
 
 KID_APPLE = "en-apple-en-noun-AAAA1111"
 KID_RUN = "en-run-en-verb-BBBB2222"
@@ -171,7 +171,7 @@ def test_validate_fail_on_link_without_evidence(tmp_path, capsys):
 
 
 def test_cli_module_import_safe_for_subprocess_fallback():
-    # Contract: ``python -m factory.linker.cli`` must stay import-safe so
+    # Contract: ``python -m factory.linking.cli`` must stay import-safe so
     # tests can prefer in-process main(); a subprocess fallback is only
     # justified if this ever regresses.
     assert callable(cli.main)

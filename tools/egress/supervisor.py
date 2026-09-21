@@ -13,7 +13,8 @@ Endpoints (127.0.0.1 only):
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
                                               egress_ip, provider, target}
   POST /v1/report {lease_id, outcome, provider?} -> {action}
-Targets (TARGETS table, owned by factory/precard/net.py and imported
+Targets (TARGETS table, owned by factory/precard/provider_lease_policy.py
+and imported
 here — this module only attaches its live zen/google probe functions):
 "direct" (no tunnel, provider None),
 "avalai" (domestic: no tunnel, provider avalai), "zen" / "google" /
@@ -42,7 +43,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
-    from factory.precard.net import (
+    from factory.precard.provider_lease_policy import (
         CLEAN_CACHE_TTL_S,
         TARGETS,
         NetConfig,
@@ -65,12 +66,12 @@ try:
         target_spec,
         write_pool_file,
     )
-    from factory.precard.net import cool as net_cool
+    from factory.precard.provider_lease_policy import cool as net_cool
 except ImportError:  # top-level script run: repo root is not on sys.path
     import sys as _sys
     _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent
                              .parent.parent))
-    from factory.precard.net import (
+    from factory.precard.provider_lease_policy import (
         CLEAN_CACHE_TTL_S,
         TARGETS,
         NetConfig,
@@ -93,7 +94,7 @@ except ImportError:  # top-level script run: repo root is not on sys.path
         target_spec,
         write_pool_file,
     )
-    from factory.precard.net import cool as net_cool
+    from factory.precard.provider_lease_policy import cool as net_cool
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
@@ -313,12 +314,12 @@ def probe_key(var, explicit="", env_map=None, extra_files=()):
     values — callers only test for emptiness and name the variable +
     file on failure."""
     try:
-        from factory.precard.net import resolve_key as _resolve
+        from factory.precard.provider_lease_policy import resolve_key as _resolve
     except ImportError:  # top-level script run (same fallback as above)
         import sys as _sys2
         _sys2.path.insert(0, str(pathlib.Path(__file__).resolve().parent
                                  .parent.parent))
-        from factory.precard.net import resolve_key as _resolve
+        from factory.precard.provider_lease_policy import resolve_key as _resolve
     files = [str(FACTORY_DOTENV)] + [str(p) for p in (extra_files or ())
                                      if p]
     return _resolve(var, explicit=explicit or "",
@@ -397,7 +398,7 @@ class Pool:
     def load_ranked(self, ranked):
         """Replace pool order with a ranked probe list (whitelist).
 
-        Thin caller over the net home (factory.precard.net):
+        Thin caller over the net home (factory.precard.provider_lease_policy):
         ordering lives there, this only assigns under the lock."""
         with self._lock:
             self.servers = order_pool_by_rank(self.servers, ranked)

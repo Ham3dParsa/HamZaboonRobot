@@ -46,8 +46,8 @@ import unicodedata
 from collections import OrderedDict
 from pathlib import Path
 
-from factory.linker.cli import word_matches_kid
-from factory.linker.linker import (
+from factory.linking.cli import word_matches_kid
+from factory.linking.linker import (
     CANON_SIGNAL_NAMES,
     JACCARD_DEFAULT,
     LINK_MIN_DEFAULT,
@@ -2562,7 +2562,7 @@ def _font_face_css():
     >>> isinstance(_font_face_css(), str)
     True
     >>> from unittest.mock import patch as _patch
-    >>> with _patch("factory.linker.viewer.Path.read_bytes",
+    >>> with _patch("factory.linking.viewer.Path.read_bytes",
     ...             return_value=b"fake-font-bytes"):
     ...     css = _font_face_css()
     >>> "@font-face" in css and "Vazirmatn" in css
@@ -3115,7 +3115,7 @@ def main(argv=None):
     if wanted:
         # Real tables carry no ``lemma`` column — match on the kaikki id
         # via cli.word_matches_kid (single source; see
-        # factory/linker/cli.py).
+        # factory/linking/cli.py).
         rows = [r for r in rows
                 if any(word_matches_kid(w, r.get("kaikki_sense_id", ""))
                        for w in wanted)]

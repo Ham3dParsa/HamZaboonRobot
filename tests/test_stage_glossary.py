@@ -3,32 +3,39 @@
 import os
 from factory.core import stage_glossary as g
 def test_stage_ids_match_names_both_directions():
-    assert set(g.STAGE_IDS) == set(g.STAGE_NAMES)
-    for sid in g.STAGE_IDS:
+    assert set(g.LEGACY_STAGE_CODES) == set(g.STAGE_NAMES)
+    for sid in g.LEGACY_STAGE_CODES:
         name = g.STAGE_NAMES[sid]
         assert g.NEW_STAGE_TO_OLD[name] == sid
         assert g.OLD_STAGE_TO_NEW[sid] == name
 
 
-def test_normalize_stage_old_id_direction():
-    for sid in g.STAGE_IDS:
-        assert g.normalize_stage(sid) == sid
-        assert g.normalize_stage(sid.upper()) == sid
+def test_resolve_candidate_stage_old_id_direction():
+    """Route-deleted glossary shim: legacy ids resolve in the live
+    precard registry (P1b: stage_glossary.normalize_stage removed;
+    factory.precard.progress.resolve_candidate_stage is the single
+    owner). Exactness pins live in test_precard_identity."""
+    from factory.precard import progress as live
+    for sid in g.LEGACY_STAGE_CODES:
+        assert live.resolve_candidate_stage(sid) in live.STAGES
+        assert live.resolve_candidate_stage(sid.upper()) in live.STAGES
 
 
-def test_normalize_stage_new_name_direction():
-    for sid in g.STAGE_IDS:
+def test_resolve_candidate_stage_new_name_direction():
+    from factory.precard import progress as live
+    for sid in g.LEGACY_STAGE_CODES:
         name = g.STAGE_NAMES[sid]
-        assert g.normalize_stage(name) == sid
-        assert g.normalize_stage(name.upper()) == sid
+        assert live.resolve_candidate_stage(name) in live.STAGES
+        assert live.resolve_candidate_stage(name.upper()) in live.STAGES
 
 
-def test_normalize_stage_unknown_passes_through():
-    assert g.normalize_stage("nope") == "nope"
-    assert g.normalize_stage(" Nope ") == "nope"
-    assert g.normalize_stage("") == ""
-    assert g.normalize_stage(None) == ""
-    assert g.normalize_stage(5) == 5
+def test_resolve_candidate_stage_unknown_passes_through():
+    from factory.precard import progress as live
+    assert live.resolve_candidate_stage("nope") == "nope"
+    assert live.resolve_candidate_stage(" Nope ") == "nope"
+    assert live.resolve_candidate_stage("") == ""
+    assert live.resolve_candidate_stage(None) == ""
+    assert live.resolve_candidate_stage(5) == 5
 
 
 def test_gates_have_names_and_sentences():
@@ -65,7 +72,7 @@ def test_reason_slugs_cover_pipeline_literals():
     here = os.path.dirname(__file__)
     parts = []
     for name in ("anchor", "enrich", "judge", "topics", "pipeline",
-                 "ids", "transport", "progress", "accounting"):
+                 "ids", "provider_transport", "progress", "accounting"):
         with open(os.path.join(here, "..", "factory", "precard",
                                name + ".py"),
                   encoding="utf-8") as handle:
@@ -98,18 +105,18 @@ def test_stage_names_match_live_pipeline():
     """Cutover pin: every legacy stage token the glossary knows resolves
     in the live v1.4.1 registry — no stage left behind, no orphan id."""
     from factory.precard import progress as live
-    assert len(live.STAGES) == len(g.STAGE_IDS) == 7
-    for sid in g.STAGE_IDS:
-        assert live.normalize_stage(sid) in live.STAGES
+    assert len(live.STAGES) == len(g.LEGACY_STAGE_CODES) == 7
+    for sid in g.LEGACY_STAGE_CODES:
+        assert live.resolve_candidate_stage(sid) in live.STAGES
     for name in g.NEW_STAGE_TO_OLD:
-        assert live.normalize_stage(name) in live.STAGES
+        assert live.resolve_candidate_stage(name) in live.STAGES
     for stage in live.STAGES:
-        assert live.normalize_stage(stage) == stage
+        assert live.resolve_candidate_stage(stage) == stage
         assert live.display(stage).isascii()
 
 
 def test_progress_shim_covers_every_stage_plus_topup():
-    for sid in g.STAGE_IDS:
+    for sid in g.LEGACY_STAGE_CODES:
         assert g.STAGE_FILES[sid].isascii()
     assert g.STAGE_FILES["s0b"] == "inflection-review.json"
     assert g.STAGE_FILES["s2"] == "sense-judge.json"

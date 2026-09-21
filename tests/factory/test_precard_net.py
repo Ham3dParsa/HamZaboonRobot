@@ -1,4 +1,4 @@
-"""P0 net core: hermetic tests for factory/precard/net.py + seam guards.
+"""P0 net core: hermetic tests for factory/precard/provider_lease_policy.py + seam guards.
 
 Keyless, no network, no clock, no W: drive, no real .env reads: servers
 and clocks are fakes, transports are injected, env maps and dotenv
@@ -14,8 +14,8 @@ import urllib.error
 import pytest
 
 from factory.core import llm_json as LJ
-from factory.precard import net as NET
-from factory.precard import transport as T
+from factory.precard import provider_lease_policy as NET
+from factory.precard import provider_transport as T
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
                                 "tools", "egress"))
@@ -421,7 +421,7 @@ def test_probe_key_honors_exported_env_when_no_map_given(
 
 
 def test_supervisor_helpers_are_net_single_owner():
-    """norm/target/known helpers live in factory.precard.net; the
+    """norm/target/known helpers live in factory.precard.provider_lease_policy; the
     supervisor only re-exports them (same objects, no twin defs)."""
     assert SUP.norm_target is NET.norm_target
     assert SUP.norm_provider is NET.norm_provider
@@ -432,7 +432,7 @@ def test_supervisor_helpers_are_net_single_owner():
 # --- reviewer P0: single AuthError class + threaded auth context ---
 
 def test_transport_auth_helpers_are_single_llm_json_class():
-    """transport.AuthError/extract_json/raise_for_auth ARE the llm_json
+    """provider_transport.AuthError/extract_json/raise_for_auth ARE the llm_json
     objects (no rival defs): a transport-raised auth abort is caught by
     a phrase_judge-style ``except llm_json.AuthError``."""
     import ast
@@ -500,8 +500,8 @@ def test_provider_kwarg_decides_google_cooldown_vs_default_rotate():
     assert seen == ["k1", "k2"]  # default rotates, never cools down
 
 
-def test_judge_batch_threads_provider_to_classify():
-    """judge_batch(provider="google") surfaces ProviderCooldown for a
+def test_arbiter_batch_threads_provider_to_classify():
+    """arbiter_batch(provider="google") surfaces ProviderCooldown for a
     Google project-quota body instead of burning the ring on rotation."""
     from factory.precard import judge as J
 
@@ -515,7 +515,7 @@ def test_judge_batch_threads_provider_to_classify():
         raise _http(429, b"RESOURCE_EXHAUSTED: quota exceeded")
 
     with pytest.raises(T.ProviderCooldown):
-        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "k", fake, lambda s: None, {},
                       ring=T.KeyRing(["k1", "k2"]), provider="google",
                       key_var="GOOGLE_AI_API_KEY")
     assert calls == ["k1"]  # single attempt, no rotation
@@ -523,7 +523,7 @@ def test_judge_batch_threads_provider_to_classify():
 
 def test_file_label_threads_to_auth_errors():
     """file_label (default factory/.env) reaches the AuthError message
-    through judge_batch and net.call_leg — an egress-fallback key
+    through arbiter_batch and provider_lease_policy.call_leg — an egress-fallback key
     names the file actually searched, values never surface."""
     from factory.precard import judge as J
 
@@ -534,7 +534,7 @@ def test_file_label_threads_to_auth_errors():
     amap = {"w:call": {"candidates": [
         {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
     with pytest.raises(LJ.AuthError) as exc:
-        J.judge_batch(batch, amap, "zz-secret-9", fake401,
+        J.arbiter_batch(batch, amap, "zz-secret-9", fake401,
                       lambda s: None, {},
                       ring=T.KeyRing(["zz-secret-9"]),
                       provider="google",
@@ -850,7 +850,7 @@ def test_p2_leg_cooled_paid_leg_stops_with_own_key():
         raise T.ProviderCooldown("project blocked")
 
     with pytest.raises(T.ProviderCooldown):
-        J.judge_batch(batch, amap, "ak1", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "ak1", fake, lambda s: None, {},
                       provider="avalai",
                       ring=T.KeyRing(["ak1"]),
                       rings={"avalai": T.KeyRing(["ak1"])})
@@ -871,7 +871,7 @@ def test_p2_leg_paid_cooldown_stops_no_switch():
         raise T.ProviderCooldown("project blocked")
 
     with pytest.raises(T.ProviderCooldown):
-        J.judge_batch(batch, amap, "gk1", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "gk1", fake, lambda s: None, {},
                       provider="google",
                       ring=T.KeyRing(["gk1"]),
                       rings={"google": T.KeyRing(["gk1"])})
@@ -879,7 +879,7 @@ def test_p2_leg_paid_cooldown_stops_no_switch():
 
 
 def test_p2_inflection_review_429_rotates_keys():
-    """Finding C: inflection attempts route through net.call_leg, so a
+    """Finding C: inflection attempts route through provider_lease_policy.call_leg, so a
     429 rotates to the next key on the SAME model (the old raw
     transport call never rotated)."""
     from factory.precard import judge as J
@@ -904,7 +904,7 @@ def test_p2_inflection_review_429_rotates_keys():
     assert seen == [("k1", m1), ("k2", m1)]
 
 
-def test_p2_judge_batch_single_model_exhaustion_raises():
+def test_p2_arbiter_batch_single_model_exhaustion_raises():
     """Leg level: the single-model paid chain 429s on every key, so the
     leg raises RateLimited (flush+resume) with the tried model recorded;
     telemetry keeps the terminal error row."""
@@ -921,7 +921,7 @@ def test_p2_judge_batch_single_model_exhaustion_raises():
 
     tele, tried = [], []
     with pytest.raises(T.RateLimited):
-        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "k", fake, lambda s: None, {},
                       telemetry=tele, tele_batch=1,
                       ring=T.KeyRing(["k1", "k2"]), tried=tried)
     assert tried == [m1]
@@ -929,7 +929,7 @@ def test_p2_judge_batch_single_model_exhaustion_raises():
     assert [r["model"] for r in tele] == [m1]
 
 
-def test_p2_judge_batch_401_single_attempt():
+def test_p2_arbiter_batch_401_single_attempt():
     from factory.precard import judge as J
     seen = []
 
@@ -941,12 +941,12 @@ def test_p2_judge_batch_401_single_attempt():
     amap = {"w:call": {"candidates": [
         {"sense_id": "call#0", "gloss": "a telephone conversation"}]}}
     with pytest.raises(LJ.AuthError):
-        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "k", fake, lambda s: None, {},
                       ring=T.KeyRing(["k1", "k2"]))
     assert len(seen) == 1  # STOP, no second call
 
 
-def test_p2_judge_batch_chain_exhaustion_raises():
+def test_p2_arbiter_batch_chain_exhaustion_raises():
     from factory.precard import judge as J
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     amap = {"w:call": {"candidates": [
@@ -956,11 +956,11 @@ def test_p2_judge_batch_chain_exhaustion_raises():
         raise _http(429)
 
     with pytest.raises(T.RateLimited):
-        J.judge_batch(batch, amap, "k", fake, lambda s: None, {},
+        J.arbiter_batch(batch, amap, "k", fake, lambda s: None, {},
                       ring=T.KeyRing(["k1"]))
     # A validation failure (not ROTATE) still fails closed to the s1
     # pick instead of stepping down or raising.
-    out = J.judge_batch(
+    out = J.arbiter_batch(
         batch, amap, "k", lambda *a: ("not json", None),
         lambda s: None, {}, ring=T.KeyRing(["k1"]))
     assert out["w:call"]["model"] == "s1-fallback"

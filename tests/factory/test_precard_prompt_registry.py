@@ -117,7 +117,7 @@ def test_builders_byte_identical_to_snapshot():
         {"sense_id": "call#0", "gloss": "a telephone conversation",
          "tags": ["colloquial"]},
         {"sense_id": "call#1", "gloss": "to shout loudly", "tags": []}]}}
-    assert judge.judge_prompt(batch, anchor_map) == \
+    assert judge.arbiter_prompt(batch, anchor_map) == \
         snap["judge_prompt_fixture"]
     assert judge._inflection_review_prompt(
         [{"key": "w:forcing", "text": "forcing",

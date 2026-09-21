@@ -16,7 +16,7 @@ from factory.precard.accounting import audit_sample_accounting
 from factory.precard.anchor import preprocess_classify_item
 from factory.precard.enrich import enrich_item
 from factory.precard.ids import compute_pre_card_id
-from factory.precard.judge import fanout_picks, judge_validate_multi
+from factory.precard.judge import arbiter_fanout_picks, arbiter_validate_multi
 from factory.precard.pipeline import main, parse_args
 from factory.pipeline import card_pilot
 
@@ -48,20 +48,20 @@ def make_multi_index():
 
 # ---------------- R1: multi-pick judge + fan-out ----------------
 
-def test_r1_judge_validate_accepts_multi_picks():
+def test_r1_arbiter_validate_accepts_multi_picks():
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     anchor_map = {"w:call": {"candidates": [
         {"sense_id": "call#0", "gloss": "a telephone conversation"},
         {"sense_id": "call#1", "gloss": "to shout loudly"}]}}
     data = {"results": [{"key": "w:call",
                          "picks": ["call#1", "call#0"]}]}
-    out = judge_validate_multi(data, batch, anchor_map)
+    out = arbiter_validate_multi(data, batch, anchor_map)
     assert set(out) == {"w:call"}
     got = [p["sense_id"] for p in out["w:call"]["picks"]]
     assert got == ["call#1", "call#0"]
 
 
-def test_r1_judge_validate_rejects_unknown_and_caps_at_four():
+def test_r1_arbiter_validate_rejects_unknown_and_caps_at_four():
     batch = [{"kind": "word", "text": "call", "pool_level": "A1"}]
     cands = [{"sense_id": "call#%d" % i, "gloss": "sense %d" % i}
              for i in range(6)]
@@ -69,20 +69,20 @@ def test_r1_judge_validate_rejects_unknown_and_caps_at_four():
     data = {"results": [{"key": "w:call", "picks": [
         "call#0", "call#9", "call#1", "call#1", "call#2",
         "call#3", "call#4", "call#5"]}]}
-    out = judge_validate_multi(data, batch, anchor_map)
+    out = arbiter_validate_multi(data, batch, anchor_map)
     got = [p["sense_id"] for p in out["w:call"]["picks"]]
     assert got == ["call#0", "call#1", "call#2", "call#3"]
     assert len(got) <= 4
 
 
-def test_r1_fanout_picks_returns_ordered_picks():
+def test_r1_arbiter_fanout_picks_returns_ordered_picks():
     pick_entry = {"sense_id": "call#1", "gloss": "to shout loudly",
                   "model": "m",
                   "picks": [{"sense_id": "call#1",
                              "gloss": "to shout loudly"},
                             {"sense_id": "call#0",
                              "gloss": "a telephone conversation"}]}
-    rows = fanout_picks(
+    rows = arbiter_fanout_picks(
         {"kind": "word", "text": "call", "pool_level": "A1"}, pick_entry)
     assert [r["sense_id"] for r in rows] == ["call#1", "call#0"]
     # Distinct senses hash to distinct stable card ids.
@@ -115,9 +115,9 @@ def test_r1_gloss_duplicate_senses_collapse_to_one_card():
         {"sense_id": "call#0", "gloss": "To reach out with one's voice."}]}}
     data = {"results": [{"key": "w:call",
                          "picks": ["call#2", "call#0"]}]}
-    out = judge_validate_multi(data, batch, anchor_map)
+    out = arbiter_validate_multi(data, batch, anchor_map)
     assert [p["sense_id"] for p in out["w:call"]["picks"]] == ["call#2"]
-    rows = fanout_picks(
+    rows = arbiter_fanout_picks(
         batch[0], {"sense_id": "call#2", "gloss": "x", "picks": [
             {"sense_id": "call#2", "gloss": "To reach out."},
             {"sense_id": "call#0", "gloss": "To reach out."}]})

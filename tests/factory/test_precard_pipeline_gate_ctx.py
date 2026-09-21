@@ -12,13 +12,13 @@ Hermetic, synthetic fixtures, zero model calls, zero network. Covers:
   and keep their sparse row shape.
 - R5: SignalQuality stays annotation-only (verdict LINK preserved).
 
-factory.precard.enrich / factory.linker.gates are NOT modified here
+factory.precard.enrich / factory.linking.gates are NOT modified here
 (F3 lock); the pipeline only passes honestly-available ctx through.
 """
 
 import json
 
-from factory.linker import gates
+from factory.linking import gates
 from factory.precard import enrich as real_enrich
 from factory.precard import pipeline
 

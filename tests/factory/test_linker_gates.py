@@ -9,7 +9,7 @@ lemmas, or rows from SET50r — anti-hardcode rule).
 
 import pytest
 
-from factory.linker import gates
+from factory.linking import gates
 
 
 def test_low_rank_zero_overlap_fires_on_rank_ge2_and_zero_j():
@@ -203,7 +203,7 @@ def test_apply_empty_ctx_preserves_link():
 
 
 def test_shipped_method_vocab_untouched_no_silent_rename():
-    from factory.linker.linker import LINK_METHOD_VOCAB
+    from factory.linking.linker import LINK_METHOD_VOCAB
     assert "JUDGE-REVIEW" in LINK_METHOD_VOCAB
     assert "JUDGE-PENDING" in LINK_METHOD_VOCAB
     assert gates.ESCALATE not in LINK_METHOD_VOCAB
