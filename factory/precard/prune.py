@@ -542,8 +542,30 @@ def screen_for_linking(senses, lemma=""):
     building; ``screening_drops`` = ``[{"sense_id", "reason"}]`` for
     every dropped sense, in chain order. Pure: no I/O, inputs never
     mutated.
+
+    SID-1: every ``link_inputs`` row carries a resolved non-empty
+    ``sense_id`` stamped with the SAME fallback resolver the drops
+    path uses (:func:`_pair_up` / :func:`_sense_id` — never a second
+    scheme). Rows with a pre-existing non-empty ``sense_id`` pass
+    through byte-identical; rows without one are stamped with the
+    ``<lemma>#<file-order>`` fallback. All other keys untouched;
+    drops/stats/verdicts unchanged.
     """
     kept, dropped, stats = prune_senses(senses, lemma=lemma)
     screening_drops = [{"sense_id": drop["sense_id"],
                         "reason": drop["reason"]} for drop in dropped]
-    return kept, screening_drops, stats
+    # Same resolver, same chain order as prune_senses, so kept rows
+    # align 1:1 with their (sid, sense) pairs by construction.
+    pairs = _pair_up(senses, lemma)
+    kept_p, _ = _proper_pairs(pairs)
+    kept_p, _ = _hard_pairs(kept_p)
+    kept_p, _ = _niche_pairs(kept_p)
+    kept_p, _ = _twins_pairs(kept_p)
+    link_inputs = []
+    for (sid, _), row in zip(kept_p, kept):
+        stamped = dict(row)
+        existing = row.get("sense_id")
+        if not (isinstance(existing, str) and existing.strip()):
+            stamped["sense_id"] = sid
+        link_inputs.append(stamped)
+    return link_inputs, screening_drops, stats
