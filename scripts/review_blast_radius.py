@@ -515,7 +515,9 @@ def _import_maps(tree: ast.AST) -> tuple[dict[str, str], dict[str, str]]:
     Each maps the local name to the dotted module it comes from. Only
     absolute imports (``level == 0``) resolve; relative imports need package
     context and are skipped, so call sites relying on them stay
-    unqualified (documented limitation, stdlib only).
+    unqualified (documented limitation, stdlib only). Instance-method calls
+    (``obj.close()``/``self.close()``) never qualify -- no type info, so an
+    empty caller list means "no qualified callers found", not "no callers".
     """
     from_map: dict[str, str] = {}
     import_map: dict[str, str] = {}
@@ -571,7 +573,26 @@ def _is_qualified_call(
             return False
         if from_map.get(base) == sym_module:
             return True
-        return import_map.get(base) == sym_module
+        # `from <pkg> import <mod>`: the local name resolves to
+        # `<pkg>.<mod>`, which may be a parent of the symbol's module
+        # (e.g. `from services import db` + `db.get_user()` for
+        # `services.db.users`; `from services.db import users` +
+        # `users.get_user()`).
+        from_base = from_map.get(base)
+        if from_base is not None:
+            candidate = f"{from_base}.{base}"
+            if sym_module == candidate \
+                    or sym_module.startswith(candidate + "."):
+                return True
+        # `import <dotted> [as <alias>]`: the alias resolves to the full
+        # dotted path, which may be a parent of the symbol's module
+        # (e.g. `import services.db` + `services.db.get_user()`).
+        full = import_map.get(base)
+        if full is not None and (
+            sym_module == full or sym_module.startswith(full + ".")
+        ):
+            return True
+        return False
     return False
 
 

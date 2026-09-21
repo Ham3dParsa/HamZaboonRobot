@@ -105,6 +105,32 @@ class CallerResolutionTest(unittest.TestCase):
         self.assertEqual(callers, ["handlers/caller.py:2"])
         self.assertTrue(rows[0]["via"].endswith("(qualified)"))
 
+    def test_from_package_import_submodule_call_is_qualified(self):
+        """`from <pkg> import <mod>` + `<mod>.<bare>(` resolves via parent."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write(root, "services/db/users.py",
+                   "def get_user():\n    return 1\n")
+            _write(root, "handlers/caller.py",
+                   "from services import db\n"
+                   "x = db.get_user()\n")
+            _write(root, "handlers/caller2.py",
+                   "from services.db import users\n"
+                   "x = users.get_user()\n")
+            _write(root, "handlers/caller3.py",
+                   "import services.db\n"
+                   "x = services.db.get_user()\n")
+            with mock.patch.object(rbr, "REPO_ROOT", root):
+                callers, _capped = rbr.callers_of(
+                    "get_user", "services/db/users.py")
+        self.assertEqual(callers, [
+            "handlers/caller.py:2",
+            "handlers/caller2.py:2",
+            "handlers/caller3.py:2",
+        ])
+
     def test_bare_fallback_without_module_is_approx(self):
         import tempfile
 
