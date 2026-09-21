@@ -6,7 +6,7 @@ base_commit: e959667
 branch: refactor/provider-registry
 status: in-progress
 ---
-STATE: phase 4/4 — status: in-progress — focus: reviewer gate then commit/PR
+STATE: phase 4/4 — status: in-progress — focus: kilo-ci-loop on PR #797 (CI pending), merge on owner order
 
 ## Locked contract (owner chose each, "proceed" 2026-09-21)
 

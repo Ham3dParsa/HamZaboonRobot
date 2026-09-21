@@ -669,11 +669,12 @@ def _flush_telemetry(tele_dir, tele_store, flushed, run_id=""):
     return len(tele_store)
 
 
-def _parse_stage_map(values, allowed_values=None):
+def _parse_stage_map(values, allowed_values=None, lower_value=True):
     """Parse ["sense_judge=avalai"] into {sense_judge: avalai}. Bad entries raise SystemExit
     (fail-fast: a typo must not silently burn paid calls on the wrong leg).
-    Legs accept new ids (legacy s-ids still work). Values normalize here
-    (lower+strip) so every downstream consumer sees canonical names.
+    Legs accept new ids (legacy s-ids still work). Provider values
+    normalize here (lower+strip) when lower_value is on; model maps pass
+    lower_value=False (model IDs are provider case-sensitive).
     """
     out = {}
     for raw in values or []:
@@ -682,7 +683,11 @@ def _parse_stage_map(values, allowed_values=None):
                              % raw)
         stage, _, value = raw.partition("=")
         raw_stage = stage.strip().lower()
-        stage, value = progress.resolve_candidate_stage(raw_stage), value.strip().lower()
+        if lower_value:
+            value = value.strip().lower()
+        else:
+            value = value.strip()
+        stage = progress.resolve_candidate_stage(raw_stage)
         if stage not in LLM_LEGS:
             raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
                 raw_stage, ", ".join(
@@ -1084,7 +1089,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         stage_prov = _parse_stage_map(
             args.stage_provider,
             tuple(provider_registry.provider_names()))
-        stage_model = _parse_stage_map(args.stage_model)
+        stage_model = _parse_stage_map(args.stage_model,
+                                       lower_value=False)
     except SystemExit as exc:
         _preflight_exit(exc.code)
 
@@ -1183,15 +1189,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         if _injected[_leg] is _USE_DEFAULT \
                 and providers[_leg] not in ("avalai", "google") \
                 and not _judge_registry_ok:
-            _extra = (" (or --judge-provider %s)"
-                      % "|".join(provider_registry.provider_names())
+            _valid = ("|".join(provider_registry.provider_names())
+                      if _leg == "sense_judge" else "avalai|google")
+            _extra = (" (or --judge-provider %s)" % _valid
                       if _leg == "sense_judge" else "")
             _preflight_exit(
                 "no provider for %s: pass --llm-provider %s%s "
                 "(or per-leg --stage-provider %s=<provider>) — "
                 "the run line has no default provider" % (
-                    _leg, "|".join(provider_registry.provider_names()),
-                    _extra, _leg))
+                    _leg, _valid, _extra, _leg))
 
     def _leg_avalai(leg):
         # None = caller-skipped leg (fallback path, transport never
