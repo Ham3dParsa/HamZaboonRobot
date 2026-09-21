@@ -1,6 +1,6 @@
 ---
 name: unslop-fa
-description: پالایش متن فارسی — strip AI sludge from Persian text into direct, operational prose via a 4-step cycle with binary exit criteria. Use when writing or editing Persian learner-facing text, technical docs, or UI microcopy, or when user says unslop-fa، پالایش متن، پالایشش کن. For English-only text prefer the global unslop skill.
+description: پالایش متن فارسی — strip AI sludge from Persian text into direct, operational prose via a 4-step cycle with binary exit criteria. Use when writing or editing Persian learner-facing text, technical docs, or UI microcopy, or when user says unslop-fa، palayesh، پالایش متن، پالایشش کن، این را پالایش کن. For English-only text prefer the global unslop skill.
 license: MIT
 compatibility: opencode
 metadata:
