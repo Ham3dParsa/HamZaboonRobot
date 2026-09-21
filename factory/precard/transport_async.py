@@ -77,7 +77,10 @@ async def sleep_unlocked(sem, delay_s, sleep_fn):
     """Sleep without holding the semaphore slot (head-of-line rule).
 
     Caller must hold the slot; if it does not, the sleep still happens and
-    the slot is left exactly as found (never over-release).
+    the slot is left exactly as found. Requires a BoundedSemaphore (plain
+    asyncio.Semaphore.release() never raises, so over-release would
+    silently inflate the bound — all production call sites use
+    BoundedSemaphore; see run_judge_async and the pipeline branch).
     """
     try:
         sem.release()
@@ -325,8 +328,10 @@ async def judge_batch_async(batch_items, anchor_map, *, transport, model,
     """
     from factory.precard import judge as judge_mod
     from factory.core import telemetry as tele_mod
-    if isinstance(tried, list) and model not in tried:
-        tried.append(model)
+    if isinstance(tried, list):
+        async with ring_lock:
+            if model not in tried:
+                tried.append(model)
     if not batch_items:
         return {}
     prompt = judge_mod.arbiter_prompt(batch_items, anchor_map)
@@ -477,7 +482,7 @@ async def run_judge_async(rows, *, transport, model, prompt_fn, validate_fn,
     Duplicate keys inside one run are judged once (first wins). Resumed
     votes are structurally re-checked; malformed ones are re-judged.
     """
-    sem = asyncio.Semaphore(clamp_concurrency(concurrency))
+    sem = asyncio.BoundedSemaphore(clamp_concurrency(concurrency))
     ring_lock = asyncio.Lock()
     file_lock = asyncio.Lock()
     stored = _read_progress(progress_path)

@@ -1711,14 +1711,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         read_entry)
                     if async_first is None:
                         async_first = _bno
-                    _units.append({"batch_no": _bno, "batch": _todo})
+                    _units.append({"batch_no": _bno, "batch_items": _todo})
             _shared_ring = judge_ring or ring
             _ring_keys = (list(_shared_ring.keys)
                           if _shared_ring is not None
                           else [judge_api_key or api_key])
             _amodel = (judge_models[0] if judge_models
                        else models["sense_judge"])
-            _sem = asyncio.Semaphore(async_judge.clamp_concurrency(
+            _sem = asyncio.BoundedSemaphore(async_judge.clamp_concurrency(
                 args.concurrency))
             _rlock = asyncio.Lock()
 
@@ -1733,7 +1733,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
             _maps, async_terminal = asyncio.run(
                 async_judge.run_batches_async(
-                    [{"batch_items": u["todo"],
+                    [{"batch_items": u["batch_items"],
                       "anchor_map": states["anchor_rank"]["done"],
                       "tele_batch": u["batch_no"]} for u in _units],
                     transport=async_judge.to_thread_adapter(

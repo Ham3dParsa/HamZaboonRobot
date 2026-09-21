@@ -58,7 +58,7 @@ class TestConcurrencyBounds(unittest.TestCase):
 
 class TestSleepUnlocked(unittest.IsolatedAsyncioTestCase):
     async def test_slot_is_free_while_backing_off(self):
-        sem = asyncio.Semaphore(1)
+        sem = asyncio.BoundedSemaphore(1)
         seen = {}
 
         async def fake_sleep(delay):
@@ -88,7 +88,7 @@ class TestJudgeRowAsync(unittest.IsolatedAsyncioTestCase):
         kw = dict(
             prompt_fn=lambda row: "PROMPT",
             validate_fn=lambda text: ("ok", {"verdict": "LINK"}),
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=transport.KeyRing(["k1", "k2"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},
@@ -165,7 +165,7 @@ class TestJudgeRowAsync(unittest.IsolatedAsyncioTestCase):
             return _vote_text(), None
 
         rows = [{"key": "w:%d" % i} for i in range(6)]
-        sem = asyncio.Semaphore(2)
+        sem = asyncio.BoundedSemaphore(2)
         await asyncio.gather(*[
             transport_async.judge_row_async(
                 r, transport=slow, **self._engine_kwargs(semaphore=sem))
@@ -186,7 +186,7 @@ class TestSecretsHygiene(unittest.IsolatedAsyncioTestCase):
             {"key": "w:x"}, transport=ok,
             prompt_fn=lambda row: "PROMPT",
             validate_fn=lambda text: ("ok", {"verdict": "LINK"}),
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=ring, ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={})
         blob = json.dumps(vote) + json.dumps(ring.attempt_log
@@ -210,7 +210,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
         kw = dict(
             prompt_fn=lambda row: "PROMPT",
             validate_fn=lambda text: ("ok", {"verdict": "LINK"}),
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=transport.KeyRing(["k1", "k2"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},
@@ -219,7 +219,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
         return kw
 
     async def test_backoff_sleeps_unlocked_with_slot_free(self):
-        sem = asyncio.Semaphore(1)
+        sem = asyncio.BoundedSemaphore(1)
         seen = {}
         order = []
 
@@ -309,7 +309,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
         maps, terminal = await transport_async.run_batches_async(
             [{"batch_items": _batch_items(), "anchor_map": _anchor_map()}],
             transport=ok, model="m",
-            semaphore=asyncio.Semaphore(2),
+            semaphore=asyncio.BoundedSemaphore(2),
             ring=transport.KeyRing(["tk1"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={})
@@ -323,7 +323,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
         maps, terminal = await transport_async.run_batches_async(
             [{"batch_items": _batch_items(), "anchor_map": _anchor_map()}],
             transport=denied, model="m",
-            semaphore=asyncio.Semaphore(2),
+            semaphore=asyncio.BoundedSemaphore(2),
             ring=transport.KeyRing(["tk1"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={})
@@ -333,7 +333,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
     async def test_run_batches_empty_units(self):
         maps, terminal = await transport_async.run_batches_async(
             [], transport=_never_called, model="m",
-            semaphore=asyncio.Semaphore(2),
+            semaphore=asyncio.BoundedSemaphore(2),
             ring=transport.KeyRing(["tk1"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={})
@@ -348,7 +348,7 @@ class TestReviewFixes(unittest.IsolatedAsyncioTestCase):
                 [{"batch_items": _batch_items(),
                   "anchor_map": _anchor_map()}],
                 transport=cancelled, model="m",
-                semaphore=asyncio.Semaphore(2),
+                semaphore=asyncio.BoundedSemaphore(2),
                 ring=transport.KeyRing(["tk1"]),
                 ring_lock=asyncio.Lock(), timeout_s=25,
                 sleep_fn=None, state={})
@@ -361,7 +361,7 @@ async def _never_called(key, model, prompt):  # pragma: no cover
 class TestHttpErrorMapping(unittest.IsolatedAsyncioTestCase):
     def _engine_kwargs(self, **over):
         kw = dict(
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=transport.KeyRing(["k1", "k2"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},
@@ -453,7 +453,7 @@ class TestEdgeInputs(unittest.TestCase):
 class TestEdgeAsync(unittest.IsolatedAsyncioTestCase):
     def _engine_kwargs(self, **over):
         kw = dict(
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=transport.KeyRing(["k1"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},
@@ -558,7 +558,7 @@ class TestEdgeAsync(unittest.IsolatedAsyncioTestCase):
             [{"batch_items": _batch_items(), "anchor_map": _anchor_map()},
              {"batch_items": _batch_items(), "anchor_map": _anchor_map()}],
             transport=ok, model="m",
-            semaphore=asyncio.Semaphore(2),
+            semaphore=asyncio.BoundedSemaphore(2),
             ring=transport.KeyRing(["tk1"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},
@@ -621,13 +621,13 @@ class TestEdgeAsync(unittest.IsolatedAsyncioTestCase):
                 [{"batch_items": _batch_items(),
                   "anchor_map": _anchor_map()}],
                 transport=ok, model="m",
-                semaphore=asyncio.Semaphore(2),
+                semaphore=asyncio.BoundedSemaphore(2),
                 ring=transport.KeyRing(["tk1"]),
                 ring_lock=asyncio.Lock(), timeout_s=25,
                 sleep_fn=None, state={}, progress_sink=bad_sink)
 
     async def test_sleep_unlocked_on_free_semaphore_still_sleeps(self):
-        sem = asyncio.Semaphore(1)
+        sem = asyncio.BoundedSemaphore(1)
         seen = []
         await transport_async.sleep_unlocked(
             sem, 0.01, lambda delay: seen.append(delay) or asyncio.sleep(0))
@@ -723,7 +723,7 @@ def _batch_reply():
 class TestJudgeBatchAsync(unittest.IsolatedAsyncioTestCase):
     def _engine_kwargs(self, **over):
         kw = dict(
-            model="m", semaphore=asyncio.Semaphore(8),
+            model="m", semaphore=asyncio.BoundedSemaphore(8),
             ring=transport.KeyRing(["k1", "k2"]),
             ring_lock=asyncio.Lock(), timeout_s=25,
             sleep_fn=None, state={},

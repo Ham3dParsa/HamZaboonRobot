@@ -6,7 +6,7 @@ base_commit: aaf3627
 branch: feat/async-cloud-judge
 status: in-progress
 ---
-STATE: phase 1/4 — status: in-progress — focus: RED tests for async transport + route modes
+STATE: phase 4/4 — status: in-progress — focus: kilo-ci-loop on PR #789 (CI pending), merge on owner order
 
 ## Locked contract (owner chose each, "proceed" 2026-09-20)
 
