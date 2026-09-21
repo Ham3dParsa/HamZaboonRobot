@@ -1,6 +1,6 @@
 # REVIEW.md
 
-Repo-specific guidance for automated code review, read by Kilo from the base
+Repo-specific guidance for automated code review, read by OC from the base
 branch. Add value only where it changes this reviewer's defaults — the
 repo-specific traps a generic reviewer would get wrong. Keep in sync with
 AGENTS.md §3.
@@ -24,6 +24,16 @@ AGENTS.md §3.
 - Application-day math uses `APP_TIMEZONE`; UTC for processing metadata. Flag a
   quota/date boundary computed in the wrong zone.
 
+## Names and readability
+
+- New names must say what the thing is. Flag counters or short codes used as
+  real names (g1, f3, s0b, a/b/c outside a tiny loop).
+- Same logic in two places means one shared definition plus reuse
+  (AGENTS.md §3). Flag the copy, point to the owner.
+- A new module with many public functions and no split is flagged. Ask for
+  a split.
+- Judge only names the PR adds. Old names are history, note them at most.
+
 ## Verify before flagging
 
 - Escaping / wiring / quota claims: point to the function or
@@ -37,7 +47,7 @@ AGENTS.md §3.
 - Critical: data loss, privilege escalation, raw-key exposure, plan/quota
   billing errors, duplicate delivery.
 - Warning: escaping misses, wiring gaps, quota/date-boundary bugs, untested
-  behavior.
+  behavior, unreadable new names.
 - Do not flag: formatting/whitespace (ruff + `git diff --check` gate these),
   LLM token/cost choices, or product/education policy outside this PR's scope.
 
