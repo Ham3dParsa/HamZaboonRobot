@@ -104,3 +104,31 @@ jobs:
         env:
           HAMZABAN_TEST_MODE: "1"
         run: python scripts/run_with_ram_gate.py -n 2
+
+  review-context:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install graphify (best-effort)
+        run: pip install graphifyy || true
+
+      - name: Build review context
+        run: python scripts/review_blast_radius.py --base origin/main --out review-context.json || test $? -eq 2
+
+      - name: Upload review context
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: review-context
+          path: review-context.json
+          if-no-files-found: warn
