@@ -1322,14 +1322,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "unknown judge provider %r (known: %s)" % (
                     _jprov, "|".join(
                         provider_registry.provider_names())))
-        _jkey, _jvar = "", ""
+        _jkey = ""
         for _var in provider_registry.key_ref_for(_jprov, "G1"):
             try:
                 _env = load_factory_env(required=(_var,))
             except KeyError:
                 continue
             if _env.get(_var):
-                _jkey, _jvar = _env[_var], _var
+                _jkey = _env[_var]
                 break
         if not _jkey:
             _preflight_exit(

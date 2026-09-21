@@ -247,6 +247,31 @@ class TestAsyncJudgePipelineBranch(unittest.TestCase):
                     os.environ[_var] = _val
         self.assertIn("GROQ_API_KEY_G1", str(ctx.exception.code))
 
+    def test_groq_on_non_judge_leg_rejected(self):
+        # Per-leg gate: registry names ride ONLY sense_judge; a default
+        # topic leg on groq exits naming avalai|google (no network).
+        # NOTE: _topic_transport left default (not None) so the leg is
+        # really gated; injected-None legs are exempt by design.
+        from factory.precard.pipeline import main as precard_main
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as ctx:
+                precard_main(
+                    ["--out", os.path.join(tmp, "precard.jsonl"),
+                     "--progress-dir", os.path.join(tmp, "prog"),
+                     "--no-resume", "--llm-provider", "groq",
+                     "--concurrency", "2", "--quiet"],
+                    _assign_transport=None,
+                    _inflect_transport=None,
+                    _sleep_fn=lambda s: None,
+                    _index={}, _read_entry=lambda row: row,
+                    _tatoeba={}, _zipf_fn=lambda t: 5.0,
+                    _awl_set=set(), _type_map={},
+                    _type_log_available=False)
+        msg = str(ctx.exception.code)
+        self.assertIn("avalai|google", msg)
+        self.assertIn("topic_vectors", msg)
+
     def test_groq_default_model_demands_explicit_judge_model(self):
         # Registry provider + key present but avalai-default model would be
         # sent verbatim to a foreign API: loud exit, no network.
