@@ -104,6 +104,20 @@ def _head_sha() -> str | None:
     return out.strip() if rc == 0 and out.strip() else None
 
 
+def _is_dirty() -> bool:
+    """True when the working tree has uncommitted `.py` changes.
+
+    Any `git status --porcelain -- *.py` output (tracked `.py`
+    modifications or untracked `.py` files) means a HEAD-pinned graph
+    cannot represent the review target, so the context is approximate
+    even when fresh.
+    """
+    rc, out, _ = _run(["git", "status", "--porcelain", "--", "*.py"])
+    if rc != 0:
+        return True  # fail-closed: unknown state reads as dirty
+    return bool(out.strip())
+
+
 def _diff_py_files(base: str) -> tuple[list[str], str | None]:
     """Changed ``.py`` paths: committed range + working tree + untracked.
 
@@ -1097,6 +1111,7 @@ def build_context(
         "head_sha": head_sha,
         "built_at_commit": graph_built,
         "fresh": fresh,
+        "dirty": _is_dirty(),
         "changed_symbols": changed_symbols,
         "blast_radius": blast_radius,
         "wiring_delta": wiring_delta,
@@ -1110,6 +1125,9 @@ def build_context(
         note = ((note + "; " if note else "")
                 + "stale graph: re-run `graphify update .`")
         exit_code = 2
+    if context["dirty"] and fresh:
+        note = ((note + "; " if note else "")
+                + "working tree dirty: HEAD-pinned graph is approximate")
     return context, note, exit_code
 
 

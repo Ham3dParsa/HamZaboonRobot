@@ -35,6 +35,7 @@ EXPECTED_KEYS = {
     "head_sha",
     "built_at_commit",
     "fresh",
+    "dirty",
     "changed_symbols",
     "blast_radius",
     "wiring_delta",
@@ -131,6 +132,56 @@ class ReviewBlastRadiusShapeTest(unittest.TestCase):
             self.assertEqual(set(row.keys()),
                              {"symbol", "callers", "callees", "via"})
             self.assertTrue(row["via"].startswith("ast-scan"))
+
+
+    def test_dirty_flag_present_and_boolean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "review-context.json")
+            code = rbr.main(["--base", "HEAD", "--out", out,
+                             "--no-graph", "--no-probes"])
+            self.assertEqual(code, 0)
+            context = json.loads(Path(out).read_text(encoding="utf-8"))
+        self.assertIn("dirty", context)
+        self.assertIsInstance(context["dirty"], bool)
+
+    def test_is_dirty_reads_porcelain(self):
+        from unittest import mock
+
+        with mock.patch.object(rbr, "_run",
+                               return_value=(0, " M foo.py\n", "")):
+            self.assertTrue(rbr._is_dirty())
+        with mock.patch.object(rbr, "_run", return_value=(0, "", "")):
+            self.assertFalse(rbr._is_dirty())
+        with mock.patch.object(rbr, "_run",
+                               return_value=(128, "", "not a repo")):
+            self.assertTrue(rbr._is_dirty())
+
+    def test_dirty_and_fresh_emits_approximate_note_with_exit_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            graph = Path(tmp) / "graph.json"
+            graph.write_text(json.dumps({"built_at_commit": "abc123"}),
+                             encoding="utf-8")
+            with mock.patch.object(rbr, "_head_sha",
+                                   return_value="abc123"), \
+                 mock.patch.object(rbr, "_is_dirty",
+                                   return_value=True), \
+                 mock.patch.object(rbr, "_diff_py_files",
+                                   return_value=([], None)), \
+                 mock.patch.object(rbr, "collect_changed_symbols",
+                                   return_value=[]), \
+                 mock.patch.object(rbr, "compute_wiring_delta",
+                                   return_value={"added_prefixes": [],
+                                                 "removed_prefixes": [],
+                                                 "orphaned": []}), \
+                 mock.patch.object(rbr, "compute_dead_refs",
+                                   return_value={"hits": {}}):
+                context, note, code = rbr.build_context(
+                    base="HEAD", graph_json=graph, run_update=False,
+                    run_probes=False, run_graph=True, graph_explicit=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(context["dirty"])
+        self.assertTrue(context["fresh"])
+        self.assertIn("working tree dirty", note)
 
 
 class ChangedSymbolExtractionTest(unittest.TestCase):
