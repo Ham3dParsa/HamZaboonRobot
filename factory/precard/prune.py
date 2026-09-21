@@ -34,6 +34,15 @@ carries an additive ``"flags"`` list including ``"dialectal"`` when its
 tags hit the frozen ``DIALECTAL_TAGS`` set (casefolded). Other keys of
 kept rows stay byte-identical; dropped rows carry reason only.
 
+Known consensus deviations (pinned, owner decision pending): the chain
+keeps 28 senses the 204-row golden fixture drops — 8 ``DROP_DIALECTAL``
+(explicit-dialectal senses kept+flagged under the never-drop doctrine),
+19 ``DROP_HYPER_NICHE`` (the R4 guard only judges topics/categories, so
+topic-less niche senses survive), 1 ``DROP_FORM_OF`` (R1 acronym shape
+needs ``pos == "name"``). The chain NEVER drops a consensus-KEEP sense
+(zero over-drops). Exact positions pinned in
+``tests/factory/test_sense_prune.py::test_chain_golden_conformance``.
+
 Standalone: no caller changes anywhere (R6). Pure functions, no I/O.
 """
 
@@ -58,9 +67,13 @@ REASON_OBSCURE_ACRONYM = "DROP_OBSCURE_ACRONYM"
 TWIN_OF_PREFIX = "twin-of:"
 
 # R2 dialectal signal (frozen, locked): NEVER a drop, only a kept-row flag.
-# Casefolded at match time against sense_tags() output.
+# Casefolded at match time against sense_tags() output. Bare "uk" is
+# deliberately NOT a member: the pinned consensus converts UK-only senses
+# to KEEP_STANDARD_UK (golden rows 196/198), so "UK" alone marks standard
+# national use, not regional use. Explicit "dialectal" + genuinely
+# regional tags stay members.
 DIALECTAL_TAGS = frozenset({
-    "dialectal", "uk", "northern-england", "midwestern-us",
+    "dialectal", "northern-england", "midwestern-us",
     "southern-us", "scotland",
 })
 

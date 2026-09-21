@@ -1,7 +1,12 @@
-"""Sense-screening pruner: R1 proper, R2 hard, R3 twin, R4 niche.
+"""Sense-screening pruner: R1 proper -> R2 hard -> R4 niche -> R3 twin.
 
-Hermetic: synthetic fixtures only (no Kaikki dump, no network).
+Hermetic: synthetic fixtures only (no Kaikki dump, no network), plus a
+read-only pass over the pinned 204-row golden fixture (no imports beyond
+stdlib + prune).
 """
+
+import json
+import os
 
 from factory.precard import anchor, prune
 
@@ -171,6 +176,8 @@ def test_r2_dialectal_flag_on_kept_never_a_drop():
         _sense("w#0", "To sit.", tags=["UK", "dialectal"]),
         _sense("w#1", "To suit.", tags=["Scotland"]),
         _sense("w#2", "To rest.", tags=["Midwestern-US", "dialectal"]),
+        # Bare UK is standard national use, NOT dialectal (golden rows
+        # 196/198 are UK-only KEEP_STANDARD_UK): no flag.
         _sense("w#3", "A class group.", tags=["UK"]),
         _sense("w#4", "To gain.", tags=["transitive"]),
     ]
@@ -181,8 +188,9 @@ def test_r2_dialectal_flag_on_kept_never_a_drop():
         "w#0", "w#1", "w#2", "w#3", "w#4"]
     assert dropped == []
     by_id = {s["sense_id"]: s for s in kept}
-    for sid in ("w#0", "w#1", "w#2", "w#3"):
+    for sid in ("w#0", "w#1", "w#2"):
         assert "dialectal" in by_id[sid]["flags"]
+    assert by_id["w#3"]["flags"] == []
     assert by_id["w#4"]["flags"] == []
     # Additive only: every other key byte-identical to the input row.
     for orig in before:
@@ -195,7 +203,8 @@ def test_r2_dialectal_flag_on_kept_never_a_drop():
 
 
 def test_r2_dialectal_flag_preserves_existing_flags():
-    senses = [_sense("w#0", "To sit.", tags=["UK"], flags=["kept-audit"])]
+    senses = [_sense("w#0", "To sit.", tags=["Scotland"],
+                     flags=["kept-audit"])]
     kept, _, _ = prune.prune_senses(senses, lemma="w")
     assert kept[0]["flags"] == ["kept-audit", "dialectal"]
 
@@ -255,3 +264,71 @@ def test_chain_is_pure_no_io():
     assert senses == before  # inputs never mutated
     assert stats["total"] == 1
     assert stats["example_counts"] == {"with_example": 0, "zero_example": 1}
+
+
+_GOLDEN = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "data", "sense_screening_golden_204.json"))
+
+# Pinned consensus deviations: (lemma, file-order position) the chain
+# KEEPs while the golden fixture DROPs. Any behavior change must update
+# this set deliberately, never silently.
+_DIALECTAL_DEVIATIONS = frozenset({
+    ("wear", 15), ("wear", 16), ("wear", 17), ("wear", 18),
+    ("set", 24), ("set", 25), ("set", 39), ("set", 45),
+})
+_HYPER_NICHE_DEVIATIONS = frozenset({
+    ("book", 7), ("book", 8), ("book", 12), ("book", 13),
+    ("book", 14), ("book", 16),
+    ("well", 21), ("well", 22), ("well", 23), ("well", 24),
+    ("well", 25), ("well", 27), ("well", 31),
+    ("set", 57), ("set", 59), ("set", 60), ("set", 64),
+    ("set", 67), ("set", 98),
+})
+_FORM_OF_DEVIATIONS = frozenset({("set", 99)})
+_ALLOWED_DEVIATIONS = (_DIALECTAL_DEVIATIONS | _HYPER_NICHE_DEVIATIONS
+                       | _FORM_OF_DEVIATIONS)
+
+
+def test_chain_golden_conformance():
+    # Every fixture row through prune_senses, per lemma in file order.
+    with open(_GOLDEN, encoding="utf-8") as fh:
+        rows = json.load(fh)
+    assert len(rows) == 204
+    by_lemma = {}
+    for row in rows:
+        by_lemma.setdefault(row["lemma"], []).append(row)
+    over_drops = []
+    under_drops = []
+    kept_by_pos = {}
+    for lemma, lemma_rows in by_lemma.items():
+        senses = [{
+            "gloss": row["gloss"], "tags": row["tags"],
+            "topics": row["topics"], "categories": row["categories"],
+            "pos": row["pos"],
+            "examples": [{"text": "e"}] * row["example_count"],
+        } for row in lemma_rows]
+        for pos, sense in enumerate(senses):
+            kept_by_pos[(lemma, pos)] = prune.with_dialectal_flags(sense)
+        pairs = prune._pair_up(senses, lemma)
+        kept_p, dropped = prune._proper_pairs(pairs)
+        kept_p, hard = prune._hard_pairs(kept_p)
+        dropped += hard
+        kept_p, niche = prune._niche_pairs(kept_p)
+        dropped += niche
+        kept_p, twins = prune._twins_pairs(kept_p)
+        dropped += twins
+        survived = {int(sid.split("#")[1]) for sid, _ in kept_p}
+        for pos, row in enumerate(lemma_rows):
+            if pos in survived:
+                if row["verdict"] != "KEEP":
+                    under_drops.append((lemma, pos))
+            elif row["verdict"] == "KEEP":
+                over_drops.append((lemma, pos))
+    # Zero over-drops: the chain never drops a consensus-KEEP sense.
+    assert over_drops == []
+    # Under-drops pin exactly to the allowed deviation set.
+    assert set(under_drops) == _ALLOWED_DEVIATIONS
+    # Bare-UK consensus-KEEP rows carry no dialectal flag (golden 196/198).
+    for key in (("set", 94), ("set", 96)):
+        assert kept_by_pos[key]["flags"] == []
