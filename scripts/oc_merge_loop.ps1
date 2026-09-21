@@ -1,15 +1,18 @@
 <#
 .SYNOPSIS
-    Kilo + OpenCode — CI loop — delta-optimal poll for both reviewers + CI + mergeable (per kilo-ci-loop skill).
+    OC merge loop (چرخه مرج) — delta-optimal poll for OpenCode reviewer + CI + mergeable (per oc-merge-loop skill).
 
 .DESCRIPTION
-    Implements `.opencode/skills/kilo-ci-loop/SKILL.md` exactly:
+    Implements `.opencode/skills/oc-merge-loop/SKILL.md` exactly:
     - Sleep 90-120s between polls, 30m overall timeout (configurable)
-    - Reviewer delta: only id+body-length+user via `gh api ... --jq '{id,h:(.body|length),user:.user.login}'`, persist to $env:TEMP/opencode/reviewer_seen_<PR>.json (fallback legacy kilo_seen)
-      Surface only new id or changed h; fetch full body only for deltas (token-efficient). Tags each delta as Kilo vs OpenCode.
-    - CI: requires label, test (3.10), test (3.13), ram-gate, Kilo Code Review, review (opencode-review) = pass
+    - Reviewer delta: only id + body-length + login via simple `gh api ... --jq '.[] | [.id, (.body|length), .user.login] | @tsv'`,
+      filtered to `opencode-agent[bot]` inside PowerShell (never complex jq select with brackets — breaks on PowerShell 5.1).
+      Persist to per-PR state file (default $env:TEMP/opencode/reviewer_seen_<PR>.json, overridable via -SeenPath).
+      Surface only new id or changed h; fetch full body only for deltas (token-efficient).
+    - CI: requires label, test (3.10), test (3.13), ram-gate, review = pass
     - Merge conflict: git fetch origin; rebase origin/main with verify (compile_all.py + diff --check), push --force-with-lease
-    Each fix commit must be pushed — both reviewers re-review only after push.
+    - APPROVED triple: latest opencode-agent comment says APPROVED, 0 must-fix open, green checks on the same head
+    Each fix commit must be pushed — OC re-reviews only after push. Kilo is OFF and stays ignored.
 
 .PARAMETER PR
     Pull request number.
@@ -23,19 +26,23 @@
 .PARAMETER WorkDir
     Working directory (default current). Must be a git repo with gh auth.
 
+.PARAMETER SeenPath
+    Per-PR reviewer state file (default $env:TEMP/opencode/reviewer_seen_<PR>.json).
+
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kilo_ci_loop.ps1 -PR 486
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kilo_ci_loop.ps1 -PR 486 -SleepSeconds 100 -TimeoutMinutes 30
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/oc_merge_loop.ps1 -PR 486
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/oc_merge_loop.ps1 -PR 486 -SleepSeconds 100 -TimeoutMinutes 30
 
 .NOTES
-    Completion: every reviewer delta (Kilo + OpenCode) fetched once + triaged, all required checks pass (including both Kilo Code Review and review), mergeable=MERGEABLE.
+    Completion: every OC delta fetched once + triaged, all required checks pass, APPROVED triple holds, mergeable=MERGEABLE.
     Evidence is `gh pr checks <n>` output. Use after `gh pr create`/`git push` and before `gh pr merge --squash`.
 #>
 param(
     [Parameter(Mandatory)][int]$PR,
     [int]$SleepSeconds = 90,
     [int]$TimeoutMinutes = 30,
-    [string]$WorkDir = (Get-Location).Path
+    [string]$WorkDir = (Get-Location).Path,
+    [string]$SeenPath = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,20 +54,19 @@ if ($SleepSeconds -lt 90 -or $SleepSeconds -gt 120) {
 }
 
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
-$seenPath = Join-Path $env:TEMP "opencode\reviewer_seen_$PR.json"
-$legacySeenPath = Join-Path $env:TEMP "opencode\kilo_seen_$PR.json"
+if ([string]::IsNullOrWhiteSpace($SeenPath)) {
+    $SeenPath = Join-Path $env:TEMP "opencode\reviewer_seen_$PR.json"
+}
+$seenPath = $SeenPath
 $null = New-Item -ItemType Directory -Force -Path (Split-Path $seenPath) -ErrorAction SilentlyContinue
 
+$Repo = "Ham3dParsa/HamZaboonRobot"
+$BotLogin = "opencode-agent[bot]"
+
 function Load-Seen {
-    $p = $seenPath
-    $isLegacy = $false
-    if (-not (Test-Path $p) -and (Test-Path $legacySeenPath)) { $p = $legacySeenPath; $isLegacy = $true }
-    if (Test-Path $p) {
+    if (Test-Path $seenPath) {
         try {
-            $data = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
-            if ($isLegacy -and $data.Count -gt 0) {
-                try { Save-Seen $data } catch { Write-Warning "migrate legacy seen failed: $_" }
-            }
+            $data = Get-Content $seenPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
             return $data
         } catch { return @{} }
     }
@@ -75,14 +81,28 @@ function Get-ReviewerDelta {
     param([hashtable]$seen)
     $deltas = @()
     $apiFailed = $false
-    $pullJson = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login, path, line}' 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api pulls/comments failed: $pullJson"; $apiFailed = $true }
-    $issueJson = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login}' 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api issues/comments failed: $issueJson"; $apiFailed = $true }
+    $pullTsv = gh api "repos/$Repo/pulls/$PR/comments" --jq '.[] | [.id, (.body|length), .user.login] | @tsv' 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api pulls/comments failed: $pullTsv"; $apiFailed = $true }
+    $issueTsv = gh api "repos/$Repo/issues/$PR/comments" --jq '.[] | [.id, (.body|length), .user.login] | @tsv' 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api issues/comments failed: $issueTsv"; $apiFailed = $true }
     if ($apiFailed) { return @{ rows=@(); deltas=@(); apiFailed=$true } }
     $rows = @()
-    if ($pullJson) { $rows += ($pullJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad pull json: $line : $_"; return } }) }
-    if ($issueJson) { $rows += ($issueJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad issue json: $line : $_"; return } }) }
+    if ($pullTsv) {
+        foreach ($line in $pullTsv) {
+            $parts = ($line -split "`t")
+            if ($parts.Count -lt 3) { Write-Warning "skip bad pull tsv: $line"; continue }
+            if ($parts[2] -ne $BotLogin) { continue }
+            $rows += @{ id = $parts[0]; h = [int]$parts[1]; user = $parts[2]; src = 'pull' }
+        }
+    }
+    if ($issueTsv) {
+        foreach ($line in $issueTsv) {
+            $parts = ($line -split "`t")
+            if ($parts.Count -lt 3) { Write-Warning "skip bad issue tsv: $line"; continue }
+            if ($parts[2] -ne $BotLogin) { continue }
+            $rows += @{ id = $parts[0]; h = [int]$parts[1]; user = $parts[2]; src = 'issue' }
+        }
+    }
     foreach ($r in $rows) {
         $id = "$($r.id)"
         $h = [int]$r.h
@@ -100,11 +120,11 @@ function Test-Checks {
         if ($LASTEXITCODE -ne 0) { throw "gh pr checks exit $LASTEXITCODE : $out" }
     } catch {
         Write-Warning "Test-Checks failed: $_"
-        $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
+        $required = @('label','test (3.10)','test (3.13)','ram-gate','review')
         return @{ out = ""; missing = $required; fail = $true }
     }
     Write-Host $out
-    $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
+    $required = @('label','test (3.10)','test (3.13)','ram-gate','review')
     $missingPass = @()
     foreach ($name in $required) {
         $pattern = "(?m)^\s*$([regex]::Escape($name))(?!\w)\s+pass"
@@ -124,6 +144,25 @@ function Test-Mergeable {
     }
 }
 
+function Test-OCApproval {
+    try {
+        $tsv = gh api "repos/$Repo/issues/$PR/comments" --jq '.[] | [.id, (.body|length), .user.login] | @tsv' 2>&1
+        if ($LASTEXITCODE -ne 0) { throw $tsv }
+        $lastId = $null
+        foreach ($line in $tsv) {
+            $parts = ($line -split "`t")
+            if ($parts.Count -ge 3 -and $parts[2] -eq $BotLogin) { $lastId = $parts[0] }
+        }
+        if ($null -eq $lastId) { return $false }
+        $body = gh api "repos/$Repo/issues/comments/$lastId" --jq '.body' 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw $body }
+        return ($body -match 'APPROVED')
+    } catch {
+        Write-Warning "Test-OCApproval failed: $_"
+        return $false
+    }
+}
+
 $seen = Load-Seen
 if ($seen.Count -eq 0) { Write-Host "[init] seen empty -> will capture baseline on first poll" }
 
@@ -132,7 +171,7 @@ while ((Get-Date) -lt $deadline) {
     $iteration++
     Write-Host "`n=== poll #$iteration @ $(Get-Date -Format 'HH:mm:ss') (deadline $($deadline.ToString('HH:mm')) ) ===" -ForegroundColor Cyan
 
-    # 1. Reviewer delta (token-tight — Kilo + OpenCode)
+    # 1. Reviewer delta (token-tight — OpenCode only)
     $deltaRes = Get-ReviewerDelta -seen $seen
     $rows = $deltaRes.rows
     $deltas = $deltaRes.deltas
@@ -150,23 +189,21 @@ while ((Get-Date) -lt $deadline) {
             $failedIds = @()
             foreach ($d in $deltas) {
                 $id = $d.id; $h = $d.h; $prev = $d.prev
-                $bot = if ($d.row.user) { $d.row.user } else { "unknown" }
-                $where = if ($d.row.path) { "$($d.row.path):$($d.row.line)" } else { "issue-comment" }
-                Write-Host "  + id $id [$bot] h $prev -> $h @ $where"
+                $where = if ($d.row.src -eq 'pull') { "pull-comment" } else { "issue-comment" }
+                Write-Host "  + id $id [$BotLogin] h $prev -> $h @ $where"
                 # Fetch full body only for deltas
-                $isPull = $null -ne $d.row.path
                 try {
-                    if ($isPull) {
-                        $body = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
+                    if ($d.row.src -eq 'pull') {
+                        $body = gh api "repos/$Repo/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
                         if ($LASTEXITCODE -ne 0) { throw $body }
                     } else {
-                        $body = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/comments/$id" --jq '.body' 2>&1 | Out-String
+                        $body = gh api "repos/$Repo/issues/comments/$id" --jq '.body' 2>&1 | Out-String
                         if ($LASTEXITCODE -ne 0) { throw $body }
                     }
                 } catch {
                     Write-Warning "fetch body $id failed: $_"; $failedIds += $id; continue
                 }
-                $preview = ($body | Select-Object -First 1) -replace "`n"," " 
+                $preview = ($body | Select-Object -First 1) -replace "`n"," "
                 if ($preview.Length -gt 400) { $preview = $preview.Substring(0,400) + " ..." }
                 Write-Host "    preview: $preview" -ForegroundColor DarkGray
                 # Persist full body for audit if needed: $env:TEMP/opencode/reviewer_body_<id>.md
@@ -214,26 +251,30 @@ while ((Get-Date) -lt $deadline) {
             $rebaseOngoing = git status 2>&1 | Select-String -Pattern "rebase in progress"
             if ($rebaseOngoing) { GIT_EDITOR=true git rebase --continue 2>&1 | Write-Host }
             git push --force-with-lease 2>&1 | Write-Host
-            Write-Host "[rebase] pushed --force-with-lease, next poll will re-check reviewers" -ForegroundColor Green
+            Write-Host "[rebase] pushed --force-with-lease, next poll will re-check reviewer" -ForegroundColor Green
         } finally { Pop-Location }
     }
 
     $allChecksPass = $checksPass -and $mergeable -eq 'MERGEABLE' -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE')
-    # Skill completion: all deltas fetched + all required checks pass + mergeable MERGEABLE
+    # Skill completion: all deltas fetched + required checks pass + APPROVED triple holds + mergeable MERGEABLE
     if ($allChecksPass) {
-        # Verify both reviewers explicitly pass (anchored (?!\w) to avoid substring collision, safe for ) names)
-        if ($checkRes.out -match '(?m)^\s*Kilo Code Review(?!\w)\s+pass' -and $checkRes.out -match '(?m)^\s*review(?!\w)\s+pass') {
-            Write-Host "`n[done] All required checks pass + MERGEABLE + Kilo & OpenCode pass — ready to merge" -ForegroundColor Green
-            Write-Host "      Evidence: gh pr checks $PR"
-            exit 0
+        if ($checkRes.out -match '(?m)^\s*review(?!\w)\s+pass') {
+            $approved = Test-OCApproval
+            if ($approved) {
+                Write-Host "`n[done] APPROVED triple holds + all required checks pass + MERGEABLE — ready to merge" -ForegroundColor Green
+                Write-Host "      Evidence: gh pr checks $PR"
+                exit 0
+            } else {
+                Write-Host "[approval] required checks pass but latest OC comment does not say APPROVED yet" -ForegroundColor Yellow
+            }
         }
     }
 
     if ((Get-Date) -ge $deadline) { break }
 
-    # On fail, fetch failed log for triage before next sleep
+    # On fail, note missing checks for triage before next sleep
     if ($checkRes.fail) {
-        Write-Host "[ci] fail/missing: $($checkRes.missing -join ', ') — fetching log on next fail poll" -ForegroundColor Yellow
+        Write-Host "[ci] fail/missing: $($checkRes.missing -join ', ')" -ForegroundColor Yellow
     }
 
     $sleep = $SleepSeconds
