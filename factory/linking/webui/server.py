@@ -1490,6 +1490,10 @@ def _store_operator_key(var, value):
         with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(current, handle, ensure_ascii=False, indent=1)
         os.replace(tmp, OPERATOR_KEYS_PATH)
+        try:
+            os.chmod(OPERATOR_KEYS_PATH, 0o600)
+        except OSError:
+            pass
     # Names only in every surface: never echo the value back, never log it.
     app.logger.info("operator key stored for %s", var)
     return True, ""
@@ -1511,6 +1515,10 @@ def _remove_operator_key(var):
             with open(tmp, "w", encoding="utf-8") as handle:
                 json.dump(current, handle, ensure_ascii=False, indent=1)
             os.replace(tmp, OPERATOR_KEYS_PATH)
+            try:
+                os.chmod(OPERATOR_KEYS_PATH, 0o600)
+            except OSError:
+                pass
         except OSError:
             return False
     return True

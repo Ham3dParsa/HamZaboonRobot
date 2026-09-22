@@ -99,3 +99,36 @@ def test_scrub_secrets_back_compat_single_arg(monkeypatch):
     monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
     assert webui.scrub_secrets("") == ""
     assert "x" in webui.scrub_secrets("x")
+
+
+def test_operator_key_store_restricts_file_mode(tmp_path, monkeypatch):
+    import sys as _sys
+
+    fake_crypto = type(
+        "C", (), {"encrypt_for_storage": staticmethod(lambda v: "CTXT")})
+    monkeypatch.setitem(_sys.modules, "services.db.key_crypto", fake_crypto)
+    # route the real services.db.key_crypto import to the fake
+    import services.db as _db
+
+    monkeypatch.setattr(_db.key_crypto, "encrypt_for_storage",
+                        lambda v: "CTXT", raising=False)
+    store = tmp_path / "operator_keys.json"
+    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(store))
+    chmod_calls = []
+    real_chmod = os.chmod
+
+    def _spy(path, mode):
+        chmod_calls.append((str(path), mode))
+        try:
+            return real_chmod(path, mode)
+        except OSError:
+            return None
+
+    monkeypatch.setattr(os, "chmod", _spy)
+    ok, _err = webui._store_operator_key("MINE_API_KEY", "v" * 16)
+    assert ok and store.is_file()
+    assert (str(store), 0o600) in chmod_calls
+    # remove path rewrites the store — mode re-applied there too
+    chmod_calls.clear()
+    assert webui._remove_operator_key("MINE_API_KEY") is True
+    assert (str(store), 0o600) in chmod_calls
