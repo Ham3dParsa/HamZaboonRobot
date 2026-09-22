@@ -6,6 +6,23 @@ import pathlib
 KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
         "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY", "AVALAI_API_KEY")
 
+DATA_ROOT_ENV_VAR = "HAMZABAN_DATA_ROOT"
+
+
+def data_root():
+    """External factory data root (stdlib only, no side effects).
+
+    Returns ``HAMZABAN_DATA_ROOT`` when set and non-blank, else the
+    repo-local ``data/`` dir (resolved from the factory package
+    location). Read lazily per call (never cached) so env changes and
+    monkeypatching take effect between calls. Never creates dirs.
+    """
+    root = os.environ.get(DATA_ROOT_ENV_VAR, "")
+    if isinstance(root, str) and root.strip():
+        return root.strip()
+    return str(pathlib.Path(__file__).resolve().parent.parent.parent
+               / "data")
+
 def load_factory_env(required=()):
     env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
     wanted = set(KEYS) | set(required or ())

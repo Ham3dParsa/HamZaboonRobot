@@ -99,8 +99,33 @@ MAX_ATTEMPTS = 2
 
 DEFAULT_OUT_DIR = "W:/hamzaban_data_factory/pilot/"
 DEFAULT_REPORT = "W:/hamzaban_data_factory/reports/card-pilot-2026-09-04.html"
-DEFAULT_KAIKKI_INDEX = "W:/hamzaban_data_factory/raw/kaikki-en-index.jsonl"
-DEFAULT_KAIKKI_RAW = "W:/hamzaban_data_factory/raw/kaikki-en-words.jsonl"
+# Data-root-relative defaults (HAMZABAN_DATA_ROOT first, else repo data/;
+# same re-export-shim precedent as provider_transport.__getattr__).
+# Resolved lazily per access (never frozen at import) so env changes
+# and monkeypatching take effect; a monkeypatched module-global
+# override always wins over the computed path.
+_DATA_DEFAULT_PARTS = {
+    "DEFAULT_KAIKKI_INDEX": ("raw", "kaikki-en-index.jsonl"),
+    "DEFAULT_KAIKKI_RAW": ("raw", "kaikki-en-words.jsonl"),
+    "DEFAULT_TATOEBA_POOL": ("fixtures", "tatoeba_pool_v13a.json"),
+    "DEFAULT_TOPIC_VECTORS": ("fixtures", "topic_vectors-v16b.json"),
+}
+
+
+def _data_default(name):
+    """Current default data path for name (override-aware, uncached)."""
+    if name in globals():
+        return globals()[name]
+    from factory.core.env_loader import data_root
+    return os.path.join(data_root(), *_DATA_DEFAULT_PARTS[name])
+
+
+def __getattr__(name):
+    """Lazy data-root default (keeps every DEFAULT_* seam working)."""
+    if name in _DATA_DEFAULT_PARTS:
+        return _data_default(name)
+    raise AttributeError(
+        "module %r has no attribute %r" % (__name__, name))
 REPAIR_PREFIX = ("Your last reply was not valid JSON. "
                  "Re-send ONLY the JSON object.\n")
 
@@ -192,10 +217,7 @@ N_EXAMPLES = 2
 # R12 — full v16b topic vector (1-3 {label, weight} entries) for the anchored
 # sense: from the leg-2 normed output, else topic_vectors-v16b.json lookup by
 # sense_id, else the single-label fallback [{label, 1.0}].
-DEFAULT_TATOEBA_POOL = ("W:/hamzaban_data_factory/fixtures/"
-                        "tatoeba_pool_v13a.json")
-DEFAULT_TOPIC_VECTORS = ("W:/hamzaban_data_factory/fixtures/"
-                         "topic_vectors-v16b.json")
+# (Paths live in _DATA_DEFAULT_PARTS above; resolved lazily per access.)
 
 # R2 — machine check patterns (EN level words + CEFR codes + FA level words).
 # R43 v12: متوسط/متوسطه/میانی are CONTEXTUAL (see _META_CONTEXTUAL_FA +
@@ -1176,11 +1198,11 @@ def load_tatoeba_pool(path):
     except (OSError, ValueError):
         data = None
     if not isinstance(data, dict):
-        if _is_pinned_default(path, DEFAULT_TATOEBA_POOL):
+        if _is_pinned_default(path, _data_default("DEFAULT_TATOEBA_POOL")):
             print("WARNING: default Tatoeba pool missing: %s "
                   "(examples disabled; pinned live file, do not "
                   "delete/rename — see factory/README namespace rule)"
-                  % DEFAULT_TATOEBA_POOL, file=sys.stderr)
+                  % _data_default("DEFAULT_TATOEBA_POOL"), file=sys.stderr)
         return {}
     return {str(k).lower(): [s for s in v if isinstance(s, str) and s.strip()]
             for k, v in data.items() if isinstance(v, list)}
@@ -1269,17 +1291,18 @@ def load_topic_vectors(path):
     except (OSError, ValueError):
         data = None
     if data is None:
-        if _is_pinned_default(path, DEFAULT_TOPIC_VECTORS):
+        if _is_pinned_default(path, _data_default("DEFAULT_TOPIC_VECTORS")):
             print("WARNING: default topic vectors missing: %s "
                   "(topics fall back to single-label; pinned live "
                   "file — see factory/README namespace rule)"
-                  % DEFAULT_TOPIC_VECTORS, file=sys.stderr)
+                  % _data_default("DEFAULT_TOPIC_VECTORS"), file=sys.stderr)
         return {}
     if not isinstance(data, list):
-        if _is_pinned_default(path, DEFAULT_TOPIC_VECTORS):
+        if _is_pinned_default(path, _data_default("DEFAULT_TOPIC_VECTORS")):
             print("WARNING: default topic vectors unreadable: %s "
                   "(pinned live file — see factory/README namespace "
-                  "rule)" % DEFAULT_TOPIC_VECTORS, file=sys.stderr)
+                  "rule)" % _data_default("DEFAULT_TOPIC_VECTORS"),
+                  file=sys.stderr)
         return {}
     out = {}
     for row in data:
@@ -5373,10 +5396,14 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         REPO_ROOT / "factory" / "packs" / "en" / "lemmas_10k.csv"))
     ap.add_argument("--phrase-log", default=(
         "W:/hamzaban_data_factory/fixtures/phrase_judge_log.jsonl"))
-    ap.add_argument("--kaikki-index", default=DEFAULT_KAIKKI_INDEX)
-    ap.add_argument("--kaikki-raw", default=DEFAULT_KAIKKI_RAW)
-    ap.add_argument("--tatoeba-pool", default=DEFAULT_TATOEBA_POOL)
-    ap.add_argument("--topic-vectors", default=DEFAULT_TOPIC_VECTORS)
+    ap.add_argument("--kaikki-index",
+                      default=_data_default("DEFAULT_KAIKKI_INDEX"))
+    ap.add_argument("--kaikki-raw",
+                      default=_data_default("DEFAULT_KAIKKI_RAW"))
+    ap.add_argument("--tatoeba-pool",
+                      default=_data_default("DEFAULT_TATOEBA_POOL"))
+    ap.add_argument("--topic-vectors",
+                      default=_data_default("DEFAULT_TOPIC_VECTORS"))
     ap.add_argument("--phrase-type-log", default=DEFAULT_PHRASE_TYPE_LOG,
                     help="opportunistic phrase-type audit log for the "
                     "gallery display (missing file = unjudged, never fails)")

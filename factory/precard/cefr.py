@@ -21,9 +21,33 @@ FACTORY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.dirname(FACTORY_DIR)
 
 
-DEFAULT_TSV = (
-    "W:/hamzaban_data_factory/fixtures/cefr-wordnet/wordnet_sensekey_cefr.tsv"
-)
+# Data-root-relative TSV default (HAMZABAN_DATA_ROOT first, else repo
+# data/; same re-export-shim precedent as
+# provider_transport.__getattr__). Resolved lazily per access (never
+# frozen at import) so env changes and monkeypatching take effect; a
+# monkeypatched module-global override always wins over the computed
+# path. DEFAULT_EVP below stays a plain repo-local pack path (git-tracked
+# factory data, not external data-root content).
+_DATA_DEFAULT_PARTS = {
+    "DEFAULT_TSV": ("fixtures", "cefr-wordnet",
+                    "wordnet_sensekey_cefr.tsv"),
+}
+
+
+def _data_default(name):
+    """Current default data path for name (override-aware, uncached)."""
+    if name in globals():
+        return globals()[name]
+    from factory.core.env_loader import data_root
+    return os.path.join(data_root(), *_DATA_DEFAULT_PARTS[name])
+
+
+def __getattr__(name):
+    """Lazy data-root default (keeps every DEFAULT_* seam working)."""
+    if name in _DATA_DEFAULT_PARTS:
+        return _data_default(name)
+    raise AttributeError(
+        "module %r has no attribute %r" % (__name__, name))
 
 
 DEFAULT_EVP = os.path.join(FACTORY_DIR, "packs", "en", "evp_sense.json")
@@ -354,7 +378,7 @@ def load_evp_guidewords(path):
 
 def get_bridge(path=None):
     """Cached TSV map for path (default DEFAULT_TSV). Loads once."""
-    key = ("bridge", str(path or DEFAULT_TSV))
+    key = ("bridge", str(path or _data_default("DEFAULT_TSV")))
     if key not in _CACHE:
         _CACHE[key] = load_tsv(key[1])[0]
     return _CACHE[key]
