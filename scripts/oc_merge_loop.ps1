@@ -59,10 +59,12 @@ $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 # §0 base-freshness gate: never loop from a stale checkout.
 try {
     git fetch origin --quiet
-    $behind = [int](git rev-list --count HEAD..origin/main)
+    if ($LASTEXITCODE -ne 0) { throw "git fetch origin failed with exit $LASTEXITCODE" }
+    $behindRaw = git rev-list --count HEAD..origin/main
+    if ($LASTEXITCODE -ne 0) { throw "git rev-list --count HEAD..origin/main failed with exit $LASTEXITCODE" }
+    $behind = [int]$behindRaw
     if ($behind -gt 0) {
-        Write-Error "Base is $behind commits behind origin/main — refresh (rebase or recreate the worktree) before looping."
-        exit 1
+        throw "Base is $behind commits behind origin/main — refresh (rebase or recreate the worktree) before looping."
     }
 } catch {
     Write-Error "Freshness gate failed: $_"
