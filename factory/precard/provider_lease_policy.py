@@ -28,7 +28,10 @@ maps keep every path testable with no network, no keys, and no W: drive.
   next key, 401/403 stops loudly with no further attempts, and
   project-level quota (COOLDOWN_SWITCH, e.g. Google
   RESOURCE_EXHAUSTED) raises ProviderCooldown after exactly one
-  attempt with no rotation. The model step-down walk lives in the
+  attempt with no rotation. T6: the attempt executes behind the
+  tunnel-selection seam (select / prove / remember over an
+  ephemeral per-provider seed) with byte-identical caller-visible
+  behavior. The model step-down walk lives in the
   leg batch loops (judge/topics), which read their chains through
    leg_chain/leg_entries; switch_plan gives those loops the ordered
    R6 provider list (no free provider remains on the run line after
@@ -79,6 +82,13 @@ from factory.precard.provider_transport import (
     _call_with_rotation,
     _read_egress_env_key,
 )
+from factory.net.tunnel_selection import (
+    KeyedProviderProbe,
+    NoTunnelExit,
+    ProviderProbe,
+    SubscriptionSource,
+    TunnelSelector,
+)
 
 __all__ = [
     "AuthError",
@@ -128,6 +138,7 @@ __all__ = [
     "save_clean_cache",
     "clean_cache_candidates",
     "record_clean_success",
+    "order_cache_exits",
     "direct_probe_event",
     "format_cache_line",
 ]
@@ -417,34 +428,40 @@ def is_cool(cfg, server_id, provider=None, now=None):
 
 
 def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
-                ping_fn=None, now=None):
+                ping_fn=None, now=None, selector_fn=None):
     """Pick a lease for a target. Shapes mirror the egress supervisor:
     direct targets mint a direct lease; tunnel targets take the first
     non-cooling server; nothing usable parks with a message.
 
-    R7 cache-first (phase 03): when ``clean_cache`` (a list of
-    {server_id, provider, last_ok_ts, latency_ms} as read by
-    load_clean_cache) and ``ping_fn(server_dict)`` are both given,
+    R7 cache-first (phase 03) through the tunnel-selection seam (T6):
     fresh (TTL, default 24h) + non-cooling rows for this provider are
-    tried first, earliest-latency first, each behind exactly one
-    real-ping gate (truthy = reachable; falsy/raising = try the next
-    cached row). The first ping-ok row mints the lease with
-    ``cache_hit True``. Anything else (no cache, all stale/cooling/
-    missing/ping-dead) falls through to the classic first-avail pick
-    with ``cache_hit False`` — the caller runs its full probe only on
-    that miss, then writes successes back via record_clean_success +
-    save_clean_cache.     ``now`` is injectable for hermetic tests. Every
-    result carries ``cache_hit`` (False on direct/park rows too).
+    ordered by ``order_cache_exits`` (provider namespaces never leak —
+    another provider's rows never order here), then the exit is served
+    via ``select`` (preference), verified row by row in that order via
+    ``prove`` (each behind exactly one real-ping gate, early stop at
+    the first clean — keep=1 single-winner override), and the winner
+    stabilizes via ``remember``. ``selector_fn(provider, adapter)``
+    injects the seam (tests pass fakes); the default wires a real
+    ``TunnelSelector`` over an ephemeral per-provider seed (no files,
+    no durable write — the caller still owns write-back via
+    ``record_clean_success`` + ``save_clean_cache``, single-writer
+    rule preserved). A MISS (no rows, all stale/cooling/missing/
+    ping-dead, or a ``NoTunnelExit`` preference) falls through to the
+    classic first-avail pick with ``cache_hit`` False — the caller runs
+    its full probe only on that miss. ``now`` is injectable for
+    hermetic tests. Every result carries ``cache_hit`` (False on
+    direct/park rows too).
 
     Concurrency: candidate snapshots are taken under the pool lock,
-    but ``ping_fn`` (network I/O) always runs WITHOUT the lock — a
-    slow/hung ping must never serialize all lease callers. The first
-    ping-ok row is re-checked for cooling under the lock before the
-    lease is minted (a row cooled mid-ping falls through to the
-    classic pick). ``clean_ttl`` garbage (non-numeric, non-finite,
-    or non-positive) falls back to ``CLEAN_CACHE_TTL_S`` — the run
-    entry rejects such values with exit 2, library callers get the
-    safe default and never an exception.
+    but ``ping_fn`` (network I/O, behind ``prove``) always runs
+    WITHOUT the lock — a slow/hung ping must never serialize all
+    lease callers. The first ping-ok row is re-checked for cooling
+    under the lock before the lease is minted (a row cooled mid-ping
+    falls through to the classic pick). ``clean_ttl`` garbage
+    (non-numeric, non-finite, or non-positive) falls back to
+    ``CLEAN_CACHE_TTL_S`` — the run entry rejects such values with
+    exit 2, library callers get the safe default and never an
+    exception.
     """
     with cfg._lock:
         at = cfg._clock() if now is None else now
@@ -466,29 +483,44 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
                     "provider": spec["provider"], "target": name,
                     "cache_hit": False}
         ttl = _clean_ttl(clean_ttl)
-        plan = []
+        ordered = []
+        snapshots = {}
         if clean_cache and ping_fn is not None:
             by_id = {s["id"]: dict(s) for s in cfg.servers
                      if isinstance(s, dict) and s.get("id")}
-            for entry in clean_cache_candidates(
-                    clean_cache, spec["provider"], at, ttl):
-                sid = entry.get("server_id") if isinstance(
-                    entry, dict) else None
-                if not sid or sid not in by_id:
-                    continue
-                if is_cool(cfg, sid, spec["provider"], now=at):
-                    continue
-                plan.append((sid, by_id[sid]))
+            avail = [sid for sid in by_id
+                     if not is_cool(cfg, sid, spec["provider"], now=at)]
+            ordered = order_cache_exits(clean_cache, spec["provider"],
+                                        avail, at, ttl)
+            snapshots = {sid: by_id[sid] for sid in ordered
+                         if sid in by_id}
     winner = None
-    for sid, snapshot in plan:
+    winner_latency = 0.0
+    if ordered:
+        ping_detail: dict = {}
+        adapter = _PingProbe(
+            check_fn=_ping_check_fn(ping_fn, snapshots, ping_detail))
+        if selector_fn is not None:
+            selector = selector_fn(spec["provider"], adapter)
+        else:
+            selector = _default_leg_selector(
+                spec["provider"], adapter, ordered,
+                clock=lambda: at, batch=5, keep=1,
+                paid=True)
         try:
-            ok = ping_fn(snapshot)
-        except Exception:  # noqa: BLE001 (ping fail = next row)
-            ok = False
-        if not ok:
-            continue
-        winner = sid
-        break
+            selection = selector.select(spec["provider"])
+        except NoTunnelExit:
+            selection = None
+        if selection is not None:
+            proof = selector.prove(spec["provider"], ordered)
+            if proof.clean:
+                winner = proof.clean[0]
+                winner_latency = _ping_latency(ping_detail, winner)
+                try:
+                    selector.remember(spec["provider"], winner,
+                                      winner_latency)
+                except Exception:  # noqa: BLE001 (upkeep never fails)
+                    pass
     with cfg._lock:
         if winner is not None and not is_cool(
                 cfg, winner, spec["provider"], now=at):
@@ -918,9 +950,159 @@ def format_cache_line(hit, server_id="", provider=""):
         norm_provider(provider) or "?")
 
 
+# --- T6 tunnel-selection seam block (phase 04): the precard line's busiest
+# path crosses select / prove / remember here; TARGETS, key resolution,
+# lease/cooldown shapes, batch/concurrency, and the registry are untouched.
+# Concrete shapes mirror the T4 probe path (single-candidate source +
+# ephemeral per-provider store); the durable clean-cache file stays behind
+# the single readers/writers above (shared-infra compat, no second owner).
+
+
+class _LegEgressSource(SubscriptionSource):
+    """One-shot candidate source for one leg/lease attempt (no IO).
+
+    ``refresh`` offers exactly the candidate ids in the caller's order;
+    rows tag "paid" for tunnel targets (clean-tunnel infra) else "free"
+    (paid-ness is decided by the supervisor lease, never here — no
+    values leak).
+    """
+
+    def __init__(self, ids, paid=False):
+        tag = "paid" if paid else "free"
+        self._rows = [{"id": sid, "source": tag}
+                      for sid in ids or () if sid]
+
+    def refresh(self):
+        return [dict(r) for r in self._rows]
+
+
+class _EphemeralProviderStore:
+    """Per-provider memory namespaces for one attempt (no files).
+
+    Same read/write shape as the provider-aware cache: namespaces are
+    keyed by provider (a groq select never sees google rows). Lives for
+    one call — the durable supervisor file stays behind the single
+    writers (remember path); stabilization here is best-effort only.
+    """
+
+    def __init__(self):
+        self._namespaces = {}
+
+    def read(self, provider):
+        return [dict(r) for r in self._namespaces.get(provider, [])]
+
+    def write(self, provider, rows):
+        self._namespaces[provider] = [dict(r) for r in rows or []]
+
+
+class _PingProbe(ProviderProbe):
+    """Lease ping as a probe: truthy ping reads clean, falsy/raising and
+    ``None`` read unknown (honest park, never invent a verdict — the same
+    contract as the registered keyless/keyed shapes, but keyless and
+    provider-agnostic: a TCP ping carries no key and proves reachability
+    only, never identity)."""
+
+    def __init__(self, check_fn=None):
+        if check_fn is not None and not callable(check_fn):
+            raise TypeError("check_fn must be callable or None")
+        self._check_fn = check_fn
+
+    def probe(self, exit_id):
+        if self._check_fn is None:
+            return "unknown"
+        try:
+            verdict = self._check_fn(exit_id)
+        except Exception:
+            return "unknown"
+        if verdict == "clean":
+            return "clean"
+        if verdict == "blocked":
+            return "blocked"
+        return "unknown"
+
+
+def _ping_check_fn(ping_fn, snapshots, detail):
+    """Check closure turning one lease ping into a probe verdict.
+
+    ``snapshots`` maps exit id -> pooled server dict (taken under the
+    pool lock); ``detail["latencies"]`` collects per-exit ping ms for
+    the ``remember`` stabilization (numeric finite ms only, else 0.0).
+    """
+
+    def _check(exit_id):
+        snap = snapshots.get(exit_id)
+        if snap is None:
+            return "unknown"
+        try:
+            ok = ping_fn(snap)
+        except Exception:  # noqa: BLE001 (ping fail = next row)
+            return "unknown"
+        if not ok:
+            return "unknown"
+        try:
+            ms = float(ok)
+        except (TypeError, ValueError):
+            ms = 0.0
+        if not math.isfinite(ms):
+            ms = 0.0
+        try:
+            detail.setdefault("latencies", {})[exit_id] = ms
+        except (AttributeError, TypeError):
+            pass
+        return "clean"
+
+    return _check
+
+
+def _ping_latency(detail, exit_id):
+    """Stashed ping ms for a proven exit (0.0 when unmeasured)."""
+    try:
+        latencies = (detail or {}).get("latencies") or {}
+        ms = float(latencies.get(exit_id, 0.0))
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+    return ms if math.isfinite(ms) else 0.0
+
+
+def _default_leg_selector(provider, adapter, candidates, *, clock,
+                           batch=5, keep=5, paid=False,
+                           subs_fn=None, store_fn=None):
+    """Default select+prove wiring for one leg/lease attempt (no files).
+
+    ``subs_fn``/``store_fn`` inject the source/store halves (tests pass
+    fakes); ``batch``/``keep`` are the injected prove caps (defaults 5,
+    never hardcoded — lease acquisition overrides keep=1: a single
+    lease has a single winner, same single-exit precedent as the probe
+    path).
+    """
+    subs = subs_fn() if subs_fn is not None else _LegEgressSource(
+        candidates, paid=paid)
+    store = store_fn() if store_fn is not None else \
+        _EphemeralProviderStore()
+    probes = {provider: adapter} if adapter is not None else {}
+    return TunnelSelector(subs=subs, probes=probes, store=store,
+                          clock=clock, batch=batch, keep=keep)
+
+
+def order_cache_exits(entries, provider, available_ids, now, ttl=None):
+    """Fresh provider-matched cached exit ids ∩ available, fastest first.
+
+    Pure provider-scoped read over ``clean_cache_candidates``: only rows
+    matching ``provider`` ever order (no shared fallback — another
+    provider's fresh rows never appear, even when this provider has
+    none). ``available_ids`` is the pooled + snapshot-non-cooling set;
+    cached ids outside it never order. No network, no files, no keys.
+    """
+    rows = clean_cache_candidates(entries, provider, now, ttl)
+    live = set(available_ids or ())
+    return [r["server_id"] for r in rows
+            if isinstance(r, dict) and r.get("server_id") in live]
+
+
 def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
              ring=None, key_var="", sleep_fn=None, state=None,
-             label="", file_label="factory/.env"):
+             label="", file_label="factory/.env", selector_fn=None,
+             subs_fn=None, store_fn=None, batch=5, keep=5):
     """One single-model LLM attempt with KeyRing rotation. Returns
     (text, usage-or-None).
 
@@ -946,6 +1128,22 @@ def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
     legs stop for a resume. Progress flushing and telemetry stay
     with the caller, exactly as for every other transport caller
     today.
+
+    Tunnel-selection seam (T6): the attempt runs behind select /
+    prove / remember. ``selector_fn(provider, adapter)`` injects the
+    seam (tests pass fakes); the default wires a real
+    ``TunnelSelector`` over an ephemeral per-provider seed (no files,
+    no durable write). The registered keyed probe wraps the rotation
+    call (key VAR NAME only, never the value): a non-empty reply
+    proves clean, an empty reply or transport failure proves unknown,
+    and control-flow (RateLimited incl. ProviderCooldown, AuthError)
+    plus caller-visible errors ride ``detail`` and re-raise after
+    ``prove`` — the legs' except-chains observe byte-identical
+    behavior. A clean proof stabilizes via ``remember``
+    (best-effort); ``NoTunnelExit`` propagates honestly (production
+    seeds always carry the candidate, so the leg path never parks).
+    ``subs_fn``/``store_fn`` inject the source/store halves;
+    ``batch``/``keep`` are the injected prove caps (defaults 5).
     """
     spec = target_spec(leg)
     if spec is None:
@@ -972,8 +1170,58 @@ def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
                 "%s) — aborting with no silent fallback"
                 % (var or "keys", var or "keys", file_label))
         owned_ring = KeyRing(ring_keys)
-    return _call_with_rotation(
-        transport, owned_ring, model, prompt, sleep,
-        state, label or ("%s/%s" % (model, norm_target(leg))),
-        provider=provider or "avalai", key_var=var,
-        file_label=file_label)
+    attempt_label = label or ("%s/%s" % (model, norm_target(leg)))
+    detail: dict = {}
+
+    def _attempt(exit_id):
+        del exit_id  # single-attempt leg: egress rides the established path
+        start = time.perf_counter()
+        try:
+            text, usage = _call_with_rotation(
+                transport, owned_ring, model, prompt, sleep,
+                state, attempt_label,
+                provider=provider or "avalai", key_var=var,
+                file_label=file_label)
+        except Exception as exc:  # noqa: BLE001 (rides detail, re-raised)
+            detail.update({"ran": True, "text": None, "usage": None,
+                           "exc": exc, "verdict": "unknown",
+                           "latency_ms": (time.perf_counter() - start)
+                           * 1000.0})
+            return "unknown"
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        if isinstance(text, str) and text.strip():
+            detail.update({"ran": True, "text": text, "usage": usage,
+                           "exc": None, "verdict": "clean",
+                           "latency_ms": latency_ms})
+            return "clean"
+        detail.update({"ran": True, "text": text, "usage": usage,
+                       "exc": None, "verdict": "unknown",
+                       "latency_ms": latency_ms})
+        return "unknown"
+
+    adapter = KeyedProviderProbe(key_name=var or provider,
+                                 check_fn=_attempt)
+    candidate = norm_target(leg)
+    if selector_fn is not None:
+        selector = selector_fn(provider, adapter)
+    else:
+        selector = _default_leg_selector(
+            provider, adapter, [candidate], clock=time.time,
+            batch=batch, keep=keep, paid=bool(spec["tunnel"]),
+            subs_fn=subs_fn, store_fn=store_fn)
+    selection = selector.select(provider)
+    selector.prove(provider, [selection.exit_id])
+    if not detail.get("ran"):
+        raise RuntimeError(
+            "leg selector did not execute the adapter "
+            "(prove must route exits through the given probe)")
+    exc = detail.get("exc")
+    if exc is not None:
+        raise exc
+    if detail.get("verdict") == "clean":
+        try:
+            selector.remember(provider, selection.exit_id,
+                              detail.get("latency_ms") or 0.0)
+        except Exception:  # noqa: BLE001 (upkeep never fails a leg)
+            pass
+    return detail.get("text"), detail.get("usage")
