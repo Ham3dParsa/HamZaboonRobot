@@ -2814,11 +2814,80 @@ def validate_card_obj(obj, timings=None):
                 + (time.perf_counter() - start)
 
 
-def call_responses(api_key, model, system, user, timeout=CALL_TIMEOUT):
-    body = json.dumps({"model": model, "input": [
-        {"role": "system", "content": system}, {"role": "user", "content": user}],
-        "reasoning": {"effort": "minimal"},
-        "max_output_tokens": 2000}).encode()
+# Tunnel-selection seam (T7): the pilot Zen POST crosses select / prove /
+# remember. Provider namespace "zen" (TARGETS tunnel target); the seam
+# carries the key VAR NAME only — secret values never enter it. Judging
+# and content logic below this point are untouched (forbidden zone).
+PILOT_TUNNEL_PROVIDER = "zen"
+PILOT_KEY_VAR = "OPENCODE_ZEN_API_KEY"
+PILOT_TUNNEL_CANDIDATE = "zen"
+
+from factory.net.tunnel_selection import (  # noqa: E402 (stdlib-backed seam)
+    KeyedProviderProbe,
+    SubscriptionSource,
+    TunnelSelector,
+)
+
+
+class _PilotEgressSource(SubscriptionSource):
+    """One-shot candidate source for one pilot POST (no IO).
+
+    Offers exactly the single candidate id tagged "paid" (zen is a
+    tunnel target — paid-ness is decided by the egress infra, never
+    here; no values leak).
+    """
+
+    def __init__(self, candidate):
+        self._rows = [{"id": candidate, "source": "paid"}] \
+            if candidate else []
+
+    def refresh(self):
+        return [dict(r) for r in self._rows]
+
+
+class _EphemeralPilotStore:
+    """Per-provider memory namespaces for one pilot POST (no files).
+
+    Same read/write shape as the provider-aware cache: namespaces are
+    keyed by provider (a zen select never sees another provider's
+    rows). Lives for one call — stabilization here is best-effort
+    only.
+    """
+
+    def __init__(self):
+        self._namespaces = {}
+
+    def read(self, provider):
+        return [dict(r) for r in self._namespaces.get(provider, [])]
+
+    def write(self, provider, rows):
+        self._namespaces[provider] = [dict(r) for r in rows or []]
+
+
+def _default_pilot_selector(provider, adapter, candidate, *, clock=None,
+                            batch=5, keep=5, subs_fn=None, store_fn=None):
+    """Default select+prove wiring for the pilot path (no network/files).
+
+    ``subs_fn``/``store_fn`` inject the source/store halves (tests pass
+    fakes); ``batch``/``keep`` are the injected prove caps (defaults 5,
+    never hardcoded).
+    """
+    subs = subs_fn() if subs_fn is not None else _PilotEgressSource(
+        candidate)
+    store = store_fn() if store_fn is not None else _EphemeralPilotStore()
+    return TunnelSelector(subs=subs, probes={provider: adapter},
+                          store=store, clock=clock or time.time,
+                          batch=batch, keep=keep)
+
+
+def _pilot_post_once(api_key, body, timeout):
+    """Single Zen POST leaf: executes only behind the prove seam.
+
+    The one ``urllib`` POST of the pilot line (adapter leaf — never
+    called inline by ``call_responses`` anymore). Parses the Responses
+    envelope into the concatenated output text, exactly as the old
+    direct path did.
+    """
     req = urllib.request.Request(
         ZEN_BASE + "/responses", data=body,
         headers={"Authorization": "Bearer %s" % api_key,
@@ -2833,6 +2902,77 @@ def call_responses(api_key, model, system, user, timeout=CALL_TIMEOUT):
             if chunk.get("type") == "output_text":
                 parts.append(chunk.get("text", ""))
     return "".join(parts)
+
+
+def call_responses(api_key, model, system, user, timeout=CALL_TIMEOUT,
+                   selector_fn=None, subs_fn=None, store_fn=None,
+                   batch=5, keep=5):
+    """Pilot Zen POST as a thin caller of the tunnel-selection seam.
+
+    The single POST runs inside the registered keyed probe (key VAR
+    NAME only, never the value): a non-empty reply proves clean, an
+    empty reply or transport failure proves unknown, and control-flow
+    (HTTPError incl. 401/403 auth, AuthError-shaped callers) rides
+    ``detail`` and re-raises after ``prove`` — ``generate_card``'s
+    except-chains observe byte-identical behavior. A clean proof
+    stabilizes via ``remember`` (best-effort); ``NoTunnelExit``
+    propagates honestly (the production seed always carries the
+    candidate, so the pilot path never parks). ``selector_fn``
+    ``(provider, adapter) -> selector`` injects the seam (tests pass
+    fakes); the default wires a real ``TunnelSelector`` over an
+    ephemeral per-provider seed (no files, no durable write).
+    ``subs_fn``/``store_fn`` inject the source/store halves;
+    ``batch``/``keep`` are the injected prove caps (defaults 5).
+    """
+    body = json.dumps({"model": model, "input": [
+        {"role": "system", "content": system}, {"role": "user", "content": user}],
+        "reasoning": {"effort": "minimal"},
+        "max_output_tokens": 2000}).encode()
+    detail: dict = {}
+
+    def _attempt(exit_id):
+        del exit_id  # single-egress POST: egress rides the established path
+        start = time.perf_counter()
+        try:
+            text = _pilot_post_once(api_key, body, timeout)
+        except Exception as exc:  # noqa: BLE001 (rides detail, re-raised)
+            detail.update({"ran": True, "text": "", "exc": exc,
+                           "verdict": "unknown",
+                           "latency_ms": (time.perf_counter() - start)
+                           * 1000.0})
+            return "unknown"
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        if isinstance(text, str) and text.strip():
+            detail.update({"ran": True, "text": text, "exc": None,
+                           "verdict": "clean", "latency_ms": latency_ms})
+            return "clean"
+        detail.update({"ran": True, "text": text, "exc": None,
+                       "verdict": "unknown", "latency_ms": latency_ms})
+        return "unknown"
+
+    adapter = KeyedProviderProbe(key_name=PILOT_KEY_VAR, check_fn=_attempt)
+    if selector_fn is not None:
+        selector = selector_fn(PILOT_TUNNEL_PROVIDER, adapter)
+    else:
+        selector = _default_pilot_selector(
+            PILOT_TUNNEL_PROVIDER, adapter, PILOT_TUNNEL_CANDIDATE,
+            batch=batch, keep=keep, subs_fn=subs_fn, store_fn=store_fn)
+    selection = selector.select(PILOT_TUNNEL_PROVIDER)
+    selector.prove(PILOT_TUNNEL_PROVIDER, [selection.exit_id])
+    if not detail.get("ran"):
+        raise RuntimeError(
+            "pilot selector did not execute the adapter "
+            "(prove must route exits through the given probe)")
+    exc = detail.get("exc")
+    if exc is not None:
+        raise exc
+    if detail.get("verdict") == "clean":
+        try:
+            selector.remember(PILOT_TUNNEL_PROVIDER, selection.exit_id,
+                              detail.get("latency_ms") or 0.0)
+        except Exception:  # noqa: BLE001 (upkeep never fails a pilot POST)
+            pass
+    return detail.get("text", "")
 
 
 def generate_card(item, api_key, transport=None, model_calls=None,
