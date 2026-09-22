@@ -42,11 +42,17 @@ _PRODUCTION_DB_PATH = os.environ["HAMZABAN_PRODUCTION_DB_PATH"]
 # Phase 1 I/O (R2/R3): redirect ALL test temp files (TemporaryDirectory,
 # mkstemp, the conftest master-DB area, the throwaway DB below) to the NVMe
 # drive. Setting tempfile.tempdir centrally covers every call site with one
-# line and no per-test edits. CI runners have no W: drive, so fall back to
-# the system temp dir when W: is missing or unwritable (suite stays green).
-_TEST_TMP_BASE = os.environ.get(
-    "HAMZABAN_TEST_TMPDIR", r"W:\hamzaban_data_factory\tmp_tests"
-)
+# line and no per-test edits. The NVMe default is Windows-only: on other
+# platforms a backslash path would be a relative directory inside the repo,
+# so non-Windows (e.g. CI) always uses the system temp dir unless the env
+# override points elsewhere.
+_TEST_TMP_BASE = os.environ.get("HAMZABAN_TEST_TMPDIR")
+if not _TEST_TMP_BASE:
+    _TEST_TMP_BASE = (
+        r"W:\hamzaban_data_factory\tmp_tests"
+        if os.name == "nt"
+        else tempfile.gettempdir()
+    )
 try:
     os.makedirs(_TEST_TMP_BASE, exist_ok=True)
     _probe = os.path.join(_TEST_TMP_BASE, f".writetest_{os.getpid()}")
