@@ -48,12 +48,22 @@ def clean_attrs():
     shadow the lazy env lookup here. monkeypatch.delattr cannot be used:
     getattr succeeds via the module __getattr__ while the real delete
     finds no dict entry. Leftovers are restored on teardown (no trace).
+
+    Teardown additionally drops every ROUTED name that was NOT present at
+    setup: a setattr round-trip during a test (e.g. the override-wins
+    test) restores the resolved string into the module dict on undo,
+    which would otherwise shadow lazy env resolution for every later
+    test in the same xdist worker (opencode review on PR #812).
     """
     saved = []
     for module, name, _parts in ROUTED:
         if name in module.__dict__:
             saved.append((module, name, module.__dict__.pop(name)))
+    saved_keys = {(id(module), name) for module, name, _value in saved}
     yield
+    for module, name, _parts in ROUTED:
+        if (id(module), name) not in saved_keys:
+            module.__dict__.pop(name, None)
     for module, name, value in saved:
         module.__dict__[name] = value
 
