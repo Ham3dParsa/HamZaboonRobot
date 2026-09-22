@@ -53,6 +53,10 @@ if not _TEST_TMP_BASE:
         if os.name == "nt"
         else tempfile.gettempdir()
     )
+elif os.name != "nt" and (_TEST_TMP_BASE[1:2] == ":" or "\\" in _TEST_TMP_BASE):
+    # A Windows path exported on a POSIX host would become a literal
+    # relative directory inside the repo — reject it, use system temp.
+    _TEST_TMP_BASE = tempfile.gettempdir()
 try:
     os.makedirs(_TEST_TMP_BASE, exist_ok=True)
     _probe = os.path.join(_TEST_TMP_BASE, f".writetest_{os.getpid()}")
