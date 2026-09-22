@@ -43,7 +43,7 @@ author_url: https://github.com/Ham3dParsa
 - **Agent-initiated merge**: only on explicit owner instruction ("merge it" or equivalent).
   MUST run `gh pr checks` and confirm all required checks pass before `gh pr merge --squash` (see `oc-merge-loop` for conflict rebase handling when `mergeable` is `CONFLICTING`).
 - **Merge method**: **Squash and merge** (single commit on `main`).
-- **Post-merge cleanup**: `git checkout main && git pull && git branch -d branch-name`.
+- **Post-merge cleanup**: `git fetch origin`; remove the task worktree; `git branch -d branch-name`. Sync docs/plans/tickets. `git pull` on the primary `main` workspace only when `git status --porcelain` there is clean — if dirty, leave it read-only and never force.
 - **Local merge fallback only**: with explicit owner instruction `git checkout main && git pull && git merge --ff-only branch-name`.
 - **Remote branch deletion**: owner may delete via GitHub UI after merge.
 
