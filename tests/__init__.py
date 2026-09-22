@@ -17,6 +17,9 @@
   are unchanged. Skipped when no production database exists (e.g., fresh CI
   checkouts). A violation exits non-zero so CI fails hard instead of degrading
   to an ignored atexit warning.
+- Phase 1 I/O: sets ``tempfile.tempdir`` to ``HAMZABAN_TEST_TMPDIR`` (default
+  ``W:\\hamzaban_data_factory\\tmp_tests``, fallback: system temp) so no test
+  database or temp file lands on the OS drive.
 """
 
 import atexit
@@ -35,6 +38,24 @@ os.environ.setdefault(
     "HAMZABAN_PRODUCTION_DB_PATH", os.getenv("DB_PATH", "hamzaban.db")
 )
 _PRODUCTION_DB_PATH = os.environ["HAMZABAN_PRODUCTION_DB_PATH"]
+
+# Phase 1 I/O (R2/R3): redirect ALL test temp files (TemporaryDirectory,
+# mkstemp, the conftest master-DB area, the throwaway DB below) to the NVMe
+# drive. Setting tempfile.tempdir centrally covers every call site with one
+# line and no per-test edits. CI runners have no W: drive, so fall back to
+# the system temp dir when W: is missing or unwritable (suite stays green).
+_TEST_TMP_BASE = os.environ.get(
+    "HAMZABAN_TEST_TMPDIR", r"W:\hamzaban_data_factory\tmp_tests"
+)
+try:
+    os.makedirs(_TEST_TMP_BASE, exist_ok=True)
+    _probe = os.path.join(_TEST_TMP_BASE, f".writetest_{os.getpid()}")
+    with open(_probe, "w") as _fh:
+        _fh.write("ok")
+    os.remove(_probe)
+except OSError:
+    _TEST_TMP_BASE = tempfile.gettempdir()
+tempfile.tempdir = _TEST_TMP_BASE
 
 # Active DB_PATH for every spawned process (workers + subprocesses): a unique
 # throwaway per process so a stray raw connect never touches the real DB.

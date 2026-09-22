@@ -589,7 +589,12 @@ def get_conn(path: str | None = None):
         # cut / OS crash could lose the last seconds): fsync bench on the tiny box measured
         # 1.41ms/commit FULL vs 0.20ms NORMAL, and FULL stalls the event loop on
         # a 0.15 shared CPU (plan scale/plan-sqlite-normal T1, owner decision).
-        conn.execute("PRAGMA journal_mode=WAL")
+        # Phase 1 I/O (R1): journal_mode is persistent per file, so the WAL
+        # write fires only when the file is not already in WAL mode (fresh or
+        # pre-WAL files still convert on open, A2-1 contract). The mode read
+        # costs no disk I/O; the fsync-heavy write is skipped in steady state.
+        if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(f"PRAGMA busy_timeout={_DB_BUSY_TIMEOUT}")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
@@ -1095,6 +1100,12 @@ def init_db(path: str | None = None):
         # R1: stamp the database as a test database (test mode only) so
         # destructive operations can verify identity, not just path.
         _set_test_db_marker(conn)
+        conn.commit()
+        # Phase 1 I/O (R1): ensure WAL at the end of init so a fresh or
+        # migrated database is in WAL mode even if a future get_conn ever
+        # stops enforcing it. Idempotent: no-op when already wal.
+        if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.commit()
 
 
