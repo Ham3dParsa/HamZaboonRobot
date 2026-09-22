@@ -1,3 +1,5 @@
+import ast
+import inspect
 import os
 import sqlite3
 import tempfile
@@ -110,6 +112,69 @@ class DbWalConcurrencyTests(unittest.TestCase):
             db_module.get_setting("concurrent_wal_test", None),
             "Expected at least one write to have succeeded",
         )
+
+
+class DbWalWriteGuardTests(unittest.TestCase):
+    """Phase 1 I/O (R1): journal_mode=WAL must never be written unconditionally.
+
+    get_conn may write the journal mode only behind a mode check, so
+    steady-state opens cost zero WAL-write I/O; init_db ensures WAL at the
+    end. The A2-1 convert-on-open behavior (pre-WAL file -> wal) stays intact
+    and is covered by the tests above.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.old_db_path = db_module.DB_PATH
+        self.old_schema_db_path = db_schema.DB_PATH
+        self.new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db_module.DB_PATH = self.new_path
+        db_schema.DB_PATH = self.new_path
+
+    def tearDown(self):
+        db_module.DB_PATH = self.old_db_path
+        db_schema.DB_PATH = self.old_schema_db_path
+        self.tempdir.cleanup()
+
+    def _journal_mode(self):
+        conn = sqlite3.connect(self.new_path)
+        try:
+            return conn.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _journal_write_lines(tree):
+        """Line numbers of journal_mode *write* string literals (has `=`, no comparison)."""
+        lines = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+                if "journal_mode" in text and "=" in text \
+                        and "==" not in text and "!=" not in text:
+                    lines.add(node.lineno)
+        return lines
+
+    def test_journal_mode_writes_are_mode_guarded_in_get_conn(self):
+        src = inspect.getsource(db_schema.get_conn)
+        tree = ast.parse(src)
+        guarded = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and "journal_mode" in ast.dump(node.test):
+                guarded |= self._journal_write_lines(node)
+        unguarded = self._journal_write_lines(tree) - guarded
+        self.assertEqual(
+            unguarded, set(),
+            "get_conn writes PRAGMA journal_mode outside a mode check "
+            f"(lines {sorted(unguarded)}); steady-state opens must not fsync",
+        )
+
+    def test_repeated_opens_keep_wal(self):
+        db_module.init_db()
+        for _ in range(20):
+            with db_module.get_conn():
+                pass
+        self.assertEqual(self._journal_mode(), "wal")
 
 
 class DbMaintenanceGateTests(unittest.TestCase):
