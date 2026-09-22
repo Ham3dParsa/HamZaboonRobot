@@ -12,7 +12,8 @@
     - CI: requires label, test (3.10), test (3.13), ram-gate, review = pass
     - Merge conflict: git fetch origin; rebase origin/main with verify (compile_all.py + diff --check), push --force-with-lease
     - APPROVED triple: latest opencode-agent comment says APPROVED, 0 must-fix open, green checks on the same head
-    Each fix commit must be pushed — OC re-reviews only after push. Kilo is OFF and stays ignored.
+    - Startup: base-freshness gate (fetch + rev-list; behind origin/main = stop before polling)
+Each fix commit must be pushed — OC re-reviews only after push. Kilo is OFF and stays ignored.
 
 .PARAMETER PR
     Pull request number.
@@ -54,6 +55,21 @@ if ($SleepSeconds -lt 90 -or $SleepSeconds -gt 120) {
 }
 
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+
+# §0 base-freshness gate: never loop from a stale checkout.
+try {
+    git fetch origin --quiet
+    if ($LASTEXITCODE -ne 0) { throw "git fetch origin failed with exit $LASTEXITCODE" }
+    $behindRaw = git rev-list --count HEAD..origin/main
+    if ($LASTEXITCODE -ne 0) { throw "git rev-list --count HEAD..origin/main failed with exit $LASTEXITCODE" }
+    $behind = [int]$behindRaw
+    if ($behind -gt 0) {
+        throw "Base is $behind commits behind origin/main — refresh (rebase or recreate the worktree) before looping."
+    }
+} catch {
+    Write-Error "Freshness gate failed: $_"
+    exit 1
+}
 if ([string]::IsNullOrWhiteSpace($SeenPath)) {
     $SeenPath = Join-Path $env:TEMP "opencode\reviewer_seen_$PR.json"
 }
