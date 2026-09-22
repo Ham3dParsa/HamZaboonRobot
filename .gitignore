@@ -81,3 +81,16 @@ tools/egress/bin/
 tools/egress/egress_pool.json
 tools/egress/leases.jsonl
 tools/egress/clean_cache.json
+# Linker-judge WebUI operator secrets (Fernet ciphertext — never commit)
+factory/linking/webui/operator_keys.json
+# Linker-judge WebUI operator-local data (machine-local paths — never commit).
+# The tracked seed preset below stays tracked via the ! exception.
+factory/linking/webui/labels.jsonl
+factory/linking/webui/provider_key_vars.json
+factory/linking/webui/presets/*.json
+!factory/linking/webui/presets/witness_benchmark.json
+factory/linking/webui/provider_profiles/*.json
+# Linker-judge probe + run logs (operator-local, never commit)
+linker_probe_*.log
+factory/linking/webui/runs/
+factory/linking/webui/runs.json

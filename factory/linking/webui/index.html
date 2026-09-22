@@ -1,0 +1,2643 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>داور پیوند — کنسول محلی</title>
+<style>
+  :root{
+    --paper:#141311; --card:#1e1c19; --card2:#24211d; --line:#3a352d; --line-soft:#2c2823;
+    --ink:#f2ede3; --muted:#b8ae9c; --faint:#8a8172;
+    --teal:#3fb3a5; --teal-ink:#9fe0d8;
+    --amber-bg:#3a2c10; --amber-ink:#f0c96a; --amber-line:#7a5c22;
+    --danger:#ff8a80; --danger-bg:#3a1d1b;
+    --ok-bg:#123324; --ok-ink:#7fd6a4;
+    --blue-bg:#16283a; --blue-ink:#8fc3ff; --blue-line:#2c4a6b;
+    --violet-bg:#2a2140; --violet-ink:#c9b3ff; --violet-line:#4c3f7a;
+    --btn:#3fb3a5; --btn-ink:#0b1514;
+    --mono:ui-monospace,'Cascadia Mono',Consolas,monospace;
+    --radius:10px;
+  }
+  [data-theme="light"]{
+    --paper:#faf6ef; --card:#fffdf8; --card2:#ffffff; --line:#e4dac6; --line-soft:#eee5d3;
+    --ink:#211d17; --muted:#6f6656; --faint:#9a9080;
+    --teal:#0c6b62; --teal-ink:#084c46;
+    --amber-bg:#fdf3dd; --amber-ink:#7a5200; --amber-line:#e3c87f;
+    --danger:#b3261e; --danger-bg:#fdecea;
+    --ok-bg:#e7f4ec; --ok-ink:#1d6b3c;
+    --blue-bg:#e3f2f7; --blue-ink:#0b5b70; --blue-line:#9ecfe0;
+    --violet-bg:#efe9fd; --violet-ink:#4c2f9e; --violet-line:#c4b3ec;
+    --btn:#0c6b62; --btn-ink:#ffffff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Tahoma,sans-serif;
+    background:var(--paper);color:var(--ink);line-height:1.7;font-size:15px;
+    min-height:100vh;
+  }
+  .skip{
+    position:absolute;inset-inline-start:12px;top:-48px;z-index:60;
+    background:var(--ink);color:var(--paper);border-radius:8px;
+    padding-block:8px;padding-inline:14px;text-decoration:none;font-size:.85rem;
+  }
+  .skip:focus{top:12px}
+  :focus-visible{outline:2.5px solid var(--teal);outline-offset:2px;border-radius:6px}
+  .wrap{max-inline-size:1400px;margin-inline:auto;padding-inline:22px;padding-block:22px 40px}
+  header.top{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-block-end:4px}
+  .mark{
+    inline-size:40px;block-size:40px;flex:none;border-radius:12px;
+    background:var(--btn);color:var(--btn-ink);display:grid;place-items:center;
+    font-size:1.2rem;font-weight:700;
+  }
+  .title{flex:1;min-inline-size:20ch}
+  .title h1{font-size:1.2rem;font-weight:700;line-height:1.4}
+  .title p{font-size:.82rem;color:var(--muted)}
+  .local{
+    display:inline-block;font-size:.72rem;color:var(--teal-ink);
+    border:1px solid var(--teal);border-radius:99px;
+    padding-block:1px;padding-inline:10px;margin-block-start:4px;
+    background:transparent;
+  }
+  .top-actions{display:flex;gap:8px;align-items:center;margin-inline-start:auto}
+  nav.tabs{
+    display:flex;gap:8px;margin-block:16px 14px;flex-wrap:wrap;
+    border-block-end:1px solid var(--line);padding-block-end:10px;
+  }
+  nav.tabs [role=tab]{
+    font:inherit;font-size:.88rem;background:transparent;color:var(--muted);
+    border:1px solid transparent;border-radius:8px;cursor:pointer;
+    padding-block:7px;padding-inline:14px;
+  }
+  nav.tabs [role=tab][aria-selected=true]{
+    color:var(--ink);background:var(--card);border-color:var(--teal);
+    font-weight:700;box-shadow:inset 0 0 0 1px var(--teal);
+  }
+  nav.tabs [role=tab][aria-selected=false]:hover{border-color:var(--line);color:var(--ink)}
+  section.panel{display:none}
+  section.panel.active{display:block}
+  /* wide two-column dashboard canvas */
+  .dash{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:14px;align-items:start}
+  @media (max-width:1024px){.dash{grid-template-columns:1fr}}
+  .quiet{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);padding-block:16px;padding-inline:16px;
+    margin-block-end:14px;min-inline-size:0;
+  }
+  .quiet h2{font-size:.95rem;font-weight:700;margin-block-end:2px}
+  .quiet h3{font-size:.86rem;font-weight:700;margin-block:14px 2px}
+  .lede{font-size:.82rem;color:var(--muted);margin-block-end:6px}
+  label.f{display:block;font-size:.8rem;color:var(--muted);margin-block:12px 4px}
+  input[type=text],input[type=number],input[type=password],select{
+    inline-size:100%;font:inherit;font-size:.88rem;color:var(--ink);
+    background:var(--card2);border:1px solid var(--line);border-radius:8px;
+    padding-block:8px;padding-inline:10px;
+  }
+  input:disabled,select:disabled{opacity:.55;cursor:default}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button:disabled.btn{background:var(--line);border-color:var(--line);color:var(--muted)}
+  .hint{font-size:.76rem;color:var(--muted);margin-block-start:3px;line-height:1.6}
+  /* Ticket 1: progressive-disclosure tooltip buttons (replaces always-visible hint paragraphs) */
+  label.f .tipbtn{margin-inline-start:6px;vertical-align:middle}
+  .tipbtn{
+    display:inline-grid;place-items:center;inline-size:20px;block-size:20px;flex:none;
+    border-radius:50%;border:1px solid var(--line);background:var(--card2);color:var(--muted);
+    font:inherit;font-size:.72rem;line-height:1;cursor:help;padding:0;
+  }
+  .tipbtn:hover,.tipbtn:focus-visible{color:var(--ink);border-color:var(--teal)}
+  .tipbtn[aria-expanded=true]{color:var(--ink);border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal)}
+  .tip{display:block;font-size:.76rem;color:var(--muted);margin-block-start:3px;line-height:1.6}
+  .tip[hidden]{display:none}
+  /* Ticket 1: compact sample explainer */
+  details.samplebox{
+    background:var(--card2);border:1px solid var(--line-soft);border-radius:8px;
+    padding-block:8px;padding-inline:12px;margin-block-start:14px;
+  }
+  details.samplebox > summary{cursor:pointer;font-size:.86rem;font-weight:700}
+  details.samplebox > summary:hover{color:var(--teal-ink)}
+  /* Ticket 2: grouped guide accordion */
+  .qgroup{margin-block:12px}
+  .qgroup > h3{font-size:.88rem;font-weight:700;margin-block:12px 4px}
+  details.qa{
+    border:1px solid var(--line-soft);border-radius:8px;margin-block:6px;
+    background:var(--card2);padding-block:0;padding-inline:0;
+  }
+  details.qa > summary{
+    cursor:pointer;font-size:.86rem;font-weight:700;
+    padding-block:8px;padding-inline:12px;
+  }
+  details.qa > summary:hover{color:var(--teal-ink)}
+  details.qa > :not(summary){margin-inline:12px}
+  details.qa > :last-child{margin-block-end:10px}
+  details.qa.hidden{display:none}
+  /* Ticket 3: witness-vs-predicted status badges */
+  .badge-ok{
+    display:inline-block;font-size:.72rem;font-weight:700;color:var(--ok-ink);
+    background:var(--ok-bg);border:1px solid var(--ok-ink);border-radius:99px;
+    padding-block:1px;padding-inline:10px;white-space:nowrap;
+  }
+  .badge-mis{
+    display:inline-block;font-size:.72rem;font-weight:700;color:var(--danger);
+    background:var(--danger-bg);border:1px solid var(--danger);border-radius:99px;
+    padding-block:1px;padding-inline:10px;white-space:nowrap;
+  }
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+  .ltr{direction:ltr;unicode-bidi:isolate}
+  input.ltr{text-align:start}
+  .btnrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-block-start:16px}
+  .btn{
+    font:inherit;font-size:.88rem;font-weight:700;cursor:pointer;
+    background:var(--btn);color:var(--btn-ink);border:1px solid var(--btn);
+    border-radius:8px;padding-block:8px;padding-inline:22px;
+  }
+  .btn:hover:not(:disabled){filter:brightness(1.08)}
+  .btn.ghost{background:transparent;color:var(--teal-ink);border-color:var(--line)}
+  .btn.ghost:hover:not(:disabled){border-color:var(--teal)}
+  .btn.ghost[aria-pressed=true]{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal);color:var(--ink)}
+  .btn.small{padding-block:5px;padding-inline:14px;font-size:.8rem;font-weight:400}
+  .btn.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+  .statusline{font-size:.82rem;color:var(--muted)}
+  .alert{
+    font-size:.84rem;color:var(--danger);background:var(--danger-bg);
+    border:1px solid var(--danger);border-radius:8px;
+    padding-block:8px;padding-inline:12px;margin-block-start:10px;
+  }
+  .alert:empty{display:none}
+  .okline{
+    font-size:.82rem;color:var(--ok-ink);background:var(--ok-bg);
+    border:1px solid var(--ok-ink);border-radius:8px;
+    padding-block:8px;padding-inline:12px;margin-block-start:10px;
+  }
+  .okline:empty{display:none}
+  /* signature element: command receipt */
+  .receipt{margin-block-start:14px}
+  .receipt > span{
+    font-size:.75rem;color:var(--muted);display:block;margin-block-end:4px;
+  }
+  .ticket{
+    background:var(--card2);border:1px dashed var(--teal);border-radius:8px;
+    border-inline-start:4px solid var(--teal);
+    padding-block:10px;padding-inline:12px;
+    display:flex;gap:10px;align-items:flex-start;
+  }
+  .ticket code{
+    font-family:var(--mono);font-size:.76rem;color:var(--teal-ink);
+    overflow-x:auto;white-space:pre-wrap;word-break:break-all;flex:1;min-inline-size:0;
+  }
+  [data-theme="light"] .ticket code{color:var(--teal-ink)}
+  .ticket button{flex:none}
+  .note{font-size:.75rem;color:var(--faint);margin-block-start:6px}
+  /* runs list */
+  ul.runs{list-style:none;display:grid;gap:8px;margin-block:10px}
+  ul.runs li button{
+    font:inherit;inline-size:100%;text-align:start;cursor:pointer;
+    background:var(--card2);border:1px solid var(--line);border-radius:8px;
+    padding-block:9px;padding-inline:12px;font-size:.85rem;color:var(--ink);
+    overflow-wrap:anywhere;
+  }
+  ul.runs li button[aria-current=true]{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal)}
+  .pill{
+    display:inline-block;font-size:.7rem;border-radius:99px;
+    padding-block:1px;padding-inline:9px;margin-inline-start:6px;vertical-align:middle;
+  }
+  .pill.run{background:var(--blue-bg);color:var(--blue-ink)}
+  .pill.done{background:var(--ok-bg);color:var(--ok-ink)}
+  .pill.fail{background:var(--danger-bg);color:var(--danger)}
+  .stamp{
+    display:inline-block;font-size:.72rem;color:var(--teal-ink);
+    background:transparent;border:1px solid var(--line);border-radius:6px;
+    padding-block:1px;padding-inline:9px;margin-block:2px;margin-inline-end:4px;
+  }
+  .wmark{
+    display:inline-block;font-size:.72rem;font-weight:700;color:var(--amber-ink);
+    background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:6px;
+    padding-block:1px;padding-inline:9px;margin-block:4px;
+  }
+  .empty{
+    border:1px dashed var(--line);border-radius:8px;color:var(--muted);
+    font-size:.84rem;text-align:center;padding-block:18px;padding-inline:12px;
+  }
+  /* watch event cards + progress */
+  .progress{block-size:10px;border-radius:99px;background:var(--line-soft);overflow:hidden;margin-block:8px}
+  .progress > i{display:block;block-size:100%;inline-size:0%;background:var(--teal);transition:inline-size .3s ease}
+  #watch-cards{display:grid;gap:8px;margin-block:10px;max-block-size:420px;overflow-y:auto;padding-inline-end:2px}
+  .evcard{
+    background:var(--card2);border:1px solid var(--line);border-radius:8px;
+    border-inline-start:4px solid var(--faint);
+    padding-block:8px;padding-inline:12px;font-size:.8rem;
+  }
+  .evcard .ev-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-block-end:2px}
+  .evcard .ev-kind{font-weight:700}
+  .evcard .ev-time{font-size:.72rem;color:var(--faint)}
+  .evcard code{font-family:var(--mono);font-size:.72rem;direction:ltr;text-align:left;display:block;white-space:pre-wrap;word-break:break-all;color:var(--muted)}
+  .evcard.lv-ok{border-inline-start-color:var(--ok-ink)}
+  .evcard.lv-run{border-inline-start-color:var(--blue-ink)}
+  .evcard.lv-judge{border-inline-start-color:var(--violet-ink)}
+  .evcard.lv-warn{border-inline-start-color:var(--amber-ink)}
+  .evcard.lv-err{border-inline-start-color:var(--danger)}
+  .evdot{display:inline-block;inline-size:9px;block-size:9px;border-radius:50%;background:var(--faint)}
+  .lv-ok .evdot{background:var(--ok-ink)} .lv-run .evdot{background:var(--blue-ink)}
+  .lv-judge .evdot{background:var(--violet-ink)} .lv-warn .evdot{background:var(--amber-ink)}
+  .lv-err .evdot{background:var(--danger)}
+  .tablewrap{overflow-x:auto;margin-block-start:8px}
+  table{inline-size:100%;border-collapse:collapse;font-size:.8rem}
+  th,td{border:1px solid var(--line-soft);padding-block:6px;padding-inline:8px;text-align:start}
+  th{background:var(--card2);font-weight:700}
+  th button{font:inherit;font-weight:700;background:none;border:none;color:inherit;cursor:pointer;padding:0}
+  th button:hover{color:var(--teal-ink)}
+  .score{font-size:1rem;margin-block:8px}
+  .score strong{font-size:1.3rem;color:var(--teal-ink)}
+  footer{font-size:.74rem;color:var(--faint);margin-block-start:18px;text-align:center}
+  .mirror{display:inline-block}
+  [dir=rtl] .mirror{transform:scaleX(-1)}
+  .spinner{
+    display:inline-block;inline-size:14px;block-size:14px;flex:none;
+    border:2px solid var(--line);border-block-start-color:var(--teal);
+    border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;
+  }
+  .spinner[hidden]{display:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* settings drawer */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40}
+  .overlay[hidden]{display:none}
+  .drawer{
+    position:fixed;inset-block:0;inset-inline-start:0;z-index:41;
+    inline-size:min(420px,92vw);background:var(--card);border-inline-end:1px solid var(--line);
+    padding-block:18px;padding-inline:18px;overflow-y:auto;
+    box-shadow:0 0 40px rgba(0,0,0,.4);
+  }
+  .drawer[hidden]{display:none}
+  .drawer h2{font-size:1rem}
+  .stepper{display:flex;gap:0;align-items:stretch}
+  .stepper input{border-radius:0;text-align:center}
+  .stepper button{
+    font:inherit;background:var(--card2);color:var(--ink);border:1px solid var(--line);
+    padding-inline:12px;cursor:pointer;font-size:1rem;line-height:1;
+  }
+  .stepper button:first-child{border-radius:0 8px 8px 0}
+  .stepper button:last-child{border-radius:8px 0 0 8px}
+  [dir=ltr] .stepper button:first-child{border-radius:8px 0 0 8px}
+  [dir=ltr] .stepper button:last-child{border-radius:0 8px 8px 0}
+  .keywrap{position:relative}
+  .keywrap .btn{position:absolute;inset-inline-end:6px;top:6px;padding-block:3px;padding-inline:10px}
+  /* guide */
+  .qa{border-block-start:1px solid var(--line-soft);padding-block:10px}
+  .qa:first-of-type{border-block-start:none}
+  .qa h3{margin-block:0 2px}
+  .qa p,.qa li{font-size:.84rem;color:var(--ink)}
+  .qa ul{padding-inline-start:18px;margin-block-start:4px}
+  .qa pre{
+    font-family:var(--mono);font-size:.72rem;direction:ltr;text-align:left;
+    background:var(--card2);border:1px solid var(--line-soft);border-radius:8px;
+    padding-block:8px;padding-inline:10px;overflow-x:auto;margin-block:6px;
+    white-space:pre;color:var(--ink);
+  }
+  .qa.hidden{display:none}
+  .rowline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .rowline .grow{flex:1;min-inline-size:12ch}
+  ul.plain{list-style:none;display:grid;gap:6px;margin-block:8px}
+  ul.plain li{
+    background:var(--card2);border:1px solid var(--line-soft);border-radius:8px;
+    padding-block:7px;padding-inline:10px;font-size:.82rem;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  }
+  .bench-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-block:10px}
+  .bench-controls input[type=text]{max-inline-size:26ch}
+  .pager{display:flex;gap:8px;align-items:center;margin-block-start:8px}
+  /* run picker holds LTR run names: keep the leading chars clear of the arrow */
+  #b-run{direction:ltr;text-align:start}
+  /* path picker row: text entry stays, dialog button beside it */
+  .pickrow{display:flex;gap:8px;align-items:stretch}
+  .pickrow input{flex:1;min-inline-size:0}
+  .pickrow .btn{flex:none;align-self:center}
+  /* file-picker modal */
+  .modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:18px}
+  .modal[hidden]{display:none}
+  .modal .sheet{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    inline-size:min(560px,94vw);max-block-size:84vh;display:flex;flex-direction:column;
+    box-shadow:0 0 60px rgba(0,0,0,.55);
+  }
+  .modal .sheet-h{display:flex;gap:8px;align-items:center;padding-block:12px;padding-inline:16px;border-block-end:1px solid var(--line-soft)}
+  .modal .sheet-h h2{font-size:.95rem}
+  .modal .crumb{font-size:.76rem;color:var(--muted);padding-block:8px;padding-inline:16px;overflow-x:auto;white-space:nowrap}
+  .modal .flist{overflow-y:auto;padding-block:4px;padding-inline:8px;min-block-size:180px}
+  .modal .flist button{
+    font:inherit;display:flex;gap:8px;align-items:center;inline-size:100%;text-align:start;
+    background:transparent;border:1px solid transparent;border-radius:8px;cursor:pointer;
+    padding-block:7px;padding-inline:10px;font-size:.85rem;color:var(--ink);
+  }
+  .modal .flist button:hover{border-color:var(--line);background:var(--card2)}
+  .modal .flist .sz{margin-inline-start:auto;font-size:.72rem;color:var(--faint);flex:none}
+  .modal .sheet-f{display:flex;gap:8px;align-items:center;padding-block:12px;padding-inline:16px;border-block-start:1px solid var(--line-soft);flex-wrap:wrap}
+  .modal .sheet-f input{flex:1;min-inline-size:14ch}
+  /* judge-preset card: distinct violet visual vs teal run card */
+  .quiet.judge-kind{border-block-start:4px solid var(--violet-line);background:linear-gradient(var(--violet-bg),var(--violet-bg)) padding-box,var(--card)}
+  .quiet.judge-kind h2 .kdot{display:inline-block;inline-size:10px;block-size:10px;border-radius:50%;background:var(--violet-ink);margin-inline-end:6px}
+  .quiet.run-kind{border-block-start:4px solid var(--teal)}
+  .quiet.run-kind h2 .kdot{display:inline-block;inline-size:10px;block-size:10px;border-radius:50%;background:var(--teal);margin-inline-end:6px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-block:8px}
+  .chip{
+    font-family:var(--mono);font-size:.74rem;direction:ltr;
+    background:var(--card2);border:1px solid var(--line);border-radius:99px;
+    padding-block:4px;padding-inline:8px;display:inline-flex;gap:6px;align-items:center;color:var(--ink);
+  }
+  .chip button{font:inherit;font-size:.72rem;background:transparent;border:none;color:var(--teal-ink);cursor:pointer;padding:0 2px}
+  .chip button:hover{text-decoration:underline}
+  .engnote{font-size:.76rem;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding-block:6px;padding-inline:10px;margin-block:6px}
+  /* benchmark meaning-first cells */
+  td.src b{font-size:.9rem}
+  td.src .gloss{font-size:.78rem;color:var(--ink);margin-block-start:2px}
+  td.src .meta{font-size:.74rem;color:var(--muted)}
+  td .gloss{font-size:.78rem;margin-block-start:2px}
+  td .sub-id{display:block;font-family:var(--mono);font-size:.68rem;color:var(--faint);direction:ltr;text-align:left;margin-block-start:3px}
+  .ready-badge{display:inline-block;font-size:.7rem;font-weight:700;color:var(--ok-ink);background:var(--ok-bg);border:1px solid var(--ok-ink);border-radius:99px;padding-block:1px;padding-inline:9px;margin-inline-start:6px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">پرش به محتوا</a>
+<div class="wrap">
+  <header class="top">
+    <div class="mark" aria-hidden="true">د</div>
+    <div class="title">
+      <h1>داور پیوند</h1>
+      <p>کنسول محلی داوری پیوند؛ موتور خط فرمان حرف آخر را می‌زند.</p>
+      <span class="local">فقط روی همین دستگاه — <span lang="en" dir="ltr">localhost</span></span>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost small" id="btn-theme" type="button" aria-pressed="false" title="جابه‌جایی تم روشن و تیره">تم روشن</button>
+      <button class="btn ghost small" id="btn-settings" type="button" aria-haspopup="dialog" title="کلیدها و اتصال‌های سفارشی">تنظیمات</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="بخش‌های کنسول">
+    <button role="tab" id="tab-compose" aria-controls="panel-compose" aria-selected="true">۱. ساخت اجرا</button>
+    <button role="tab" id="tab-watch" aria-controls="panel-watch" aria-selected="false" tabindex="-1">۲. پایش زنده</button>
+    <button role="tab" id="tab-benchmark" aria-controls="panel-benchmark" aria-selected="false" tabindex="-1">۳. محک</button>
+    <button role="tab" id="tab-screened" aria-controls="panel-screened" aria-selected="false" tabindex="-1">۴. مرور غربال‌شده</button>
+    <button role="tab" id="tab-label" aria-controls="panel-label" aria-selected="false" tabindex="-1">۵. داوری</button>
+    <button role="tab" id="tab-guide" aria-controls="panel-guide" aria-selected="false" tabindex="-1">۶. راهنما</button>
+  </nav>
+
+  <main id="main">
+  <!-- Screen 1: compose (run form alone; side column holds job templates) -->
+  <section class="panel active" id="panel-compose" role="tabpanel" aria-labelledby="tab-compose" tabindex="0">
+    <div class="dash">
+      <div class="quiet">
+        <h2>اجرای تازه</h2>
+        <p class="lede">فقط گزینه‌های همین اجرا این‌جاست. کلیدها و اتصال‌های سفارشی در «تنظیمات»‌اند؛ قالب‌های کاری آماده در ستون کناری. خالی یعنی «همان پیش‌فرض موتور».</p>
+        <div class="grid">
+          <div>
+            <label class="f" for="f-provider">ارائه‌دهنده * <button class="tipbtn" type="button" data-tip="tip-provider" aria-expanded="false" aria-controls="tip-provider" aria-label="راهنمای ارائه‌دهنده" title="راهنما">؟</button></label>
+            <select id="f-provider" aria-describedby="tip-provider key-hint"
+                    title="نام ارائه‌دهنده از فهرست؛ ستاره یعنی اجباری. اتصال‌های سفارشی خودتان هم این‌جا می‌آیند."></select>
+            <span class="tip" id="tip-provider" role="tooltip" hidden>نام ارائه‌دهنده را از فهرست بردارید. اتصال سفارشی هم می‌شود انتخاب کرد، ولی اجرایش همیشه «غیرقابل‌سنجش» می‌ماند.</span>
+            <p class="note" id="key-hint" aria-live="polite"></p>
+            <p class="hint" id="route-line" aria-live="polite"></p>
+            <p class="hint" id="profile-note" hidden></p>
+          </div>
+          <div>
+            <label class="f" for="f-model">مدل <button class="tipbtn" type="button" data-tip="tip-model" aria-expanded="false" aria-controls="tip-model" aria-label="راهنمای مدل" title="راهنما">؟</button></label>
+            <input type="text" class="ltr" id="f-model" lang="en" dir="ltr"
+                    placeholder="glm-5.3-flash" autocomplete="off" spellcheck="false"
+                    aria-describedby="tip-model"
+                    title="شناسه مدل؛ خالی یعنی پیش‌فرض موتور برای همان ارائه‌دهنده.">
+            <span class="tip" id="tip-model" role="tooltip" hidden>شناسهٔ مدل را بنویسید. خالی بماند یعنی پیش‌فرض خود موتور.</span>
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label class="f" for="f-sample">فایل نمونه <button class="tipbtn" type="button" data-tip="tip-sample" aria-expanded="false" aria-controls="tip-sample" aria-label="راهنمای فایل نمونه" title="راهنما">؟</button></label>
+            <div class="pickrow">
+              <input type="text" class="ltr" id="f-sample" lang="en" dir="ltr"
+                      placeholder="خالی = نمونهٔ پیش‌فرض موتور" autocomplete="off" spellcheck="false"
+                      aria-describedby="tip-sample sample-check"
+                      title="نشانی فایل نمونه؛ تایپ دستی یا دکمهٔ مرور. خالی یعنی نمونه پیش‌فرض موتور.">
+              <button class="btn ghost small" id="btn-browse-sample" type="button" title="گفت‌وگوی انتخاب فایل نمونه از روی همین دستگاه">مرور…</button>
+            </div>
+            <span class="tip" id="tip-sample" role="tooltip" hidden>نشانی فایل نمونه — تایپ دستی یا «مرور…». خالی یعنی نمونهٔ پیش‌فرض خود موتور (همان که موتور بدون <span lang="en" dir="ltr">--sample</span> استفاده می‌کند). پیش از شروع، بودن و شکل فایل بررسی می‌شود.</span>
+            <p class="hint" id="sample-check" aria-live="polite"></p>
+          </div>
+          <div>
+            <label class="f" for="f-limit">سقف آیتم <button class="tipbtn" type="button" data-tip="tip-limit" aria-expanded="false" aria-controls="tip-limit" aria-label="راهنمای سقف آیتم" title="راهنما">؟</button></label>
+            <input type="number" class="ltr" id="f-limit" lang="en" dir="ltr"
+                    value="0" min="0" inputmode="numeric"
+                    aria-describedby="tip-limit"
+                    title="عدد؛ صفر یعنی همه آیتم‌ها. عدد منفی پذیرفته نیست.">
+            <span class="tip" id="tip-limit" role="tooltip" hidden>چند آیتم اول نمونه اجرا شود. صفر یعنی همه.</span>
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label class="f" for="f-concurrency">هم‌روندی <button class="tipbtn" type="button" data-tip="tip-concurrency" aria-expanded="false" aria-controls="tip-concurrency" aria-label="راهنمای هم‌روندی" title="راهنما">؟</button></label>
+            <div class="stepper" role="group" aria-label="هم‌روندی">
+              <button type="button" id="btn-conc-minus" aria-label="کم‌کردن هم‌روندی" title="کم‌کردن">−</button>
+              <input type="number" class="ltr" id="f-concurrency" lang="en" dir="ltr"
+                      value="8" min="1" max="10" step="1" inputmode="numeric"
+                      aria-describedby="tip-concurrency"
+                      title="عدد ۱ تا ۱۰؛ پیش‌فرض واقعی ۸.">
+              <button type="button" id="btn-conc-plus" aria-label="زیادکردن هم‌روندی" title="زیادکردن">+</button>
+            </div>
+            <span class="tip" id="tip-concurrency" role="tooltip" hidden>تعداد کارگران ناهمگام، از ۱ تا ۱۰. پیش‌فرض واقعی ۸ است.</span>
+          </div>
+          <div>
+            <label class="f" for="f-resume">ادامه از پیشرفت قبلی <button class="tipbtn" type="button" data-tip="tip-resume" aria-expanded="false" aria-controls="tip-resume" aria-label="راهنمای ادامه" title="راهنما">؟</button></label>
+            <select id="f-resume" aria-describedby="tip-resume"
+                    title="ادامه بده یعنی از پیشرفت ذخیره‌شده ادامه می‌دهد؛ از نو یعنی نادیده‌گرفتن پیشرفت؛ برنامه یعنی اول برنامه ادامه را نشان بده.">
+              <option value="on">ادامه بده (پیش‌فرض موتور)</option>
+              <option value="off">از نو شروع کن</option>
+              <option value="plan">اول برنامهٔ ادامه را نشان بده</option>
+            </select>
+            <span class="tip" id="tip-resume" role="tooltip" hidden>«ادامه بده» از پیشرفت ذخیره‌شده ادامه می‌دهد؛ «از نو» آن را نادیده می‌گیرد؛ «برنامه» اول نقشهٔ ادامه را نشان می‌دهد.</span>
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label class="f" for="f-out">فایل خروجی <button class="tipbtn" type="button" data-tip="tip-out" aria-expanded="false" aria-controls="tip-out" aria-label="راهنمای فایل خروجی" title="راهنما">؟</button></label>
+            <div class="pickrow">
+              <input type="text" class="ltr" id="f-out" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                      placeholder="خالی = داخل پوشهٔ همین اجرا" aria-describedby="tip-out"
+                      title="نشانی فایل خروجی؛ تایپ دستی یا دکمهٔ مرور. خالی یعنی داخل پوشه خود همین اجرا.">
+              <button class="btn ghost small" id="btn-browse-out" type="button" title="گفت‌وگوی انتخاب نشانی فایل خروجی">مرور…</button>
+            </div>
+            <span class="tip" id="tip-out" role="tooltip" hidden>کجا نوشته شود — تایپ دستی یا «مرور…». خالی یعنی دقیقاً <span lang="en" dir="ltr">precard.jsonl</span> داخل پوشهٔ خود همین اجرا (همان پوشه‌ای که رسید فرمان و گزارش‌ها در «مسیرهای قطعی» نشان می‌دهد).</span>
+          </div>
+          <div>
+            <label class="f" for="f-progress">پوشهٔ پیشرفت <button class="tipbtn" type="button" data-tip="tip-progress" aria-expanded="false" aria-controls="tip-progress" aria-label="راهنمای پوشهٔ پیشرفت" title="راهنما">؟</button></label>
+            <div class="pickrow">
+              <input type="text" class="ltr" id="f-progress" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                      placeholder="خالی = داخل پوشهٔ همین اجرا" aria-describedby="tip-progress"
+                      title="پوشه پیشرفت مرحله‌ها؛ تایپ دستی یا دکمهٔ مرور. خالی یعنی داخل پوشه خود همین اجرا.">
+              <button class="btn ghost small" id="btn-browse-progress" type="button" title="گفت‌وگوی انتخاب پوشهٔ پیشرفت">مرور…</button>
+            </div>
+            <span class="tip" id="tip-progress" role="tooltip" hidden>پوشهٔ وضعیت مرحله‌ها (برای ادامه‌دادن) — تایپ دستی یا «مرور…». خالی یعنی دقیقاً پوشهٔ <span lang="en" dir="ltr">progress</span> داخل پوشهٔ خود همین اجرا.</span>
+          </div>
+        </div>
+
+        <details class="samplebox" id="sample-about">
+        <summary>نمونه چیست؟ — فهرست کاری موتور (برای دیدن شکل فایل باز کنید)</summary>
+        <p class="lede">نمونه، فهرست کاری است که موتور داوری می‌کند: هر ردیف یک واژه یا عبارت است که موتور باید برایش بهترین معنی را انتخاب کند. بدون نمونه، موتور چیزی برای داوری ندارد.</p>
+        <p class="lede">نمونه از دو جا می‌آید: (۱) نمونه‌های آمادهٔ همراه موتور روی همین دستگاه (پوشهٔ <span lang="en" dir="ltr">pilot</span> — با برچسب طلا، مناسب محک)؛ (۲) فایل‌هایی که خودتان می‌سازید (فهرست دلخواه واژه‌ها برای اجرای سفارشی).</p>
+        <p class="lede">هر ردیف این فیلدها را دارد: <span lang="en" dir="ltr">kind</span> — اجباری، فقط <span lang="en" dir="ltr">word</span> (تک‌واژه) یا <span lang="en" dir="ltr">phrase</span> (عبارت)؛ <span lang="en" dir="ltr">text</span> — اجباری، خود واژه یا عبارت؛ <span lang="en" dir="ltr">pos</span> — اختیاری، نقش دستوری (مثل فعل)؛ <span lang="en" dir="ltr">pool_level</span> — اختیاری، سطح (مثل <span lang="en" dir="ltr">A1</span>)؛ <span lang="en" dir="ltr">en_def</span> — اختیاری، تعریف انگلیسی همان معنی؛ <span lang="en" dir="ltr">sense_id</span> — اختیاری ولی مهم: برچسب طلا یعنی «پاسخ درست از پیش معلوم». اگر هیچ ردیفی برچسب طلا نداشته باشد، اجرا «سفارشی» می‌شود: انجام می‌شود ولی امتیاز نمی‌گیرد و در «محک» فقط مُهر غیرقابل‌سنجش می‌خورد.</p>
+        <div class="ticket">
+          <code id="schema-example" lang="en" dir="ltr">[{"kind": "word", "text": "laugh", "pos": "verb", "sense_id": "laugh#0"},
+  {"kind": "phrase", "text": "take off"}]</code>
+          <button class="btn ghost small" id="btn-copy-schema" type="button" title="رونوشت از مثال کوچک نمونه">کپی</button>
+        </div>
+        <p class="note">ردیف اول برچسب طلا دارد (قابل محک)؛ ردیف دوم ندارد (سفارشی).</p>
+        </details>
+
+        <div class="receipt">
+          <span>مسیرهای قطعی پیش از شروع — همین‌ها استفاده می‌شوند <span class="spinner" id="paths-spinner" hidden aria-hidden="true"></span></span>
+          <div class="ticket">
+            <code id="paths-echo" lang="en" dir="ltr">—</code>
+          </div>
+          <p class="note" id="paths-note">با تغییر فیلدها به‌روز می‌شود؛ چیزی هنوز ساخته نشده است.</p>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn" id="btn-launch" title="با همین گزینه‌ها یک اجرا می‌سازد و شروع می‌کند">شروع اجرا</button>
+          <span class="statusline" id="compose-status" aria-live="polite"></span>
+        </div>
+        <div class="alert" id="compose-err" role="alert"></div>
+        <div class="receipt">
+          <span>رسید فرمان — همین دستور اجرا می‌شود و از ترمینال هم قابل تکرار است</span>
+          <div class="ticket">
+            <code id="compose-cli" lang="en" dir="ltr">—</code>
+            <button class="btn ghost small" id="btn-copy-compose" type="button" title="رونوشت از دستور">کپی</button>
+          </div>
+          <p class="note">شناسهٔ اجرای موتور هر بار تازه ساخته می‌شود؛ بقیهٔ دستور دقیقاً همین است.</p>
+        </div>
+      </div>
+
+      <div>
+        <div class="quiet judge-kind">
+          <h2><span class="kdot" aria-hidden="true"></span>قالب‌های داور</h2>
+          <p class="lede">تنظیم داورِ موتور (ارائه‌دهنده + مدل + هم‌روندی)، به سبک قالب‌های هوش بات. «نشاندن در فرم» فقط همین سه گزینه را در فرم اجرا می‌گذارد؛ بقیهٔ فرم دست نخورده می‌ماند.</p>
+          <label class="f" for="j-name">نام قالب داور <button class="tipbtn" type="button" data-tip="tip-jname" aria-expanded="false" aria-controls="tip-jname" aria-label="راهنمای نام قالب داور" title="راهنما">؟</button></label>
+          <input type="text" id="j-name" autocomplete="off" spellcheck="false"
+                  aria-describedby="tip-jname"
+                  title="نام قالب داور؛ ذخیره دوباره همان نام یعنی نسخه بعدی.">
+          <span class="tip" id="tip-jname" role="tooltip" hidden>یک نام بدهید و «ذخیره» بزنید؛ ذخیرهٔ دوبارهٔ همان نام، نسخهٔ بعدی می‌سازد.</span>
+          <label class="f" for="j-list">قالب داور ذخیره‌شده <button class="tipbtn" type="button" data-tip="tip-jlist" aria-expanded="false" aria-controls="tip-jlist" aria-label="راهنمای قالب داور ذخیره‌شده" title="راهنما">؟</button></label>
+          <select id="j-list" aria-describedby="tip-jlist"
+                  title="قالب داور ذخیره‌شده؛ نشاندن فقط ارائه‌دهنده و مدل و هم‌روندی را پر می‌کند."></select>
+          <span class="tip" id="tip-jlist" role="tooltip" hidden>قالب را بردارید و «نشاندن در فرم» بزنید.</span>
+          <h3>مدل‌های آماده (کپی با یک کلیک)</h3>
+          <p class="lede">موتور فهرست مدل‌ها را بیرون نمی‌دهد؛ شناسه را باید تایپ کرد. این‌ها شناسه‌های شناخته‌شدهٔ موتورند — «کپی» بزنید تا در فیلد مدل بنشیند:</p>
+          <div class="chips" id="model-chips" aria-live="polite"></div>
+          <h3>فهرست زندهٔ مدل‌ها (سرور، با کلید شما)</h3>
+          <p class="lede">فهرست واقعی هر ارائه‌دهنده از سرور همین کنسول خوانده می‌شود (کلید هرگز به مرورگر نمی‌آید)؛ «کپی» شناسهٔ دقیق را در فیلد مدل می‌نشاند. خطا با نام ارائه‌دهنده گفته می‌شود، هرگز جعل نمی‌شود. تایپ دستی همیشه می‌ماند.</p>
+          <div class="btnrow" style="margin-block-start:0">
+            <button class="btn ghost small" id="btn-model-list" type="button" title="فهرست مدل‌های ارائه‌دهندهٔ فعلی را از سرور می‌خواند">خواندن فهرست مدل‌ها</button>
+            <span class="statusline" id="model-status" aria-live="polite"></span>
+          </div>
+          <div class="pickrow" style="margin-block-start:6px">
+            <input type="text" class="ltr" id="model-search" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                   placeholder="جست‌وجو در شناسه‌ها…" aria-label="جست‌وجو در فهرست مدل‌ها">
+          </div>
+          <div class="chips" id="model-filter-chips" aria-live="polite"></div>
+          <ul class="plain" id="model-list" aria-live="polite"></ul>
+          <div class="alert" id="model-err" role="alert"></div>
+          <h3>تنظیم‌های داور (هم‌خوان با قالب‌های هوش بات)</h3>
+          <div class="engnote" id="judge-schema" aria-live="polite">در حال خواندن تنظیم‌های داور…</div>
+          <div class="engnote" id="judge-engine-note">در حال خواندن مشخصات موتور…</div>
+          <p class="engnote">نکتهٔ سهمیه: خطای ۴۲۹ به کلید بعدی همان مدل می‌چرخد؛ اگر همه سهمیه‌ها تمام شوند اجرا با صدای بلند می‌ایستد (پیشرفت ذخیره است، با «ادامه بده» برمی‌گردد). خطای ۴۰۱/۴۰۳ یعنی کلید مشکل دارد. جزئیات در <span lang="en" dir="ltr">run.log</span> همان اجراست.</p>
+          <div class="btnrow">
+            <button class="btn small" id="btn-judge-save" type="button" title="ارائه‌دهنده و مدل و هم‌روندی فعلی را با این نام ذخیره می‌کند">ذخیره قالب داور</button>
+            <button class="btn ghost small" id="btn-judge-apply" type="button" title="ارائه‌دهنده و مدل و هم‌روندی قالب را در فرم می‌نشاند">نشاندن در فرم</button>
+            <button class="btn danger small" id="btn-judge-del" type="button" title="این قالب داور را برای همیشه حذف می‌کند">حذف</button>
+            <span class="statusline" id="judge-status" aria-live="polite"></span>
+          </div>
+          <div class="alert" id="judge-err" role="alert"></div>
+          <p class="note" id="judge-meta"></p>
+        </div>
+        <div class="quiet run-kind">
+          <h2><span class="kdot" aria-hidden="true"></span>قالب‌های کاری (کل اجرا)</h2>
+          <p class="lede">کل فرم اجرا با یک نام و نسخه: ارائه‌دهنده، مدل، نمونه، سقف، هم‌روندی، خروجی، پوشهٔ پیشرفت و حالت ادامه. «بارگذاری» همهٔ گزینه‌های فرم را پر می‌کند.</p>
+          <label class="f" for="t-name">نام قالب کاری <button class="tipbtn" type="button" data-tip="tip-tname" aria-expanded="false" aria-controls="tip-tname" aria-label="راهنمای نام قالب کاری" title="راهنما">؟</button></label>
+          <input type="text" id="t-name" autocomplete="off" spellcheck="false"
+                  aria-describedby="tip-tname"
+                  title="نام قالب کاری؛ ذخیره دوباره همان نام یعنی نسخه بعدی.">
+          <span class="tip" id="tip-tname" role="tooltip" hidden>یک نام بدهید و «ذخیره» بزنید؛ ذخیرهٔ دوبارهٔ همان نام، نسخهٔ بعدی می‌سازد. قالب آمادهٔ «شاهد-محک» (سرعت + دقت) از پیش ساخته شده است.</span>
+          <label class="f" for="t-list">قالب کاری ذخیره‌شده <button class="tipbtn" type="button" data-tip="tip-tlist" aria-expanded="false" aria-controls="tip-tlist" aria-label="راهنمای قالب کاری ذخیره‌شده" title="راهنما">؟</button></label>
+          <select id="t-list" aria-describedby="tip-tlist"
+                  title="قالب کاری ذخیره‌شده؛ بارگذاری همهٔ گزینه‌ها را پر می‌کند."></select>
+          <span class="tip" id="tip-tlist" role="tooltip" hidden>قالب را بردارید و «بارگذاری» بزنید تا همهٔ گزینه‌های فرم اجرا پر شود.</span>
+          <div class="btnrow">
+            <button class="btn small" id="btn-template-save" type="button" title="همهٔ گزینه‌های فعلی را با این نام ذخیره می‌کند">ذخیره قالب</button>
+            <button class="btn ghost small" id="btn-template-load" type="button" title="همهٔ گزینه‌های قالب را در فرم می‌نشاند">بارگذاری</button>
+            <button class="btn danger small" id="btn-template-del" type="button" title="این قالب را برای همیشه حذف می‌کند">حذف</button>
+            <span class="statusline" id="template-status" aria-live="polite"></span>
+          </div>
+          <div class="alert" id="template-err" role="alert"></div>
+          <p class="note" id="template-meta"></p>
+        </div>
+        <div class="quiet">
+          <h2>کجا چه می‌شود؟</h2>
+          <p class="lede">فرم اجرا این‌جاست؛ قالب داور (بنفش) فقط داور را می‌نشاند و قالب کاری (سبز) کل فرم را پر می‌کند؛ کلیدها و اتصال‌های سفارشی در «تنظیمات»؛ نتیجه در «پایش زنده»؛ امتیاز در «محک». رسید فرمان هر اجرا کنار همان اجراست.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 2: watch -->
+  <section class="panel" id="panel-watch" role="tabpanel" aria-labelledby="tab-watch" tabindex="0" hidden>
+    <div class="quiet">
+      <h2>اجراها</h2>
+      <p class="lede">تازه‌ترین آخر است. یک اجرا را انتخاب کنید تا رویدادهای زنده‌اش را به‌صورت کارت ببینید.</p>
+      <div class="btnrow" style="margin-block-start:0">
+        <button class="btn ghost small" id="btn-refresh-runs" type="button" title="فهرست اجراها را دوباره می‌خواند">تازه‌سازی فهرست</button>
+        <span class="statusline" id="watch-status" aria-live="polite"></span>
+      </div>
+      <div class="alert" id="watch-err" role="alert"></div>
+      <div class="empty" id="runs-empty" hidden>هنوز اجرایی ثبت نشده؛ از برگهٔ «ساخت اجرا» شروع کنید.</div>
+      <ul class="runs" id="run-list"></ul>
+    </div>
+    <div class="quiet" id="watch-detail" hidden>
+      <h2>پایش زنده</h2>
+      <div id="watch-meta"></div>
+      <div class="progress" role="progressbar" id="watch-progressbar" aria-label="پیشرفت اجرا" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <i id="watch-progress"></i>
+      </div>
+      <p class="note" id="watch-progress-label" aria-live="polite"></p>
+      <div class="receipt">
+        <span>رسید فرمان این اجرا</span>
+        <div class="ticket">
+          <code id="watch-cli" lang="en" dir="ltr">—</code>
+          <button class="btn ghost small" id="btn-copy-watch" type="button" title="رونوشت از دستور">کپی</button>
+        </div>
+      </div>
+      <h3>کارت‌های رویداد <span class="note">(هر ۳ ثانیه خودکار تازه می‌شود)</span></h3>
+      <div id="watch-cards" aria-live="polite"></div>
+      <div class="btnrow">
+        <button class="btn ghost small" id="btn-poll" type="button" title="رویدادها را همین حالا می‌خواند">تازه‌سازی رویدادها</button>
+        <span class="statusline" id="events-status" aria-live="polite"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 3: benchmark -->
+  <section class="panel" id="panel-benchmark" role="tabpanel" aria-labelledby="tab-benchmark" tabindex="0" hidden>
+    <div class="quiet">
+      <h2>محک با برچسب طلا</h2>
+      <p class="lede">طلا یعنی فیلد <span lang="en" dir="ltr">sense_id</span> داخل فایل نمونهٔ همان اجرا. در جدول محک، ستون «شاهد مرجع» همان برچسب طلاست و «پیش‌بینی موتور» انتخاب موتور است. اجرای سفارشیِ بدون طلا — یا روی اتصال سفارشی — امتیاز نمی‌گیرد.</p>
+      <div class="btnrow" style="margin-block-start:0">
+        <label class="f" for="b-run" style="margin-block:0">اجرا <button class="tipbtn" type="button" data-tip="tip-brun" aria-expanded="false" aria-controls="tip-brun" aria-label="راهنمای انتخاب اجرا" title="راهنما">؟</button></label>
+        <select id="b-run" style="max-inline-size:52ch" aria-describedby="tip-brun"
+                title="اجرایی که محک زده می‌شود؛ تازه‌ترین آخر فهرست است."></select>
+        <button class="btn ghost small" id="btn-refresh-benchmark" type="button" title="فهرست اجراها را دوباره می‌خواند">تازه‌سازی</button>
+        <button class="btn small" id="btn-benchmark" type="button" title="اجرای انتخاب‌شده را با طلا می‌سنجد">محک</button>
+        <span class="statusline" id="benchmark-status" aria-live="polite"></span>
+      </div>
+      <span class="tip" id="tip-brun" role="tooltip" hidden>اجرای موردنظر را بردارید و «محک» بزنید.</span>
+      <div class="alert" id="benchmark-err" role="alert"></div>
+      <div class="empty" id="benchmark-empty" hidden>اجرایی برای محک انتخاب نشده؛ اول یک اجرا بسازید.</div>
+      <div id="benchmark-out" aria-live="polite"></div>
+      <div id="benchmark-table-block" hidden>
+        <div class="bench-controls">
+          <label class="f" for="b-search" style="margin-block:0">جست‌وجو</label>
+          <input type="text" id="b-search" class="ltr" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                  placeholder="word, gloss, sense id…" aria-label="جست‌وجو در ردیف‌ها (واژه، معنی، شناسه)">
+          <label class="rowline" for="b-mismatch-only" style="font-size:.82rem">
+            <input type="checkbox" id="b-mismatch-only"> فقط مغایرت با شاهد
+          </label>
+          <span class="statusline" id="b-count" aria-live="polite"></span>
+        </div>
+        <div class="tablewrap">
+          <table id="b-table">
+            <thead><tr>
+              <th><button type="button" data-sort="text" title="مرتب‌سازی بر واژه">منبع <span aria-hidden="true" data-arrow="text"></span></button></th>
+              <th><button type="button" data-sort="gold" title="مرتب‌سازی بر شاهد مرجع">شاهد مرجع <span aria-hidden="true" data-arrow="gold"></span></button></th>
+              <th><button type="button" data-sort="predicted" title="مرتب‌سازی بر پیش‌بینی موتور">پیش‌بینی موتور <span aria-hidden="true" data-arrow="predicted"></span></button></th>
+              <th>وضعیت</th>
+            </tr></thead>
+            <tbody id="b-tbody"></tbody>
+          </table>
+        </div>
+        <p class="note">هر سطر اول معنی را نشان می‌دهد (واژه + نقش + تعریف)؛ شناسه‌های فنی (<span lang="en" dir="ltr">w:key</span> و شناسهٔ معنی) فقط ریز و ثانویه‌اند.</p>
+        <div class="pager">
+          <button class="btn ghost small" id="b-prev" type="button">قبلی</button>
+          <span class="statusline" id="b-pageinfo" aria-live="polite"></span>
+          <button class="btn ghost small" id="b-next" type="button">بعدی</button>
+        </div>
+      </div>
+      <div class="receipt">
+        <span>رسید فرمان محک — شاهد مرجع در برابر پیش‌بینی موتور</span>
+        <div class="ticket">
+          <code id="benchmark-cli" lang="en" dir="ltr">—</code>
+          <button class="btn ghost small" id="btn-copy-benchmark" type="button" title="رونوشت از دستور">کپی</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 4: screened browser (read-only over the Step-2 export) -->
+  <section class="panel" id="panel-screened" role="tabpanel" aria-labelledby="tab-screened" tabindex="0" hidden>
+    <div class="quiet">
+      <h2>معنی‌های غربال‌شده</h2>
+      <p class="lede">فهرست فقط‌خواندنی خروجی غربال‌سازی: هر سطر شناسهٔ معنی را با تعریفش نشان می‌دهد (هرگز فقط شمارهٔ سطر). چیزی این‌جا نوشته نمی‌شود؛ داوری در برگهٔ «داوری» است.</p>
+      <div class="bench-controls">
+        <label class="f" for="s-search" style="margin-block:0">جست‌وجو</label>
+        <input type="text" id="s-search" class="ltr" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+               placeholder="lemma, gloss, sense id…" aria-label="جست‌وجو در معنی‌ها (واژه، تعریف، شناسه)">
+        <button class="btn ghost small" id="btn-screened" type="button" title="فهرست معنی‌های غربال‌شده را می‌خواند">خواندن فهرست</button>
+        <span class="statusline" id="screened-status" aria-live="polite"></span>
+      </div>
+      <div class="alert" id="screened-err" role="alert"></div>
+      <div class="empty" id="screened-empty" hidden>فایلی خوانده نشده؛ «خواندن فهرست» بزنید. اگر خالی ماند، خروجی غربال‌سازی هنوز ساخته نشده است.</div>
+      <p class="note" id="screened-meta" aria-live="polite"></p>
+      <div class="tablewrap">
+        <table id="s-table">
+          <thead><tr>
+            <th>منبع (واژه + شناسهٔ معنی)</th>
+            <th>تعریف</th>
+            <th>مثال</th>
+          </tr></thead>
+          <tbody id="s-tbody"></tbody>
+        </table>
+      </div>
+      <p class="note">هر سطر اول معنی را نشان می‌دهد (واژه + شناسه + تعریف)؛ شناسه‌های فنی همیشه با تعریف‌اند، هرگز به‌تنهایی.</p>
+    </div>
+  </section>
+
+  <!-- Screen 5: human labeling (form + task guide + saved-label receipt) -->
+  <section class="panel" id="panel-label" role="tabpanel" aria-labelledby="tab-label" tabindex="0" hidden>
+    <div class="dash">
+      <div class="quiet">
+        <h2>ثبت داوری</h2>
+        <p class="lede">رأی شما برای یک معنی غربال‌شده، در انبار داوری انسانی ذخیره می‌شود (فقط‌افزودنی؛ چیزی بازنویسی نمی‌شود).</p>
+        <details class="samplebox" id="label-guide" open>
+          <summary>راهنمای کوتاه داوری (سه گام)</summary>
+          <ul>
+            <li><b>گام ۱ — پیدا کن:</b> در برگهٔ «مرور غربال‌شده» معنی را پیدا کنید و شناسه‌اش را (با تعریفش) این‌جا بیاورید.</li>
+            <li><b>گام ۲ — تصمیم بگیر:</b> «پیوند» یعنی یک همتای درست در واژه‌نامهٔ مقصد می‌شناسید (شناسه‌اش را بنویسید)؛ «بدون‌پیوند» یعنی هیچ همتایی نیست (مقصد خالی می‌ماند).</li>
+            <li><b>گام ۳ — ثبت کن:</b> «ذخیره» بزنید و رسید را نگه دارید؛ رسید همان ارجاع قابل‌تکرار است.</li>
+          </ul>
+          <p class="lede">لایهٔ نمونه‌برداری را درست بنویسید: فقط لایهٔ «gold» برچسب طلاست؛ بقیه «سفارشی — غیرقابل‌سنجش» مُهر می‌خورند و امتیاز نمی‌گیرند.</p>
+        </details>
+        <div class="grid">
+          <div>
+            <label class="f" for="l-sense">شناسهٔ معنی *</label>
+            <input type="text" class="ltr" id="l-sense" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                   placeholder="run#0" title="شناسهٔ معنی غربال‌شده؛ ستاره یعنی اجباری.">
+          </div>
+          <div>
+            <label class="f" for="l-lemma">واژهٔ مبدأ *</label>
+            <input type="text" class="ltr" id="l-lemma" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                   placeholder="run" title="واژهٔ مبدأ همان معنی.">
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label class="f" for="l-target">شناسهٔ مقصد (خالی = هیچ)</label>
+            <input type="text" class="ltr" id="l-target" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                   placeholder="خالی یعنی بدون‌پیوند" title="شناسهٔ همتا در مقصد؛ خالی یعنی هیچ همتایی نیست.">
+          </div>
+          <div>
+            <label class="f" for="l-verdict">رأی *</label>
+            <select id="l-verdict" title="پیوند یعنی همتا هست؛ بدون‌پیوند یعنی نیست.">
+              <option value="link">پیوند</option>
+              <option value="none">بدون‌پیوند</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label class="f" for="l-stratum">لایهٔ نمونه‌برداری *</label>
+            <input type="text" id="l-stratum" autocomplete="off" spellcheck="false"
+                   placeholder="gold یا custom" title="لایهٔ نمونه‌برداری؛ فقط gold برچسب طلاست.">
+          </div>
+          <div>
+            <label class="f" for="l-annotator">شناسهٔ داور *</label>
+            <input type="text" id="l-annotator" autocomplete="off" spellcheck="false"
+                   placeholder="مثلاً operator-1" title="شناسهٔ داور (نام شما).">
+          </div>
+        </div>
+        <div class="btnrow">
+          <button class="btn" id="btn-label-save" type="button" title="این داوری را در انبار ذخیره می‌کند">ذخیرهٔ داوری</button>
+          <span class="statusline" id="label-status" aria-live="polite"></span>
+        </div>
+        <div class="alert" id="label-err" role="alert"></div>
+        <div class="receipt" id="label-receipt" hidden>
+          <span>رسید داوری ذخیره‌شده — چه چیزی، کجا، با چه ارجاعی</span>
+          <div class="ticket">
+            <code id="label-receipt-text" lang="en" dir="ltr">—</code>
+            <button class="btn ghost small" id="btn-copy-label" type="button" title="رونوشت از رسید">کپی</button>
+          </div>
+          <p class="note" id="label-receipt-meta"></p>
+          <p class="wmark" id="label-receipt-wmark" hidden></p>
+        </div>
+      </div>
+      <div>
+        <div class="quiet">
+          <h2>کجا چه می‌شود؟</h2>
+          <p class="lede">فهرست معنی‌ها در «مرور غربال‌شده» (فقط‌خواندنی) است؛ رأی این‌جا ثبت می‌شود؛ رسید همین‌جا می‌ماند و با همان متن از ترمینال هم قابل‌تکرار است. انبار داوری فقط اضافه می‌کند — هیچ رأیی پاک یا بازنویسی نمی‌شود.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 6: guide -->
+  <section class="panel" id="panel-guide" role="tabpanel" aria-labelledby="tab-guide" tabindex="0" hidden>
+    <div class="quiet">
+      <h2>راهنمای کامل</h2>
+      <p class="lede">همه‌چیز این کنسول این‌جاست. جست‌وجو متن همین صفحه را می‌پالاید.</p>
+      <label class="f" for="guide-search">جست‌وجو در راهنما <button class="tipbtn" type="button" data-tip="tip-gsearch" aria-expanded="false" aria-controls="tip-gsearch" aria-label="راهنمای جست‌وجو" title="راهنما">؟</button></label>
+      <input type="text" id="guide-search" autocomplete="off" spellcheck="false"
+              placeholder="مثلاً: طلا، ادامه، کلید…"
+              aria-describedby="tip-gsearch"
+              title="بخشی از متن راهنما را بنویسید تا فقط بخش‌های مرتبط بمانند.">
+      <span class="tip" id="tip-gsearch" role="tooltip" hidden>بنویسید تا فقط بخش‌های مرتبط بمانند و خودکار باز شوند؛ خالی یعنی همهٔ بخش‌ها.</span>
+      <p class="note" id="guide-count" aria-live="polite"></p>
+      <div class="btnrow" style="margin-block-start:0">
+        <button class="btn ghost small" id="guide-expand-all" type="button" title="همهٔ پرسش‌های نمایان را باز می‌کند">بازکردن همه</button>
+        <button class="btn ghost small" id="guide-collapse-all" type="button" title="همهٔ پرسش‌های نمایان را می‌بندد">بستن همه</button>
+      </div>
+      <div id="guide-body">
+      <section class="qgroup" data-group="start">
+        <h3>شروع و صفحه‌ها</h3>
+        <details class="qa" data-qa="screen compose watch benchmark guide" open>
+          <summary>هر صفحه چه می‌کند؟</summary>
+          <ul>
+            <li><b>ساخت اجرا:</b> فقط فرم همین اجراست؛ مسیرها را می‌بینید، رسید فرمان را کپی می‌کنید و اجرا را شروع می‌کنید. قالب‌های کاری آماده در ستون کناری‌اند؛ کلیدها و اتصال‌های سفارشی در «تنظیمات».</li>
+            <li><b>پایش زنده:</b> فهرست اجراها (تازه‌ترین آخر) و کارت‌های رنگی رویداد موتور برای اجرای انتخاب‌شده، با نوار پیشرفت و رسید فرمان همان اجرا.</li>
+            <li><b>محک:</b> پیش‌بینی موتور برای یک اجرا را با شاهدهای مرجع نمونه‌اش (همان برچسب‌های طلا) می‌سنجد؛ دقت و جدول مغایرت شاهد در برابر پیش‌بینی را با پالایه، مرتب‌سازی، جست‌وجو و صفحه‌بندی نشان می‌دهد.</li>
+            <li><b>تنظیمات (کشو):</b> پیکربندی ارائه‌دهنده‌ها (کلید هر ارائه‌دهنده در کارت خودش) و اتصال‌های سفارشی شما. دکمهٔ «تنظیمات» بالای صفحه آن را باز می‌کند.</li>
+            <li><b>راهنما:</b> همین صفحه؛ پرسش و پاسخ کامل با جست‌وجو.</li>
+          </ul>
+        </details>
+        <details class="qa" data-qa="theme dark light drawer settings">
+          <summary>تم و کشوی تنظیمات کجاست؟</summary>
+          <p>پیش‌فرض تم مهندسی تیره است؛ دکمهٔ «تم» بالای صفحه به روشن/تیره جابه‌جا می‌شود و انتخاب شما در همین مرورگر می‌ماند. دکمهٔ «تنظیمات» کشو را باز می‌کند: پیکربندی ارائه‌دهنده‌ها (کلید هر ارائه‌دهنده در کارت خودش) و اتصال‌های سفارشی (نام، نشانی پایه، مدل، کلید).</p>
+        </details>
+      </section>
+      <section class="qgroup" data-group="templates">
+        <h3>قالب‌ها و داور موتور</h3>
+        <details class="qa" data-qa="job template template version load save run judge preset">
+          <summary>قالب کاری و قالب داور چه فرقی دارند؟</summary>
+          <ul>
+            <li><b>قالب داور</b> (کارت بنفش): فقط تنظیم داورِ موتور — ارائه‌دهنده، مدل و هم‌روندی. «نشاندن در فرم» فقط همین سه گزینه را می‌گذارد؛ بقیهٔ فرم دست نخورده می‌ماند.</li>
+            <li><b>قالب کاری</b> (کارت سبز): کل فرم اجرا با یک نام — ارائه‌دهنده، مدل، نمونه، سقف، هم‌روندی، خروجی، پوشهٔ پیشرفت و حالت ادامه. «بارگذاری» همهٔ گزینه‌ها را پر می‌کند.</li>
+          </ul>
+          <p>هر دو نسخه‌دارند: ذخیرهٔ دوبارهٔ همان نام، نسخهٔ بعدی می‌سازد. قالب آمادهٔ «شاهد-محک» (سقف ۳۰ روی نمونهٔ طلادار پیش‌فرض: تند و قابل امتیاز) از پیش ساخته شده است. رسید فرمان هر اجرا نام و نسخهٔ قالبش را هم نشان می‌دهد.</p>
+        </details>
+        <details class="qa" data-qa="judge model temperature batch list copy engine">
+          <summary>داور موتور چه تنظیم‌هایی دارد؟</summary>
+          <p>فقط همان که موتور بیرون داده است؛ چیزی جعل نشده:</p>
+          <ul>
+            <li>ارائه‌دهنده‌ها دقیقاً فهرست رجیستری موتورند. «کیلو» هنوز موتور-آماده نیست و در فهرست نمی‌آید.</li>
+            <li>مسیر هر ارائه‌دهنده پیش از شروع زیر فهرست نشان داده می‌شود: تونل اجاره‌ای یا مستقیم. گوگل همیشه تونل اجاره‌ای است — تماس مستقیم گوگل با خطای جغرافیایی ۴۰۳ می‌میرد.</li>
+            <li>موتور فهرست مدل‌ها را بیرون نمی‌دهد؛ شناسهٔ مدل را باید تایپ کرد (خالی یعنی پیش‌فرض همان ارائه‌دهنده). شناسه‌های آمادهٔ کارت داور با یک کلیک کپی می‌شوند؛ «فهرست زندهٔ مدل‌ها» همان فهرست واقعی ارائه‌دهنده را از سرور می‌خواند (کلید هرگز به مرورگر نمی‌آید) و با جست‌وجو و برچسب می‌توان پالایش کرد — کپی، شناسهٔ دقیق را در فیلد می‌نشاند.</li>
+            <li>تنظیم‌های سقف و آهنگ و مهلت، هم‌خوان با قالب‌های هوش بات است (سقف درخواست، سقف توکن، سقف روزانه، هم‌روندی، مهلت پاسخ). دما قفل است: موتور برای قطعیت، دما را ثابت صفر نگه می‌دارد — پس هیچ دستگیرهٔ دمایی نشان داده نمی‌شود.</li>
+            <li>اندازهٔ دستهٔ داوری ثابت ۱۲ است (تنظیمی ندارد)؛ هم‌روندی ۱ تا ۱۰ فقط در مسیر ابری کاربرد دارد.</li>
+          </ul>
+        </details>
+        <details class="qa" data-qa="auth key 401 403 limit 429 quota error">
+          <summary>خطای احراز هویت یا سقف مصرف را چه کنم؟</summary>
+          <ul>
+            <li><b>کلید آماده نیست / خطای 401 و 403:</b> وضعیت کلید ارائه‌دهنده را زیر فهرست ارائه‌دهنده در برگهٔ ساخت ببینید. کلید را در کشوی «تنظیمات» در کارت همان ارائه‌دهنده بچسبانید و ذخیره کنید.</li>
+            <li><b>خطای 429 یا سقف روزانه:</b> مصرف سهمیه تمام شده یا سرعت زیاد است. سقف آیتم را کم کنید، هم‌روندی را پایین بیاورید، و بعداً دوباره تلاش کنید. جزئیات در <span lang="en" dir="ltr">run.log</span> همان اجراست.</li>
+            <li><b>اتصال سفارشی اجرا نمی‌شود:</b> موتور فقط نام‌های رجیستری کد را می‌شناسد؛ نام اتصال سفارشی در دروازهٔ پیش‌پرواز موتور رد می‌شود و دلیلش در <span lang="en" dir="ltr">run.log</span> می‌ماند. اجرا با مُهر غیرقابل‌سنجش ثبت می‌شود.</li>
+          </ul>
+        </details>
+      </section>
+      <section class="qgroup" data-group="run">
+        <h3>نمونه، نشانی‌ها و اجرا</h3>
+        <details class="qa" data-qa="sample schema kind text sense_id gold example work list">
+          <summary>نمونه چیست و فایل معتبرش چه شکلی است؟</summary>
+          <p>نمونه، فهرست کاری است که موتور داوری می‌کند: هر ردیف یک واژه یا عبارت است که موتور باید برایش بهترین معنی را انتخاب کند. دو منشأ دارد: نمونه‌های آمادهٔ همراه موتور روی همین دستگاه (پوشهٔ <span lang="en" dir="ltr">pilot</span> — با برچسب طلا، مناسب محک) و فایل‌هایی که خودتان می‌سازید (فهرست دلخواه، معمولاً بدون طلا یعنی سفارشی).</p>
+          <p>یک فایل <span lang="en" dir="ltr">JSON</span> که ریشه‌اش فهرست (آرایه) است. هر ردیف یک شیء با این فیلدهاست:</p>
+          <ul>
+            <li><span lang="en" dir="ltr">kind</span> — اجباری؛ فقط <span lang="en" dir="ltr">word</span> (تک‌واژه) یا <span lang="en" dir="ltr">phrase</span> (عبارت).</li>
+            <li><span lang="en" dir="ltr">text</span> — اجباری؛ خود واژه یا عبارت، ناخالی.</li>
+            <li><span lang="en" dir="ltr">pos</span> — اختیاری؛ نقش دستوری.</li>
+            <li><span lang="en" dir="ltr">pool_level</span> — اختیاری؛ سطح (مثل <span lang="en" dir="ltr">A1</span>).</li>
+            <li><span lang="en" dir="ltr">en_def</span> — اختیاری؛ تعریف انگلیسی همان معنی (در جدول محک نشان داده می‌شود).</li>
+            <li><span lang="en" dir="ltr">sense_id</span> — اختیاری ولی مهم: برچسب طلا یعنی «پاسخ درست از پیش معلوم». اگر هیچ ردیفی طلا نداشته باشد، اجرا «سفارشی» است: انجام می‌شود ولی امتیاز نمی‌گیرد.</li>
+          </ul>
+          <p>مثال کوچک (دکمهٔ کپی کنار شکل نمونه در برگهٔ ساخت):</p>
+          <pre>[{"kind": "word", "text": "laugh", "pos": "verb", "sense_id": "laugh#0"},
+  {"kind": "phrase", "text": "take off"}]</pre>
+          <p>در جدول محک، همین برچسب طلا زیر ستون «شاهد مرجع» می‌آید و رأی موتور زیر «پیش‌بینی موتور».</p>
+        </details>
+        <details class="qa" data-qa="browse picker file dialog folder path default">
+          <summary>دکمهٔ «مرور…» کنار نشانی‌ها چه می‌کند؟</summary>
+          <p>گفت‌وگوی انتخاب فایل/پوشه را روی همین دستگاه باز می‌کند و نشانی برگزیده را در همان فیلد متنی می‌گذارد؛ تایپ دستی هم همچنان کار می‌کند. پیش‌فرض‌ها: نمونهٔ خالی یعنی نمونهٔ پیش‌فرض خود موتور؛ خروجیِ خالی یعنی <span lang="en" dir="ltr">precard.jsonl</span> داخل پوشهٔ خود همان اجرا؛ پوشهٔ پیشرفتِ خالی یعنی پوشهٔ <span lang="en" dir="ltr">progress</span> داخل همان پوشه. مسیرهای قطعی پیش از شروع، زیر فرم نشان داده می‌شوند.</p>
+        </details>
+        <details class="qa" data-qa="output runs folder run.log run_events.jsonl precard.jsonl progress read">
+          <summary>خروجی‌ها کجا می‌روند و چطور خوانده می‌شوند؟</summary>
+          <p>هر اجرا پوشهٔ خودش را دارد با نامی که با تاریخ‌وساعت شروع می‌شود و با شناسهٔ کوتاه تمام می‌شود؛ پوشه‌های روز، والد‌اند. نام‌ها مرتب‌شدنی‌اند و تازه‌ترین آخر است. داخل پوشه:</p>
+          <ul>
+            <li><span lang="en" dir="ltr">precard.jsonl</span> — نتیجهٔ اصلی؛ هر خط یک ردیف <span lang="en" dir="ltr">JSON</span> با <span lang="en" dir="ltr">key</span> و <span lang="en" dir="ltr">sense_id</span>.</li>
+            <li><span lang="en" dir="ltr">run.log</span> — خروجی متنی موتور (مقادیر کلیدها پالایش شده‌اند).</li>
+            <li><span lang="en" dir="ltr">run_events.jsonl</span> — رویدادهای ماشینی که در «پایش زنده» به‌صورت کارت می‌بینید.</li>
+            <li><span lang="en" dir="ltr">progress/</span> — وضعیت مرحله‌ها برای ادامه‌دادن.</li>
+          </ul>
+          <p>اگر نشانی خروجی یا پوشهٔ پیشرفت را خودتان بدهید، همان استفاده می‌شود؛ وگرنه داخل پوشهٔ خود اجراست (مسیرهای قطعی پیش از شروع نشان داده می‌شوند).</p>
+        </details>
+        <details class="qa" data-qa="resume continue progress no-resume plan">
+          <summary>ادامه (resume) چطور کار می‌کند؟</summary>
+          <ul>
+            <li><b>ادامه بده:</b> مرحله‌های تمام‌شدهٔ ذخیره‌شده در پوشهٔ پیشرفت رد می‌شوند و فقط کارِ مانده انجام می‌شود.</li>
+            <li><b>از نو شروع کن:</b> پیشرفت قبلی نادیده گرفته می‌شود و همه‌چیز از اول اجرا می‌شود.</li>
+            <li><b>برنامهٔ ادامه:</b> اول نقشهٔ «کدام مرحله تمام، کدام مانده» چاپ می‌شود و بعد اجرا با ادامه‌دادن پیش می‌رود.</li>
+          </ul>
+        </details>
+      </section>
+      <section class="qgroup" data-group="benchmark">
+        <h3>محک: شاهد مرجع در برابر پیش‌بینی</h3>
+        <details class="qa" data-qa="watermark non-comparable custom benchmark score witness predicted">
+          <summary>مُهر «غیرقابل‌سنجش» یعنی چه؟</summary>
+          <p>یعنی این اجرا را نمی‌شود امتیاز داد، چون شاهد مرجعی برای مقایسه ندارد: یا نمونه‌اش فیلد <span lang="en" dir="ltr">sense_id</span> ندارد (نمونهٔ سفارشی)، یا روی اتصال سفارشی شما اجرا شده (اتصال‌های سفارشی همیشه غیرقابل‌سنجش‌اند). مُهر روی فهرست، پایش و محک دیده می‌شود و محک با توضیح رد می‌شود — نه با عدد (پیش‌بینی بدون شاهد مرجع امتیاز نمی‌گیرد).</p>
+        </details>
+      </section>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <footer>آداپتور محلی نازک روی موتور خط فرمان <span class="mirror" aria-hidden="true">→</span> <span lang="en" dir="ltr">python -m factory.precard</span> — مقدار کلیدها هیچ‌جا نمایش داده نمی‌شود.</footer>
+</div>
+
+<!-- File-picker dialog: server-side browse, fills the text field -->
+<div class="modal" id="file-picker" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <div class="sheet-h">
+      <h2 id="picker-title">انتخاب</h2>
+      <span style="margin-inline-start:auto"></span>
+      <button class="btn ghost small" id="picker-close" type="button" title="بستن گفت‌وگو">بستن</button>
+    </div>
+    <div class="crumb" id="picker-crumb" lang="en" dir="ltr"></div>
+    <div class="flist" id="picker-list" role="listbox" aria-label="فایل‌ها و پوشه‌ها"></div>
+    <div class="sheet-f">
+      <input type="text" class="ltr" id="picker-name" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+              aria-label="نام فایل" placeholder="filename.json">
+      <button class="btn small" id="picker-pick" type="button" title="همین نشانی در فیلد گذاشته می‌شود">انتخاب</button>
+      <span class="statusline" id="picker-status" aria-live="polite"></span>
+    </div>
+    <p class="hint" id="picker-roots" style="padding-block:0 12px;padding-inline:16px"></p>
+  </div>
+</div>
+
+<!-- Settings drawer: provider configuration, run form stays alone -->
+<div class="overlay" id="drawer-overlay" hidden></div>
+<aside class="drawer" id="drawer-settings" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <div class="rowline">
+    <h2 id="drawer-title">تنظیمات</h2>
+    <span style="margin-inline-start:auto"></span>
+    <button class="btn ghost small" id="btn-settings-close" type="button" title="بستن تنظیمات">بستن</button>
+  </div>
+  <p class="lede">پیکربندی ارائه‌دهنده‌ها این‌جاست؛ فرم اجرا خلوت می‌ماند. مقدارها هیچ‌جا — نه صفحه، نه رسید، نه محک — برنمی‌گردند.</p>
+  <div class="quiet">
+    <h2>ارائه‌دهنده‌ها</h2>
+    <p class="lede">کلید هر ارائه‌دهنده را در کارت خودش می‌چسبانید و رمزنگاری‌شده ذخیره می‌شود. نشان هر کارت می‌گوید کلید آماده است یا نه.</p>
+    <div class="alert" id="provider-err" role="alert"></div>
+    <div class="rowline">
+      <span class="statusline" id="master-status" aria-live="polite"></span>
+      <button class="btn ghost small" id="btn-master-ensure" type="button" title="یک‌بار با تأیید شما ساخته و در فایل محیط کارخانه ذخیره می‌شود؛ هیچ‌وقت نمایش داده نمی‌شود">فعال‌سازی ذخیره امن کلید</button>
+    </div>
+    <p class="lede" id="rate-note">وضعیت واقعی هر ارائه‌دهنده (کلید، گروه‌های کلیدی، آهنگ موتور) زیر کارت خودش نوشته می‌شود.</p>
+    <ul class="plain" id="provider-cards"></ul>
+  </div>
+
+  <div class="quiet">
+    <h2>اتصال‌های سفارشی</h2>
+    <p class="lede">تعریف خودتان از یک ارائه‌دهنده (نام، نشانی پایه، مدل، کلید). دادهٔ شماست، جدا از رجیستری کد. اجرای روی اتصال سفارشی همیشه «غیرقابل‌سنجش» است.</p>
+    <div class="grid">
+      <div>
+        <label class="f" for="s-name">نام اتصال <button class="tipbtn" type="button" data-tip="tip-sname" aria-expanded="false" aria-controls="tip-sname" aria-label="راهنمای نام اتصال" title="راهنما">؟</button></label>
+        <input type="text" class="ltr" id="s-name" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                aria-describedby="tip-sname"
+                title="نام یکتا؛ نباید هم‌نام ارائه‌دهنده‌های داخلی باشد.">
+        <span class="tip" id="tip-sname" role="tooltip" hidden>نامی یکتا؛ هم‌نام ارائه‌دهنده‌های داخلی پذیرفته نیست.</span>
+      </div>
+      <div>
+        <label class="f" for="s-base">نشانی پایه <button class="tipbtn" type="button" data-tip="tip-sbase" aria-expanded="false" aria-controls="tip-sbase" aria-label="راهنمای نشانی پایه" title="راهنما">؟</button></label>
+        <input type="text" class="ltr" id="s-base" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                placeholder="https://…" aria-describedby="tip-sbase"
+                title="نشانی پایه سرویس؛ اجباری.">
+        <span class="tip" id="tip-sbase" role="tooltip" hidden>نشانی پایهٔ سرویس. اجباری است.</span>
+      </div>
+    </div>
+    <div class="grid">
+      <div>
+        <label class="f" for="s-model">مدل اتصال <button class="tipbtn" type="button" data-tip="tip-smodel" aria-expanded="false" aria-controls="tip-smodel" aria-label="راهنمای مدل اتصال" title="راهنما">؟</button></label>
+        <input type="text" class="ltr" id="s-model" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                aria-describedby="tip-smodel"
+                title="مدل پیش‌فرض این اتصال؛ خالی یعنی بدون مدل.">
+        <span class="tip" id="tip-smodel" role="tooltip" hidden>مدل پیش‌فرض این اتصال. خالی هم قبول است.</span>
+      </div>
+      <div>
+        <label class="f" for="s-key">کلید اتصال <button class="tipbtn" type="button" data-tip="tip-skey" aria-expanded="false" aria-controls="tip-skey" aria-label="راهنمای کلید اتصال" title="راهنما">؟</button></label>
+        <div class="keywrap">
+          <input type="password" class="ltr" id="s-key" lang="en" dir="ltr" autocomplete="off" spellcheck="false"
+                  aria-describedby="tip-skey"
+                  title="کلید این اتصال؛ خالی یعنی فعلاً بدون کلید. پس از ذخیره هیچ‌جا نمایش داده نمی‌شود.">
+          <button class="btn ghost small" id="btn-skey-toggle" type="button" aria-pressed="false" title="نمایش یا پنهان‌کردن مقدار (فقط همین صفحه)">نمایش</button>
+        </div>
+        <span class="tip" id="tip-skey" role="tooltip" hidden>کلید این اتصال؛ خالی هم قبول است (بعداً از کارت خودش اضافه می‌شود). پس از ذخیره هیچ‌جا نمایش داده نمی‌شود.</span>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button class="btn small" id="btn-profile-save" type="button" title="این اتصال را ذخیره می‌کند">ذخیره اتصال</button>
+      <span class="statusline" id="profile-status" aria-live="polite"></span>
+    </div>
+    <div class="alert" id="profile-err" role="alert"></div>
+    <ul class="plain" id="profile-list"></ul>
+  </div>
+</aside>
+
+<script>
+'use strict';
+const FA_DIGITS = {'0':'۰','1':'۱','2':'۲','3':'۳','4':'۴','5':'۵','6':'۶','7':'۷','8':'۸','9':'۹'};
+function faNum(x){
+  return String(x).replace(/[0-9]/g, d => FA_DIGITS[d]).replace(/%/g, '٪');
+}
+const $ = id => document.getElementById(id);
+let providers = [];
+let customProviders = [];
+let rateRows = [];
+let masterState = null;
+let runs = [];
+let selRun = null;
+let evTimer = null;
+let templates = [];
+
+/* ── theme: dark engineering default, persisted light toggle ── */
+function applyTheme(mode){
+  const m = (mode === 'light') ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', m);
+  document.querySelector('meta[name=color-scheme]').setAttribute('content', m === 'dark' ? 'dark light' : 'light dark');
+  const b = $('btn-theme');
+  b.textContent = m === 'dark' ? 'تم روشن' : 'تم تیره';
+  b.setAttribute('aria-pressed', m === 'light' ? 'true' : 'false');
+  try{ localStorage.setItem('hb-theme', m); }catch(err){}
+}
+function initTheme(){
+  let m = 'dark';
+  try{ m = localStorage.getItem('hb-theme') || 'dark'; }catch(err){}
+  applyTheme(m);
+  const btn = $('btn-theme');
+  if (btn.dataset.bound) return;   /* boot runs twice (DOMContentLoaded + direct); bind once */
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+}
+
+/* ── settings drawer ── */
+function openDrawer(){
+  $('drawer-settings').hidden = false;
+  $('drawer-overlay').hidden = false;
+  $('btn-settings').setAttribute('aria-expanded', 'true');
+  $('btn-settings-close').focus();
+}
+function closeDrawer(){
+  $('drawer-settings').hidden = true;
+  $('drawer-overlay').hidden = true;
+  $('btn-settings').setAttribute('aria-expanded', 'false');
+  $('btn-settings').focus();
+}
+
+const tabs = ['compose','watch','benchmark','screened','label','guide'];
+function show(name){
+  for (const t of tabs){
+    const on = t === name;
+    $('panel-'+t).classList.toggle('active', on);
+    $('panel-'+t).hidden = !on;
+    const tab = $('tab-'+t);
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    tab.tabIndex = on ? 0 : -1;
+  }
+  if (name === 'watch') refreshRuns();
+  if (name === 'benchmark') refreshBenchmarkRuns();
+  if (name === 'screened') loadScreened();
+}
+for (const t of tabs){
+  $('tab-'+t).addEventListener('click', () => show(t));
+  $('tab-'+t).addEventListener('keydown', ev => {
+    const i = tabs.indexOf(t);
+    let n = null;
+    if (ev.key === 'ArrowLeft') n = tabs[(i+1) % tabs.length];       /* RTL: left = forward */
+    if (ev.key === 'ArrowRight') n = tabs[(i+tabs.length-1) % tabs.length];
+    if (ev.key === 'Home') n = tabs[0];
+    if (ev.key === 'End') n = tabs[tabs.length-1];
+    if (n){ ev.preventDefault(); show(n); $('tab-'+n).focus(); }
+  });
+}
+
+function setStatus(id, text){ $(id).textContent = text || ''; }
+function setError(id, text){ $(id).textContent = text || ''; }
+
+async function loadProviders(){
+  setStatus('compose-status', 'در حال خواندن ارائه‌دهنده‌ها…');
+  try{
+    const r = await fetch('/api/providers');
+    if (!r.ok) throw new Error('providers ' + r.status);
+    const j = await r.json();
+    providers = j.providers || [];
+    customProviders = j.custom || [];
+    masterState = j.master || null;
+    try{
+      const rr = await fetch('/api/rate_state');
+      if (rr.ok) rateRows = (await rr.json()).providers || [];
+    }catch(err){ rateRows = []; }
+    updateMasterLine();
+    const sel = $('f-provider');
+    const prev = sel.value;
+    sel.innerHTML = '';
+    for (const p of providers){
+      const o = document.createElement('option');
+      o.value = p.name; o.textContent = p.name;
+      o.setAttribute('lang', 'en'); o.setAttribute('dir', 'ltr');
+      sel.appendChild(o);
+    }
+    for (const c of customProviders){
+      const o = document.createElement('option');
+      o.value = c.name; o.textContent = c.name + ' (سفارشی)';
+      o.setAttribute('lang', 'en'); o.setAttribute('dir', 'ltr');
+      sel.appendChild(o);
+    }
+    if (prev) sel.value = prev;
+    if (!providers.length && !customProviders.length) setError('compose-err', 'ارائه‌دهنده‌ای ثبت نشده است.');
+    updateKeyHint();
+  }catch(err){
+    setError('compose-err', 'خواندن ارائه‌دهنده‌ها ناموفق بود؛ صفحه را تازه کنید.');
+  }finally{
+    setStatus('compose-status', '');
+    previewCli();
+    echoPaths();
+  }
+  refreshProfiles();
+  refreshProviderCards();
+  refreshTemplates();
+  refreshJudgeTemplates();
+}
+
+function updateKeyHint(){
+  const name = $('f-provider').value;
+  const p = providers.find(x => x.name === name);
+  const c = customProviders.find(x => x.name === name);
+  const el = $('key-hint');
+  const note = $('profile-note');
+  note.hidden = true; note.textContent = '';
+  updateRouteLine(name, p, c);
+  if (c){
+    el.textContent = c.has_key ? 'کلید اتصال آماده است.' : 'کلیدی برای این اتصال تنظیم نشده — از کشوی «تنظیمات» اضافه کنید.';
+    note.hidden = false;
+    note.textContent = 'اتصال سفارشی «' + c.name + '» همیشه غیرقابل‌محک می‌ماند و موتور ممکن است نامش را در پیش‌پرواز رد کند (دلیل در run.log).';
+    return;
+  }
+  if (!p){ el.textContent = ''; return; }
+  el.textContent = p.has_key ? 'کلید آماده است.' : 'کلیدی تنظیم نشده — از کشوی «تنظیمات» در کارت همین ارائه‌دهنده اضافه کنید.';
+}
+
+/* ── leased-vs-direct routing line (precard TARGETS mirror, pre-launch) ── */
+function updateRouteLine(name, p, c){
+  const el = $('route-line');
+  if (!el) return;
+  if (c){
+    el.textContent = 'مسیر: مستقیم — اتصال سفارشی هیچ مسیر تونلی در موتور ندارد.';
+    return;
+  }
+  if (!p){ el.textContent = ''; return; }
+  const route = p.route || 'direct';
+  const reason = p.route_reason || '';
+  const fa = route === 'leased' ? 'تونل اجاره‌ای' : 'مستقیم';
+  const ce = p.clean_exit || '';
+  el.textContent = 'مسیر: ' + fa + (reason ? ' — ' + reason : '')
+    + (ce ? ' — خروجی تمیز: ' + ce : '');
+}
+
+function currentFields(){
+  let conc = parseInt(($('f-concurrency').value || '').trim(), 10);
+  if (isNaN(conc)) conc = 8;
+  conc = Math.min(10, Math.max(1, conc));
+  return {
+    provider: $('f-provider').value,
+    model: $('f-model').value.trim(),
+    sample: $('f-sample').value.trim(),
+    limit: parseInt($('f-limit').value || '0', 10),
+    concurrency: conc,
+    out: $('f-out').value.trim(),
+    progress_dir: $('f-progress').value.trim(),
+    resume: $('f-resume').value,
+    preset: $('t-list').value || '',
+    job_template: $('t-list').value || '',
+    template: $('t-list').value || '',
+  };
+}
+
+function previewCli(){
+  let conc = parseInt(($('f-concurrency').value || '').trim(), 10);
+  if (isNaN(conc)) conc = 8;
+  const parts = ['python','-m','factory.precard',
+    '--llm-provider', $('f-provider').value || '?', '--json-log'];
+  const v = id => $(id).value.trim();
+  if (v('f-model')) parts.push('--precard-model', v('f-model'));
+  if (v('f-sample')) parts.push('--sample', v('f-sample'));
+  if (v('f-out')) parts.push('--out', v('f-out'));
+  if (v('f-progress')) parts.push('--progress-dir', v('f-progress'));
+  const limit = parseInt($('f-limit').value || '0', 10);
+  if (limit) parts.push('--limit', String(limit));
+  if (conc) parts.push('--concurrency', String(Math.min(10, Math.max(1, conc))));
+  const resume = $('f-resume').value;
+  if (resume === 'off') parts.push('--no-resume');
+  if (resume === 'plan') parts.push('--resume');
+  $('compose-cli').textContent = parts.join(' ');
+}
+
+let echoTimer = null;
+function echoPaths(){
+  if (echoTimer) clearTimeout(echoTimer);
+  $('paths-spinner').hidden = false;
+  echoTimer = setTimeout(async () => {
+    const f = currentFields();
+    const qs = new URLSearchParams({sample: f.sample, out: f.out, progress_dir: f.progress_dir});
+    try{
+      const r = await fetch('/api/paths?' + qs.toString());
+      const j = await r.json();
+      $('paths-echo').textContent = 'out=' + (j.out || '—') + '  progress=' + (j.progress_dir || '—');
+      const sc = $('sample-check');
+      if (!f.sample){ sc.textContent = ''; return; }
+      if (j.sample_ok){
+        sc.textContent = 'نمونه درست است: ' + faNum(j.rows) + ' ردیف' + (j.gold ? '، ' + faNum(j.gold) + ' طلا' : '، بدون طلا (سفارشی)') + '.';
+      }else{
+        sc.textContent = j.sample_error || 'نمونه مشکل دارد.';
+      }
+    }catch(err){
+      $('paths-echo').textContent = '—';
+    }finally{
+      $('paths-spinner').hidden = true;
+    }
+  }, 250);
+}
+
+async function launch(){
+  setError('compose-err', '');
+  const btn = $('btn-launch');
+  btn.disabled = true;
+  setStatus('compose-status', 'در حال شروع اجرا…');
+  try{
+    const body = currentFields();
+    const r = await fetch('/api/runs', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok){ setError('compose-err', j.error || 'شروع اجرا ناموفق بود.'); return; }
+    $('compose-cli').textContent = j.run.cli;
+    setStatus('compose-status', 'اجرا شروع شد.');
+    await refreshRunsCache();
+    selectRun(j.run.id);
+    show('watch');
+  }catch(err){
+    setError('compose-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }finally{
+    btn.disabled = false;
+    if (!$('compose-status').textContent) setStatus('compose-status', '');
+  }
+}
+
+function runBadge(st){
+  if (st === 'running') return '<span class="pill run">در حال اجرا</span>';
+  if (st === 'done') return '<span class="pill done">تمام شد</span>';
+  return '<span class="pill fail">ناموفق</span>';
+}
+
+function stampText(run){
+  const bits = [];
+  if (run.preset) bits.push('قالب ' + run.preset + ' ن' + faNum(run.preset_version || 0));
+  if (run.profile) bits.push('اتصال ' + run.profile);
+  return bits.join(' — ');
+}
+
+async function refreshRunsCache(){
+  const r = await fetch('/api/runs');
+  if (!r.ok) throw new Error('runs ' + r.status);
+  const j = await r.json();
+  runs = j.runs || [];
+}
+
+async function refreshRuns(){
+  setStatus('watch-status', 'در حال خواندن فهرست…');
+  setError('watch-err', '');
+  try{
+    await refreshRunsCache();
+  }catch(err){
+    setError('watch-err', 'خواندن فهرست اجراها ناموفق بود.');
+    setStatus('watch-status', '');
+    return;
+  }
+  const box = $('run-list');
+  box.innerHTML = '';
+  $('runs-empty').hidden = runs.length > 0;
+  for (const run of runs){
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-current', run.id === selRun ? 'true' : 'false');
+    const title = document.createElement('bdi');
+    title.setAttribute('lang', 'en'); title.setAttribute('dir', 'ltr');
+    title.textContent = run.run_name || run.id;
+    b.append(title);
+    const sub = document.createElement('span');
+    sub.textContent = ' — ' + run.provider + (run.model ? ' / ' + run.model : '');
+    b.append(sub);
+    const wrap = document.createElement('span');
+    wrap.innerHTML = ' ' + runBadge(run.status);
+    b.append(wrap);
+    const stamps = stampText(run);
+    if (stamps){
+      const br = document.createElement('br');
+      const st = document.createElement('span');
+      st.className = 'stamp'; st.textContent = stamps;
+      b.append(br, st);
+    }
+    if (run.watermark){
+      const br = document.createElement('br');
+      const wm = document.createElement('span');
+      wm.className = 'wmark'; wm.setAttribute('lang', 'en'); wm.setAttribute('dir', 'ltr');
+      wm.textContent = run.watermark;
+      b.append(br, wm);
+    }
+    b.addEventListener('click', () => selectRun(run.id));
+    li.append(b);
+    box.append(li);
+  }
+  paintDetailShell();
+  setStatus('watch-status', runs.length ? faNum(runs.length) + ' اجرا' : '');
+}
+
+function paintDetailShell(){
+  const run = runs.find(x => x.id === selRun);
+  const det = $('watch-detail');
+  if (!run){ det.hidden = true; return; }
+  det.hidden = false;
+  $('watch-cli').textContent = run.cli || '—';
+  const meta = $('watch-meta');
+  meta.innerHTML = '';
+  if (run.watermark){
+    const wm = document.createElement('span');
+    wm.className = 'wmark'; wm.setAttribute('lang', 'en'); wm.setAttribute('dir', 'ltr');
+    wm.textContent = run.watermark;
+    meta.append(wm, document.createElement('br'));
+  }
+  const stamps = stampText(run);
+  if (stamps){
+    const st = document.createElement('span');
+    st.className = 'stamp'; st.textContent = stamps;
+    meta.append(st, document.createElement('br'));
+  }
+  const out = document.createElement('span');
+  out.className = 'note';
+  out.textContent = 'خروجی: ';
+  const path = document.createElement('bdi');
+  path.setAttribute('lang', 'en'); path.setAttribute('dir', 'ltr');
+  path.textContent = run.out || '—';
+  out.append(path);
+  const st = document.createElement('span');
+  st.innerHTML = ' ' + runBadge(run.status);
+  meta.append(out, st);
+}
+
+function selectRun(id){
+  selRun = id;
+  $('watch-cards').innerHTML = '';
+  paintProgress([], 'running');
+  setStatus('events-status', 'در حال خواندن رویدادها…');
+  paintDetailShell();
+  refreshRuns().catch(() => {});
+  pollEvents();
+  if (evTimer) clearInterval(evTimer);
+  evTimer = setInterval(() => { if (selRun) pollEvents(); }, 3000);
+}
+
+function eventLevel(e){
+  const s = JSON.stringify(e).toLowerCase();
+  if (e.level === 'error' || e.status === 'failed' || e.event === 'run_error' || s.includes('traceback') || s.includes(' 429') || s.includes(' 401')) return 'err';
+  if ((e.event || '').includes('warn') || (e.level || '') === 'warning' || s.includes('429') || s.includes('quota')) return 'warn';
+  if ((e.event || '').includes('done') || e.status === 'done' || e.event === 'run_end') return 'ok';
+  if ((e.event || '').includes('start') || e.event === 'run_start') return 'run';
+  if ((e.event || '').includes('judge') || (e.stage || '').includes('judge') || (e.event || '').includes('batch')) return 'judge';
+  return 'run';
+}
+
+function eventTitle(e){
+  return e.event || e.stage || e.kind || e.type || 'رویداد';
+}
+
+function paintProgress(evs, status){
+  const bar = $('watch-progressbar');
+  const fill = $('watch-progress');
+  const label = $('watch-progress-label');
+  let pct = 0;
+  let processed = null, total = null;
+  for (const e of evs){
+    for (const k of ['processed','done_count','completed','n_done']){
+      if (typeof e[k] === 'number') processed = e[k];
+    }
+    for (const k of ['total','n_total','count']){
+      if (typeof e[k] === 'number') total = e[k];
+    }
+    if (typeof e.batch === 'number' && typeof e.batches === 'number'){ processed = e.batch; total = e.batches; }
+  }
+  if (processed !== null && total){
+    pct = Math.min(100, Math.round(processed / total * 100));
+    label.textContent = 'پیشرفت: ' + faNum(processed) + ' از ' + faNum(total) + ' (' + faNum(pct) + '٪)';
+  }else if (evs.length){
+    pct = status === 'running' ? Math.min(95, 5 + evs.length) : 100;
+    label.textContent = status === 'running'
+      ? 'زنده — ' + faNum(evs.length) + ' رویداد'
+      : (status === 'done' ? 'تمام شد — ' + faNum(evs.length) + ' رویداد' : 'ناموفق ماند — ' + faNum(evs.length) + ' رویداد');
+  }else{
+    pct = 0;
+    label.textContent = status === 'running' ? 'هنوز رویدادی نرسیده؛ موتور در حال آماده‌شدن است…' : 'رویدادی ثبت نشده است.';
+  }
+  fill.style.inlineSize = pct + '%';
+  bar.setAttribute('aria-valuenow', String(pct));
+}
+
+let evSeen = 0;
+async function pollEvents(){
+  if (!selRun){
+    $('watch-cards').innerHTML = '';
+    paintProgress([], 'running');
+    setStatus('events-status', 'اجرایی انتخاب نشده است.');
+    return;
+  }
+  try{
+    const r = await fetch('/api/runs/' + encodeURIComponent(selRun) + '/events?offset=0');
+    const j = await r.json();
+    if (j.error){ setStatus('events-status', 'رویدادی پیدا نشد.'); return; }
+    const box = $('watch-cards');
+    box.innerHTML = '';
+    const evs = j.events || [];
+    if (!evs.length && (!j.status || j.status === 'running')){
+      const d = document.createElement('div');
+      d.className = 'empty';
+      d.textContent = 'هنوز رویدادی نرسیده؛ موتور در حال آماده‌شدن است…';
+      box.append(d);
+    }
+    for (const e of evs.slice(-120)){
+      const card = document.createElement('article');
+      card.className = 'evcard lv-' + eventLevel(e);
+      const head = document.createElement('div');
+      head.className = 'ev-head';
+      const dot = document.createElement('span');
+      dot.className = 'evdot'; dot.setAttribute('aria-hidden', 'true');
+      const kind = document.createElement('span');
+      kind.className = 'ev-kind';
+      const kl = document.createElement('bdi');
+      kl.setAttribute('lang', 'en'); kl.setAttribute('dir', 'ltr');
+      kl.textContent = eventTitle(e);
+      kind.append(kl);
+      head.append(dot, kind);
+      const tm = e.ts || e.time || e.timestamp || e.created || '';
+      if (tm){
+        const t = document.createElement('span');
+        t.className = 'ev-time';
+        const tb = document.createElement('bdi');
+        tb.setAttribute('lang', 'en'); tb.setAttribute('dir', 'ltr');
+        tb.textContent = String(tm);
+        t.append(tb);
+        head.append(t);
+      }
+      card.append(head);
+      const detail = Object.assign({}, e);
+      delete detail.api_key; delete detail.apikey; delete detail.token; delete detail.secret;
+      const code = document.createElement('code');
+      code.textContent = JSON.stringify(detail);
+      card.append(code);
+      box.append(card);
+    }
+    box.scrollTop = box.scrollHeight;
+    evSeen = j.total || evs.length;
+    paintProgress(evs, j.status || 'running');
+    if (j.status === 'running'){
+      setStatus('events-status', 'زنده — ' + faNum(evSeen) + ' رویداد');
+    }else if (j.status === 'done'){
+      setStatus('events-status', 'تمام شد — ' + faNum(evSeen) + ' رویداد');
+      if (evTimer){ clearInterval(evTimer); evTimer = null; }
+    }else if (j.status === 'failed'){
+      setStatus('events-status', 'ناموفق ماند — ' + faNum(evSeen) + ' رویداد');
+      if (evTimer){ clearInterval(evTimer); evTimer = null; }
+    }
+    refreshRunsCache().then(paintDetailShell).catch(() => {});
+  }catch(err){
+    setStatus('events-status', 'خواندن رویدادها ناموفق بود.');
+  }
+}
+
+/* ── benchmark (renamed compare) ── */
+let benchRows = [];
+let benchSortKey = 'text';
+let benchSortDir = 1;
+let benchPage = 0;
+const BENCH_PAGE_SIZE = 20;
+
+async function refreshBenchmarkRuns(){
+  setStatus('benchmark-status', 'در حال خواندن فهرست…');
+  try{
+    await refreshRunsCache();
+  }catch(err){
+    setError('benchmark-err', 'خواندن فهرست اجراها ناموفق بود.');
+    setStatus('benchmark-status', '');
+    return;
+  }
+  const sel = $('b-run');
+  sel.innerHTML = '';
+  for (const run of runs){
+    const o = document.createElement('option');
+    o.value = run.id;
+    o.textContent = (run.run_name || run.id) + ' — ' + run.provider + ' (' + run.status + ')';
+    if (run.id === selRun) o.selected = true;
+    sel.append(o);
+  }
+  $('benchmark-empty').hidden = runs.length > 0;
+  setStatus('benchmark-status', '');
+}
+
+function benchFiltered(){
+  const q = ($('b-search').value || '').trim().toLowerCase();
+  const onlyMis = $('b-mismatch-only').checked;
+  let rows = benchRows.slice();
+  if (onlyMis) rows = rows.filter(r => r._status !== 'ok');
+  if (q){
+    rows = rows.filter(r => [r.text, r.source_gloss, r.gold, r.gold_gloss,
+      r.predicted, r.predicted_gloss, r.key].join(' ').toLowerCase().includes(q));
+  }
+  rows.sort((a, b) => {
+    const va = String(a[benchSortKey] || ''), vb = String(b[benchSortKey] || '');
+    return (va < vb ? -1 : va > vb ? 1 : 0) * benchSortDir;
+  });
+  return rows;
+}
+
+function paintBenchArrows(){
+  for (const k of ['text','gold','predicted']){
+    const el = document.querySelector('[data-arrow="' + k + '"]');
+    if (el) el.textContent = (k === benchSortKey) ? (benchSortDir === 1 ? '▲' : '▼') : '';
+  }
+}
+
+/* Meaning-first cell: human text bold + gloss, technical id small secondary. */
+function benchSenseCell(gloss, senseId){
+  const td = document.createElement('td');
+  if (gloss){
+    const g = document.createElement('div');
+    g.className = 'gloss';
+    const gb = document.createElement('bdi');
+    gb.setAttribute('lang', 'en'); gb.setAttribute('dir', 'ltr');
+    gb.textContent = gloss;
+    g.append(gb);
+    td.append(g);
+  }else{
+    const g = document.createElement('div');
+    g.className = 'gloss'; g.textContent = '—';
+    td.append(g);
+  }
+  const sub = document.createElement('small');
+  sub.className = 'sub-id';
+  sub.textContent = senseId || '—';
+  td.append(sub);
+  return td;
+}
+
+function paintBenchTable(){
+  paintBenchArrows();
+  const rows = benchFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / BENCH_PAGE_SIZE));
+  benchPage = Math.min(benchPage, pages - 1);
+  const slice = rows.slice(benchPage * BENCH_PAGE_SIZE, benchPage * BENCH_PAGE_SIZE + BENCH_PAGE_SIZE);
+  const tb = $('b-tbody');
+  tb.innerHTML = '';
+  for (const r of slice){
+    const tr = document.createElement('tr');
+    /* source: lemma + kind/pos + gloss first, w:key secondary */
+    const src = document.createElement('td');
+    src.className = 'src';
+    const head = document.createElement('b');
+    const hb = document.createElement('bdi');
+    hb.setAttribute('lang', 'en'); hb.setAttribute('dir', 'ltr');
+    hb.textContent = r.text || r.key;
+    head.append(hb);
+    src.append(head);
+    const kindBit = [r.kind, r.pos, r.pool_level].filter(Boolean).join(' · ');
+    if (kindBit){
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const mb = document.createElement('bdi');
+      mb.setAttribute('lang', 'en'); mb.setAttribute('dir', 'ltr');
+      mb.textContent = kindBit;
+      meta.append(mb);
+      src.append(meta);
+    }
+    if (r.source_gloss){
+      const g = document.createElement('div');
+      g.className = 'gloss';
+      const gb = document.createElement('bdi');
+      gb.setAttribute('lang', 'en'); gb.setAttribute('dir', 'ltr');
+      gb.textContent = r.source_gloss;
+      g.append(gb);
+      src.append(g);
+    }
+    const sub = document.createElement('small');
+    sub.className = 'sub-id';
+    sub.textContent = r.key || '';
+    src.append(sub);
+    tr.append(src);
+    tr.append(benchSenseCell(r.gold_gloss, r.gold));
+    tr.append(benchSenseCell(r.predicted_gloss, r.predicted));
+    const st = document.createElement('td');
+    const badge = document.createElement('span');
+    const matchOk = r._status === 'ok';
+    badge.className = matchOk ? 'badge-ok' : 'badge-mis';
+    badge.textContent = matchOk ? 'هم‌خوان با شاهد' : 'مغایر با شاهد';
+    st.append(badge);
+    tr.append(st);
+    tb.append(tr);
+  }
+  $('b-count').textContent = faNum(rows.length) + ' ردیف' + ($('b-mismatch-only').checked ? ' (فقط مغایرت با شاهد)' : '');
+  $('b-pageinfo').textContent = 'صفحهٔ ' + faNum(benchPage + 1) + ' از ' + faNum(pages);
+  $('b-prev').disabled = benchPage <= 0;
+  $('b-next').disabled = benchPage >= pages - 1;
+}
+
+async function runBenchmark(){
+  setError('benchmark-err', '');
+  $('benchmark-out').innerHTML = '';
+  $('benchmark-table-block').hidden = true;
+  benchRows = []; benchPage = 0;
+  const id = $('b-run').value;
+  if (!id){ $('benchmark-empty').hidden = false; return; }
+  const btn = $('btn-benchmark');
+  btn.disabled = true;
+  setStatus('benchmark-status', 'در حال محک…');
+  try{
+    const r = await fetch('/api/runs/' + encodeURIComponent(id) + '/compare');
+    const j = await r.json();
+    $('benchmark-cli').textContent = j.cli || '—';
+    const out = $('benchmark-out');
+    const run = runs.find(x => x.id === id);
+    if (run){
+      const stamps = stampText(run);
+      if (stamps){
+        const st = document.createElement('p');
+        const sp = document.createElement('span');
+        sp.className = 'stamp'; sp.textContent = stamps;
+        st.append(sp); out.append(st);
+      }
+    }
+    if (j.profile){
+      const pp = document.createElement('p');
+      const sp = document.createElement('span');
+      sp.className = 'stamp'; sp.textContent = 'اتصال ' + j.profile;
+      pp.append(sp); out.append(pp);
+    }
+    if (!j.comparable){
+      const wm = document.createElement('span');
+      wm.className = 'wmark'; wm.setAttribute('lang', 'en'); wm.setAttribute('dir', 'ltr');
+      wm.textContent = j.watermark || 'CUSTOM — NON-COMPARABLE';
+      const p = document.createElement('p');
+      p.className = 'note'; p.setAttribute('dir', 'auto'); p.textContent = j.reason || '';
+      out.append(wm, p);
+      setStatus('benchmark-status', 'این اجرا قابل محک نیست.');
+      return;
+    }
+    const pct = faNum((j.accuracy * 100).toFixed(1)) + '٪';
+    const h = document.createElement('p');
+    h.className = 'score';
+    h.textContent = 'دقت: ';
+    const strong = document.createElement('strong');
+    strong.textContent = pct;
+    h.append(strong);
+    h.append(document.createTextNode(' (' + faNum(j.matched) + ' از ' + faNum(j.total) + ')'));
+    out.append(h);
+    const reason = document.createElement('p');
+    reason.className = 'note'; reason.setAttribute('dir', 'auto'); reason.textContent = j.reason || '';
+    out.append(reason);
+    const matchedKeys = new Set((j.mismatches || []).map(m => m.key));
+    if (Array.isArray(j.rows) && j.rows.length){
+      benchRows = j.rows.map(r => ({key: r.key, text: r.text || '',
+        kind: r.kind || '', pos: r.pos || '', pool_level: r.pool_level || '',
+        source_gloss: r.source_gloss || '', gold: r.gold,
+        gold_gloss: r.gold_gloss || '', predicted: r.predicted,
+        predicted_gloss: r.predicted_gloss || '',
+        _status: r.match ? 'ok' : 'mis'}));
+    }else{
+      benchRows = (j.mismatches || []).map(m => ({key: m.key, text: '',
+        kind: '', pos: '', pool_level: '', source_gloss: '', gold: m.gold,
+        gold_gloss: '', predicted: m.predicted, predicted_gloss: '',
+        _status: 'mis'}));
+    }
+    if (!benchRows.length){
+      const ok = document.createElement('p');
+      ok.className = 'note'; ok.textContent = 'بدون مغایرت؛ همهٔ کلیدها با شاهد مرجع یکی‌اند.';
+      out.append(ok);
+    }
+    $('benchmark-table-block').hidden = false;
+    paintBenchTable();
+    setStatus('benchmark-status', 'محک تمام شد.');
+  }catch(err){
+    setError('benchmark-err', 'محک ناموفق بود؛ دوباره تلاش کنید.');
+    setStatus('benchmark-status', '');
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+/* ── job templates (renamed presets) ── */
+async function fetchTemplates(){
+  try{
+    const r = await fetch('/api/job_templates');
+    if (!r.ok) throw new Error('templates ' + r.status);
+    const j = await r.json();
+    return j.job_templates || j.presets || [];
+  }catch(err){
+    try{
+      const r2 = await fetch('/api/presets');
+      const j2 = await r2.json();
+      return j2.presets || [];
+    }catch(err2){ return []; }
+  }
+}
+async function refreshTemplates(){
+  templates = await fetchTemplates();
+  const sel = $('t-list');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = ''; blank.textContent = '— بدون قالب —';
+  sel.append(blank);
+  for (const p of templates){
+    const o = document.createElement('option');
+    o.value = p.name;
+    o.textContent = p.name + ' (ن' + p.version + ')';
+    sel.append(o);
+  }
+  if (prev) sel.value = prev;
+  paintTemplateMeta();
+}
+function paintTemplateMeta(){
+  const name = $('t-list').value;
+  const el = $('template-meta');
+  el.innerHTML = '';
+  if (!name) return;
+  const p = templates.find(x => x.name === name);
+  if (!p) return;
+  const s = document.createElement('span');
+  s.textContent = 'قالب ' + p.name + ' نسخهٔ ' + faNum(p.version) + ' — ' + p.provider
+    + (p.model ? ' / ' + p.model : '') + ' — سقف ' + faNum(p.limit) + ' — هم‌روندی ' + (p.concurrency ? faNum(p.concurrency) : 'پیش‌فرض')
+    + ' — ادامه: ' + (p.resume || 'on');
+  el.append(s);
+  if (p.ready){
+    const b = document.createElement('span');
+    b.className = 'ready-badge'; b.textContent = 'آماده';
+    el.append(b);
+  }
+}
+async function templateSave(){
+  setError('template-err', '');
+  setStatus('template-status', 'در حال ذخیره…');
+  const f = currentFields();
+  const body = {name: $('t-name').value.trim() || $('t-list').value,
+    provider: f.provider, model: f.model, sample: f.sample,
+    limit: f.limit, concurrency: f.concurrency, out: f.out,
+    progress_dir: f.progress_dir, resume: f.resume};
+  if (!body.name){ setError('template-err', 'اول یک نام برای قالب بنویسید.'); setStatus('template-status', ''); return; }
+  try{
+    const r = await fetch('/api/job_templates', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok){ setError('template-err', j.error || 'ذخیره ناموفق بود.'); setStatus('template-status', ''); return; }
+    const rec = j.job_template || j.preset;
+    await refreshTemplates();
+    $('t-list').value = rec.name;
+    paintTemplateMeta();
+    setStatus('template-status', 'قالب ' + rec.name + ' نسخهٔ ' + faNum(rec.version) + ' ذخیره شد.');
+  }catch(err){
+    setError('template-err', 'ارتباط با سرور محلی برقرار نشد.');
+    setStatus('template-status', '');
+  }
+}
+function templateLoad(){
+  setError('template-err', '');
+  const name = $('t-list').value;
+  if (!name){ setError('template-err', 'قالبی انتخاب نشده است.'); return; }
+  const p = templates.find(x => x.name === name);
+  if (!p){ setError('template-err', 'قالب پیدا نشد.'); return; }
+  (async () => {
+    await loadProviders();
+    $('f-provider').value = p.provider;
+    $('f-model').value = p.model || '';
+    $('f-sample').value = p.sample || '';
+    $('f-limit').value = String(p.limit || 0);
+    $('f-concurrency').value = p.concurrency ? String(p.concurrency) : '8';
+    $('f-out').value = p.out || '';
+    $('f-progress').value = p.progress_dir || '';
+    $('f-resume').value = p.resume || 'on';
+    updateKeyHint(); previewCli(); echoPaths(); paintTemplateMeta();
+    setStatus('template-status', 'قالب ' + p.name + ' بارگذاری شد (کل فرم).');
+  })().catch(() => setError('template-err', 'بارگذاری ناموفق بود.'));
+}
+
+/* ── judge presets (provider/model/concurrency only — plugs into the form) ── */
+let judgeTemplates = [];
+async function refreshJudgeTemplates(){
+  try{
+    const r = await fetch('/api/judge_presets');
+    const j = await r.json();
+    judgeTemplates = j.judge_presets || j.presets || [];
+  }catch(err){ judgeTemplates = []; }
+  const sel = $('j-list');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = ''; blank.textContent = '— بدون قالب —';
+  sel.append(blank);
+  for (const p of judgeTemplates){
+    const o = document.createElement('option');
+    o.value = p.name;
+    o.textContent = p.name + ' (ن' + p.version + ')';
+    sel.append(o);
+  }
+  if (prev) sel.value = prev;
+  paintJudgeMeta();
+}
+function paintJudgeMeta(){
+  const name = $('j-list').value;
+  const el = $('judge-meta');
+  if (!name){ el.textContent = ''; return; }
+  const p = judgeTemplates.find(x => x.name === name);
+  if (!p){ el.textContent = ''; return; }
+  el.textContent = 'قالب داور ' + p.name + ' نسخهٔ ' + faNum(p.version) + ' — ' + p.provider
+    + (p.model ? ' / ' + p.model : '') + ' — هم‌روندی ' + (p.concurrency ? faNum(p.concurrency) : 'پیش‌فرض');
+}
+async function judgeSave(){
+  setError('judge-err', '');
+  setStatus('judge-status', 'در حال ذخیره…');
+  const f = currentFields();
+  const body = {name: $('j-name').value.trim() || $('j-list').value,
+    provider: f.provider, model: f.model, concurrency: f.concurrency};
+  if (!body.name){ setError('judge-err', 'اول یک نام برای قالب داور بنویسید.'); setStatus('judge-status', ''); return; }
+  try{
+    const r = await fetch('/api/judge_presets', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok){ setError('judge-err', j.error || 'ذخیره ناموفق بود.'); setStatus('judge-status', ''); return; }
+    const rec = j.judge_preset || j.preset;
+    await refreshJudgeTemplates();
+    $('j-list').value = rec.name;
+    paintJudgeMeta();
+    setStatus('judge-status', 'قالب داور ' + rec.name + ' نسخهٔ ' + faNum(rec.version) + ' ذخیره شد.');
+  }catch(err){
+    setError('judge-err', 'ارتباط با سرور محلی برقرار نشد.');
+    setStatus('judge-status', '');
+  }
+}
+function judgeApply(){
+  setError('judge-err', '');
+  const name = $('j-list').value;
+  if (!name){ setError('judge-err', 'قالب داوری انتخاب نشده است.'); return; }
+  const p = judgeTemplates.find(x => x.name === name);
+  if (!p){ setError('judge-err', 'قالب داور پیدا نشد.'); return; }
+  (async () => {
+    await loadProviders();
+    $('f-provider').value = p.provider;
+    $('f-model').value = p.model || '';
+    if (p.concurrency) $('f-concurrency').value = String(p.concurrency);
+    updateKeyHint(); previewCli(); echoPaths(); paintJudgeMeta();
+    setStatus('judge-status', 'قالب داور ' + p.name + ' در فرم نشست (فقط داور).');
+  })().catch(() => setError('judge-err', 'نشاندن ناموفق بود.'));
+}
+async function judgeDelete(){
+  setError('judge-err', '');
+  const name = $('j-list').value;
+  if (!name){ setError('judge-err', 'قالب داوری انتخاب نشده است.'); return; }
+  try{
+    const r = await fetch('/api/judge_presets/' + encodeURIComponent(name), {method:'DELETE'});
+    const j = await r.json();
+    if (!r.ok){ setError('judge-err', j.error || 'حذف ناموفق بود.'); return; }
+    await refreshJudgeTemplates();
+    setStatus('judge-status', 'قالب داور حذف شد.');
+  }catch(err){
+    setError('judge-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+
+/* ── engine facts: ready model chips + honest knob notes (nothing faked) ── */
+async function loadEngineInfo(){
+  const note = $('judge-engine-note');
+  const chips = $('model-chips');
+  try{
+    const r = await fetch('/api/engine_info');
+    if (!r.ok) throw new Error('engine_info ' + r.status);
+    const j = await r.json();
+    chips.innerHTML = '';
+    const defs = j.default_models || {};
+    const items = [];
+    if (defs.avalai) items.push([defs.avalai, 'پیش‌فرض avalai']);
+    if (defs.google) items.push([defs.google, 'پیش‌فرض google']);
+    if (defs.comparison_example) items.push([defs.comparison_example, 'مثال مقایسه‌ای موتور']);
+    for (const [model, why] of items){
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.title = why;
+      const code = document.createElement('span');
+      code.textContent = model;
+      chip.append(code);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'کپی';
+      btn.title = 'رونوشت «' + model + '» در فیلد مدل';
+      btn.setAttribute('aria-label', 'کپی مدل ' + model + ' در فیلد مدل');
+      btn.addEventListener('click', () => {
+        $('f-model').value = model;
+        previewCli();
+        setStatus('judge-status', 'مدل «' + model + '» در فرم نشست.');
+      });
+      chip.append(btn);
+      chips.append(chip);
+    }
+    if (!items.length){
+      chips.textContent = 'شناسهٔ آماده‌ای از موتور نرسید؛ مدل را دستی تایپ کنید.';
+    }
+    const bits = [];
+    bits.push('ارائه‌دهنده‌ها: ' + (j.providers || []).join('، ') + ' (دقیقاً رجیستری موتور — کیلو آماده نیست و نمی‌آید).');
+    bits.push('فهرست مدل‌ها: موتور بیرون نمی‌دهد — شناسه را تایپ کنید، خالی یعنی پیش‌فرض همان ارائه‌دهنده.');
+    bits.push('دما: تنظیمی ندارد (موتور ثابت صفر برای قطعیت).');
+    bits.push('دستهٔ داوری: ثابت ' + faNum(j.judge_batch) + ' (تنظیمی ندارد).');
+    note.textContent = bits.join(' ');
+    paintJudgeSchema(j.judge_schema || null);
+  }catch(err){
+    note.textContent = 'خواندن مشخصات موتور ناموفق بود؛ شناسهٔ مدل را دستی تایپ کنید (خالی یعنی پیش‌فرض موتور).';
+    chips.textContent = '';
+    paintJudgeSchema(null);
+  }
+}
+
+/* ── judge schema (bot preset wording; temperature locked, never faked) ── */
+function paintJudgeSchema(schema){
+  const el = $('judge-schema');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!schema){
+    el.textContent = 'خواندن تنظیم‌های داور ناموفق بود؛ هم‌روندی ۱ تا ۱۰ (پیش‌فرض ۸) و دمای قفل‌شدهٔ صفر موتور پابرجاست.';
+    return;
+  }
+  const groups = [['rate_caps', 'سقف‌ها'], ['pacing', 'آهنگ'], ['timeout', 'مهلت']];
+  for (const [key, title] of groups){
+    const rows = schema[key] || [];
+    if (!rows.length) continue;
+    const h = document.createElement('div');
+    h.innerHTML = '<b></b>';
+    h.firstChild.textContent = title + ': ';
+    el.append(h.firstChild);
+    for (const f of rows){
+      const line = document.createElement('div');
+      line.textContent = (f.label || f.field) + ' — پیش‌فرض ' + (f.default ?? '—') + '. ' + (f.help || '');
+      line.setAttribute('lang', 'fa');
+      el.append(line);
+    }
+  }
+  const t = schema.temperature || {};
+  const tline = document.createElement('div');
+  tline.textContent = (t.label || 'Temperature') + ': قفل است (ثابت ' + faNum(t.fixed ?? 0) + ') — ' + (t.reason || 'موتور دما را ثابت نگه می‌دارد.');
+  el.append(tline);
+}
+
+/* ── server-side model picker (key-gated; keys never touch the browser) ── */
+let modelRows = [];
+let modelFilter = 'همه';
+async function modelListFetch(){
+  setError('model-err', '');
+  const name = $('f-provider').value;
+  if (!name){ setError('model-err', 'اول ارائه‌دهنده را انتخاب کنید.'); return; }
+  setStatus('model-status', 'در حال خواندن فهرست…');
+  try{
+    const r = await fetch('/api/providers/' + encodeURIComponent(name) + '/models');
+    const j = await r.json();
+    if (!r.ok){ setError('model-err', j.error || 'خواندن فهرست ناموفق بود.'); setStatus('model-status', ''); return; }
+    modelRows = j.models || [];
+    modelFilter = 'همه';
+    $('model-search').value = '';
+    paintModelChips();
+    paintModelList();
+    setStatus('model-status', 'فهرست ' + name + ': ' + faNum(modelRows.length) + ' شناسه.');
+    if (!modelRows.length) setError('model-err', 'فهرست خالی برگشت (جعل نشده) — شناسه را دستی تایپ کنید.');
+  }catch(err){
+    setError('model-err', 'ارتباط با سرور محلی برقرار نشد.');
+    setStatus('model-status', '');
+  }
+}
+function modelVendor(id){
+  const s = String(id || '');
+  const slash = s.split('/')[0];
+  if (s.includes('/') && slash) return slash;
+  const dash = s.split('-')[0];
+  return dash || 'دیگر';
+}
+function paintModelChips(){
+  const box = $('model-filter-chips');
+  if (!box) return;
+  box.innerHTML = '';
+  const vendors = ['همه'];
+  for (const id of modelRows){
+    const v = modelVendor(id);
+    if (!vendors.includes(v)) vendors.push(v);
+    if (vendors.length > 8) break;
+  }
+  for (const v of vendors){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (v === modelFilter ? ' on' : '');
+    b.textContent = v;
+    b.setAttribute('aria-pressed', v === modelFilter ? 'true' : 'false');
+    b.addEventListener('click', () => { modelFilter = v; paintModelChips(); paintModelList(); });
+    box.append(b);
+  }
+}
+function paintModelList(){
+  const box = $('model-list');
+  if (!box) return;
+  box.innerHTML = '';
+  const q = ($('model-search').value || '').trim().toLowerCase();
+  let shown = 0;
+  for (const id of modelRows){
+    if (modelFilter !== 'همه' && modelVendor(id) !== modelFilter) continue;
+    if (q && !String(id).toLowerCase().includes(q)) continue;
+    const li = document.createElement('li');
+    const code = document.createElement('bdi');
+    code.setAttribute('lang', 'en'); code.setAttribute('dir', 'ltr');
+    code.textContent = id;
+    li.append(code);
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn ghost small';
+    btn.textContent = 'کپی';
+    btn.title = 'رونوشت شناسهٔ دقیق در فیلد مدل';
+    btn.setAttribute('aria-label', 'کپی مدل ' + id + ' در فیلد مدل');
+    btn.addEventListener('click', () => {
+      $('f-model').value = id;
+      previewCli();
+      setStatus('model-status', 'شناسهٔ «' + id + '» در فیلد مدل نشست.');
+    });
+    li.append(document.createTextNode(' '), btn);
+    box.append(li);
+    if (++shown >= 100) break;
+  }
+  if (!shown) box.textContent = '';
+}
+async function templateDelete(){
+  setError('template-err', '');
+  const name = $('t-list').value;
+  if (!name){ setError('template-err', 'قالبی انتخاب نشده است.'); return; }
+  try{
+    const r = await fetch('/api/job_templates/' + encodeURIComponent(name), {method:'DELETE'});
+    const j = await r.json();
+    if (!r.ok){ setError('template-err', j.error || 'حذف ناموفق بود.'); return; }
+    await refreshTemplates();
+    setStatus('template-status', 'قالب حذف شد.');
+  }catch(err){
+    setError('template-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+
+/* ── custom endpoints (profiles live in the drawer) ── */
+async function refreshProfiles(){
+  let rows = [];
+  try{
+    const r = await fetch('/api/custom_providers');
+    const j = await r.json();
+    rows = j.custom || [];
+  }catch(err){ rows = []; }
+  customProviders = rows;
+  const box = $('profile-list');
+  box.innerHTML = '';
+  if (!rows.length){
+    const li = document.createElement('li');
+    li.textContent = 'اتصالی ساخته نشده است.';
+    box.append(li);
+  }else{
+    for (const c of rows){
+      const li = document.createElement('li');
+      const nm = document.createElement('bdi');
+      nm.setAttribute('lang', 'en'); nm.setAttribute('dir', 'ltr');
+      nm.textContent = c.name;
+      li.append(nm);
+      const sub = document.createElement('span');
+      const pill = document.createElement('span');
+      pill.className = c.has_key ? 'pill done' : 'pill fail';
+      pill.textContent = c.has_key ? 'کلید آماده است' : 'بدون کلید';
+      sub.textContent = ' — ';
+      li.append(sub, pill);
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'btn danger small';
+      del.textContent = 'حذف';
+      del.setAttribute('title', 'این اتصال را حذف می‌کند');
+      del.setAttribute('aria-label', 'حذف اتصال ' + c.name);
+      del.addEventListener('click', () => profileDelete(c.name));
+      li.append(del);
+      box.append(li);
+    }
+  }
+  /* keep provider select in sync without clobbering the choice */
+  const sel = $('f-provider');
+  const prev = sel.value;
+  const have = new Set(Array.from(sel.options).map(o => o.value));
+  let changed = false;
+  for (const c of rows){
+    if (!have.has(c.name)){
+      const o = document.createElement('option');
+      o.value = c.name; o.textContent = c.name + ' (سفارشی)';
+      o.setAttribute('lang', 'en'); o.setAttribute('dir', 'ltr');
+      sel.append(o); changed = true;
+    }
+  }
+  if (prev) sel.value = prev;
+  if (changed){ updateKeyHint(); previewCli(); }
+}
+async function profileSave(){
+  setError('profile-err', '');
+  setStatus('profile-status', 'در حال ذخیره…');
+  const body = {name: $('s-name').value.trim(), base_url: $('s-base').value.trim(),
+    model: $('s-model').value.trim(), key_value: $('s-key').value};
+  try{
+    const r = await fetch('/api/custom_providers', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok){ setError('profile-err', j.error || 'ذخیره ناموفق بود.'); setStatus('profile-status', ''); return; }
+    $('s-name').value = ''; $('s-base').value = ''; $('s-model').value = ''; $('s-key').value = '';
+    const t = $('btn-skey-toggle');
+    if (t){ $('s-key').type = 'password'; t.textContent = 'نمایش'; t.setAttribute('aria-pressed', 'false'); }
+    await loadProviders();
+    setStatus('profile-status', 'اتصال ذخیره شد.');
+  }catch(err){
+    setError('profile-err', 'ارتباط با سرور محلی برقرار نشد.');
+    setStatus('profile-status', '');
+  }
+}
+async function profileDelete(name){
+  setError('profile-err', '');
+  try{
+    const r = await fetch('/api/custom_providers/' + encodeURIComponent(name), {method:'DELETE'});
+    const j = await r.json();
+    if (!r.ok){ setError('profile-err', j.error || 'حذف ناموفق بود.'); return; }
+    await loadProviders();
+    setStatus('profile-status', 'اتصال حذف شد.');
+  }catch(err){
+    setError('profile-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+
+/* ── secure storage + honest rate facts (names only, never values) ── */
+function updateMasterLine(){
+  const el = $('master-status');
+  const btn = $('btn-master-ensure');
+  if (masterState && masterState.configured){
+    el.textContent = 'ذخیره امن کلید فعال است.';
+    if (btn) btn.hidden = true;
+  }else{
+    el.textContent = 'ذخیره امن کلید فعال نیست — کلیدها پس از بستن سرور فراموش می‌شوند.';
+    if (btn) btn.hidden = false;
+  }
+}
+async function masterEnsure(){
+  setError('provider-err', '');
+  try{
+    const r = await fetch('/api/master/ensure', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm: true})});
+    const j = await r.json();
+    if (!r.ok){ setError('provider-err', j.error || 'فعال‌سازی ناموفق بود.'); return; }
+    masterState = j.master || null;
+    updateMasterLine();
+    await loadProviders();
+  }catch(err){
+    setError('provider-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+function rateLineFor(name){
+  const row = rateRows.find(x => x.name === name);
+  if (!row) return '';
+  const g1 = row.groups && row.groups.G1 ? '۱' : '۰';
+  const g2 = row.groups && row.groups.G2 ? '۱' : '۰';
+  const pace = row.pacing || {};
+  return 'گروه‌ها: G1=' + g1 + '‏ G2=' + g2 + '‏ (' + faNum(row.groups_count || 0) + ' از ۲)'
+    + '؛ مسیر: ' + (row.route === 'direct' ? 'مستقیم' : 'تونل')
+    + '؛ آهنگ موتور: مکث ' + faNum(pace.sleep_secs_default ?? '') + ' ثانیه، مکث چرخش ' + faNum(pace.rotate_pause_secs ?? '') + ' ثانیه'
+    + (pace.rpm_limiter ? '' : '، بدون سقف دوربردکیقه‌ای') + '.';
+}
+
+/* ── built-in provider cards: per-card key state + save/delete ── */
+function refreshProviderCards(){
+  const box = $('provider-cards');
+  box.innerHTML = '';
+  setError('provider-err', '');
+  if (!providers.length){
+    const li = document.createElement('li');
+    li.textContent = 'ارائه‌دهنده‌ای ثبت نشده است.';
+    box.append(li);
+    return;
+  }
+  for (const p of providers){
+    const li = document.createElement('li');
+    const nm = document.createElement('bdi');
+    nm.setAttribute('lang', 'en'); nm.setAttribute('dir', 'ltr');
+    nm.textContent = p.name;
+    li.append(nm);
+    const pill = document.createElement('span');
+    pill.className = p.has_key ? 'pill done' : 'pill fail';
+    pill.textContent = p.has_key ? 'کلید آماده است' : 'بدون کلید';
+    li.append(document.createTextNode(' '), pill);
+    const varrow = document.createElement('div');
+    varrow.className = 'btnrow';
+    varrow.style.marginBlockStart = '6px';
+    varrow.style.inlineSize = '100%';
+    const varinp = document.createElement('input');
+    varinp.type = 'text';
+    varinp.className = 'ltr';
+    varinp.style.flex = '1 1 auto';
+    varinp.style.minInlineSize = '0';
+    varinp.setAttribute('lang', 'en'); varinp.setAttribute('dir', 'ltr');
+    varinp.autocomplete = 'off'; varinp.spellcheck = false;
+    varinp.id = 'pkvar-' + p.name;
+    varinp.value = p.key_var || '';
+    varinp.setAttribute('aria-label', 'نام متغیر کلید ' + p.name);
+    varinp.title = 'نام متغیر محیطی کلید این ارائه‌دهنده (فقط نام، نه مقدار)؛ با ذخیره، بین اجراها می‌ماند.';
+    varrow.append(varinp);
+    const varsave = document.createElement('button');
+    varsave.type = 'button'; varsave.className = 'btn ghost small';
+    varsave.textContent = 'ذخیره نام متغیر';
+    varsave.setAttribute('aria-label', 'ذخیره نام متغیر ' + p.name);
+    varsave.addEventListener('click', () => providerKeyVarSave(p.name));
+    varrow.append(varsave);
+    li.append(varrow);
+    const rateline = document.createElement('p');
+    rateline.className = 'hint';
+    rateline.textContent = rateLineFor(p.name);
+    li.append(rateline);
+    const row = document.createElement('div');
+    row.className = 'keywrap';
+    row.style.marginBlockStart = '6px';
+    row.style.inlineSize = '100%';
+    const inp = document.createElement('input');
+    inp.type = 'password';
+    inp.className = 'ltr';
+    inp.setAttribute('lang', 'en'); inp.setAttribute('dir', 'ltr');
+    inp.autocomplete = 'off'; inp.spellcheck = false;
+    inp.id = 'pk-' + p.name;
+    inp.setAttribute('aria-label', 'کلید ' + p.name);
+    inp.title = 'کلید ' + p.name + '؛ پس از ذخیره هیچ‌جا نمایش داده نمی‌شود.';
+    row.append(inp);
+    li.append(row);
+    const btnrow = document.createElement('div');
+    btnrow.className = 'btnrow';
+    btnrow.style.marginBlockStart = '8px';
+    const save = document.createElement('button');
+    save.type = 'button'; save.className = 'btn small';
+    save.textContent = 'ذخیره کلید';
+    save.setAttribute('aria-label', 'ذخیره کلید ' + p.name);
+    save.addEventListener('click', () => providerKeySave(p.name));
+    btnrow.append(save);
+    if (p.has_key){
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'btn danger small';
+      del.textContent = 'حذف کلید';
+      del.setAttribute('aria-label', 'حذف کلید ' + p.name);
+      del.addEventListener('click', () => providerKeyDelete(p.name));
+      btnrow.append(del);
+    }
+    li.append(btnrow);
+    box.append(li);
+  }
+}
+async function providerKeySave(name){
+  setError('provider-err', '');
+  const inp = $('pk-' + name);
+  const value = inp ? inp.value : '';
+  if (!value){ setError('provider-err', 'کلید خالی است (چیزی ذخیره نشد).'); return; }
+  try{
+    const r = await fetch('/api/providers/' + encodeURIComponent(name) + '/key', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({key_value: value})});
+    const j = await r.json();
+    if (!r.ok){ setError('provider-err', j.error || 'ذخیره ناموفق بود.'); return; }
+    await loadProviders();
+  }catch(err){
+    setError('provider-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+async function providerKeyVarSave(name){
+  setError('provider-err', '');
+  const inp = $('pkvar-' + name);
+  const key_var = inp ? inp.value.trim().toUpperCase() : '';
+  if (!key_var){ setError('provider-err', 'نام متغیر خالی است (چیزی ذخیره نشد).'); return; }
+  try{
+    const r = await fetch('/api/providers/' + encodeURIComponent(name) + '/key_var', {method:'PUT',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({key_var})});
+    const j = await r.json();
+    if (!r.ok){ setError('provider-err', j.error || 'ذخیره ناموفق بود.'); return; }
+    await loadProviders();
+  }catch(err){
+    setError('provider-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+async function providerKeyDelete(name){
+  setError('provider-err', '');
+  try{
+    const r = await fetch('/api/providers/' + encodeURIComponent(name) + '/key', {method:'DELETE'});
+    const j = await r.json();
+    if (!r.ok){ setError('provider-err', j.error || 'حذف ناموفق بود.'); return; }
+    await loadProviders();
+  }catch(err){
+    setError('provider-err', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+
+/* ── server-side file picker (localhost dialog + manual text entry) ── */
+let pickerTarget = null;
+let pickerMode = 'file';
+let pickerDir = '';
+async function pickerRoots(){
+  try{
+    const r = await fetch('/api/files/roots');
+    const j = await r.json();
+    return j.roots || [];
+  }catch(err){ return []; }
+}
+async function pickerShowDir(dir){
+  setStatus('picker-status', 'در حال خواندن…');
+  try{
+    const r = await fetch('/api/files/list?dir=' + encodeURIComponent(dir));
+    const j = await r.json();
+    if (!r.ok){ setStatus('picker-status', j.error || 'خواندن ناموفق بود.'); return; }
+    pickerDir = j.dir;
+    $('picker-crumb').textContent = j.dir;
+    const box = $('picker-list');
+    box.innerHTML = '';
+    if (j.parent){
+      const up = document.createElement('button');
+      up.type = 'button';
+      up.textContent = '… (پوشهٔ بالایی)';
+      up.setAttribute('role', 'option');
+      up.addEventListener('click', () => pickerShowDir(j.parent));
+      box.append(up);
+    }
+    for (const e of (j.entries || [])){
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'option');
+      const icon = document.createElement('span');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = e.is_dir ? '📁' : '📄';
+      b.append(icon);
+      const nm = document.createElement('bdi');
+      nm.setAttribute('lang', 'en'); nm.setAttribute('dir', 'ltr');
+      nm.textContent = e.name;
+      b.append(nm);
+      if (!e.is_dir && typeof e.size === 'number' && e.size >= 0){
+        const sz = document.createElement('span');
+        sz.className = 'sz';
+        sz.textContent = faNum(e.size) + ' بایت';
+        b.append(sz);
+      }
+      b.addEventListener('click', () => {
+        const full = pickerDir + '/' + e.name;
+        if (e.is_dir){
+          if (pickerMode === 'dir'){
+            $('picker-name').value = full;
+          }
+          pickerShowDir(full);
+        }else if (pickerMode !== 'dir'){
+          $('picker-name').value = full;
+        }
+      });
+      b.addEventListener('dblclick', () => {
+        const full = pickerDir + '/' + e.name;
+        if (e.is_dir && pickerMode === 'dir'){
+          pickerConfirm(full);
+        }else if (!e.is_dir && pickerMode !== 'dir'){
+          pickerConfirm(full);
+        }
+      });
+      box.append(b);
+    }
+    setStatus('picker-status', '');
+  }catch(err){
+    setStatus('picker-status', 'ارتباط با سرور محلی برقرار نشد.');
+  }
+}
+function pickerConfirm(path){
+  if (pickerTarget && path){
+    $(pickerTarget).value = path;
+    previewCli(); echoPaths();
+  }
+  pickerClose();
+}
+function pickerOpen(mode, target, title){
+  pickerMode = mode;
+  pickerTarget = target;
+  $('picker-title').textContent = title;
+  $('picker-name').value = ($(target).value || '').trim();
+  $('picker-name').style.display = mode === 'dir' ? 'none' : '';
+  $('file-picker').hidden = false;
+  (async () => {
+    const roots = await pickerRoots();
+    const box = $('picker-roots');
+    box.innerHTML = '';
+    if (roots.length){
+      const s = document.createElement('span');
+      s.textContent = 'شروع: ';
+      box.append(s);
+      for (const rt of roots){
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn ghost small';
+        b.style.marginInlineEnd = '6px';
+        const code = document.createElement('bdi');
+        code.setAttribute('lang', 'en'); code.setAttribute('dir', 'ltr');
+        code.textContent = rt.label;
+        b.append(code);
+        b.title = rt.path;
+        b.addEventListener('click', () => pickerShowDir(rt.path));
+        box.append(b);
+      }
+    }
+    const start = ($(target).value || '').trim() || (roots[0] && roots[0].path) || '';
+    if (start) pickerShowDir(start);
+  })().catch(() => {});
+  $('picker-close').focus();
+}
+function pickerClose(){
+  $('file-picker').hidden = true;
+  pickerTarget = null;
+}
+
+/* ── Ticket 1: progressive-disclosure tooltip buttons ── */
+function bindTips(){
+  for (const btn of document.querySelectorAll('.tipbtn')){
+    if (btn.dataset.bound) continue;
+    btn.dataset.bound = '1';
+    const tip = document.getElementById(btn.getAttribute('data-tip'));
+    if (!tip) continue;
+    const show = () => { tip.hidden = false; };
+    const hide = () => { if (btn.getAttribute('aria-expanded') !== 'true') tip.hidden = true; };
+    btn.addEventListener('mouseenter', show);
+    btn.addEventListener('focus', show);
+    btn.addEventListener('mouseleave', hide);
+    btn.addEventListener('blur', hide);
+    btn.addEventListener('click', ev => {
+      ev.preventDefault();   /* inside <label>: toggle the tip, don't re-focus the field */
+      const pinned = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', pinned ? 'false' : 'true');
+      tip.hidden = pinned;
+    });
+  }
+}
+
+/* ── Ticket 2: grouped guide accordion (native details/summary) ── */
+function guideSearch(){
+  const q = $('guide-search').value.trim();
+  const cards = Array.from(document.querySelectorAll('#guide-body details.qa'));
+  let shown = 0;
+  for (const card of cards){
+    const hit = !q || (card.textContent || '').includes(q)
+      || (card.getAttribute('data-qa') || '').includes(q.toLowerCase());
+    card.classList.toggle('hidden', !hit);
+    if (hit){
+      shown += 1;
+      if (q) card.open = true;   /* auto-expand hits; empty query leaves open-state alone */
+    }else{
+      card.open = false;
+    }
+  }
+  $('guide-count').textContent = q ? ('نمایش ' + faNum(shown) + ' از ' + faNum(cards.length) + ' بخش') : '';
+}
+function guideSetAll(open){
+  for (const card of document.querySelectorAll('#guide-body details.qa')){
+    if (!card.classList.contains('hidden')) card.open = open;
+  }
+}
+
+function copyText(id){
+  const text = $(id).textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).catch(() => {});
+  }else{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.append(ta); ta.select();
+    try{ document.execCommand('copy'); }catch(err){}
+    ta.remove();
+  }
+}
+
+function stepConcurrency(delta){
+  let v = parseInt(($('f-concurrency').value || '').trim(), 10);
+  if (isNaN(v)) v = 8;
+  v = Math.min(10, Math.max(1, v + delta));
+  $('f-concurrency').value = String(v);
+  previewCli(); echoPaths();
+}
+
+/* ── screened browser (read-only; identifier + gloss, never bare rows) ── */
+async function loadScreened(){
+  setStatus('screened-status', 'در حال خواندن…');
+  setError('screened-err', '');
+  const q = ($('s-search').value || '').trim();
+  try{
+    const r = await fetch('/api/screened?q=' + encodeURIComponent(q));
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('خطای ' + r.status));
+    $('screened-empty').hidden = (j.rows || []).length > 0;
+    $('screened-meta').textContent = 'مسیر: ' + (j.path || '—') + ' — ' + faNum(j.total || 0) + ' معنی' + (j.truncated ? ' (نمایش ' + faNum((j.rows || []).length) + ' تای اول)' : '');
+    const tb = $('s-tbody');
+    tb.replaceChildren();
+    for (const row of (j.rows || [])){
+      const tr = document.createElement('tr');
+      const src = document.createElement('td');
+      src.className = 'src';
+      const b = document.createElement('b');
+      b.textContent = (row.lemma || '') + ' ';
+      const code = document.createElement('bdi');
+      code.className = 'sub-id';
+      code.lang = 'en'; code.dir = 'ltr';
+      code.textContent = row.sense_id || '';
+      src.append(b, code);
+      const g = document.createElement('td');
+      const gt = document.createElement('div');
+      gt.className = 'gloss';
+      gt.setAttribute('dir', 'auto');
+      gt.textContent = row.gloss || '—';
+      g.append(gt);
+      const eg = document.createElement('td');
+      eg.setAttribute('dir', 'auto');
+      eg.textContent = row.example || '—';
+      tr.append(src, g, eg);
+      tb.append(tr);
+    }
+    setStatus('screened-status', '');
+  }catch(err){
+    setError('screened-err', 'خواندن فهرست ناموفق بود: ' + (err.message || err));
+    setStatus('screened-status', '');
+  }
+}
+
+/* ── human labels (append-only; receipt after every save) ── */
+async function saveLabel(){
+  setStatus('label-status', 'در حال ذخیره…');
+  setError('label-err', '');
+  $('label-receipt').hidden = true;
+  const body = {
+    sense_id: ($('l-sense').value || '').trim(),
+    lemma: ($('l-lemma').value || '').trim(),
+    target_synset: ($('l-target').value || '').trim() || null,
+    verdict: $('l-verdict').value,
+    stratum: ($('l-stratum').value || '').trim(),
+    annotator: ($('l-annotator').value || '').trim(),
+  };
+  try{
+    const r = await fetch('/api/labels', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('خطای ' + r.status));
+    setStatus('label-status', 'ذخیره شد.');
+    $('label-receipt').hidden = false;
+    $('label-receipt-text').textContent = j.replay || '—';
+    $('label-receipt-meta').textContent = 'ذخیره در: ' + (j.store || '—') + ' — ' + (j.label.created_at || '');
+    const wm = $('label-receipt-wmark');
+    if (j.watermark){ wm.hidden = false; wm.textContent = j.watermark; }
+    else wm.hidden = true;
+  }catch(err){
+    setError('label-err', 'ذخیره ناموفق بود: ' + (err.message || err));
+    setStatus('label-status', '');
+  }
+}
+
+$('btn-label-save').addEventListener('click', saveLabel);
+$('btn-copy-label').addEventListener('click', () => copyText('label-receipt-text'));
+$('btn-screened').addEventListener('click', loadScreened);
+$('s-search').addEventListener('input', () => { loadScreened(); });
+$('btn-launch').addEventListener('click', launch);
+$('btn-refresh-runs').addEventListener('click', refreshRuns);
+$('btn-poll').addEventListener('click', pollEvents);
+$('btn-refresh-benchmark').addEventListener('click', refreshBenchmarkRuns);
+$('btn-benchmark').addEventListener('click', runBenchmark);
+$('btn-copy-compose').addEventListener('click', () => copyText('compose-cli'));
+$('btn-copy-watch').addEventListener('click', () => copyText('watch-cli'));
+$('btn-copy-benchmark').addEventListener('click', () => copyText('benchmark-cli'));
+$('btn-copy-schema').addEventListener('click', () => copyText('schema-example'));
+$('btn-template-save').addEventListener('click', templateSave);
+$('btn-template-load').addEventListener('click', templateLoad);
+$('btn-template-del').addEventListener('click', templateDelete);
+$('btn-judge-save').addEventListener('click', judgeSave);
+$('btn-judge-apply').addEventListener('click', judgeApply);
+$('btn-judge-del').addEventListener('click', judgeDelete);
+$('j-list').addEventListener('change', paintJudgeMeta);
+$('btn-browse-sample').addEventListener('click', () => pickerOpen('file', 'f-sample', 'انتخاب فایل نمونه'));
+$('btn-browse-out').addEventListener('click', () => pickerOpen('file', 'f-out', 'انتخاب فایل خروجی'));
+$('btn-browse-progress').addEventListener('click', () => pickerOpen('dir', 'f-progress', 'انتخاب پوشهٔ پیشرفت'));
+$('picker-close').addEventListener('click', pickerClose);
+$('picker-pick').addEventListener('click', () => {
+  const v = ($('picker-name').value || '').trim();
+  if (!v){
+    if (pickerMode === 'dir' && pickerDir) pickerConfirm(pickerDir);
+    return;
+  }
+  pickerConfirm(v);
+});
+$('file-picker').addEventListener('click', ev => {
+  if (ev.target === $('file-picker')) pickerClose();
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && !$('file-picker').hidden) pickerClose();
+});
+$('btn-profile-save').addEventListener('click', profileSave);
+$('btn-master-ensure').addEventListener('click', masterEnsure);
+$('t-list').addEventListener('change', paintTemplateMeta);
+$('guide-search').addEventListener('input', guideSearch);
+$('guide-expand-all').addEventListener('click', () => guideSetAll(true));
+$('guide-collapse-all').addEventListener('click', () => guideSetAll(false));
+$('btn-settings').addEventListener('click', openDrawer);
+$('btn-settings-close').addEventListener('click', closeDrawer);
+$('drawer-overlay').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && !$('drawer-settings').hidden) closeDrawer();
+});
+$('btn-skey-toggle').addEventListener('click', () => {
+  const inp = $('s-key');
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';   /* client-side only; value never leaves except on save */
+  const t = $('btn-skey-toggle');
+  t.textContent = show ? 'پنهان' : 'نمایش';
+  t.setAttribute('aria-pressed', show ? 'true' : 'false');
+});
+$('btn-conc-minus').addEventListener('click', () => stepConcurrency(-1));
+$('btn-conc-plus').addEventListener('click', () => stepConcurrency(1));
+for (const th of document.querySelectorAll('#b-table [data-sort]')){
+  th.addEventListener('click', () => {
+    const k = th.getAttribute('data-sort');
+    if (benchSortKey === k){ benchSortDir *= -1; }else{ benchSortKey = k; benchSortDir = 1; }
+    benchPage = 0;
+    paintBenchTable();
+  });
+}
+$('b-search').addEventListener('input', () => { benchPage = 0; paintBenchTable(); });
+$('b-mismatch-only').addEventListener('change', () => { benchPage = 0; paintBenchTable(); });
+$('b-prev').addEventListener('click', () => { if (benchPage > 0){ benchPage -= 1; paintBenchTable(); } });
+$('b-next').addEventListener('click', () => { benchPage += 1; paintBenchTable(); });
+$('f-provider').addEventListener('change', () => { updateKeyHint(); previewCli(); });
+$('btn-model-list').addEventListener('click', modelListFetch);
+$('model-search').addEventListener('input', paintModelList);
+for (const id of ['f-model','f-sample','f-limit','f-concurrency','f-out','f-progress','f-resume']){
+  $(id).addEventListener('input', () => { previewCli(); echoPaths(); });
+  $(id).addEventListener('change', () => { previewCli(); echoPaths(); });
+}
+document.addEventListener('DOMContentLoaded', () => { initTheme(); bindTips(); loadProviders(); loadEngineInfo(); });
+initTheme();
+bindTips();
+loadProviders();
+loadEngineInfo();
+</script>
+</body>
+</html>

@@ -37,7 +37,9 @@ PROVIDERS = {
         "protocol": "openai_compat",
         "base_url": "https://openrouter.ai/api/v1/chat/completions",
         "route": "tunnel",
-        "key_vars": ("OPENROUTER_API_KEY",),
+        # OPENROUTER_API_KEY_2 is the older numbered style (same
+        # meaning as the _G2 group slot); kept as a legacy fallback.
+        "key_vars": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2"),
         "request_extras": {},
     },
     "groq": {
