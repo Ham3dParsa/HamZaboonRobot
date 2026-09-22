@@ -281,6 +281,26 @@ def load_env():
     for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
         if k in os.environ and os.environ[k]:
             data[k] = os.environ[k]
+    # Factory-file fallback (single loader): the same key resolves via
+    # the unified lease-policy resolver with factory/.env first, so an
+    # operator who keeps egress secrets in factory/.env needs no second
+    # copy in tools/egress/.env. Values never logged — emptiness only.
+    try:
+        from factory.precard.provider_lease_policy import (
+            resolve_key as _resolve,
+        )
+    except ImportError:
+        _resolve = None
+    if _resolve is not None:
+        for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
+            if not data.get(k):
+                try:
+                    hit = _resolve(k, env_map=dict(os.environ),
+                                   file_paths=[str(FACTORY_DOTENV)])
+                except Exception:
+                    hit = ""
+                if hit:
+                    data[k] = hit
     return data
 
 

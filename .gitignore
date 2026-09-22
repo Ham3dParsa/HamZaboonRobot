@@ -81,3 +81,9 @@ tools/egress/bin/
 tools/egress/egress_pool.json
 tools/egress/leases.jsonl
 tools/egress/clean_cache.json
+# Linker-judge WebUI operator secrets (Fernet ciphertext — never commit)
+factory/linking/webui/operator_keys.json
+# Linker-judge probe + run logs (operator-local, never commit)
+linker_probe_*.log
+factory/linking/webui/runs/
+factory/linking/webui/runs.json

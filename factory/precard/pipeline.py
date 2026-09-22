@@ -1253,17 +1253,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     google_key_from_egress = False
     # judge_avalai/judge_google computed above.
     if avalai_needed:
+        avalai_keys = []
         try:
-            env_av = load_factory_env(required=("AVALAI_API_KEY",))
-            avalai_key = env_av["AVALAI_API_KEY"]
+            env_av = load_factory_env()
         except KeyError:
-            _preflight_exit("no AVALAI_API_KEY in factory/.env "
+            env_av = {}
+        for _var in ("AVALAI_API_KEY_G1", "AVALAI_API_KEY_G2",
+                     "AVALAI_API_KEY"):
+            _hit = (env_av or {}).get(_var, "")
+            if _hit and _hit not in avalai_keys:
+                avalai_keys.append(_hit)
+        if not avalai_keys:
+            _preflight_exit("no AVALAI_API_KEY_G1/_G2 (or legacy "
+                            "AVALAI_API_KEY) in factory/.env "
                             "(avalai provider needs it)")
-        if not avalai_key:
-            _preflight_exit("no AVALAI_API_KEY in factory/.env "
-                            "(avalai provider needs it)")
+        avalai_key = avalai_keys[0]
         try:
-            avalai_ring = KeyRing([avalai_key])
+            avalai_ring = KeyRing(list(avalai_keys))
         except ValueError as exc:
             _preflight_exit("no AvalAI keys: %s" % exc)
         for leg in LLM_LEGS:
@@ -1278,24 +1284,34 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_models = [models["sense_judge"]]
     if google_needed:
         try:
-            env_go = load_factory_env(required=("GOOGLE_AI_API_KEY",))
-            google_key = env_go["GOOGLE_AI_API_KEY"]
+            env_go = load_factory_env()
         except KeyError:
-            google_key = ""
-        if not google_key:
+            env_go = {}
+        google_keys = []
+        for _var in ("GOOGLE_API_KEY_G1", "GOOGLE_API_KEY_G2",
+                     "GOOGLE_AI_API_KEY"):
+            _hit = (env_go or {}).get(_var, "")
+            if _hit and _hit not in google_keys:
+                google_keys.append(_hit)
+        if not google_keys:
             # Owner layout fallback: spare LLM keys live beside the
             # egress SUBs (same disk, never committed, never logged).
             import pathlib as _pl
             here = _pl.Path(__file__).resolve().parent.parent.parent
-            google_key = _read_egress_env_key(
-                str(here / "tools" / "egress" / ".env"),
-                "GOOGLE_AI_API_KEY")
-            google_key_from_egress = bool(google_key)
-        if not google_key:
-            _preflight_exit("no GOOGLE_AI_API_KEY in factory/.env "
+            for _var in ("GOOGLE_API_KEY_G1", "GOOGLE_API_KEY_G2",
+                         "GOOGLE_AI_API_KEY"):
+                _hit = _read_egress_env_key(
+                    str(here / "tools" / "egress" / ".env"), _var)
+                if _hit and _hit not in google_keys:
+                    google_keys.append(_hit)
+            google_key_from_egress = bool(google_keys)
+        if not google_keys:
+            _preflight_exit("no GOOGLE_API_KEY_G1/_G2 (or legacy "
+                            "GOOGLE_AI_API_KEY) in factory/.env "
                             "(google provider needs it)")
+        google_key = google_keys[0]
         try:
-            google_ring = KeyRing([google_key])
+            google_ring = KeyRing(list(google_keys))
         except ValueError as exc:
             _preflight_exit("no Google keys: %s" % exc)
         for leg in LLM_LEGS:
@@ -1323,22 +1339,27 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     _jprov, "|".join(
                         provider_registry.provider_names())))
         _jkey = ""
-        for _var in provider_registry.key_ref_for(_jprov, "G1"):
+        _jkeys = []
+        _jvars = []
+        for _group in ("G1", "G2"):
+            for _var in provider_registry.key_ref_for(_jprov, _group):
+                if _var not in _jvars:
+                    _jvars.append(_var)
+        for _var in _jvars:
             try:
                 _env = load_factory_env(required=(_var,))
             except KeyError:
                 continue
-            if _env.get(_var):
-                _jkey = _env[_var]
-                break
+            if _env.get(_var) and _env[_var] not in _jkeys:
+                _jkeys.append(_env[_var])
+                if not _jkey:
+                    _jkey = _env[_var]
         if not _jkey:
             _preflight_exit(
                 "no %s in factory/.env (%s provider needs one)" % (
-                    "/".join(
-                        provider_registry.key_ref_for(_jprov, "G1")),
-                    _jprov))
+                    "/".join(_jvars), _jprov))
         try:
-            judge_ring = KeyRing([_jkey])
+            judge_ring = KeyRing(list(_jkeys))
         except ValueError as exc:
             _preflight_exit("no %s keys: %s" % (_jprov, exc))
         judge_api_key = _jkey

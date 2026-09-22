@@ -4,7 +4,6 @@ Reads factory/.env (never prints values). Burns ~2 micro-calls total.
 """
 import json
 import os
-import pathlib
 import sys
 import urllib.request
 
@@ -19,15 +18,18 @@ ZEN_URL = "https://opencode.ai/zen/v1/responses"
 
 
 def load_env():
-    env_path = pathlib.Path(__file__).resolve().parent.parent / ".env"  # factory/.env (not core/)
-    data = {}
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    return data
+    """Allowlisted factory env values (single loader, names-gated).
+
+    Delegates to :func:`factory.core.env_loader.load_factory_env` (the
+    one loader — no parallel dictionaries): only canonical + legacy key
+    names ever load. Returns ``{name: value}`` for the allowlist (empty
+    string when unset). Values stay in-memory for probing; this module
+    never prints them (probe lines carry names + booleans only).
+    """
+    from factory.core.env_loader import KEYS, load_factory_env
+
+    got = load_factory_env()
+    return {k: got.get(k, "") for k in KEYS}
 
 
 def probe(name, key):
