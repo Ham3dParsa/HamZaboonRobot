@@ -1,11 +1,12 @@
 """Cloud probes (Step 3): live health checks over the standard prompt.
 
 Infrastructure only (no screening/ranking logic here): builds ONE
-minimal arbitration prompt with the engine's own
-:func:`factory.precard.judge.arbiter_prompt` (the standard wording —
-never retyped here) over a single synthetic item with two fake
-candidates, then sends it through each named provider's registry
-transport and records latency + HTTP error kind per provider.
+minimal arbitration prompt with the linking package's own
+:class:`factory.linking.arbitration_prompt.SenseLinkingArbitrationPromptBuilder`
+(the standard wording — never retyped here) over a single synthetic
+item with two fake candidates, then sends it through each named
+provider's registry transport and records latency + HTTP error kind
+per provider.
 
 Key discipline: name-only checks first
 (:func:`provider_registry.key_ref_for` names +
@@ -245,15 +246,36 @@ def load_factory_env(path=None, *, override=False):
     return {"path": resolved, "loaded": True, "vars": ordered}
 
 
-def build_probe_prompt(prompt_fn=None):
-    """Standard arbitration prompt over the synthetic probe item."""
-    if prompt_fn is None:
-        from factory.precard.judge import arbiter_prompt as prompt_fn
-    from factory.precard.accounting import source_item_key
+def build_probe_prompt(builder=None, template=None):
+    """Standard arbitration prompt over the synthetic probe item.
 
-    key = source_item_key(PROBE_ITEM)
-    anchor_map = {key: {"candidates": list(PROBE_CANDIDATES)}}
-    return prompt_fn([dict(PROBE_ITEM)], anchor_map)
+    Assembled by the linking package's official
+    :class:`SenseLinkingArbitrationPromptBuilder` (BASE template):
+    the probe kaikki carries the synthetic ``PROBE_ITEM`` text with
+    empty synonyms/examples (no topics line), each ``PROBE_CANDIDATES``
+    entry maps to a sensekey/gloss pair. Returns the prompt string,
+    which the probe path sends to the arbitration provider port for
+    execution (``probe_one`` transport). ``builder``/``template``
+    inject the seams (tests pass fakes — no network in tests).
+    """
+    from factory.linking.arbitration_prompt import (
+        ArbitrationPromptTemplate,
+        SenseLinkingArbitrationPromptBuilder,
+    )
+
+    if builder is None:
+        builder = SenseLinkingArbitrationPromptBuilder()
+    if template is None:
+        template = ArbitrationPromptTemplate.BASE
+    text = str(PROBE_ITEM.get("text") or "")
+    kaikki = {"lemma": text, "gloss": text, "synonyms": [],
+              "examples": []}
+    candidates = [{"sensekey": str(c.get("sense_id") or ""),
+                   "gloss": str(c.get("gloss") or ""),
+                   "lemmas": [text], "examples": []}
+                  for c in PROBE_CANDIDATES]
+    prompt, _index_map = builder.build(kaikki, candidates, template)
+    return prompt
 
 
 def key_status(provider, resolve_fn=None):

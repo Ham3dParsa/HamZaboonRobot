@@ -256,11 +256,23 @@ def test_probe_ok_and_http_error_hermetic():
 
 
 def test_probe_prompt_uses_standard_wording():
+    from factory.linking.arbitration_prompt import (
+        ArbitrationPromptTemplate,
+        SenseLinkingArbitrationPromptBuilder,
+    )
     prompt = probe_mod.build_probe_prompt()
-    from factory.precard import prompt_registry as _prompts
-    head = "\n".join(_prompts.get_prompt_lines("judge_head"))
-    assert head in prompt
-    assert "run#0" in prompt and "run#1" in prompt
+    text = probe_mod.PROBE_ITEM["text"]
+    kaikki = {"lemma": text, "gloss": text, "synonyms": [],
+              "examples": []}
+    candidates = [{"sensekey": str(c.get("sense_id") or ""),
+                   "gloss": str(c.get("gloss") or ""),
+                   "lemmas": [text], "examples": []}
+                  for c in probe_mod.PROBE_CANDIDATES]
+    want, _index_map = SenseLinkingArbitrationPromptBuilder().build(
+        kaikki, candidates, ArbitrationPromptTemplate.BASE)
+    assert prompt == want
+    assert "move fast on foot" in prompt
+    assert "manage or be in charge of" in prompt
 
 
 def test_probe_line_never_carries_values():
