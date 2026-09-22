@@ -31,6 +31,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import datetime
+import hashlib
 import json
 import re
 import shlex
@@ -403,8 +404,14 @@ _SECRET_RX = re.compile(
     r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*\S+")
 
 
-def scrub_secrets(text):
-    """Redact secret-looking material from log/stream text (best-effort)."""
+def scrub_secrets(text, extra_values=None):
+    """Redact secret-looking material from log/stream text (best-effort).
+
+    ``extra_values`` is a pre-decrypted secret set for the hot path
+    (one decrypt per run, reused per log line). When None (cold paths,
+    tests, back-compat callers) values decrypt on demand. Names only
+    everywhere — values never logged, returned, or displayed.
+    """
     if not text:
         return text
     out = _SECRET_RX.sub(lambda m: m.group(1) + "=***", text)
@@ -415,8 +422,12 @@ def scrub_secrets(text):
             if len(val) >= 8 and val in out:
                 out = out.replace(val, "***")
     try:
-        for val in _operator_key_values().values():
-            if len(val) >= 8 and val in out:
+        if extra_values is None:
+            vals = _operator_key_values().values()
+        else:
+            vals = extra_values
+        for val in vals:
+            if len(val or "") >= 8 and val in out:
                 out = out.replace(val, "***")
     except Exception:
         pass
@@ -1197,8 +1208,40 @@ def _read_json_file(path):
 
 
 def _safe_filename(name):
-    return re.sub(r"[^A-Za-z0-9_.\\-\\u0600-\\u06FF ]", "_",
-                  str(name or "").strip()).strip()[:64]
+    """Filesystem-safe stem for preset/profile names (no separators).
+
+    Allows ASCII word chars plus the Persian block (U+0600-U+06FF),
+    space, dot, underscore, hyphen. ``/`` and ``\\`` always map to
+    ``_`` so ``..\\\\..\\\\x`` can never escape the data dir (the
+    ``.json`` suffix is appended by callers, so ``..`` alone is also
+    inert — it still lands inside the dir as ``....json``-style).
+
+    ASCII names that need no sanitization keep an exact 1:1 mapping
+    (``witness-benchmark`` stays ``witness-benchmark``). Anything
+    else (non-ASCII, sanitized, or empty) gets a short sha1 suffix of
+    the full original name, so two distinct display names never share
+    one file (e.g. two 3-letter Persian names no longer both land on
+    ``___.json``). Deterministic: same name always maps to same file.
+    """
+    raw = str(name or "").strip()
+    base = re.sub(r"[^A-Za-z0-9_.\-\u0600-\u06FF ]", "_",
+                  raw).strip()
+    if not base or base in (".", ".."):
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        return "n-%s" % digest
+    try:
+        raw.encode("ascii")
+        ascii_only = True
+    except UnicodeEncodeError:
+        ascii_only = False
+    if ascii_only and base == raw[:64]:
+        return base[:64]
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    keep = 64 - 9
+    stem = base[:keep].rstrip()
+    if not stem or stem in (".", ".."):
+        return "n-%s" % digest
+    return "%s-%s" % (stem, digest)
 
 
 PRESET_KINDS = ("run", "judge")
@@ -2145,13 +2188,24 @@ def api_create_run():
     # Unified key resolution for the child: operator-pasted keys fill
     # the gaps the environment + factory file leave (in-memory only;
     # the pump scrubs them from the log). Values never touch disk here.
+    # Decrypted ONCE per run and reused (hot-path scrubber gets the
+    # frozen set — no per-line file IO or Fernet work).
     child_env = dict(os.environ)
     try:
-        for _var, _val in _operator_key_values().items():
+        _op_keys = _operator_key_values()
+    except Exception:
+        _op_keys = {}
+    try:
+        for _var, _val in _op_keys.items():
             if _val and not child_env.get(_var):
                 child_env[_var] = _val
     except Exception:
         pass
+    try:
+        _run_secret_values = tuple(
+            v for v in _op_keys.values() if len(v or "") >= 8)
+    except Exception:
+        _run_secret_values = ()
     if _lease:
         # OUR lease proxy rides the child env only (parent untouched);
         # shared supervisor + others' leases undisturbed.
@@ -2165,11 +2219,11 @@ def api_create_run():
         log_handle.close()
         return jsonify({"error": "spawn failed: %s" % exc}), 500
 
-    def _pump():
+    def _pump(_secrets=_run_secret_values):
         try:
             assert proc.stdout is not None
             for line in proc.stdout:
-                log_handle.write(scrub_secrets(line))
+                log_handle.write(scrub_secrets(line, extra_values=_secrets))
                 log_handle.flush()
         finally:
             try:
