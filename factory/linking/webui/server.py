@@ -1,8 +1,9 @@
-"""Linker-judge WebUI — thin local adapter over the precard engine.
+"""کنسول کارخانه داده — linker-line local WebUI.
 
 Thin adapter (no engine logic here): the CLI + engine stay the system of
-record. Every UI run spawns the exact ``python -m factory.precard`` command
-shown on screen, so any run replays identically from a terminal.
+record. Every UI run spawns the exact receipt command shown on screen
+(linking flow: ``python -m factory.linking.cli link``), so any run
+replays identically from a terminal.
 
 Usage:
     python factory/linking/webui/server.py
@@ -165,6 +166,59 @@ def build_cli_argv(fields):
 def cli_equivalent(argv):
     """Exact command-line string for identical replay (display only)."""
     return shlex.join(["python" if a == sys.executable else a for a in argv])
+
+
+def build_linking_cli_argv(fields):
+    """argv list for the linking line's own command (display only).
+
+    ``python -m factory.linking.cli link --words <input> --out <output>``
+    from the spare run-form fields. Fail-closed: empty words/out raise
+    ValueError (the CLI declares both ``required=True`` — omitting them
+    would spawn a command guaranteed to exit 2). Provider/model ride
+    the run record, not this offline command — stated, never faked.
+    """
+    argv = [sys.executable, "-m", "factory.linking.cli", "link"]
+    words = str((fields or {}).get("sample") or "").strip()
+    if not words:
+        raise ValueError(
+            "فایل ورودی انتخاب نشده است (فهرست واژه لازم است).")
+    argv += ["--words", words]
+    out = str((fields or {}).get("out") or "").strip()
+    if not out:
+        raise ValueError("مسیر خروجی انتخاب نشده است.")
+    argv += ["--out", out]
+    return argv
+
+
+def linking_cli_equivalent(argv):
+    """Exact linking command-line string (display only)."""
+    return shlex.join(["python" if a == sys.executable else a for a in argv])
+
+
+#: Domain router: flow name -> its own runner (builder + shower).
+#: The run-creation route executes exactly the receipt command built
+#: here — linking flow never touches the precard runner. A future
+#: precard flow reuses its own entry without touching the router.
+FLOW_RUNNERS = {
+    "linking": {"build": build_linking_cli_argv,
+                "show": linking_cli_equivalent},
+    "precard": {"build": build_cli_argv, "show": cli_equivalent},
+}
+
+
+def build_run_command(flow, fields):
+    """(argv, shown) for one flow via the domain router.
+
+    Fail-closed: unknown flow raises ValueError and nothing is built.
+    Provider/model ride the run record, not the linking argv (the
+    linking runner takes only what it accepts — no flags invented).
+    """
+    name = str(flow or "linking").strip() or "linking"
+    runner = FLOW_RUNNERS.get(name)
+    if runner is None:
+        raise ValueError("unknown flow: %r" % flow)
+    argv = runner["build"](fields)
+    return argv, runner["show"](argv)
 
 
 def _factory_env_value(var):
@@ -480,7 +534,7 @@ def run_rows_full_by_key(out_path):
 
 
 def sample_rows_full_by_key(sample_path):
-    """{key: full-sample-row-dict} from a sample.json file ("" sense_id = no gold)."""
+    """{key: full-row-dict} from a linking words input file (word list)."""
     rows = {}
     try:
         data = json.load(open(sample_path, encoding="utf-8"))
@@ -500,7 +554,7 @@ def sample_rows_full_by_key(sample_path):
 
 
 def gold_rows_by_key(sample_path):
-    """{key: sense_id} gold from a sample.json file ("" sense_id = no gold)."""
+    """{key: sense_id} gold from a linking words input file (word list)."""
     gold = {}
     try:
         data = json.load(open(sample_path, encoding="utf-8"))
@@ -520,7 +574,7 @@ def gold_rows_by_key(sample_path):
 
 
 def validate_sample_file(sample_path):
-    """Pre-launch sample check: (ok, error_fa, info).
+    """Pre-launch words-input check: (ok, error_fa, info).
 
     ok True -> info {"rows": n, "gold": m}. ok False -> error_fa names the
     exact problem in plain Persian: missing file, unreadable/corrupt JSON,
@@ -529,31 +583,31 @@ def validate_sample_file(sample_path):
     """
     path = str(sample_path or "").strip()
     if not path:
-        return False, "فایل نمونه انتخاب نشده است.", {}
+        return False, "فایل ورودی انتخاب نشده است (فهرست واژه لازم است).", {}
     if not os.path.isfile(path):
-        return False, "فایل نمونه پیدا نشد: %s" % path, {}
+        return False, "فایل ورودی پیدا نشد: %s" % path, {}
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, ValueError):
-        return False, "فایل نمونه خوانا نیست (JSON خراب است): %s" % path, {}
+        return False, "فایل ورودی خوانا نیست (JSON خراب است): %s" % path, {}
     if not isinstance(data, list):
-        return False, ("شکل فایل نمونه درست نیست: فهرست (آرایه) لازم است، "
+        return False, ("شکل فایل ورودی درست نیست: فهرست واژه (آرایه) لازم است، "
                        "اما این فایل %s است." % type(data).__name__), {}
     if not data:
-        return False, "فایل نمونه خالی است (هیچ ردیفی ندارد).", {}
+        return False, "فایل ورودی خالی است (هیچ ردیفی ندارد).", {}
     gold = 0
     for idx, row in enumerate(data):
         if not isinstance(row, dict):
-            return False, ("ردیف %d نمونه یک شیء نیست (نوع: %s)."
+            return False, ("ردیف %d فایل ورودی یک شیء نیست (نوع: %s)."
                            % (idx + 1, type(row).__name__)), {}
         kind = row.get("kind")
         text = row.get("text")
         if kind not in ("word", "phrase"):
-            return False, ("ردیف %d نمونه فیلد kind درستی ندارد "
+            return False, ("ردیف %d فایل ورودی فیلد kind درستی ندارد "
                            "(باید word یا phrase باشد)." % (idx + 1)), {}
         if not isinstance(text, str) or not text.strip():
-            return False, ("ردیف %d نمونه فیلد text ندارد "
+            return False, ("ردیف %d فایل ورودی فیلد text ندارد "
                            "(متن خالی است)." % (idx + 1)), {}
         if row.get("sense_id"):
             gold += 1
@@ -1262,22 +1316,42 @@ WITNESS_PRESET_FIELDS = {
 }
 
 
+def _preset_version_number(rec):
+    """int version for preset dedup (operator junk versions read as 0)."""
+    try:
+        return int((rec or {}).get("version") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def list_presets(kind=None):
-    """All stored presets (old records without a kind read as "run")."""
-    out = []
+    """All stored presets (old records without a kind read as "run").
+
+    Load-time dedup by (kind, display name) (stale twin files, e.g. the
+    hyphen/underscore witness-benchmark pair, collapse to one: highest
+    version wins, ties keep the first file in sorted order).
+    """
+    by_key = {}
     try:
         entries = sorted(os.listdir(PRESETS_DIR))
     except OSError:
-        return out
+        return []
     for entry in entries:
         if not entry.endswith(".json"):
             continue
         rec = _read_json_file(os.path.join(PRESETS_DIR, entry))
         if isinstance(rec, dict) and rec.get("name"):
             rec.setdefault("kind", "run")
-            if kind is None or rec.get("kind") == kind:
-                out.append(rec)
-    out.sort(key=lambda r: str(r.get("name") or ""))
+            if kind is not None and rec.get("kind") != kind:
+                continue
+            name = rec.get("name")
+            key = (rec.get("kind"),
+                   name if isinstance(name, str) else str(name))
+            prev = by_key.get(key)
+            if prev is None or _preset_version_number(rec) > \
+                    _preset_version_number(prev):
+                by_key[key] = rec
+    out = sorted(by_key.values(), key=lambda r: str(r.get("name") or ""))
     return out
 
 
@@ -2078,7 +2152,7 @@ def api_runs():
             _save_registry(records)
     return jsonify({"runs": [
         {k: r.get(k) for k in (
-            "id", "run_name", "created", "provider", "model",
+            "id", "run_name", "created", "flow", "provider", "model",
             "route", "lease", "egress", "egress_clean", "sample",
             "limit", "concurrency", "out", "progress_dir", "resume", "cli",
             "status", "exit_code", "has_gold", "watermark", "preset",
@@ -2090,8 +2164,13 @@ def api_runs():
 @app.route("/api/runs", methods=["POST"])
 def api_create_run():
     fields = request.get_json(force=True, silent=True) or {}
+    flow = str((fields or {}).get("flow") or "linking").strip() or "linking"
+    if flow == "linking" and not _is_known_provider(
+            str((fields or {}).get("provider") or "").strip()):
+        return jsonify({"error": "unknown provider: %r" % str(
+            (fields or {}).get("provider") or "")}), 400
     try:
-        argv = build_cli_argv(fields)
+        argv, _shown = build_run_command(flow, fields)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     sample = str(fields.get("sample") or "").strip()
@@ -2121,11 +2200,20 @@ def api_create_run():
     # Leased-vs-direct routing resolved BEFORE launch (precard TARGETS
     # mirror): tunnel-route providers lease a clean supervisor tunnel
     # (Google: geo-block 403 direct) — no spawn on failure, loud 502.
-    run_route, run_route_reason = route_for_provider(provider)
+    # Linking runs offline (local word list in, local TSV out), so they
+    # never lease, never resolve keys, and always read "direct".
+    if flow == "linking":
+        run_route = "direct"
+        run_route_reason = ("linking runs offline "
+                            "(local word list in, local TSV out)")
+    else:
+        run_route, run_route_reason = route_for_provider(provider)
     run_lease_short = None
     run_lease_id = ""
     run_egress_clean = None
-    if run_route == "leased" and not is_custom:
+    if flow == "linking":
+        _lease, run_egress = None, "direct"
+    elif run_route == "leased" and not is_custom:
         _lease, _lease_error = lease_tunnel_for_run(provider)
         if _lease_error:
             return jsonify({"error": _lease_error}), 502
@@ -2141,11 +2229,19 @@ def api_create_run():
         rundir, "precard.jsonl")
     progress_dir = str(fields.get("progress_dir") or "").strip() or os.path.join(
         rundir, "progress")
-    final_argv = list(argv)
-    if not str((fields or {}).get("out") or "").strip():
-        final_argv += ["--out", out]
-    if not str((fields or {}).get("progress_dir") or "").strip():
-        final_argv += ["--progress-dir", progress_dir]
+    # Receipt-equals-execution: linking flow spawns exactly the
+    # receipt argv (no fills, never the precard runner); precard flow
+    # keeps its own out/progress-dir fills via its own runner.
+    if flow == "precard":
+        final_argv = list(argv)
+        if not str((fields or {}).get("out") or "").strip():
+            final_argv += ["--out", out]
+        if not str((fields or {}).get("progress_dir") or "").strip():
+            final_argv += ["--progress-dir", progress_dir]
+        cli_text = FLOW_RUNNERS["precard"]["show"](final_argv)
+    else:
+        final_argv = list(argv)
+        cli_text = FLOW_RUNNERS["linking"]["show"](final_argv)
     has_gold = False
     if sample:
         try:
@@ -2164,10 +2260,15 @@ def api_create_run():
         concurrency_val = int(fields.get("concurrency") or 0)
     except (TypeError, ValueError):
         concurrency_val = 0
+    try:
+        limit_val = int(fields.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit_val = 0
     record = {
         "id": run_id,
         "run_name": run_name,
         "created": created,
+        "flow": flow,
         "provider": provider,
         "model": str(fields.get("model") or ""),
         "route": run_route,
@@ -2176,12 +2277,12 @@ def api_create_run():
         "egress": run_egress,
         "egress_clean": run_egress_clean,
         "sample": sample,
-        "limit": int(fields.get("limit") or 0),
+        "limit": limit_val,
         "concurrency": concurrency_val,
         "out": out,
         "progress_dir": progress_dir,
         "resume": str(fields.get("resume") or "on"),
-        "cli": cli_equivalent(final_argv),
+        "cli": cli_text,
         "dir": rundir,
         "status": "running",
         "exit_code": None,
@@ -2199,10 +2300,14 @@ def api_create_run():
     # Decrypted ONCE per run and reused (hot-path scrubber gets the
     # frozen set — no per-line file IO or Fernet work).
     child_env = dict(os.environ)
-    try:
-        _op_keys = _operator_key_values()
-    except Exception:
+    if flow == "linking":
+        # Offline child takes no secrets: keys stay out of its env.
         _op_keys = {}
+    else:
+        try:
+            _op_keys = _operator_key_values()
+        except Exception:
+            _op_keys = {}
     try:
         for _var, _val in _op_keys.items():
             if _val and not child_env.get(_var):
@@ -2281,10 +2386,15 @@ def api_run(run_id):
 @app.route("/api/runs/<run_id>/events", methods=["GET"])
 def api_events(run_id):
     with _lock:
-        rec = _find_record(_load_registry_migrated(), run_id)
+        records = _load_registry_migrated()
+        rec = _find_record(records, run_id)
         if rec is None:
             return jsonify({"error": "unknown run"}), 404
         code = _poll_proc(run_id)
+        if code is not None and rec.get("status") == "running":
+            rec["status"] = "done" if code == 0 else "failed"
+            rec["exit_code"] = code
+            _save_registry(records)
     try:
         offset = int(request.args.get("offset", 0) or 0)
     except ValueError:
