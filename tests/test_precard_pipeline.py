@@ -376,7 +376,7 @@ def _http_429():
 
 
 def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
-    """S2 429 on key1 rotates to key2 (5s pause) and retries the SAME call."""
+    """S2 429 on key1 rotates to key2 (avalai table pause) and retries the SAME call."""
     import pytest
     from factory.precard.provider_transport import KeyRing
     sample = write_sample(tmp_path, ITEMS[:1])
@@ -408,14 +408,14 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
     assert out["w:apple"]["model"] not in ("s1-fallback",
                                            "s1-fallback-empty")
     assert seen_keys == ["k1", "k2"]  # same call retried on next key
-    assert sleeps == [5.0]  # brief pause, no 60s/300s waits
+    assert sleeps == [300.0]  # avalai table cooldown, no 60s wait
     assert any(e["outcome"] == "rotating"
                for e in prog_state["backoffs"])
     assert any(r.get("outcome") == "ok" for r in tele)
 
 
 def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
-    """All-keys-429 STOPS (SystemExit, VPN message) — no 6-min wait."""
+    """All-keys-429 STOPS (SystemExit, VPN message) after the table pause."""
     import pytest
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog, sleeps = (str(tmp_path / "precard.jsonl"),
@@ -432,8 +432,8 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
             _sleep_fn=sleeps.append,
             _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
-    assert sum(sleeps) < 60.0  # 5s rotation pause, never 60+300
-    assert 60.0 not in sleeps and 300.0 not in sleeps
+    assert sleeps == [300.0]  # one avalai table pause, then stop
+    assert 60.0 not in sleeps
     # Progress flushed before exit (per-batch + finally): sense-judge.json on disk
     # with the stop event recorded.
     state = json.loads(open(os.path.join(prog, STAGE_FILES["s2"]), encoding="utf-8").read())
@@ -442,7 +442,7 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
 
 
 def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
-    """S3 429 rotates keys with a 5s pause and retries the same call."""
+    """S3 429 rotates keys with the avalai table pause and retries the same call."""
     from factory.precard.provider_transport import KeyRing
     from factory.precard.anchor import anchor_rank_item
     from factory.precard.topics import vectors_batch
@@ -469,8 +469,8 @@ def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
     # k2 while the chain exhausts the fake's invalid vectors to the
     # deterministic fallback — rotation is proven by the first two keys).
     assert seen[:2] == ["k1", "k2"]
-    assert sleeps[0] == 5.0
-    assert 60.0 not in sleeps and 300.0 not in sleeps
+    assert sleeps[0] == 300.0  # avalai table cooldown
+    assert 60.0 not in sleeps
 
 
 def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
@@ -492,7 +492,7 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
     wrap = _rotating_llm_transport(flaky, sleeps.append, state,
                                    KeyRing(["k1", "k2"]))
     assert wrap("ignored", "m", "prompt") == "ok"
-    assert seen == ["k1", "k2"] and sleeps == [5.0]
+    assert seen == ["k1", "k2"] and sleeps == [300.0]  # avalai table
     # All keys 429 -> RateLimited (the S4 caller converts to SystemExit
     # AFTER flushing progress; raising SystemExit here bypassed the flush).
     def always_429(api_key, model, user_text):
