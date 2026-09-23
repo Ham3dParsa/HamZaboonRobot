@@ -1,4 +1,4 @@
-"""Interface tests for the rebuilt linker-judge console (six locked rows).
+"""Interface tests for the factory-data console linking tab.
 
 Reads factory/linking/webui/index.html + server routes; no browser needed.
 Behavior/safety engines untouched: localhost-only, same CLI builder, no
@@ -50,12 +50,23 @@ def test_separation_drawer_and_templates():
 def test_engineering_renames_consistent():
     text = _html()
     # new names present across page + guide + receipts
-    for token in ("قالب‌های کاری", "قالب کاری", "رسید فرمان", "محک",
+    for token in ("کنسول کارخانه داده", "غربال‌سازی و داوری",
+                  "پیش‌تنظیم‌های اجرا", "پیش‌تنظیم", "رسید فرمان",
+                  "رسید فرمان پیوند", "محک",
                   "کارت‌های رویداد", "اتصال‌های سفارشی"):
         assert token in text, token
     # old names gone from visible headings/labels
-    for old in ("پریست‌ها", "پریست", "قبض فرمان", "سنجش با طلا"):
+    for old in ("پریست‌ها", "پریست", "قبض فرمان", "سنجش با طلا",
+                "داور پیوند", "ساخت اجرا", "قالب‌های داور",
+                "قالب‌های کاری", "نشاندن در فرم", "قالب داور",
+                "قالب کاری"):
         assert old not in text, old
+    # linking-tab receipt builds the linking line's own command (never precard)
+    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
+    assert "رسید فرمان پیوند" in compose
+    assert "factory.linking.cli" in text  # receipt builder script
+    assert "factory.precard" not in compose
+    assert "precard" not in compose
     # job-template alias routes exist alongside canonical presets
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/job_templates" in rules
@@ -65,11 +76,15 @@ def test_engineering_renames_consistent():
 def test_ergonomics_controls():
     text = _html()
     assert 'id="btn-skey-toggle"' in text  # client-side only toggle
-    assert 'id="paths-spinner"' in text
-    assert 'id="btn-conc-minus"' in text and 'id="btn-conc-plus"' in text
-    assert 'value="8"' in text  # real concurrency default
     assert 'id="provider-cards"' in text  # per-provider cards
     assert 'pill done' in text and 'pill fail' in text  # status pills
+    assert 'id="file-picker"' in text  # input/output path picker
+    # spare run form: no steppers, spinners, or extra knobs
+    for gone in ('id="btn-conc-minus"', 'id="btn-conc-plus"',
+                 'id="paths-spinner"', 'id="f-limit"',
+                 'id="f-concurrency"', 'id="f-resume"',
+                 'id="f-progress"'):
+        assert gone not in text, gone
 
 
 def test_watch_cards_progress_no_raw_dump():
@@ -96,46 +111,52 @@ def test_benchmark_filters_sort_search_pagination():
 
 def test_compose_path_pickers_plus_manual_entry():
     text = _html()
-    # picker dialog buttons next to every path field; text entry stays
+    # spare form: picker dialog buttons next to input + output only
     for btn, field in (("btn-browse-sample", "f-sample"),
-                       ("btn-browse-out", "f-out"),
-                       ("btn-browse-progress", "f-progress")):
+                       ("btn-browse-out", "f-out")):
         assert 'id="%s"' % btn in text, btn
         assert 'id="%s"' % field in text, field
+    assert 'id="btn-browse-progress"' not in text
+    assert 'id="f-progress"' not in text
     assert 'id="file-picker"' in text
     assert 'id="picker-list"' in text and 'id="picker-pick"' in text
-    # exact defaults stated in plain words under each path field
-    assert "نمونهٔ پیش‌فرض خود موتور" in text
-    assert "precard.jsonl" in text
-    assert "progress" in text
 
 
-def test_sample_purpose_rewritten_plain_words():
+def test_spare_run_form_provider_model_input_output():
     text = _html()
-    assert "نمونه چیست؟" in text
-    assert "فهرست کاری" in text  # what the sample IS
-    assert "برچسب طلا" in text  # gold label, plain words
-    assert "سفارشی" in text  # what happens without gold
-    assert "pilot" in text  # bundled samples origin
-    assert 'id="schema-example"' in text  # copyable mini example kept
+    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
+    # spare and modern: provider, model, input file, output path, run button
+    for ctrl in ('id="f-provider"', 'id="f-model"', 'id="f-sample"',
+                 'id="f-out"', 'id="btn-launch"'):
+        assert ctrl in compose, ctrl
+    assert "فایل ورودی" in compose
+    assert "مسیر خروجی" in compose
+    # removed knobs stay out of the linking tab
+    for gone in ('id="f-limit"', 'id="f-concurrency"', 'id="f-resume"',
+                 'id="f-progress"', 'id="sample-about"',
+                 'id="schema-example"', 'id="paths-echo"'):
+        assert gone not in compose, gone
 
 
-def test_two_preset_kinds_separated():
+def test_single_run_preset_section():
     text = _html()
-    # judge card (violet) vs run card (teal): distinct ids + visuals
-    assert 'id="j-name"' in text and 'id="j-list"' in text
-    assert 'id="btn-judge-apply"' in text and 'id="btn-judge-save"' in text
-    assert 'id="btn-judge-del"' in text
-    assert 'id="t-name"' in text and 'id="t-list"' in text
-    assert "قالب‌های داور" in text and "قالب‌های کاری" in text
-    assert "judge-kind" in text and "run-kind" in text
-    # judge plugs in; run fills the whole form
-    assert "نشاندن در فرم" in text
-    assert "کل فرم" in text
-    # ready model names with one-click copy + honest engine notes
-    assert 'id="model-chips"' in text
-    assert 'id="judge-engine-note"' in text
-    assert "فهرست مدل‌ها" in text  # engine exposes no model list: said so
+    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
+    # one straightforward section for run presets: a single save/load
+    assert "پیش‌تنظیم‌های اجرا" in compose
+    assert 'id="t-name"' in compose and 'id="t-list"' in compose
+    assert 'id="btn-template-save"' in compose
+    assert 'id="btn-template-load"' in compose
+    assert 'id="btn-template-del"' in compose
+    # the two side-column boxes are gone (no judge presets, no job presets)
+    for gone in ('id="j-name"', 'id="j-list"',
+                 'id="btn-judge-save"', 'id="btn-judge-apply"',
+                 'id="btn-judge-del"', 'judge-kind'):
+        assert gone not in text, gone
+    # backend endpoints stay working; old stored records keep loading
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/presets" in rules
+    assert "/api/job_templates" in rules
+    assert "/api/judge_presets" in rules
 
 
 def test_provider_list_matches_engine_registry_no_kilo():
@@ -163,22 +184,22 @@ def test_benchmark_table_meaning_first():
 
 def test_form_hints_progressive_disclosure():
     text = _html()
-    # every field help is a tooltip popup toggled by a small button,
+    # every kept field help is a tooltip popup toggled by a small button,
     # never an always-visible paragraph
-    for tip in ("tip-provider", "tip-model", "tip-sample", "tip-limit",
-                "tip-concurrency", "tip-resume", "tip-out", "tip-progress",
-                "tip-jname", "tip-jlist", "tip-tname", "tip-tlist",
+    for tip in ("tip-provider", "tip-model", "tip-sample",
+                "tip-out", "tip-tname", "tip-tlist",
                 "tip-brun", "tip-gsearch",
                 "tip-sname", "tip-sbase", "tip-skey", "tip-smodel"):
         assert 'id="%s"' % tip in text, tip
         assert '<p class="hint" id="%s"' % tip not in text, tip
         assert 'data-tip="%s"' % tip in text, tip
+    # removed knobs leave no tooltip behind
+    for gone in ("tip-limit", "tip-concurrency", "tip-resume",
+                 "tip-progress", "tip-jname", "tip-jlist"):
+        assert 'id="%s"' % gone not in text, gone
     assert "bindTips" in text
-    # dynamic validation/output lines stay live paragraphs
-    assert 'id="sample-check"' in text and 'id="paths-echo"' in text
-    # sample explainer collapsed into a compact details box
-    assert 'id="sample-about"' in text and "<summary>" in text
-    assert "فهرست کاری" in text and 'id="schema-example"' in text
+    # dynamic validation line stays a live paragraph
+    assert 'id="sample-check"' in text
 
 
 def test_guide_grouped_accordion_with_bulk_toggle_and_search_expand():
@@ -419,11 +440,10 @@ def test_engine_info_routing_and_judge_schema_mirror_bot():
     temp = schema["temperature"]
     assert temp["locked"] is True and temp["supported"] is False
     assert temp["fixed"] == 0.0 and temp["reason"]
-    # UI renders the schema with the temperature locked (no fake knob)
+    # the spare form carries no judge-schema panel (backend stays working)
     text = _html()
-    assert 'id="judge-schema"' in text
-    assert "paintJudgeSchema" in text
-    assert "قفل است" in text
+    assert 'id="judge-schema"' not in text
+    assert "paintJudgeSchema" not in text
 
 
 def test_egress_health_read_only_no_spawn(monkeypatch):
@@ -494,23 +514,18 @@ def test_model_id_parsers_never_invent():
     assert webui._openai_models_endpoint("not-a-url") == ""
 
 
-def test_model_picker_search_chips_copy_no_browser_keys():
+def test_model_list_endpoint_stays_server_side():
+    # no model picker lives in the spare form; the key-gated endpoint
+    # stays on the server (keys never touch the browser)
     text = _html()
-    for ctrl in ('id="btn-model-list"', 'id="model-search"',
+    for gone in ('id="btn-model-list"', 'id="model-search"',
                  'id="model-filter-chips"', 'id="model-list"',
-                 'id="model-err"'):
-        assert ctrl in text, ctrl
-    assert "modelListFetch" in text and "paintModelList" in text
-    assert "paintModelChips" in text
-    # one search + filter chips + one-click exact copy into the field
-    assert "/api/providers/" in text and "/models" in text
-    assert "$('f-model').value = id" in text
-    # keys never sit in browser storage: the picker sends no key
-    # material (only the provider name rides the URL)
-    fetch_fn = text.split("async function modelListFetch")[1].split(
-        "\n}\n")[0]
-    assert "key_value" not in fetch_fn
-    assert "localStorage" not in fetch_fn
+                 'id="model-err"', 'id="model-chips"'):
+        assert gone not in text, gone
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/providers/<name>/models" in rules
+    assert webui.app.test_client().get(
+        "/api/providers/ghost/models").status_code == 404
 
 
 def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
@@ -584,3 +599,18 @@ def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
             break
         _time.sleep(0.05)
     assert reported and reported[0] == ("bb11cc22dd33", "google", True)
+
+
+def test_input_hint_and_footer_word_list_identity():
+    """Hint names the linking word list; footer matches console identity."""
+    text = _html()
+    tip = text.split('id="tip-sample"')[1].split("</span>")[0]
+    assert "فهرست واژه" in tip
+    assert "sample.json" not in tip
+    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
+    assert "sample.json" not in compose
+    assert "factory.precard" not in compose
+    footer = text.split("<footer>")[1].split("</footer>")[0]
+    assert "factory.precard" not in footer
+    assert "کنسول" in footer and "کارخانه داده" in footer
+    assert "موتور خط فرمان" not in footer

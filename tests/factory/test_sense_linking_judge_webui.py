@@ -612,3 +612,183 @@ def test_api_paths_echo_and_sample_validate(tmp_path):
     assert body["sample_ok"] is True and body["rows"] == 1
     assert body["out"].endswith("precard.jsonl")
     assert "/preview" in body["run_dir"] or "preview" in body["run_dir"]
+
+
+def test_linking_receipt_builds_linking_command_only():
+    argv = webui.build_linking_cli_argv(
+        {"sample": "words.txt", "out": "links.tsv"})
+    assert argv[:4] == [sys.executable, "-m", "factory.linking.cli",
+                        "link"]
+    assert argv[argv.index("--words") + 1] == "words.txt"
+    assert argv[argv.index("--out") + 1] == "links.tsv"
+
+
+def test_linking_receipt_omits_empty_fields_never_precard():
+    argv = webui.build_linking_cli_argv({"sample": "", "out": ""})
+    assert argv == [sys.executable, "-m", "factory.linking.cli", "link"]
+    shown = webui.linking_cli_equivalent(argv)
+    assert shown.startswith("python -m factory.linking.cli link")
+    assert "factory.precard" not in shown
+    assert "precard" not in shown
+
+
+def test_domain_router_selects_runner_per_flow():
+    linking = webui.build_run_command(
+        "linking", {"sample": "words.txt", "out": "links.tsv"})
+    assert linking[0][:4] == [sys.executable, "-m",
+                              "factory.linking.cli", "link"]
+    assert linking[1].startswith("python -m factory.linking.cli link")
+    assert "factory.precard" not in linking[1]
+    precard = webui.build_run_command("precard", _fields())
+    assert precard[0][:3] == [sys.executable, "-m", "factory.precard"]
+    assert "factory.linking.cli" not in precard[1]
+    with pytest.raises(ValueError):
+        webui.build_run_command("ghost", _fields())
+
+
+def test_linking_run_executes_receipt_command_only(tmp_path, monkeypatch):
+    import subprocess as _sub
+
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
+    monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
+    registry = tmp_path / "runs.json"
+    registry.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(webui, "REGISTRY_PATH", str(registry))
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p: (None, None))
+
+    seen = {}
+
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self):
+            return 0
+
+    def _fake_popen(argv, **kwargs):
+        seen["argv"] = list(argv)
+        return _FakeProc()
+
+    monkeypatch.setattr(_sub, "Popen", _fake_popen)
+    fields = {"flow": "linking", "provider": "avalai", "model": "m1",
+              "sample": "words.txt", "out": "links.tsv"}
+    receipt_argv, receipt_shown = webui.build_run_command("linking", fields)
+    resp = webui.app.test_client().post("/api/runs", json=fields)
+    assert resp.status_code == 201
+    rec = resp.get_json()["run"]
+    assert rec["flow"] == "linking"
+    assert rec["provider"] == "avalai" and rec["model"] == "m1"
+    assert seen["argv"] == receipt_argv
+    assert rec["cli"] == receipt_shown
+    assert "factory.precard" not in rec["cli"]
+    assert seen["argv"][:4] == [sys.executable, "-m",
+                                "factory.linking.cli", "link"]
+
+
+def test_precard_run_executes_own_receipt_command(tmp_path, monkeypatch):
+    import subprocess as _sub
+
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
+    monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
+    registry = tmp_path / "runs.json"
+    registry.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(webui, "REGISTRY_PATH", str(registry))
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p: (None, None))
+
+    seen = {}
+
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self):
+            return 0
+
+    def _fake_popen(argv, **kwargs):
+        seen["argv"] = list(argv)
+        return _FakeProc()
+
+    monkeypatch.setattr(_sub, "Popen", _fake_popen)
+    fields = dict(_fields(), flow="precard")
+    resp = webui.app.test_client().post("/api/runs", json=fields)
+    assert resp.status_code == 201
+    rec = resp.get_json()["run"]
+    assert rec["flow"] == "precard"
+    assert seen["argv"][:3] == [sys.executable, "-m", "factory.precard"]
+    assert "factory.linking.cli" not in rec["cli"]
+    assert rec["cli"] == webui.cli_equivalent(seen["argv"])
+
+
+def test_preset_load_dedups_witness_benchmark(tmp_path, monkeypatch):
+    import json as _json
+
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    rec = {"name": "witness-benchmark", "version": 1, "kind": "run",
+           "provider": "avalai", "model": "", "sample": "", "limit": 30,
+           "concurrency": 8, "out": "", "progress_dir": "", "resume": "on"}
+    (tmp_path / "witness-benchmark.json").write_text(
+        _json.dumps(rec), encoding="utf-8")
+    (tmp_path / "witness_benchmark.json").write_text(
+        _json.dumps(rec), encoding="utf-8")
+    names = [r["name"] for r in webui.list_presets(kind="run")]
+    assert names.count("witness-benchmark") == 1
+
+
+def test_events_route_persists_terminal_state_mirroring_single_run(
+        tmp_path, monkeypatch):
+    """Events route reaps like the single-run route (no stuck running)."""
+    registry = tmp_path / "runs.json"
+    record = {"id": "r-fast", "status": "running", "exit_code": None,
+              "provider": "avalai", "cli": "python -m factory.linking.cli"}
+    registry.write_text(json.dumps([record]), encoding="utf-8")
+    monkeypatch.setattr(webui, "REGISTRY_PATH", str(registry))
+    monkeypatch.setitem(webui._procs, "r-fast", _ExitedProc())
+    try:
+        client = webui.app.test_client()
+        resp = client.get("/api/runs/r-fast/events")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["status"] == "done" and body["exit_code"] == 0
+        saved = json.loads(registry.read_text(encoding="utf-8"))
+        assert saved[0]["status"] == "done" and saved[0]["exit_code"] == 0
+        single = client.get("/api/runs/r-fast").get_json()["run"]
+        assert single["status"] == "done" and single["exit_code"] == 0
+        listed = client.get("/api/runs").get_json()["runs"]
+        assert listed[0]["status"] == "done"
+    finally:
+        webui._procs.pop("r-fast", None)
+
+
+def test_words_input_validation_hint_never_sample_json(tmp_path):
+    """Linking input hint names the word list, never sample.json."""
+    import inspect as _inspect
+
+    for bad in ("", str(tmp_path / "nope.json")):
+        ok, err, _ = webui.validate_sample_file(bad)
+        assert ok is False and err
+        assert "sample.json" not in err and "نمونه" not in err
+    notlist = tmp_path / "notlist.json"
+    notlist.write_text(json.dumps({"kind": "word"}), encoding="utf-8")
+    ok, err, _ = webui.validate_sample_file(str(notlist))
+    assert ok is False and "فهرست واژه" in err
+    assert "sample.json" not in err and "نمونه" not in err
+    empty = tmp_path / "empty.json"
+    empty.write_text("[]", encoding="utf-8")
+    ok, err, _ = webui.validate_sample_file(str(empty))
+    assert ok is False and "خالی" in err and "نمونه" not in err
+    src = _inspect.getsource(webui.validate_sample_file)
+    src += _inspect.getsource(webui.sample_rows_full_by_key)
+    src += _inspect.getsource(webui.gold_rows_by_key)
+    assert "sample.json" not in src
