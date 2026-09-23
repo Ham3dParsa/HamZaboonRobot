@@ -1692,10 +1692,8 @@ def rate_state():
     except Exception:
         sleep_default = 2.5
     try:
-        from factory.precard.provider_transport import (
-            ROTATE_PAUSE as _rotate_pause,
-        )
-        rotate_pause = float(_rotate_pause)
+        from factory.core.llm_json import cooldown_for as _cooldown_for
+        rotate_pause = float(_cooldown_for("generic"))
     except Exception:
         rotate_pause = 5.0
     stored = _operator_key_values()

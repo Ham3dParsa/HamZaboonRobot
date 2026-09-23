@@ -276,6 +276,28 @@ def test_on_mode_reports_ok_429_and_location_blocked(tmp_path, capsys):
     assert "location-blocked (strike 2/3" in logs
 
 
+def test_on_mode_reports_cooldown_switch_as_http429(tmp_path):
+    """Non-429 COOLDOWN_SWITCH (Google 400 resource_exhausted) reports
+    http429 so the supervisor cools the dead egress instead of
+    re-leasing it on the next run."""
+    seen = []
+    calls = []
+
+    def fake_judge(chunk, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _http_error(400, b"RESOURCE_EXHAUSTED: quota")
+        key = blind50.precard_accounting.source_item_key
+        return {key(it): {"sense_id": "s", "gloss": "x"} for it in chunk}
+
+    out = blind50.run_model(
+        "g35", ITEMS, ANCHOR_MAP, str(tmp_path / "p.json"), fake_judge,
+        batch=1, pace=0, sleep_fn=lambda s: None,
+        provider="google", report_fn=lambda p, o: seen.append((p, o)))
+    assert seen == [("google", "http429"), ("google", "ok")]
+    assert out["w:apple"]["sense_id"] == "s"
+
+
 def test_report_fn_raising_is_warned_and_continued(tmp_path, capsys):
     """A throwing report_fn must not break judging: batch committed, warn logged.
 
@@ -317,10 +339,12 @@ def test_report_fn_none_unchanged_no_report_call(tmp_path):
     assert out == {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
 
 
-def test_supervisor_outcome_maps_location_blocked():
-    assert blind50._supervisor_outcome("location-blocked") == "http429"
-    assert blind50._supervisor_outcome("ok") == "ok"
-    assert blind50._supervisor_outcome("http429") == "http429"
+def test_supervisor_outcome_passthrough_location_blocked():
+    # R5: no mapping layer remains — the supervisor takes
+    # "location-blocked" first-class, so the observer-visible outcome
+    # travels verbatim (no http429 rewrite).
+    assert not hasattr(blind50, "_SUPERVISOR_OUTCOME")
+    assert getattr(blind50, "_supervisor_outcome", None) is None
 
 
 class _FakeSupervisor:

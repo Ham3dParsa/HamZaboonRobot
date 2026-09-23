@@ -74,9 +74,11 @@ import secrets
 import threading
 import time
 
+from factory.core.llm_json import cooldown_for
 from factory.precard.provider_transport import (
     AuthError,
     KeyRing,
+    LocationBlocked,
     ProviderCooldown,
     RateLimited,
     _call_with_rotation,
@@ -93,6 +95,7 @@ from factory.net.tunnel_selection import (
 __all__ = [
     "AuthError",
     "KeyRing",
+    "LocationBlocked",
     "ProviderCooldown",
     "RateLimited",
     "MissingKeyError",
@@ -385,18 +388,20 @@ class NetConfig:
     servers: [{id, host, port, ...}] (fake lists welcome; only "id"
     is required for picking). clock: now() seconds (injectable for
     hermetic tests). sleeper: sleep(seconds) between rotations.
-    cooldown_s: per-(server, provider) cooldown after a 429 report.
-    keys: {provider: [key values]} for call_leg (in-memory only,
-    never persisted or logged).
+    cooldown_s: explicit per-(server, provider) cooldown override
+    (e.g. --cooldown-secs); None (default) resolves per-provider via
+    cooldown_for. keys: {provider: [key values]} for call_leg
+    (in-memory only, never persisted or logged).
     """
 
     def __init__(self, *, servers=None, clock=None, sleeper=None,
-                 cooldown_s=300.0, keys=None):
+                 cooldown_s=None, keys=None):
         self.servers = [dict(s) for s in (servers or [])
                         if isinstance(s, dict)]
         self._clock = clock or time.time
         self._sleep = sleeper or time.sleep
-        self.cooldown_s = float(cooldown_s)
+        self.cooldown_s = (None if cooldown_s is None
+                           else float(cooldown_s))
         self.keys = {str(k): [v for v in (vals or []) if v]
                      for k, vals in dict(keys or {}).items()}
         self._lock = threading.RLock()
@@ -406,10 +411,18 @@ class NetConfig:
 
 
 def cool(cfg, server_id, provider=None, seconds=None):
-    """Mark (server, provider) as cooling. The ONLY cooldown writer."""
+    """Mark (server, provider) as cooling. The ONLY cooldown writer.
+
+    An explicit seconds wins; else the config override (cooldown_s,
+    e.g. --cooldown-secs) wins; else the per-provider table.
+    """
     if not server_id:
         return
-    wait = cfg.cooldown_s if seconds is None else float(seconds)
+    if seconds is not None:
+        wait = float(seconds)
+    else:
+        wait = cooldown_for(
+            provider, override=getattr(cfg, "cooldown_s", None))
     with cfg._lock:
         cfg._cooldown_until[(server_id,
                              norm_provider(provider))] = \
@@ -555,8 +568,10 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
 
 def report_lease(cfg, lease_id, outcome, provider=None):
     """Record a lease outcome. 429 cools the lease's server (next lease
-    moves on); auth failures retire the lease; anything unrecognized
-    keeps the lease and cools nothing. Mirrors supervisor.report."""
+    moves on); a location block cools the pair the same way but keeps
+    the lease (never reaped); auth failures retire the lease; anything
+    unrecognized keeps the lease and cools nothing. Mirrors
+    supervisor.report."""
     with cfg._lock:
         lease = cfg._leases.get(lease_id)
         if lease is None:
@@ -567,6 +582,13 @@ def report_lease(cfg, lease_id, outcome, provider=None):
             else lease.get("provider")
         if outcome == "http429" and lease.get("server"):
             cool(cfg, lease["server"], eff)
+            return {"action": "switch"}
+        if outcome == "location-blocked" and lease.get("server"):
+            # Persistent egress condition (not transient quota): exile
+            # on the persistent (generic) scale unless the operator
+            # override (cfg.cooldown_s) says otherwise.
+            cool(cfg, lease["server"], eff, seconds=cooldown_for(
+                "generic", override=getattr(cfg, "cooldown_s", None)))
             return {"action": "switch"}
         if outcome in ("net_err",):
             return {"action": "switch"}
@@ -1117,8 +1139,10 @@ def call_leg(cfg, leg, prompt, *, transport, model=None, keys=None,
     next key and retries the same call; when every key is exhausted
     the wrapper raises RateLimited. Project-level quota
     (COOLDOWN_SWITCH, e.g. Google RESOURCE_EXHAUSTED) raises
-    ProviderCooldown (a RateLimited subclass, so existing flush+stop
-    handlers stay safe) after exactly one attempt with no rotation.
+    ProviderCooldown, and geo blocks (LOCATION_BLOCK) raise
+    LocationBlocked (key kept) — both RateLimited subclasses, so
+    existing flush+stop handlers stay safe — after exactly one
+    attempt with no rotation.
     401/403 raises AuthError naming the key variable and file after
     exactly one attempt (no silent retry, no fallback).
 

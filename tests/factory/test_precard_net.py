@@ -134,6 +134,38 @@ def test_lease_tunnel_picks_first_and_cools_on_429():
     assert NET.lease_for(cfg, "google")["server_id"] == "s1"
 
 
+def test_report_location_blocked_cools_pair_and_keeps_lease():
+    cfg = _cfg()
+    lease = NET.lease_for(cfg, "google")
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "location-blocked") == {"action": "switch"}
+    assert NET.is_cool(cfg, lease["server_id"], "google")
+    # The lease (and key) is kept, never reaped like auth_err.
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "ok") == {"action": "keep"}
+
+
+def test_report_location_blocked_respects_cooldown_override():
+    cfg = _cfg(cooldown_s=11.0)
+    lease = NET.lease_for(cfg, "google")
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "location-blocked") == {"action": "switch"}
+    assert NET.is_cool(cfg, lease["server_id"], "google")
+    cfg._now[0] += 11.0
+    assert not NET.is_cool(cfg, lease["server_id"], "google")
+
+
+def test_report_location_blocked_exiles_persistent_scale():
+    cfg = _cfg(cooldown_s=None)
+    lease = NET.lease_for(cfg, "google")
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "location-blocked") == {"action": "switch"}
+    # Geo-block is persistent: still cooling past the 4s google
+    # post-429 scale, on the generic 300s exile instead.
+    cfg._now[0] += 5.0
+    assert NET.is_cool(cfg, lease["server_id"], "google")
+
+
 def test_lease_parks_when_everything_cools():
     cfg = _cfg()
     for target in ("google", "google"):
@@ -177,7 +209,7 @@ def test_call_leg_rotates_on_429_to_next_key():
                        model="m", sleep_fn=sleeps.append, state={})
     assert out == ("done", None)
     assert seen == ["k1-sentinel", "k2-sentinel"]
-    assert sleeps == [T.ROTATE_PAUSE]
+    assert sleeps == [LJ.cooldown_for("avalai")]
 
 
 def test_call_leg_all_keys_429_raises_after_every_key():

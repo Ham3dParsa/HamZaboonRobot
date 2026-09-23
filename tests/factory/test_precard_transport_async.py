@@ -106,9 +106,33 @@ class TestJudgeRowAsync(unittest.IsolatedAsyncioTestCase):
             return _vote_text(), {"tokens": 3}
 
         vote = await transport_async.judge_row_async(
-            {"key": "w:x"}, transport=flaky, **self._engine_kwargs())
+            {"key": "w:x"}, transport=flaky,
+            **self._engine_kwargs(backoff_s=0))
         self.assertEqual(vote["verdict"], "LINK")
         self.assertEqual(calls, ["k1", "k2"])
+
+    async def test_default_backoff_resolves_per_provider_table(self):
+        # R6: no explicit backoff_s resolves cooldown_for(provider)
+        # (recorded fake sleep — never a real 300s wait).
+        seen = []
+
+        async def rec_sleep(delay):
+            seen.append(delay)
+
+        calls = []
+
+        async def flaky(key, model, prompt):
+            calls.append(key)
+            if len(calls) == 1:
+                raise transport.RateLimited("r429")
+            return _vote_text(), {"tokens": 3}
+
+        vote = await transport_async.judge_row_async(
+            {"key": "w:x"}, transport=flaky,
+            **self._engine_kwargs(sleep_fn=rec_sleep,
+                                  provider="google"))
+        self.assertEqual(vote["verdict"], "LINK")
+        self.assertEqual(seen, [4.0])
 
     async def test_exhausted_ring_raises_rate_limited(self):
         async def always429(key, model, prompt):
@@ -388,7 +412,7 @@ class TestHttpErrorMapping(unittest.IsolatedAsyncioTestCase):
             {"key": "w:x"}, transport=http429,
             prompt_fn=lambda row: "PROMPT",
             validate_fn=lambda text: ("ok", {"verdict": "LINK"}),
-            **self._engine_kwargs(provider="avalai"))
+            **self._engine_kwargs(provider="avalai", backoff_s=0))
         self.assertEqual(vote["verdict"], "LINK")
         self.assertEqual(calls, ["k1", "k2"])
 
@@ -791,7 +815,7 @@ class TestJudgeBatchAsync(unittest.IsolatedAsyncioTestCase):
 
         votes = await transport_async.judge_batch_async(
             _batch_items(), _anchor_map(), transport=flaky,
-            **self._engine_kwargs())
+            **self._engine_kwargs(backoff_s=0))
         self.assertEqual(calls, ["k1", "k2"])
         self.assertEqual(votes["w:boil"]["sense_id"], "boil#2")
 

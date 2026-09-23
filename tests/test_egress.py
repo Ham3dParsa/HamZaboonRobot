@@ -840,6 +840,22 @@ def test_cool_is_cool_helpers():
     assert pool.provider_of(lease["lease_id"]) is None
 
 
+def test_cool_default_resolves_per_provider_table():
+    """Omitted seconds resolve via cooldown_for (kilo 18, google 4)."""
+    import time as _time
+    from factory.core.llm_json import cooldown_for
+    pool = Pool()
+    before = _time.time()
+    pool.cool("s-k", "kilo")
+    pool.cool("s-g", "google")
+    assert cooldown_for("kilo") == 18.0
+    assert cooldown_for("google") == 4.0
+    assert pool.is_cool("s-k", "kilo", now=before + 17) is True
+    assert pool.is_cool("s-k", "kilo", now=before + 19) is False
+    assert pool.is_cool("s-g", "google", now=before + 3) is True
+    assert pool.is_cool("s-g", "google", now=before + 5) is False
+
+
 def test_tunnel_owner_acquire_honors_provider(monkeypatch):
     """acquire(provider) skips only that provider's cooled servers."""
     from supervisor import TunnelOwner
@@ -1368,3 +1384,130 @@ def test_http_lease_failure_cools_actual_server(monkeypatch):
         thread.join(timeout=10)
         sup.TUNNELS.stop()
         sup.TOKEN = ""
+
+
+def test_report_location_blocked_cools_switches_keeps_lease():
+    """location-blocked cools the pair + switches, lease kept (no reauth)."""
+    pool = _link_pool()
+    lease = pool.lease("google")
+    assert pool.report(lease["lease_id"], "location-blocked") == {
+        "action": "switch"}
+    assert pool.lease("google")["error"] == "park"  # pair cooling
+    assert pool.lease("zen")["mode"] == "tunnel"  # others unaffected
+    assert pool.report(lease["lease_id"], "ok") == {"action": "keep"}
+
+
+def test_report_location_blocked_exiles_persistent_scale():
+    """Geo-block exile runs on the persistent (generic 300s) scale, not
+    the 4s google post-429 scale: still cooling 5s later."""
+    import time as _time
+    pool = _link_pool()
+    lease = pool.lease("google")
+    assert pool.report(lease["lease_id"], "location-blocked") == {
+        "action": "switch"}
+    assert pool.is_cool("s1", "google", now=_time.time() + 5.0)
+
+
+def test_report_http429_honors_cooldown_secs_env(monkeypatch):
+    """FACTORY_COOLDOWN_SECS overrides the per-provider table on the
+    main report path (Pool.cool resolves the env when seconds is None)."""
+    import time as _time
+    import supervisor as sup
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429") == {"action": "switch"}
+    assert pool.is_cool("s1", "zen")
+    assert not pool.is_cool("s1", "zen", now=_time.time() + 12.0)
+
+
+def test_tunnel_cooldown_override_from_env_unset_and_garbage(monkeypatch):
+    """Unset/unparseable/non-positive FACTORY_COOLDOWN_SECS means the
+    table default (None); a finite positive value wins."""
+    import supervisor as sup
+    monkeypatch.delenv("FACTORY_COOLDOWN_SECS", raising=False)
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "bogus")
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "-5")
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    assert sup._cooldown_override_from_env() == 11.0
+
+
+def test_http_lease_failure_cool_honors_cooldown_secs_env(monkeypatch):
+    """End-to-end over HTTP: FACTORY_COOLDOWN_SECS overrides the fixed
+    tunnel_fetch 300s when an acquire failure cools the dead server."""
+    import time as _time
+    import supervisor as sup
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FailS2Tunnel)
+    monkeypatch.setattr(
+        sup, "_server_tcp_ping",
+        lambda server, timeout=2.0: None
+        if server["id"] == "s1" else 7)
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    _FailS2Tunnel.started.clear()
+    _FailS2Tunnel.stopped.clear()
+    sup.TOKEN = "test-token"
+    sup.POOL.servers.clear()
+    sup.POOL.leases.clear()
+    sup.POOL.cooldown_until.clear()
+    sup.POOL.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+        req = _url.Request(
+            "http://127.0.0.1:%d/v1/lease" % port,
+            data=json.dumps({"target": "zen"}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer test-token"})
+        with _url.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+        assert body.get("error") == "park"
+        assert sup.POOL.is_cool("s2", "zen")
+        # Override honored: expired after 11s, not the fixed 300s.
+        assert not sup.POOL.is_cool("s2", "zen",
+                                    now=_time.time() + 12.0)
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TUNNELS.stop()
+        sup.TOKEN = ""
+
+
+def test_report_http429_and_auth_err_unchanged():
+    """http429 still cools + switches; auth_err still reaps the lease."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429") == {"action": "switch"}
+    assert pool.lease("zen")["error"] == "park"
+    lease2 = pool.lease("google")
+    assert pool.report(lease2["lease_id"], "auth_err") == {
+        "action": "reauth"}
+    assert pool.report(lease2["lease_id"], "ok") == {
+        "action": "unknown-lease"}
+
+
+def test_client_report_location_blocked_vocab(monkeypatch):
+    """client.report forwards the location-blocked outcome + provider."""
+    import client as egress_client
+    seen = {}
+
+    def fake_call(path, payload):
+        seen[path] = payload
+        return {"action": "switch"}
+
+    monkeypatch.setattr(egress_client, "_call", fake_call)
+    egress_client.report("L1", "location-blocked", provider="google")
+    assert seen["/v1/report"] == {"lease_id": "L1",
+                                  "outcome": "location-blocked",
+                                  "provider": "google"}

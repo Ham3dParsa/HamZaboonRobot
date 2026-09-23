@@ -24,15 +24,16 @@ from factory.core.llm_json import (
     ABORT,
     COOLDOWN_SWITCH,
     FAIL_CLOSED,
+    LOCATION_BLOCK,
     RETRY_ONCE,
     ROTATE,
     classify as classify_error,
+    cooldown_for,
 )
 
 ROUTE_MODES = ("direct", "tunnel")
 DEFAULT_CONCURRENCY = 8
 MAX_CONCURRENCY = 10
-ROTATE_PAUSE_S = 5.0
 
 
 def clamp_concurrency(n):
@@ -159,7 +160,8 @@ async def _call_with_backoff(*, transport, model, prompt, semaphore, ring,
     (sync_transport._action_for_http_error) so production transports get
     the exact sync rotation/abort/cooldown semantics: ROTATE behaves like
     RateLimited, ABORT raises AuthError, COOLDOWN_SWITCH raises
-    ProviderCooldown, RETRY_ONCE/FAIL_CLOSED fail the item closed.
+    ProviderCooldown, LOCATION_BLOCK raises LocationBlocked (key kept),
+    RETRY_ONCE/FAIL_CLOSED fail the item closed.
     Domain RateLimited/AuthError/ProviderCooldown raised directly by a
     transport keep their meaning. Timeout (or non-positive timeout budget)
     and anything else raise _RowFailed carrying attempts (never lost).
@@ -203,7 +205,8 @@ async def _call_with_backoff(*, transport, model, prompt, semaphore, ring,
                 attempts.append(_log_attempt(
                     ring, model, attempt_no, timeout_s, "error", read_idx))
                 raise _RowFailed("timeout", attempts)
-            except sync_transport.ProviderCooldown:
+            except (sync_transport.ProviderCooldown,
+                    sync_transport.LocationBlocked):
                 raise
             except sync_transport.AuthError:
                 raise
@@ -220,6 +223,10 @@ async def _call_with_backoff(*, transport, model, prompt, semaphore, ring,
                         "provider auth failed (HTTP %s): check %s in %s — "
                         "aborting with no silent fallback"
                         % (getattr(exc, "code", "?"), hint, file_label))
+                if action == LOCATION_BLOCK:
+                    raise sync_transport.LocationBlocked(
+                        "location blocked for provider %s "
+                        "(key kept)" % provider)
                 if action == COOLDOWN_SWITCH:
                     raise sync_transport.ProviderCooldown(
                         "project quota for provider %s" % provider)
@@ -251,7 +258,9 @@ async def _call_with_backoff(*, transport, model, prompt, semaphore, ring,
                 if not more:
                     raise sync_transport.RateLimited(
                         "ring exhausted for provider %s" % provider)
-                await sleep_unlocked(semaphore, backoff_s, sleep_fn)
+                delay = (backoff_s if backoff_s is not None
+                         else cooldown_for(provider))
+                await sleep_unlocked(semaphore, delay, sleep_fn)
                 continue
             ring.last_call = {"latency_s": round(latency, 4),
                               "key_idx": read_idx}
@@ -262,7 +271,7 @@ async def _call_with_backoff(*, transport, model, prompt, semaphore, ring,
 
 async def judge_row_async(row, *, prompt_fn, validate_fn, transport, model,
                           semaphore, ring, ring_lock, timeout_s, sleep_fn,
-                          state, backoff_s=ROTATE_PAUSE_S,
+                          state, backoff_s=None,
                           provider="generic", key_var="",
                           file_label="factory/.env"):
     """One row vote. Returns the validated vote mapping (FAILED on trouble).
@@ -287,6 +296,7 @@ async def judge_row_async(row, *, prompt_fn, validate_fn, transport, model,
             timeout_s=timeout_s, sleep_fn=sleep_fn, backoff_s=backoff_s,
             provider=provider, key_var=key_var, file_label=file_label)
     except (sync_transport.AuthError, sync_transport.ProviderCooldown,
+            sync_transport.LocationBlocked,
             sync_transport.RateLimited):
         raise
     except _RowFailed as exc:
@@ -312,7 +322,7 @@ async def judge_row_async(row, *, prompt_fn, validate_fn, transport, model,
 
 async def judge_batch_async(batch_items, anchor_map, *, transport, model,
                             semaphore, ring, ring_lock, timeout_s, sleep_fn,
-                            state, backoff_s=ROTATE_PAUSE_S, telemetry=None,
+                            state, backoff_s=None, telemetry=None,
                             tele_stage="s2", tele_batch=0, tele_run_id="",
                             provider="", model_actual=None,
                             tele_attempts=False, tried=None, key_var="",
@@ -423,7 +433,7 @@ def _is_wellformed_vote(vote):
 
 async def run_batches_async(units, *, transport, model, semaphore, ring,
                             ring_lock, timeout_s, sleep_fn, state,
-                            backoff_s=ROTATE_PAUSE_S, telemetry=None,
+                            backoff_s=None, telemetry=None,
                             tele_stage="s2", tele_run_id="", provider="",
                             model_actual=None, tele_attempts=False,
                             tried=None, key_var="", file_label="factory/.env",
@@ -464,6 +474,7 @@ async def run_batches_async(units, *, transport, model, semaphore, ring,
             if terminal is None and isinstance(
                     item, (sync_transport.AuthError,
                            sync_transport.ProviderCooldown,
+                           sync_transport.LocationBlocked,
                            sync_transport.RateLimited)):
                 terminal = item
                 continue
@@ -475,7 +486,7 @@ async def run_batches_async(units, *, transport, model, semaphore, ring,
 
 async def run_judge_async(rows, *, transport, model, prompt_fn, validate_fn,
                           ring, concurrency, timeout_s, progress_path,
-                          sleep_fn=None, backoff_s=ROTATE_PAUSE_S,
+                          sleep_fn=None, backoff_s=None,
                           provider="generic"):
     """Judge rows with bounded concurrency; resume skips done keys.
 

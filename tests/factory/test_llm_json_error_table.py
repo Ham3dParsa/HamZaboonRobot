@@ -41,11 +41,13 @@ def test_precode_beats_code_rules():
     assert LJ.classify(429, "RESOURCE_EXHAUSTED: quota", "google") == (
         LJ.COOLDOWN_SWITCH
     )
+    # Geo snippets are pre-code too: they beat every code rule,
+    # including 429 (location block, never key rotation).
+    assert LJ.classify(429, "user location is not supported", "google") == (
+        LJ.LOCATION_BLOCK
+    )
     # Ordinary 429s still rotate (code rule beats non-precode snippets).
     assert LJ.classify(429, "rate limit exceeded", "zen") == LJ.ROTATE
-    assert LJ.classify(429, "user location is not supported", "google") == (
-        LJ.ROTATE
-    )
 
 
 def test_provider_normalization():
@@ -57,7 +59,7 @@ def test_provider_normalization():
 def test_provider_scope_isolation():
     # Google location snippets do not fire for other providers.
     body = "User location is not supported for the API use."
-    assert LJ.classify(400, body, "google") == LJ.COOLDOWN_SWITCH
+    assert LJ.classify(400, body, "google") == LJ.LOCATION_BLOCK
     assert LJ.classify(400, body, "zen") == LJ.FAIL_CLOSED
     # Non-location FAILED_PRECONDITION (billing/API-disabled/quota)
     # must NOT cool down + switch.
@@ -107,9 +109,27 @@ def test_recorded_real_bodies():
         '{"error":{"code":400,"message":"User location is not supported '
         'for the API use.","status":"FAILED_PRECONDITION"}}'
     )
-    assert LJ.classify(400, google_location, "google") == LJ.COOLDOWN_SWITCH
+    assert LJ.classify(400, google_location, "google") == LJ.LOCATION_BLOCK
     avalai_429 = '{"error":{"message":"Rate limit exceeded, slow down"}}'
     assert LJ.classify(429, avalai_429, "avalai") == LJ.ROTATE
+
+
+def test_geo_403_beats_abort_code_rule():
+    # R4: geo snippets sit pre-code, so a geo 403 cools + switches
+    # (LOCATION_BLOCK) instead of aborting; the key is kept.
+    # Plain 403s stay ABORT; plain 429s stay ROTATE.
+    geo = "User location is not supported for the API use."
+    assert LJ.classify(403, geo, "google") == LJ.LOCATION_BLOCK
+    assert LJ.classify(401, geo, "google") == LJ.LOCATION_BLOCK
+    assert LJ.classify(403, "denied", "google") == LJ.ABORT
+    assert LJ.classify(403, "", "zen") == LJ.ABORT
+    assert LJ.classify(429, "", "zen") == LJ.ROTATE
+
+
+def test_generic_sanction_phrasing_location_block():
+    body = "request blocked: sanctioned country"
+    assert LJ.classify(403, body, "generic") == LJ.LOCATION_BLOCK
+    assert LJ.classify(403, "denied", "generic") == LJ.ABORT
 
 
 def test_single_owner_guard():

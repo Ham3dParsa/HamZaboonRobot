@@ -37,11 +37,10 @@ BATCH = 8
 
 # report_fn outcome vocabulary (C4c, opt-in supervisor reporting): "ok"
 # per judged batch, "http429" per rate-limited batch, "location-blocked"
-# per location-blocked batch. The supervisor adapter maps
-# "location-blocked" to supervisor "http429" (cools + switches) while
-# report_fn observers keep seeing the unmapped outcome.
+# per location-blocked batch. The supervisor takes "location-blocked"
+# first-class (cools + switches, lease kept); report_fn observers see
+# the same unmapped outcome.
 LOCATION_BLOCKED = "location-blocked"
-_SUPERVISOR_OUTCOME = {LOCATION_BLOCKED: "http429"}
 
 
 class RateLimited(Exception):
@@ -95,11 +94,6 @@ def _error_body(exc):
         return str(data or "")
     except Exception:
         return ""
-
-
-def _supervisor_outcome(outcome):
-    """Map a report_fn outcome to the supervisor report vocabulary."""
-    return _SUPERVISOR_OUTCOME.get(outcome, outcome)
 
 
 class _SupervisorClient:
@@ -291,14 +285,18 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
             valid = judge_fn(chunk, prompt)
         except urllib.error.HTTPError as exc:
             code = getattr(exc, "code", None)
-            if (report_fn is not None and llm_json.classify(
-                    code, _error_body(exc), provider
-                    ) == llm_json.COOLDOWN_SWITCH):
+            action = (llm_json.classify(code, _error_body(exc), provider)
+                      if report_fn is not None else None)
+            if action == llm_json.LOCATION_BLOCK:
                 outcome = LOCATION_BLOCKED
-            elif code != 429:
-                raise
-            else:
+            elif code == 429 or action == llm_json.COOLDOWN_SWITCH:
+                # Project-level quota (e.g. Google 400
+                # resource_exhausted): report http429 so the
+                # supervisor cools the dead egress instead of
+                # re-leasing it on the next run.
                 outcome = "http429"
+            else:
+                raise
             strikes += 1
             _report(outcome)
             label = outcome if outcome == LOCATION_BLOCKED else "429"
@@ -421,8 +419,7 @@ def main(argv=None):
                           _lease_id=lease.get("lease_id", ""),
                           _tag=tag):
                 try:
-                    _sup.report(_lease_id,
-                                _supervisor_outcome(outcome),
+                    _sup.report(_lease_id, outcome,
                                 provider=outcome_provider)
                 except Exception as exc:  # noqa: BLE001 (best-effort)
                     print("[blind50 %s] report failed: %s" % (_tag, exc),

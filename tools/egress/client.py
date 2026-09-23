@@ -36,7 +36,7 @@ def lease(target="direct"):
 
 
 def report(lease_id, outcome, provider=None):
-    """Report outcome (ok|http429|net_err|auth_err|unknown).
+    """Report outcome (ok|http429|location-blocked|net_err|auth_err|unknown).
 
     provider overrides the lease's provider for per-(server,provider)
     cooldowns; None (default) cools the lease's own provider, which

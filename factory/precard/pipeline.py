@@ -749,9 +749,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     sleep_fn = _sleep_fn or time.sleep
     # Owner-ordered pacing (2026-09-14): --sleep-secs scales ONLY the
-    # inter-batch pacing pauses; the 429-rotation backoff (ROTATE_PAUSE)
-    # always stays on, so rate errors still back off instead of
-    # spinning. Default keeps the historic 2.5s pacing.
+    # inter-batch pacing pauses; the 429-rotation backoff (per-provider
+    # cooldown_for pause) always stays on, so rate errors still back
+    # off instead of spinning. Default keeps the historic 2.5s pacing.
     pace_secs = max(0.0, args.sleep_secs)
     pace_fn = (lambda s: None) if pace_secs == 0 else (
         lambda s: sleep_fn(pace_secs))
@@ -817,14 +817,22 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # Best-effort: tell the egress supervisor this server is dead
         # for the provider (location-block / project-quota class), so
         # the next leased run walks to the next server instead of
-        # retrying the same egress. Only ProviderCooldown (never
-        # key-level rate limits, never auth). Never fails the run;
-        # never logs secrets (lease id only, same as the lease line).
+        # retrying the same egress. ProviderCooldown reports "http429";
+        # LocationBlocked reports "location-blocked" (the supervisor
+        # cools the pair and switches, never reauths). Anything else
+        # (key-level rate limits, auth) reports nothing. Never fails
+        # the run; never logs secrets (lease id only, same as the
+        # lease line).
         try:
-            from factory.precard.provider_transport import ProviderCooldown
+            from factory.precard.provider_transport import (
+                LocationBlocked, ProviderCooldown)
         except Exception:
             return
-        if not isinstance(exc, ProviderCooldown):
+        if isinstance(exc, LocationBlocked):
+            outcome = "location-blocked"
+        elif isinstance(exc, ProviderCooldown):
+            outcome = "http429"
+        else:
             return
         lease_id = os.environ.get("EGRESS_LEASE_ID", "")
         if not lease_id:
@@ -843,7 +851,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             req = _url.Request(
                 sup + "/v1/report",
                 data=_json.dumps({"lease_id": lease_id,
-                                  "outcome": "http429"}).encode(),
+                                  "outcome": outcome}).encode(),
                 headers={"Content-Type": "application/json",
                          "Authorization": "Bearer " + tok})
             with _url.urlopen(req, timeout=10) as resp:
