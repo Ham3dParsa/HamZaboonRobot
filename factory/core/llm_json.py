@@ -9,6 +9,8 @@
 - classify: shared (code, body, provider) error-action table (C4a). This
   module is the SOLE owner of provider error taxonomy — no provider-name
   branches or error-action literals anywhere else (guard-tested).
+- PROVIDER_COOLDOWN_S + cooldown_for: shared per-provider post-429
+  pause/exile seconds (sole owner — no literals elsewhere).
 """
 
 import json
@@ -21,7 +23,8 @@ class AuthError(RuntimeError):
 
 # --- C4a error actions (single vocabulary; callers switch on these) ---
 ROTATE = "rotate"  # 429/quota: rotate key, same provider
-COOLDOWN_SWITCH = "cooldown_switch"  # location block: cool down + switch provider
+COOLDOWN_SWITCH = "cooldown_switch"  # project quota: cool down + switch
+LOCATION_BLOCK = "location_block"  # geo/sanction: key kept, cool + switch
 ABORT = "abort"  # bad key/auth: stop loudly, no fallback
 RETRY_ONCE = "retry_once"  # transient 5xx/timeout: one retry, then caller policy
 FAIL_CLOSED = "fail_closed"  # unknown: stop this item, record, no silent data
@@ -42,12 +45,7 @@ _PROVIDER_SNIPPETS = {
         ("too many requests", ROTATE),
         ("quota exceeded", ROTATE),
     ),
-    "google": (
-        ("user location is not supported", COOLDOWN_SWITCH),
-        # Location-gated only: a bare FAILED_PRECONDITION also covers
-        # billing/API-disabled/quota, which must NOT cool down + switch.
-        ("location is not supported", COOLDOWN_SWITCH),
-    ),
+    "google": (),
     "openrouter": (
         ("rate limit", ROTATE),
         ("quota exceeded", ROTATE),
@@ -63,11 +61,27 @@ _PROVIDER_SNIPPETS = {
 # Provider snippets that beat even the code rules (checked first).
 # Google RESOURCE_EXHAUSTED is project-level quota: a 429 carrying it
 # must cool down + switch provider, NOT rotate keys on the same project.
+# The Google location markers live here too (not below): a geo 403
+# must cool + switch with the key kept, never ABORT on the code rule.
+# Location-gated only: a bare FAILED_PRECONDITION also covers
+# billing/API-disabled/quota, which must NOT cool down + switch.
 _PROVIDER_PRECODE_SNIPPETS = {
     "google": (
+        ("user location is not supported", LOCATION_BLOCK),
+        ("location is not supported", LOCATION_BLOCK),
         ("resource_exhausted", COOLDOWN_SWITCH),
     ),
 }
+
+# Provider-independent pre-code snippets: (snippet, action). Checked
+# before the code rules like the provider rows above, so a sanctioned
+# egress 403 cools + switches instead of aborting. Deliberately narrow:
+# the Google location marker stays provider-scoped, so other providers
+# keep their scope isolation (see test_provider_scope_isolation).
+_GENERIC_PRECODE_SNIPPETS = (
+    ("sanction", LOCATION_BLOCK),
+    ("unsupported country", LOCATION_BLOCK),
+)
 
 # Provider-independent body snippets: (snippet, action).
 _GENERIC_SNIPPETS = (
@@ -86,8 +100,9 @@ def classify(code, body, provider="generic"):
     code: HTTP status int (or None for transport timeouts); body: raw
     error text/JSON (or None); provider: zen/google/openrouter/avalai
     (case-insensitive, anything else matches generic rows only).
-    First match wins: pre-code provider snippets, then code rules, then
-    provider snippets, then generic snippets, else FAIL_CLOSED.
+    First match wins: pre-code provider snippets, generic pre-code
+    snippets, then code rules, then provider snippets, then generic
+    snippets, else FAIL_CLOSED.
     """
     try:
         code = int(code)
@@ -96,6 +111,9 @@ def classify(code, body, provider="generic"):
     text = "" if body is None else str(body).lower()
     prov = "" if provider is None else str(provider).strip().lower()
     for snippet, action in _PROVIDER_PRECODE_SNIPPETS.get(prov, ()):
+        if snippet in text:
+            return action
+    for snippet, action in _GENERIC_PRECODE_SNIPPETS:
         if snippet in text:
             return action
     if code is not None:
@@ -111,6 +129,41 @@ def classify(code, body, provider="generic"):
         if snippet in text:
             return action
     return FAIL_CLOSED
+
+
+# --- Per-provider cooldowns (R1/R2/R6): post-429 pause/exile seconds.
+# Sole owner: every ROTATE pause, cool() default, and tunnel-fetch
+# backoff resolves through cooldown_for below — no literals elsewhere.
+PROVIDER_COOLDOWN_S = {
+    "kilo": 18.0,
+    "google": 4.0,
+    "zen": 300.0,
+    "openrouter": 300.0,
+    "avalai": 300.0,
+    "generic": 300.0,
+    "tunnel_fetch": 300.0,
+}
+
+
+def cooldown_for(provider, override=None):
+    """Seconds to pause/exile provider after a 429 (pure, no I/O).
+
+    An explicit finite positive override (e.g. --cooldown-secs) wins
+    over the table; garbage overrides (non-finite, non-positive)
+    fall back to the table instead of poisoning arithmetics.
+    Unknown providers fall back to the generic exile default.
+    """
+    if override is not None:
+        try:
+            wait = float(override)
+        except (TypeError, ValueError):
+            wait = None
+        if (wait is not None and wait > 0
+                and wait < float("inf")):
+            return wait
+    prov = "" if provider is None else str(provider).strip().lower()
+    return float(PROVIDER_COOLDOWN_S.get(
+        prov, PROVIDER_COOLDOWN_S["generic"]))
 
 
 def extract_json(text):

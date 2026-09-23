@@ -14,7 +14,8 @@ card_pilot, so a transport-raised auth abort is caught by every
 ``except AuthError`` in the line). RateLimited stays defined here:
 phrase_judge imports KeyRing from this module, so importing its
 RateLimited back would cycle; every precard handler catches this
-module's RateLimited, which is the class ProviderCooldown extends.
+module's RateLimited, which is the class ProviderCooldown (and its
+sibling LocationBlocked) extends.
 The classify error-taxonomy stays single-sourced in llm_json.
 """
 
@@ -28,8 +29,8 @@ import urllib.error
 import urllib.request
 
 from factory.core.llm_json import (
-    ABORT, COOLDOWN_SWITCH, ROTATE, AuthError, classify,
-    extract_json, raise_for_auth)
+    ABORT, COOLDOWN_SWITCH, LOCATION_BLOCK, ROTATE, AuthError,
+    classify, cooldown_for, extract_json, raise_for_auth)
 # AuthError/extract_json/raise_for_auth are re-exported here so the
 # existing ``from factory.precard.provider_transport import ...`` seams in
 # topics/judge/pipeline/provider_lease_policy keep working on the single llm_json class.
@@ -57,10 +58,7 @@ def __getattr__(name):
 
 
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
-                "Re-send ONLY the JSON object.\n")
-
-
-ROTATE_PAUSE = 5.0
+                 "Re-send ONLY the JSON object.\n")
 
 
 MAX_ATTEMPTS = 2
@@ -285,13 +283,16 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
     Error meaning comes from the shared classify table
-    (factory.core.llm_json owns it): ROTATE (429/quota) pauses briefly,
-    rotates to the next key, and retries the SAME call. COOLDOWN_SWITCH
+    (factory.core.llm_json owns it): ROTATE (429/quota) pauses for the
+    per-provider cooldown_for seconds, rotates to the next key, and
+    retries the SAME call. COOLDOWN_SWITCH
     (project-level quota, e.g. Google RESOURCE_EXHAUSTED) raises
     ProviderCooldown after exactly one attempt with NO rotation —
     same-project key rotation is forbidden by the taxonomy (provider
     switching is the caller's job, arriving with P2 LEG_FALLBACKS).
-    ABORT
+    LOCATION_BLOCK (geo/sanction 403, e.g. Google location block)
+    raises LocationBlocked after exactly one attempt with NO rotation
+    and the key KEPT — never an AuthError. ABORT
     (401/403) raises AuthError naming the key variable and file with
     no further attempts. Transient 5xx/timeout (the taxonomy's single
     retry row) is intentionally NOT retried in this wrapper: it
@@ -311,6 +312,13 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
                 return out
             except urllib.error.HTTPError as exc:
                 action = _action_for_http_error(exc, provider)
+                if action == LOCATION_BLOCK:
+                    _note_backoff(state, "%s/s4" % model, [],
+                                  LOCATION_BLOCK)
+                    raise LocationBlocked(
+                        "location blocked on %s (sanctioned egress?) "
+                        "— key kept, switch provider or server "
+                        "and re-run" % provider)
                 if action == COOLDOWN_SWITCH:
                     _note_backoff(state, "%s/s4" % model, [],
                                   COOLDOWN_SWITCH)
@@ -322,9 +330,10 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring,
                     if action == ABORT:
                         _abort_auth(exc, key_var, file_label)
                     raise
-                _note_backoff(state, "%s/s4" % model, [ROTATE_PAUSE],
+                pause = cooldown_for(provider)
+                _note_backoff(state, "%s/s4" % model, [pause],
                               "rotating")
-                sleep_fn(ROTATE_PAUSE)
+                sleep_fn(pause)
                 if ring.rotate():
                     continue
                 _note_backoff(state, "%s/s4" % model, [],
@@ -398,10 +407,13 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
     """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
     Error meaning comes from the shared classify table
-    (factory.core.llm_json owns it): ROTATE (429/quota) pauses briefly,
-    rotates to the next key, and retries the SAME call. COOLDOWN_SWITCH
+    (factory.core.llm_json owns it): ROTATE (429/quota) pauses for the
+    per-provider cooldown_for seconds, rotates to the next key, and
+    retries the SAME call. COOLDOWN_SWITCH
     (project-level quota, e.g. Google RESOURCE_EXHAUSTED) raises
     ProviderCooldown after exactly one attempt with NO rotation.
+    LOCATION_BLOCK (geo/sanction 403) raises LocationBlocked after
+    exactly one attempt with NO rotation and the key KEPT.
     ABORT (401/403) raises AuthError naming the
     key variable and file with no further attempts. Transient 5xx/
     timeout (the taxonomy's single retry row) is intentionally NOT
@@ -453,6 +465,17 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
             except Exception:
                 code = None
             action = _action_for_http_error(exc, provider)
+            if action == LOCATION_BLOCK:
+                ring.attempt_log.append(
+                    {"model": model, "attempt": attempt_no,
+                     "latency_s": latency, "key_idx": ring.idx,
+                     "outcome": "location-blocked",
+                     "http_status": code})
+                _note_backoff(state, label, [], LOCATION_BLOCK)
+                raise LocationBlocked(
+                    "location blocked on %s (sanctioned egress?) "
+                    "— key kept, switch provider or server "
+                    "and re-run" % provider)
             if action == COOLDOWN_SWITCH:
                 ring.attempt_log.append(
                     {"model": model, "attempt": attempt_no,
@@ -476,8 +499,9 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
                 {"model": model, "attempt": attempt_no,
                  "latency_s": latency, "key_idx": ring.idx,
                  "outcome": "rotated", "http_status": code})
-            _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
-            sleep_fn(ROTATE_PAUSE)
+            pause = cooldown_for(provider)
+            _note_backoff(state, label, [pause], "rotating")
+            sleep_fn(pause)
             if ring.rotate():
                 continue
             _note_backoff(state, label, [], "all-keys-429-stop")
@@ -517,6 +541,20 @@ class ProviderCooldown(RateLimited):
     the message + cool-down backoff outcome tell the operator to
     switch provider (or server) instead of re-running the same leg.
     True automatic provider-switching arrives with P2 LEG_FALLBACKS.
+    """
+
+
+class LocationBlocked(RateLimited):
+    """Geo/sanction block (cool-and-switch, e.g. Google location 403).
+
+    The llm_json taxonomy (LOCATION_BLOCK) beats the (401, 403) ABORT
+    code rule: the egress country — not the key — is rejected, so the
+    key is KEPT and rotation is forbidden. Raised after exactly one
+    attempt with no rotation. A RateLimited subclass (sibling of
+    ProviderCooldown), so every existing ``except RateLimited`` caller
+    flushes progress and stops safely; callers that distinguish the
+    cause catch this first and report outcome "location-blocked" (the
+    supervisor cools the pair and switches, never reauths).
     """
 
 

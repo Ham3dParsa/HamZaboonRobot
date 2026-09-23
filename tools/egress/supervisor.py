@@ -20,7 +20,8 @@ here — this module only attaches its live zen/google probe functions):
 "avalai" (domestic: no tunnel, provider avalai), "zen" / "google" /
 "openrouter" (tunnel, one provider each; "zen" is the historic tunnel
 name and keeps working unchanged). Unknown targets park.
-Outcomes: ok | http429 | net_err | auth_err | unknown (unknown keeps).
+Outcomes: ok | http429 | location-blocked | net_err | auth_err | unknown
+(unknown keeps).
 Cooldowns are per (server, provider): a 429 on zen never blocks google
 on the same server. report() cools the lease's provider unless the
 payload overrides it.
@@ -43,6 +44,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
+    from factory.core.llm_json import cooldown_for
     from factory.precard.provider_lease_policy import (
         CLEAN_CACHE_TTL_S,
         TARGETS,
@@ -71,6 +73,7 @@ except ImportError:  # top-level script run: repo root is not on sys.path
     import sys as _sys
     _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent
                              .parent.parent))
+    from factory.core.llm_json import cooldown_for
     from factory.precard.provider_lease_policy import (
         CLEAN_CACHE_TTL_S,
         TARGETS,
@@ -106,7 +109,10 @@ PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 CLEAN_CACHE_PATH = (
     pathlib.Path(__file__).resolve().parent / "clean_cache.json")
-COOLDOWN_S = 300
+# Per-provider post-429 exile default (generic row of the shared
+# PROVIDER_COOLDOWN_S table owned by factory.core.llm_json): cool()
+# below takes seconds=None, which resolves the per-provider table.
+COOLDOWN_S = cooldown_for("generic")
 
 # Env knobs for the R7 cache-first lease path (phase 03). Secret-free:
 # a TTL float and a cache-file path only (keys never ride env reads
@@ -460,18 +466,21 @@ class Pool:
                 key=lambda s: rank.get(s.get("id"), len(order)))
         return len(valid)
 
-    def cool(self, server_id, provider=None, seconds=COOLDOWN_S):
+    def cool(self, server_id, provider=None, seconds=None):
         """Mark (server, provider) as cooling for ``seconds``.
 
         The ONLY writer of cooldown_until (lease/report/rotate/probes
-        all route through here). Falsy server_id is a no-op.
+        all route through here). Falsy server_id is a no-op. An
+        explicit seconds wins; None resolves the per-provider table.
         """
         if not server_id:
             return
+        wait = (cooldown_for(provider) if seconds is None
+                else float(seconds))
         with self._lock:
             self.cooldown_until[(server_id,
                                  norm_provider(provider))] = \
-                time.time() + seconds
+                time.time() + wait
 
     def is_cool(self, server_id, provider=None, now=None):
         """True while (server, provider) is still cooling (unusable).
@@ -644,7 +653,20 @@ class Pool:
             eff = norm_provider(provider) if provider is not None \
                 else lease.get("provider")
             if outcome == "http429" and lease.get("server"):
-                self.cool(lease["server"], eff)
+                self.cool(lease["server"], eff,
+                          seconds=cooldown_for(eff))
+                _append_lease_event(
+                    {"event": "report", "lease": str(lease_id)[:8],
+                     "outcome": outcome, "provider": eff,
+                     "server": lease.get("server") or "",
+                     "action": "switch"})
+                return {"action": "switch"}
+            if outcome == "location-blocked" and lease.get("server"):
+                # Geo/sanction block: cool the pair for the geo
+                # duration and switch — the lease (and key) is KEPT,
+                # never reaped like auth_err.
+                self.cool(lease["server"], eff,
+                          seconds=cooldown_for(eff))
                 _append_lease_event(
                     {"event": "report", "lease": str(lease_id)[:8],
                      "outcome": outcome, "provider": eff,
@@ -885,7 +907,7 @@ class Handler(BaseHTTPRequestHandler):
                         or data.get("server_id", "")
                     try:
                         POOL.cool(failed, data.get("provider"),
-                                  seconds=1800)
+                                  seconds=cooldown_for("tunnel_fetch"))
                     except Exception:
                         pass
                     POOL.discard_lease(data.get("lease_id", ""))

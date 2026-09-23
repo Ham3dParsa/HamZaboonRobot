@@ -840,6 +840,22 @@ def test_cool_is_cool_helpers():
     assert pool.provider_of(lease["lease_id"]) is None
 
 
+def test_cool_default_resolves_per_provider_table():
+    """Omitted seconds resolve via cooldown_for (kilo 18, google 4)."""
+    import time as _time
+    from factory.core.llm_json import cooldown_for
+    pool = Pool()
+    before = _time.time()
+    pool.cool("s-k", "kilo")
+    pool.cool("s-g", "google")
+    assert cooldown_for("kilo") == 18.0
+    assert cooldown_for("google") == 4.0
+    assert pool.is_cool("s-k", "kilo", now=before + 17) is True
+    assert pool.is_cool("s-k", "kilo", now=before + 19) is False
+    assert pool.is_cool("s-g", "google", now=before + 3) is True
+    assert pool.is_cool("s-g", "google", now=before + 5) is False
+
+
 def test_tunnel_owner_acquire_honors_provider(monkeypatch):
     """acquire(provider) skips only that provider's cooled servers."""
     from supervisor import TunnelOwner
@@ -1368,3 +1384,43 @@ def test_http_lease_failure_cools_actual_server(monkeypatch):
         thread.join(timeout=10)
         sup.TUNNELS.stop()
         sup.TOKEN = ""
+
+
+def test_report_location_blocked_cools_switches_keeps_lease():
+    """location-blocked cools the pair + switches, lease kept (no reauth)."""
+    pool = _link_pool()
+    lease = pool.lease("google")
+    assert pool.report(lease["lease_id"], "location-blocked") == {
+        "action": "switch"}
+    assert pool.lease("google")["error"] == "park"  # pair cooling
+    assert pool.lease("zen")["mode"] == "tunnel"  # others unaffected
+    assert pool.report(lease["lease_id"], "ok") == {"action": "keep"}
+
+
+def test_report_http429_and_auth_err_unchanged():
+    """http429 still cools + switches; auth_err still reaps the lease."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429") == {"action": "switch"}
+    assert pool.lease("zen")["error"] == "park"
+    lease2 = pool.lease("google")
+    assert pool.report(lease2["lease_id"], "auth_err") == {
+        "action": "reauth"}
+    assert pool.report(lease2["lease_id"], "ok") == {
+        "action": "unknown-lease"}
+
+
+def test_client_report_location_blocked_vocab(monkeypatch):
+    """client.report forwards the location-blocked outcome + provider."""
+    import client as egress_client
+    seen = {}
+
+    def fake_call(path, payload):
+        seen[path] = payload
+        return {"action": "switch"}
+
+    monkeypatch.setattr(egress_client, "_call", fake_call)
+    egress_client.report("L1", "location-blocked", provider="google")
+    assert seen["/v1/report"] == {"lease_id": "L1",
+                                  "outcome": "location-blocked",
+                                  "provider": "google"}

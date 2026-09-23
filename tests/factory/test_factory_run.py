@@ -387,7 +387,9 @@ def test_code_defaults_track_owners():
         import supervisor as SUP
         assert RUN.SUP_DEFAULT_PORT == SUP.DEFAULT_PORT
         assert RUN.SUP_DEFAULT_PROBE_TOP_N == SUP.PROBE_TOP_N
-        assert RUN.SUP_DEFAULT_COOLDOWN_SECS == SUP.COOLDOWN_S
+        # Cooldowns resolve per-provider (None = table): no literal
+        # default is cited here anymore.
+        assert RUN.SUP_DEFAULT_COOLDOWN_SECS is None
     finally:
         sys.path.remove(_egress)
     from factory.precard.pipeline import DEFAULT_OUT, DEFAULT_SAMPLE, SLEEP
@@ -395,6 +397,18 @@ def test_code_defaults_track_owners():
     assert cfg["sample"] == DEFAULT_SAMPLE
     assert cfg["out"] == DEFAULT_OUT
     assert cfg["sleep_secs"] == SLEEP
+
+
+def test_cooldown_secs_default_is_table():
+    """Unset cooldown resolves None (per-provider table downstream)."""
+    cfg, _ = RUN.resolve_config(_ns(llm_provider="avalai"), {})
+    assert cfg["cooldown_secs"] is None
+    cfg, _ = RUN.resolve_config(
+        _ns(llm_provider="avalai", cooldown_secs=45.0), {})
+    assert cfg["cooldown_secs"] == 45.0
+    with pytest.raises(SystemExit):
+        RUN.resolve_config(
+            _ns(llm_provider="avalai", cooldown_secs=0), {})
 
 
 def test_no_key_flags():

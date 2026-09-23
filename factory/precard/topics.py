@@ -190,8 +190,9 @@ from factory.core.telemetry import (
     resolve_cost)
 from factory.precard.accounting import source_item_key
 from factory.precard.provider_transport import (
-    AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
-    raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
+    AuthError, KeyRing, LocationBlocked, ProviderCooldown, RateLimited,
+    extract_json, raise_for_auth, _tele_tokens, MAX_ATTEMPTS,
+    RETRY_PREFIX)
 
 _tele_record = record_call
 _tele_usage = extract_usage
@@ -473,6 +474,28 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                                      latency_s=last_attempt_latency(
                                          attempt_rows),
                                      outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
+                    break
+                except LocationBlocked as exc:
+                    # Geo/sanction block: same stop-for-resume path as
+                    # a cooldown, but the key is kept and the runner
+                    # reports "location-blocked" (cool the pair and
+                    # switch, never reauth).
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        record_call(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=403,
                                      run_id=tele_run_id, provider=eff,
                                      model_actual=tele_model_actual or model,
                                      cost=resolve_cost(made_call=True))
@@ -996,6 +1019,28 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                                      latency_s=last_attempt_latency(
                                          attempt_rows),
                                      outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
+                    break
+                except LocationBlocked as exc:
+                    # Geo/sanction block: same stop-for-resume path as
+                    # a cooldown, but the key is kept and the runner
+                    # reports "location-blocked" (cool the pair and
+                    # switch, never reauth).
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        record_call(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=403,
                                      run_id=tele_run_id, provider=eff,
                                      model_actual=tele_model_actual or model,
                                      cost=resolve_cost(made_call=True))

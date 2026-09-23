@@ -325,8 +325,9 @@ from factory.core.telemetry import (
     emit_attempt_rows, extract_usage, last_attempt_latency, record_call,
     resolve_cost)
 from factory.precard.provider_transport import (
-    AuthError, KeyRing, ProviderCooldown, RateLimited, extract_json,
-    raise_for_auth, _tele_tokens, MAX_ATTEMPTS, RETRY_PREFIX)
+    AuthError, KeyRing, LocationBlocked, ProviderCooldown, RateLimited,
+    extract_json, raise_for_auth, _tele_tokens, MAX_ATTEMPTS,
+    RETRY_PREFIX)
 
 _tele_record = record_call
 _tele_usage = extract_usage
@@ -538,6 +539,16 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                              "key_idx": eff_ring.idx,
                              "outcome": "cooldown",
                              "http_status": 429})
+                        eff_cooled = True
+                        cool_exc = exc
+                        break
+                    except LocationBlocked as exc:
+                        attempt_log.append(
+                            {"model": model, "attempt": attempt,
+                             "latency_s": _time.perf_counter() - start,
+                             "key_idx": eff_ring.idx,
+                             "outcome": "location-blocked",
+                             "http_status": 403})
                         eff_cooled = True
                         cool_exc = exc
                         break
@@ -783,6 +794,28 @@ def arbiter_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                                      latency_s=last_attempt_latency(
                                          attempt_rows),
                                      outcome="error", http_status=429,
+                                     run_id=tele_run_id, provider=eff,
+                                     model_actual=tele_model_actual or model,
+                                     cost=resolve_cost(made_call=True))
+                    _attempts(eff)
+                    eff_cooled = True
+                    cool_exc = exc
+                    break
+                except LocationBlocked as exc:
+                    # Geo/sanction block: same stop-for-resume path as
+                    # a cooldown, but the key is kept and the runner
+                    # reports "location-blocked" (cool the pair and
+                    # switch, never reauth).
+                    attempt_rows.extend(list(
+                        getattr(eff_ring, "attempt_log", []) or []))
+                    if telemetry is not None:
+                        _tele_record(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch,
+                                     key_idx=eff_ring.idx,
+                                     model=model,
+                                     latency_s=last_attempt_latency(
+                                         attempt_rows),
+                                     outcome="error", http_status=403,
                                      run_id=tele_run_id, provider=eff,
                                      model_actual=tele_model_actual or model,
                                      cost=resolve_cost(made_call=True))

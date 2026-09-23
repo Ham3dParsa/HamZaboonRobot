@@ -317,10 +317,12 @@ def test_report_fn_none_unchanged_no_report_call(tmp_path):
     assert out == {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
 
 
-def test_supervisor_outcome_maps_location_blocked():
-    assert blind50._supervisor_outcome("location-blocked") == "http429"
-    assert blind50._supervisor_outcome("ok") == "ok"
-    assert blind50._supervisor_outcome("http429") == "http429"
+def test_supervisor_outcome_passthrough_location_blocked():
+    # R5: no mapping layer remains — the supervisor takes
+    # "location-blocked" first-class, so the observer-visible outcome
+    # travels verbatim (no http429 rewrite).
+    assert not hasattr(blind50, "_SUPERVISOR_OUTCOME")
+    assert getattr(blind50, "_supervisor_outcome", None) is None
 
 
 class _FakeSupervisor:

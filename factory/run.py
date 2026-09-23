@@ -55,9 +55,11 @@ from factory.precard.provider_lease_policy import (  # noqa: E402
 )
 
 # Code defaults whose owners live elsewhere (cited, not moved):
-# supervisor DEFAULT_PORT/COOLDOWN_S/PROBE_TOP_N in tools/egress/supervisor.py.
+# supervisor DEFAULT_PORT/PROBE_TOP_N in tools/egress/supervisor.py;
+# cooldowns resolve per-provider via the PROVIDER_COOLDOWN_S table in
+# factory.core.llm_json (None = table, explicit --cooldown-secs wins).
 SUP_DEFAULT_PORT = 18789
-SUP_DEFAULT_COOLDOWN_SECS = 300.0
+SUP_DEFAULT_COOLDOWN_SECS = None
 SUP_DEFAULT_PROBE_TOP_N = 20
 DEFAULT_MAX_429_STRIKES = 3  # README runbook: three consecutive 429s stop.
 
@@ -509,7 +511,8 @@ def _validate(cfg):
         _fail("factory/run: --limit must be >= 0")
     if cfg["sleep_secs"] < 0:
         _fail("factory/run: --sleep-secs must be >= 0")
-    if cfg["cooldown_secs"] <= 0:
+    if (cfg["cooldown_secs"] is not None
+            and cfg["cooldown_secs"] <= 0):
         _fail("factory/run: --cooldown-secs must be > 0")
     if not 1 <= cfg["sup_port"] <= 65535:
         _fail("factory/run: --sup-port must be 1..65535")
@@ -722,7 +725,9 @@ def print_plan(cfg, sources):
             ("rekey", cfg["rekey"] or "-"),
             ("limit", str(cfg["limit"] or 0)),
             ("sleep-secs", str(cfg["sleep_secs"])),
-            ("cooldown-secs", str(cfg["cooldown_secs"])),
+            ("cooldown-secs", str(cfg["cooldown_secs"])
+             if cfg["cooldown_secs"] is not None
+             else "per-provider-table"),
             ("max-429-strikes", str(cfg["max_429_strikes"])),
             ("probe-top-n", str(cfg["probe_top_n"])),
             ("cache", cfg["cache"] or "(default: beside the pool)"),

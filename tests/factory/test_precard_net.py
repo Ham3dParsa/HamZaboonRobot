@@ -177,7 +177,7 @@ def test_call_leg_rotates_on_429_to_next_key():
                        model="m", sleep_fn=sleeps.append, state={})
     assert out == ("done", None)
     assert seen == ["k1-sentinel", "k2-sentinel"]
-    assert sleeps == [T.ROTATE_PAUSE]
+    assert sleeps == [LJ.cooldown_for("avalai")]
 
 
 def test_call_leg_all_keys_429_raises_after_every_key():
