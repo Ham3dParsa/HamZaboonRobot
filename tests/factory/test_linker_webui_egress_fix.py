@@ -413,7 +413,7 @@ def test_cancel_bare_pid_verified_match_signals(tmp_path, monkeypatch):
                                  "--out %s" % marker))
         calls = []
 
-        def _fake_term(proc_, pid_, grace_seconds=None):
+        def _fake_term(proc_, pid_, grace_seconds=None, **kwargs):
             calls.append((proc_, pid_))
             return None, ""
 
@@ -446,7 +446,7 @@ def test_cancel_bare_pid_mismatch_refuses_without_signalling(
         webui._procs.pop(rid, None)  # restarted server: bare-pid path
         calls = []
 
-        def _fake_term(proc_, pid_, grace_seconds=None):
+        def _fake_term(proc_, pid_, grace_seconds=None, **kwargs):
             calls.append((proc_, pid_))
             return None, ""
 
@@ -489,7 +489,7 @@ def test_cancel_bare_pid_unverifiable_refuses_without_signalling(
         webui._procs.pop(rid, None)  # restarted server: bare-pid path
         calls = []
 
-        def _fake_term(proc_, pid_, grace_seconds=None):
+        def _fake_term(proc_, pid_, grace_seconds=None, **kwargs):
             calls.append((proc_, pid_))
             return None, ""
 
@@ -612,3 +612,161 @@ def test_link_screening_wordlist_end_to_end(tmp_path, capsys):
         kept = list(csv.DictReader(handle, delimiter="\t"))
     assert {r["kaikki_sense_id"] for r in kept} == {KID_APPLE, KID_RUN}
     assert "kept=2" in capsys.readouterr().err
+
+
+# ─── Warning 1: stale-handle race ───────────────────────────────────
+
+class _ExitedProc:
+    """Handle whose child already reaped (poll non-None before signal)."""
+
+    pid = 9999
+
+    def poll(self):
+        return 0
+
+    def terminate(self):
+        raise AssertionError("exited handle must never be signalled")
+
+    def kill(self):
+        raise AssertionError("exited handle must never be signalled")
+
+    def wait(self, timeout=None):
+        raise AssertionError("exited handle must never be waited on")
+
+
+def test_terminate_child_skips_signalling_when_already_exited():
+    """Poll-first: an already-exited handle returns, never signals."""
+    code, note = webui._terminate_child(_ExitedProc(), 9999)
+    assert code == 0
+    assert "already finished" in note
+
+
+def test_terminate_child_reverifies_bare_pid_before_kill(
+        tmp_path, monkeypatch):
+    """TOCTOU: pid reused between lock and signal is never signalled."""
+    monkeypatch.setattr(webui, "_pid_identity",
+                        lambda pid: (1111.0, "spawn-probe"))
+    proc = _LiveProc(pid=4242)
+    client = _run_client(tmp_path, monkeypatch, [proc])
+    try:
+        rid = _create_linking_run(client, _words_file(tmp_path),
+                                  out="t.tsv").get_json()["run"]["id"]
+        webui._procs.pop(rid, None)  # restarted server: bare-pid path
+        marker = webui._find_record(
+            webui._load_registry_migrated(), rid)["pid_marker"]
+        calls = []
+
+        def _flipping_identity(pid):
+            calls.append(pid)
+            if len(calls) == 1:
+                return (1111.0, "python -m factory.linking.cli link "
+                                "--out %s" % marker)  # lock-time: match
+            return (1111.0, "python unrelated-daemon")  # signal-time: reuse
+
+        monkeypatch.setattr(webui, "_pid_identity", _flipping_identity)
+        import os as _os
+        signalled = []
+        monkeypatch.setattr(_os, "kill",
+                            lambda pid, sig: signalled.append((pid, sig)))
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 409
+        assert "unknown target" in resp.get_json()["error"]
+        assert signalled == []  # re-verify refused before any kill
+        kept = client.get("/api/runs/%s" % rid).get_json()["run"]
+        assert kept["status"] == "running"
+    finally:
+        proc.terminate()
+        webui._procs.pop(rid, None)
+
+
+# ─── Warning 2: grace-window misreport ──────────────────────────────
+
+class _NaturalFinishProc(_LiveProc):
+    """Child finishing naturally (exit 0) exactly at the signal."""
+
+    def terminate(self):
+        self.terminated = True
+        self._code = 0
+        self._done.set()
+
+
+def test_cancel_natural_zero_exit_returns_already_finished(
+        tmp_path, monkeypatch):
+    """Zero-exit during grace: 409 already_finished, done never cancelled."""
+    proc = _NaturalFinishProc(pid=6666)
+    client = _run_client(tmp_path, monkeypatch, [proc])
+    try:
+        rid = _create_linking_run(client, _words_file(tmp_path),
+                                  out="n.tsv").get_json()["run"]["id"]
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 409
+        body = resp.get_json()
+        assert body.get("already_finished") is True
+        assert "already_finished" in body["error"]
+        assert "already finished" in body["error"]
+        rec = body["run"]
+        assert rec["status"] == "done"
+        assert rec["exit_code"] == 0
+        assert not rec.get("stop_reason")  # finished, never cancelled
+        kept = client.get("/api/runs/%s" % rid).get_json()["run"]
+        assert kept["status"] == "done"
+    finally:
+        webui._procs.pop(rid, None)
+
+
+def test_cancel_finished_ui_alignment():
+    """Stop button + status line show finished as finished, never cancelled."""
+    with open(HTML_PATH, encoding="utf-8") as handle:
+        text = handle.read()
+    assert "already_finished" in text  # cancel path branches on the shape
+    assert "اجرا به پایان رسیده است." in text  # finished wording, not stopped
+    assert "btn.disabled = !live" in text  # button dead unless running
+
+
+# ─── Warning 3: proven-exit write-back for every leased route ───────
+
+def _leased_openai_models(monkeypatch, provider, lease_provider):
+    remembered = []
+    seen = {}
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            seen["url"] = req.full_url
+            return _FakeResp({"data": [{"id": "m1"}]})
+
+    monkeypatch.setattr(_url, "build_opener", lambda *h: _FakeOpener())
+    models, err = webui.provider_model_list(
+        provider,
+        remember_fn=lambda sid, prov, lat: remembered.append((sid, prov)))
+    return models, err, remembered
+
+
+def test_model_list_leased_openrouter_remembers(monkeypatch):
+    """Leased openrouter success warms its own provider-scoped cache."""
+    _keyed(monkeypatch, "OPENROUTER_API_KEY")
+    monkeypatch.setattr(webui, "route_for_provider",
+                        lambda p, **k: ("leased", "test leased"))
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p, **k: (dict(FAKE_LEASE), None))
+    models, err, remembered = _leased_openai_models(
+        monkeypatch, "openrouter", "openrouter")
+    assert err is None
+    assert models == ["m1"]
+    assert remembered == [("srv-t", "openrouter")]
+
+
+def test_model_list_leased_groq_remembers(monkeypatch):
+    """Leased groq success warms its own provider-scoped cache."""
+    _keyed(monkeypatch, "GROQ_API_KEY")
+    monkeypatch.setattr(webui, "route_for_provider",
+                        lambda p, **k: ("leased", "test leased"))
+    lease = dict(FAKE_LEASE)
+    lease["provider"] = "groq"
+    lease["target"] = "groq"
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p, **k: (lease, None))
+    models, err, remembered = _leased_openai_models(
+        monkeypatch, "groq", "groq")
+    assert err is None
+    assert models == ["m1"]
+    assert remembered == [("srv-t", "groq")]

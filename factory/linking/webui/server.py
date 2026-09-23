@@ -855,7 +855,6 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                         "v1beta/models?pageSize=200")
             headers = {"x-goog-api-key": key_value}
             ids_of = _google_model_ids
-            google_sidecar = True
         else:
             base = str(row.get("base_url") or "")
             endpoint = _openai_models_endpoint(base)
@@ -864,7 +863,6 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                                "(no /models endpoint)" % name)
             headers = {"Authorization": "Bearer " + key_value}
             ids_of = _openai_model_ids
-            google_sidecar = False
         req = _url.Request(endpoint, headers=headers)
         try:
             import time as _time
@@ -876,20 +874,20 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
             _report_lease_outcome(lease, name, exc, report_fn=report_fn)
             return None, _attributed_error(name, exc)
         _report_lease_outcome(lease, name, None, report_fn=report_fn)
-        if google_sidecar:
-            # Proven exit: a successful Google list through OUR lease is
-            # a clean signal — write it back so the next lease prefers
-            # it (supervisor cache-first, no restart). Best-effort,
-            # ours only.
-            try:
-                from factory.linking import google_clean as _gc_m
-                remember = (remember_fn if remember_fn is not None
-                            else _gc_m.remember_success)
-                _sid = str((lease or {}).get("server_id") or "")
-                if _sid:
-                    remember(_sid, name, _latency_ms)
-            except Exception:
-                pass
+        # Proven exit: a successful list through OUR lease is a clean
+        # signal for ANY leased-route provider — warm its own
+        # provider-scoped clean cache so the next lease prefers it
+        # (supervisor cache-first, no restart; namespaces never leak
+        # across providers). Best-effort, ours only.
+        try:
+            from factory.linking import google_clean as _gc_m
+            remember = (remember_fn if remember_fn is not None
+                        else _gc_m.remember_success)
+            _sid = str((lease or {}).get("server_id") or "")
+            if _sid:
+                remember(_sid, name, _latency_ms)
+        except Exception:
+            pass
         return ids_of(data), None
     base = str(row.get("base_url") or "")
     endpoint = _openai_models_endpoint(base)
@@ -1395,18 +1393,33 @@ def _verify_bare_pid_identity(pid, rec):
     return True, None
 
 
-def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS):
+def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS,
+                     verify=None):
     """Stop one child by pid only: terminate signal, force-kill if needed.
 
     The live handle is preferred (identity-checked by the caller); a
     bare pid covers the restarted-server case (handle lost, record pid
     kept). Never signals anything but the given child — no blanket
     kills. Returns (exit_code_or_None, force_note).
+
+    Stale-handle guard: a live handle that already exited (``poll()``
+    non-None) is never signalled — the exit code returns with an
+    already-finished note. Bare-pid identity is re-verified through
+    ``verify`` (``verify(pid) -> (ok, error)``) immediately before
+    each kill call, closing the lock-to-signal gap: a pid reused
+    between the registry lock and the signal refuses with an
+    identity-lost note and nothing is signalled.
     """
     import signal
     import time as _time
 
     if proc is not None:
+        try:
+            _early = proc.poll()
+        except Exception:
+            _early = None
+        if _early is not None:
+            return _early, " (already finished)"
         try:
             proc.terminate()
         except Exception:
@@ -1425,6 +1438,13 @@ def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS):
             return None, " (force-killed)"
     if pid is None:
         return None, ""
+    if verify is not None:
+        try:
+            _ok, _err = verify(pid)
+        except Exception:
+            return None, " (identity lost — nothing signalled)"
+        if not _ok:
+            return None, " (identity lost — nothing signalled)"
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -1436,11 +1456,28 @@ def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS):
         if not _pid_alive(pid):
             return None, ""
         _time.sleep(0.2)
+    if verify is not None:
+        try:
+            _ok, _err = verify(pid)
+        except Exception:
+            return None, " (identity lost — nothing signalled)"
+        if not _ok:
+            return None, " (identity lost — nothing signalled)"
     try:
         os.kill(pid, signal.SIGKILL)
     except Exception:
         pass
     return None, " (force-killed)"
+
+
+#: Already-finished error marker: cancel arriving after a natural
+#: zero-exit returns this shape (409) so the console shows finished
+#: as finished, never as cancelled. The literal token
+#: ``already_finished`` rides the message so API clients can match
+#: it with either spelling ("already finished" / "already_finished").
+def _already_finished_error(code):
+    return ("run already finished (already_finished, exit %s) — "
+            "nothing to stop" % (code,))
 
 
 def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
@@ -1453,7 +1490,10 @@ def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
     is signalled only when its stored child fingerprint (start time
     + command-line marker) still matches the live process — any
     mismatch or unverifiable state refuses with 409 (unknown target).
-    Returns (record_or_None, error_or_None, http_status).
+    A natural finish during the grace window (zero exit, or a record
+    that already left "running") returns the already-finished 409
+    shape (never 200 cancelled). Returns
+    (record_or_None, error_or_None, http_status).
     """
     with _lock:
         records = _load_registry_migrated()
@@ -1477,17 +1517,43 @@ def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
             verified, verify_error = _verify_bare_pid_identity(pid, rec)
             if not verified:
                 return rec, verify_error, 409
+            _fp_time, _fp_marker = (rec.get("pid_create_time"),
+                                    rec.get("pid_marker"))
+        else:
+            _fp_time, _fp_marker = None, None
         target_pid = live_pid if live_pid is not None else pid
-    _code, _note = _terminate_child(proc, pid,
-                                    grace_seconds=grace_seconds)
+
+    def _reverify(_pid, _t=_fp_time, _m=_fp_marker):
+        return _verify_bare_pid_identity(
+            _pid, {"pid_create_time": _t, "pid_marker": _m})
+
+    _code, _note = _terminate_child(
+        proc, pid, grace_seconds=grace_seconds,
+        verify=(_reverify if proc is None and pid is not None else None))
+    if _note == " (identity lost — nothing signalled)":
+        with _lock:
+            records = _load_registry_migrated()
+            rec = _find_record(records, run_id)
+            if rec is None:
+                return None, "unknown run", 404
+        return rec, ("refusing to signal: pid %s identity mismatch "
+                     "(unknown target — possible PID reuse, nothing "
+                     "signalled)" % (pid,)), 409
     with _lock:
         records = _load_registry_migrated()
         rec = _find_record(records, run_id)
         if rec is None:
             return None, "unknown run", 404
+        if rec.get("status") != "running":
+            return rec, _already_finished_error(rec.get("exit_code")), 409
+        final = _poll_proc(run_id)
+        code = final if final is not None else _code
+        if _note == " (already finished)" or code == 0:
+            rec["status"] = "done" if code == 0 else "failed"
+            rec["exit_code"] = code
+            _save_registry(records)
+            return rec, _already_finished_error(code), 409
         if rec.get("status") == "running":
-            final = _poll_proc(run_id)
-            code = final if final is not None else _code
             rec["status"] = "failed"
             rec["exit_code"] = code
             rec["stop_reason"] = "%s (pid %s)%s" % (
@@ -2676,7 +2742,10 @@ def api_cancel_run(run_id):
     if rec is None:
         return jsonify({"error": error}), status
     if error is not None:
-        return jsonify({"run": rec, "error": error}), status
+        body = {"run": rec, "error": error}
+        if "already_finished" in str(error or ""):
+            body["already_finished"] = True
+        return jsonify(body), status
     return jsonify({"run": rec}), 200
 
 

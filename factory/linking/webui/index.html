@@ -1221,7 +1221,8 @@ async function stopSelectedRun(){
     const r = await fetch('/api/runs/' + encodeURIComponent(selRun) + '/cancel', {method: 'POST'});
     const j = await r.json();
     if (!r.ok){
-      setStatus('stop-status', (j && j.error) || 'توقف ناموفق بود.');
+      if (j && j.already_finished) setStatus('stop-status', 'اجرا به پایان رسیده است.');
+      else setStatus('stop-status', (j && j.error) || 'توقف ناموفق بود.');
     }else{
       setStatus('stop-status', 'اجرا متوقف شد.');
       pollEvents();
@@ -1238,7 +1239,10 @@ function paintStopButton(){
   if (!btn) return;
   const live = !!run && run.status === 'running';
   btn.disabled = !live;
-  if (!live && run) setStatus('stop-status', run.stop_reason || '');
+  if (!live && run){
+    if (run.status === 'done') setStatus('stop-status', 'اجرا به پایان رسیده است.');
+    else setStatus('stop-status', run.stop_reason || '');
+  }
 }
 
 function selectRun(id){
