@@ -50,6 +50,7 @@ MODEL_LIST_TIMEOUT_S = 1.0
 SERIALIZE_WORKER_THRESHOLD = 4
 MIN_FREE_RAM_FRACTION = 0.20
 SKIP_PREFLIGHT_ENV_VAR = "HAMZABAN_SKIP_PREFLIGHT"
+INCLUDE_RESEARCH_ENV_VAR = "HAMZABAN_INCLUDE_RESEARCH"
 
 
 def _preflight_skip_requested(cli_skip: bool) -> bool:
@@ -203,6 +204,11 @@ def main(argv=None) -> int:
             return refusal
 
     cmd = [sys.executable, "-m", "pytest", "tests/", "-n", args.workers, "-q"]
+    if ("-m" not in rest
+            and os.environ.get(INCLUDE_RESEARCH_ENV_VAR, "") != "1"):
+        # R&D-only tests (marked research) stay out of default runs;
+        # explicit -m from the caller, or HAMZABAN_INCLUDE_RESEARCH=1, wins.
+        cmd += ["-m", "not research"]
     cmd += rest
     proc = subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

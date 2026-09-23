@@ -297,3 +297,42 @@ def test_default_workers_is_eight(monkeypatch):
     calls = _fake_popen_factory(monkeypatch, mod, rc=0)
     assert mod.main([]) == 0
     assert calls[0][calls[0].index("-n") + 1] == "8"
+
+
+def test_default_run_excludes_research(monkeypatch):
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    _healthy_ram(monkeypatch, mod)
+    monkeypatch.setattr(mod, "_peak_rss_mb", lambda pid: 100.0)
+    monkeypatch.delenv("HAMZABAN_INCLUDE_RESEARCH", raising=False)
+    calls = _fake_popen_factory(monkeypatch, mod, rc=0)
+    assert mod.main(["-n", "8"]) == 0
+    cmd = calls[0]
+    # NB: cmd[1] is the interpreter's own -m (python -m pytest);
+    # the pytest -m option is the pair right before "not research".
+    assert cmd[cmd.index("not research") - 1] == "-m"
+
+
+def test_research_env_includes_research(monkeypatch):
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    _healthy_ram(monkeypatch, mod)
+    monkeypatch.setattr(mod, "_peak_rss_mb", lambda pid: 100.0)
+    monkeypatch.setenv("HAMZABAN_INCLUDE_RESEARCH", "1")
+    calls = _fake_popen_factory(monkeypatch, mod, rc=0)
+    assert mod.main(["-n", "8"]) == 0
+    assert "not research" not in calls[0]
+
+
+def test_caller_m_flag_wins_over_research_default(monkeypatch):
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    _healthy_ram(monkeypatch, mod)
+    monkeypatch.setattr(mod, "_peak_rss_mb", lambda pid: 100.0)
+    monkeypatch.delenv("HAMZABAN_INCLUDE_RESEARCH", raising=False)
+    calls = _fake_popen_factory(monkeypatch, mod, rc=0)
+    assert mod.main(["-n", "8", "-m", "slow"]) == 0
+    cmd = calls[0]
+    assert "not research" not in cmd
+    last_m = max(i for i, x in enumerate(cmd) if x == "-m")
+    assert cmd[last_m + 1] == "slow"

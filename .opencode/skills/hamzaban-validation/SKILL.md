@@ -29,7 +29,7 @@ python -m ruff check --select F821,F811
 git diff --check
 ```
 
-Local full-suite runs must go through `python scripts/run_with_ram_gate.py [-n 8]` (not bare `pytest -n 8`): the wrapper enforces the RAM budget plus a fail-fast preflight that serializes the full parallel suite against a LOADED LM-Studio model — it refuses only when `/v1/models` on 127.0.0.1:1234 is non-empty (or unreadable, fail-closed) while workers > 4, or when free RAM is below 20% of total. An idle server (port open, zero models) is allowed — so stop or unload the model(s) before re-running only when the refusal names loaded models.
+Local full-suite runs must go through `python scripts/run_with_ram_gate.py [-n 8]` (not bare `pytest -n 8`): the wrapper enforces the RAM budget plus a fail-fast preflight that serializes the full parallel suite against a LOADED LM-Studio model — it refuses only when `/v1/models` on 127.0.0.1:1234 is non-empty (or unreadable, fail-closed) while workers > 4, or when free RAM is below 20% of total. An idle server (port open, zero models) is allowed — so stop or unload the model(s) before re-running only when the refusal names loaded models. R&D-only tests (marked `research`, e.g. SRS-simulation quarantines) are excluded unless `HAMZABAN_INCLUDE_RESEARCH=1` or the caller passes its own `-m`.
 
 ### Lightweight path (non-behavioral changes)
 Changes that touch only: docs, skill files, agent definitions, plan files, formatting, comments, or test files that do not change production logic.
