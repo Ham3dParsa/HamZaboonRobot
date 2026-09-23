@@ -172,17 +172,21 @@ def build_linking_cli_argv(fields):
     """argv list for the linking line's own command (display only).
 
     ``python -m factory.linking.cli link --words <input> --out <output>``
-    from the spare run-form fields. Empty input/output are omitted
-    (never re-stated as defaults). Provider/model ride the run record,
-    not this offline command — stated, never faked.
+    from the spare run-form fields. Fail-closed: empty words/out raise
+    ValueError (the CLI declares both ``required=True`` — omitting them
+    would spawn a command guaranteed to exit 2). Provider/model ride
+    the run record, not this offline command — stated, never faked.
     """
     argv = [sys.executable, "-m", "factory.linking.cli", "link"]
     words = str((fields or {}).get("sample") or "").strip()
-    if words:
-        argv += ["--words", words]
+    if not words:
+        raise ValueError(
+            "فایل ورودی انتخاب نشده است (فهرست واژه لازم است).")
+    argv += ["--words", words]
     out = str((fields or {}).get("out") or "").strip()
-    if out:
-        argv += ["--out", out]
+    if not out:
+        raise ValueError("مسیر خروجی انتخاب نشده است.")
+    argv += ["--out", out]
     return argv
 
 
@@ -1312,14 +1316,22 @@ WITNESS_PRESET_FIELDS = {
 }
 
 
+def _preset_version_number(rec):
+    """int version for preset dedup (operator junk versions read as 0)."""
+    try:
+        return int((rec or {}).get("version") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def list_presets(kind=None):
     """All stored presets (old records without a kind read as "run").
 
-    Load-time dedup by display name (stale twin files, e.g. the
+    Load-time dedup by (kind, display name) (stale twin files, e.g. the
     hyphen/underscore witness-benchmark pair, collapse to one: highest
     version wins, ties keep the first file in sorted order).
     """
-    by_name = {}
+    by_key = {}
     try:
         entries = sorted(os.listdir(PRESETS_DIR))
     except OSError:
@@ -1332,11 +1344,14 @@ def list_presets(kind=None):
             rec.setdefault("kind", "run")
             if kind is not None and rec.get("kind") != kind:
                 continue
-            prev = by_name.get(rec.get("name"))
-            if prev is None or int(rec.get("version") or 0) > int(
-                    prev.get("version") or 0):
-                by_name[rec.get("name")] = rec
-    out = sorted(by_name.values(), key=lambda r: str(r.get("name") or ""))
+            name = rec.get("name")
+            key = (rec.get("kind"),
+                   name if isinstance(name, str) else str(name))
+            prev = by_key.get(key)
+            if prev is None or _preset_version_number(rec) > \
+                    _preset_version_number(prev):
+                by_key[key] = rec
+    out = sorted(by_key.values(), key=lambda r: str(r.get("name") or ""))
     return out
 
 
@@ -2159,7 +2174,7 @@ def api_create_run():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     sample = str(fields.get("sample") or "").strip()
-    if sample and flow == "precard":
+    if sample:
         ok, error, _info = validate_sample_file(sample)
         if not ok:
             return jsonify({"error": error}), 400
@@ -2185,11 +2200,20 @@ def api_create_run():
     # Leased-vs-direct routing resolved BEFORE launch (precard TARGETS
     # mirror): tunnel-route providers lease a clean supervisor tunnel
     # (Google: geo-block 403 direct) — no spawn on failure, loud 502.
-    run_route, run_route_reason = route_for_provider(provider)
+    # Linking runs offline (local word list in, local TSV out), so they
+    # never lease, never resolve keys, and always read "direct".
+    if flow == "linking":
+        run_route = "direct"
+        run_route_reason = ("linking runs offline "
+                            "(local word list in, local TSV out)")
+    else:
+        run_route, run_route_reason = route_for_provider(provider)
     run_lease_short = None
     run_lease_id = ""
     run_egress_clean = None
-    if run_route == "leased" and not is_custom:
+    if flow == "linking":
+        _lease, run_egress = None, "direct"
+    elif run_route == "leased" and not is_custom:
         _lease, _lease_error = lease_tunnel_for_run(provider)
         if _lease_error:
             return jsonify({"error": _lease_error}), 502
@@ -2236,6 +2260,10 @@ def api_create_run():
         concurrency_val = int(fields.get("concurrency") or 0)
     except (TypeError, ValueError):
         concurrency_val = 0
+    try:
+        limit_val = int(fields.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit_val = 0
     record = {
         "id": run_id,
         "run_name": run_name,
@@ -2249,7 +2277,7 @@ def api_create_run():
         "egress": run_egress,
         "egress_clean": run_egress_clean,
         "sample": sample,
-        "limit": int(fields.get("limit") or 0),
+        "limit": limit_val,
         "concurrency": concurrency_val,
         "out": out,
         "progress_dir": progress_dir,
@@ -2272,10 +2300,14 @@ def api_create_run():
     # Decrypted ONCE per run and reused (hot-path scrubber gets the
     # frozen set — no per-line file IO or Fernet work).
     child_env = dict(os.environ)
-    try:
-        _op_keys = _operator_key_values()
-    except Exception:
+    if flow == "linking":
+        # Offline child takes no secrets: keys stay out of its env.
         _op_keys = {}
+    else:
+        try:
+            _op_keys = _operator_key_values()
+        except Exception:
+            _op_keys = {}
     try:
         for _var, _val in _op_keys.items():
             if _val and not child_env.get(_var):

@@ -359,7 +359,8 @@ def test_api_preset_crud_names_only_and_run_stamp(tmp_path, monkeypatch):
     assert resp.get_json()["preset"]["version"] == 1
     assert client.get("/api/presets").get_json()["presets"][0]["name"] == "op1"
     # unknown preset on launch -> plain 400, nothing spawned
-    resp = client.post("/api/runs", json=dict(_fields(), preset="ghost"))
+    resp = client.post("/api/runs", json=dict(
+        _fields(), preset="ghost", flow="precard"))
     assert resp.status_code == 400
 
 
@@ -623,13 +624,14 @@ def test_linking_receipt_builds_linking_command_only():
     assert argv[argv.index("--out") + 1] == "links.tsv"
 
 
-def test_linking_receipt_omits_empty_fields_never_precard():
-    argv = webui.build_linking_cli_argv({"sample": "", "out": ""})
-    assert argv == [sys.executable, "-m", "factory.linking.cli", "link"]
-    shown = webui.linking_cli_equivalent(argv)
-    assert shown.startswith("python -m factory.linking.cli link")
-    assert "factory.precard" not in shown
-    assert "precard" not in shown
+def test_linking_receipt_rejects_empty_fields_fail_closed():
+    with pytest.raises(ValueError):
+        webui.build_linking_cli_argv({"sample": "", "out": ""})
+    with pytest.raises(ValueError):
+        webui.build_linking_cli_argv(
+            {"sample": "words.json", "out": ""})
+    with pytest.raises(ValueError):
+        webui.build_run_command("linking", {"sample": "", "out": ""})
 
 
 def test_domain_router_selects_runner_per_flow():
@@ -676,8 +678,11 @@ def test_linking_run_executes_receipt_command_only(tmp_path, monkeypatch):
         return _FakeProc()
 
     monkeypatch.setattr(_sub, "Popen", _fake_popen)
+    words = tmp_path / "words.json"
+    words.write_text(json.dumps([{"kind": "word", "text": "go"}]),
+                     encoding="utf-8")
     fields = {"flow": "linking", "provider": "avalai", "model": "m1",
-              "sample": "words.txt", "out": "links.tsv"}
+              "sample": str(words), "out": "links.tsv"}
     receipt_argv, receipt_shown = webui.build_run_command("linking", fields)
     resp = webui.app.test_client().post("/api/runs", json=fields)
     assert resp.status_code == 201
@@ -792,3 +797,163 @@ def test_words_input_validation_hint_never_sample_json(tmp_path):
     src += _inspect.getsource(webui.sample_rows_full_by_key)
     src += _inspect.getsource(webui.gold_rows_by_key)
     assert "sample.json" not in src
+
+
+def _linking_run_client(tmp_path, monkeypatch):
+    """Isolated app client for run-creation tests (fake spawn)."""
+    import subprocess as _sub
+
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
+    monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
+    registry = tmp_path / "runs.json"
+    registry.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(webui, "REGISTRY_PATH", str(registry))
+
+    seen = {}
+
+    class _FakeStdout:
+        def __iter__(self):
+            return iter([])
+
+    class _FakeProc:
+        stdout = _FakeStdout()
+
+        def wait(self):
+            return 0
+
+    def _fake_popen(argv, **kwargs):
+        seen["argv"] = list(argv)
+        seen["env"] = dict(kwargs.get("env") or {})
+        return _FakeProc()
+
+    monkeypatch.setattr(_sub, "Popen", _fake_popen)
+    return webui.app.test_client(), seen
+
+
+def _valid_words_file(tmp_path):
+    words = tmp_path / "words.json"
+    words.write_text(json.dumps([{"kind": "word", "text": "go"}]),
+                     encoding="utf-8")
+    return str(words)
+
+
+def test_linking_run_rejects_empty_words_or_out(tmp_path, monkeypatch):
+    """Empty linking words/out fail closed with 400, nothing spawned."""
+    import subprocess as _sub
+
+    client, _ = _linking_run_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p: (None, None))
+
+    def _boom(argv, **kwargs):
+        raise AssertionError("no spawn on 400")
+
+    monkeypatch.setattr(_sub, "Popen", _boom)
+    words = _valid_words_file(tmp_path)
+    for fields in ({"flow": "linking", "provider": "avalai",
+                    "sample": "", "out": "links.tsv"},
+                   {"flow": "linking", "provider": "avalai",
+                    "sample": words, "out": ""}):
+        resp = client.post("/api/runs", json=fields)
+        assert resp.status_code == 400
+
+
+def test_linking_run_validates_words_file(tmp_path, monkeypatch):
+    """Missing/corrupt words files fail closed with 400, nothing spawned."""
+    import subprocess as _sub
+
+    client, _ = _linking_run_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p: (None, None))
+
+    def _boom(argv, **kwargs):
+        raise AssertionError("no spawn on 400")
+
+    monkeypatch.setattr(_sub, "Popen", _boom)
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{nope", encoding="utf-8")
+    notlist = tmp_path / "notlist.json"
+    notlist.write_text(json.dumps({"kind": "word"}), encoding="utf-8")
+    for bad in (str(tmp_path / "nope.json"), str(corrupt), str(notlist)):
+        resp = client.post("/api/runs", json={
+            "flow": "linking", "provider": "avalai",
+            "sample": bad, "out": "links.tsv"})
+        assert resp.status_code == 400
+
+
+def test_linking_run_skips_lease_and_keys(tmp_path, monkeypatch):
+    """Offline linking never leases and takes no keys into the child."""
+    monkeypatch.setattr(webui, "_operator_key_values",
+                        lambda: {"OP_MARKER_KEY":
+                                 "marker-value-12345678"})
+    monkeypatch.setattr(webui, "route_for_provider",
+                        lambda p: ("leased", "test leased"))
+    leased = []
+
+    def _boom_lease(provider):
+        leased.append(provider)
+        raise AssertionError("no lease for offline linking")
+
+    monkeypatch.setattr(webui, "lease_tunnel_for_run", _boom_lease)
+    client, seen = _linking_run_client(tmp_path, monkeypatch)
+    resp = client.post("/api/runs", json={
+        "flow": "linking", "provider": "avalai",
+        "sample": _valid_words_file(tmp_path), "out": "links.tsv"})
+    assert resp.status_code == 201
+    rec = resp.get_json()["run"]
+    assert rec["route"] == "direct" and rec["lease"] is None
+    assert leased == []
+    assert "marker-value-12345678" not in seen["env"].values()
+    assert "EGRESS_LEASE_ID" not in seen["env"]
+
+
+def test_preset_dedup_survives_operator_data(tmp_path, monkeypatch):
+    """Non-numeric versions and odd names never 500 the preset list."""
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    base = {"name": "op-twin", "kind": "run", "provider": "avalai",
+            "model": "", "sample": "", "limit": 0, "concurrency": 0,
+            "out": "", "progress_dir": "", "resume": "on"}
+    rec_str = dict(base, version="1.0")
+    rec_int = dict(base, version=2)
+    (tmp_path / "a-twin.json").write_text(
+        json.dumps(rec_str), encoding="utf-8")
+    (tmp_path / "b-twin.json").write_text(
+        json.dumps(rec_int), encoding="utf-8")
+    odd = dict(base, name=["op-odd"], version="x")
+    (tmp_path / "odd.json").write_text(json.dumps(odd), encoding="utf-8")
+    names = [r["name"] for r in webui.list_presets(kind="run")]
+    assert names.count("op-twin") == 1
+    assert [r["version"] for r in webui.list_presets(kind="run")
+            if r["name"] == "op-twin"] == [2]
+
+
+def test_preset_dedup_keeps_kinds_apart(tmp_path, monkeypatch):
+    """Same display name across kinds hides neither preset."""
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    for kind in ("run", "judge"):
+        rec = {"name": "shared", "version": 1, "kind": kind,
+               "provider": "avalai", "model": "", "sample": "",
+               "limit": 0, "concurrency": 0, "out": "",
+               "progress_dir": "", "resume": "on"}
+        (tmp_path / ("shared-%s.json" % kind)).write_text(
+            json.dumps(rec), encoding="utf-8")
+    assert len(webui.list_presets()) == 2
+    assert len(webui.list_presets(kind="run")) == 1
+    assert len(webui.list_presets(kind="judge")) == 1
+
+
+def test_linking_run_bad_limit_defaults_zero(tmp_path, monkeypatch):
+    """Crafted non-integer limit degrades to 0, never 500."""
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "lease_tunnel_for_run",
+                        lambda p: (None, None))
+    client, _ = _linking_run_client(tmp_path, monkeypatch)
+    resp = client.post("/api/runs", json={
+        "flow": "linking", "provider": "avalai",
+        "sample": _valid_words_file(tmp_path), "out": "links.tsv",
+        "limit": "abc"})
+    assert resp.status_code == 201
+    assert resp.get_json()["run"]["limit"] == 0

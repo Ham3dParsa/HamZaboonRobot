@@ -266,7 +266,8 @@ def test_create_run_accepts_job_template_field(tmp_path, monkeypatch):
                                             "sample": "", "limit": 0,
                                             "concurrency": 8})
     # unknown template -> plain 400, nothing spawned
-    resp = client.post("/api/runs", json={"provider": "avalai", "model": "",
+    resp = client.post("/api/runs", json={"flow": "precard",
+                                          "provider": "avalai", "model": "",
                                           "sample": "", "limit": 0,
                                           "concurrency": 8, "resume": "on",
                                           "job_template": "ghost"})
@@ -571,7 +572,8 @@ def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_sub, "Popen", _fake_popen)
     client = webui.app.test_client()
-    resp = client.post("/api/runs", json={"provider": "google",
+    resp = client.post("/api/runs", json={"flow": "precard",
+                                          "provider": "google",
                                           "model": "", "sample": "",
                                           "limit": 0, "concurrency": 8,
                                           "resume": "on"})
@@ -586,7 +588,8 @@ def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
     assert seen_env.get("EGRESS_LEASE_ID") == "bb11cc22dd33"
     assert leased == ["google"]
     # direct providers lease nothing.
-    resp = client.post("/api/runs", json={"provider": "avalai",
+    resp = client.post("/api/runs", json={"flow": "precard",
+                                          "provider": "avalai",
                                           "model": "", "sample": "",
                                           "limit": 0, "concurrency": 8,
                                           "resume": "on"})
