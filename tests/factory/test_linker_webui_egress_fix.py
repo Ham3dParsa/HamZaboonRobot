@@ -391,6 +391,122 @@ def test_cancel_pid_mismatch_refuses_without_signalling(tmp_path,
         webui._procs.pop(rid, None)
 
 
+def test_cancel_bare_pid_verified_match_signals(tmp_path, monkeypatch):
+    """Restarted server + matching fingerprint: the bare pid is signalled."""
+    monkeypatch.setattr(webui, "_pid_identity",
+                        lambda pid: (1111.0, "spawn-probe"))
+    proc = _LiveProc(pid=4242)
+    client = _run_client(tmp_path, monkeypatch, [proc])
+    try:
+        rec = _create_linking_run(client, _words_file(tmp_path),
+                                  out="f.tsv").get_json()["run"]
+        rid = rec["id"]
+        assert rec["pid"] == 4242
+        assert rec["pid_create_time"] == 1111.0
+        marker = rec["pid_marker"]
+        assert marker and marker.endswith("f.tsv")
+        # Simulate a restart: the live handle is gone, the child runs on.
+        webui._procs.pop(rid, None)
+        monkeypatch.setattr(
+            webui, "_pid_identity",
+            lambda pid: (1111.0, "python -m factory.linking.cli link "
+                                 "--out %s" % marker))
+        calls = []
+
+        def _fake_term(proc_, pid_, grace_seconds=None):
+            calls.append((proc_, pid_))
+            return None, ""
+
+        monkeypatch.setattr(webui, "_terminate_child", _fake_term)
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 200
+        assert calls == [(None, 4242)]  # bare pid, verified, signalled
+        done = resp.get_json()["run"]
+        assert done["status"] == "failed"
+        assert "operator-stopped" in (done["stop_reason"] or "")
+        assert "4242" in (done["stop_reason"] or "")
+    finally:
+        proc.terminate()
+        webui._procs.pop(rid, None)
+
+
+def test_cancel_bare_pid_mismatch_refuses_without_signalling(
+        tmp_path, monkeypatch):
+    """Restarted server + reused pid (wrong cmdline or start time): 409."""
+    monkeypatch.setattr(webui, "_pid_identity",
+                        lambda pid: (2222.0, "spawn-probe"))
+    proc = _LiveProc(pid=7777)
+    client = _run_client(tmp_path, monkeypatch, [proc])
+    try:
+        rid = _create_linking_run(client, _words_file(tmp_path),
+                                  out="g.tsv").get_json()["run"]["id"]
+        stored = webui._find_record(webui._load_registry_migrated(), rid)
+        marker = stored["pid_marker"]
+        assert stored["pid_create_time"] == 2222.0 and marker
+        webui._procs.pop(rid, None)  # restarted server: bare-pid path
+        calls = []
+
+        def _fake_term(proc_, pid_, grace_seconds=None):
+            calls.append((proc_, pid_))
+            return None, ""
+
+        monkeypatch.setattr(webui, "_terminate_child", _fake_term)
+        # Same start time, unrelated command line (pid reuse).
+        monkeypatch.setattr(webui, "_pid_identity",
+                            lambda pid: (2222.0, "python unrelated-daemon"))
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 409
+        assert "unknown target" in resp.get_json()["error"]
+        # Same command line, different start time (pid reuse, later boot).
+        monkeypatch.setattr(
+            webui, "_pid_identity",
+            lambda pid: (9999.0, "python -m factory.linking.cli link "
+                                 "--out %s" % marker))
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 409
+        assert "unknown target" in resp.get_json()["error"]
+        assert calls == []  # never signalled the stranger
+        kept = client.get("/api/runs/%s" % rid).get_json()["run"]
+        assert kept["status"] == "running"
+    finally:
+        proc.terminate()
+        webui._procs.pop(rid, None)
+
+
+def test_cancel_bare_pid_unverifiable_refuses_without_signalling(
+        tmp_path, monkeypatch):
+    """Pre-fix record without a fingerprint: bare-pid cancel refuses."""
+    proc = _LiveProc(pid=8888)
+    client = _run_client(tmp_path, monkeypatch, [proc])
+    try:
+        rid = _create_linking_run(client, _words_file(tmp_path),
+                                  out="h.tsv").get_json()["run"]["id"]
+        records = webui._load_registry_migrated()
+        old = webui._find_record(records, rid)
+        old.pop("pid_create_time", None)  # pre-fix record shape
+        old.pop("pid_marker", None)
+        webui._save_registry(records)
+        webui._procs.pop(rid, None)  # restarted server: bare-pid path
+        calls = []
+
+        def _fake_term(proc_, pid_, grace_seconds=None):
+            calls.append((proc_, pid_))
+            return None, ""
+
+        monkeypatch.setattr(webui, "_terminate_child", _fake_term)
+        monkeypatch.setattr(webui, "_pid_identity",
+                            lambda pid: (3333.0, "python something-live"))
+        resp = client.post("/api/runs/%s/cancel" % rid)
+        assert resp.status_code == 409
+        assert "unknown target" in resp.get_json()["error"]
+        assert calls == []
+        kept = client.get("/api/runs/%s" % rid).get_json()["run"]
+        assert kept["status"] == "running"
+    finally:
+        proc.terminate()
+        webui._procs.pop(rid, None)
+
+
 def test_cancel_route_registered_and_html_wires_stop_button():
     """Route exists; the red stop button sits by the progress indicator."""
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())

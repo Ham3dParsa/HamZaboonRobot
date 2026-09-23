@@ -1316,6 +1316,85 @@ def _pid_alive(pid):
     return True
 
 
+#: Start-time skew absorbed when comparing the stored fingerprint
+#: against the live process (float epoch seconds round-trip exactly
+#: through JSON; 1s absorbs read skew while a PID reuse hours later
+#: still mismatches loudly).
+_FINGERPRINT_TIME_TOLERANCE = 1.0
+
+
+def _pid_identity(pid):
+    """(create_time_or_None, cmdline_str) for a live pid (never raises).
+
+    Read-only identity probe for the restarted-server cancel path:
+    process start time plus full command line via psutil (portable —
+    no /proc parsing). (None, "") means unverifiable (no such
+    process, access denied, or psutil unavailable) — the caller must
+    refuse to signal, never guess. Values stay in-memory only.
+    """
+    try:
+        import psutil as _psutil
+    except ImportError:
+        return None, ""
+    try:
+        handle = _psutil.Process(int(pid))
+    except Exception:
+        return None, ""
+    try:
+        started = float(handle.create_time())
+    except Exception:
+        started = None
+    try:
+        cmdline = " ".join(handle.cmdline())
+    except Exception:
+        cmdline = ""
+    return started, cmdline or ""
+
+
+def _verify_bare_pid_identity(pid, rec):
+    """(ok, error_or_None): does pid still name THIS run's child?
+
+    The restarted-server path lost the live handle, so a bare pid
+    alone proves nothing (PID reuse could name an unrelated
+    process). The stored fingerprint (start time + command-line
+    marker, persisted at spawn) must both agree with the live
+    process; any mismatch — or any unverifiable state (pre-fix
+    record without a fingerprint, unreadable process table) —
+    refuses with an unknown-target error and nothing is signalled.
+    """
+    stored_time = rec.get("pid_create_time")
+    marker = rec.get("pid_marker") or ""
+    if stored_time is None or not marker:
+        return False, ("refusing to signal: pid %s has no child "
+                       "identity on record (unknown target — "
+                       "nothing signalled)" % (pid,))
+    try:
+        live_time, live_cmd = _pid_identity(pid)
+    except Exception:
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    if live_time is None or not live_cmd:
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    try:
+        drift = abs(float(live_time) - float(stored_time))
+    except (TypeError, ValueError):
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    if drift > _FINGERPRINT_TIME_TOLERANCE:
+        return False, ("refusing to signal: pid %s identity mismatch "
+                       "(unknown target — possible PID reuse, nothing "
+                       "signalled)" % (pid,))
+    if str(marker) not in live_cmd:
+        return False, ("refusing to signal: pid %s identity mismatch "
+                       "(unknown target — possible PID reuse, nothing "
+                       "signalled)" % (pid,))
+    return True, None
+
+
 def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS):
     """Stop one child by pid only: terminate signal, force-kill if needed.
 
@@ -1369,7 +1448,11 @@ def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
 
     Pid-targeted only: when both the live handle pid and the recorded
     pid are known they must match, or nothing is signalled; with
-    neither known the cancel is refused (never a blanket kill).
+    neither known the cancel is refused (never a blanket kill). After
+    a server restart the live handle is gone, so a bare recorded pid
+    is signalled only when its stored child fingerprint (start time
+    + command-line marker) still matches the live process — any
+    mismatch or unverifiable state refuses with 409 (unknown target).
     Returns (record_or_None, error_or_None, http_status).
     """
     with _lock:
@@ -1390,6 +1473,10 @@ def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
         if proc is None and pid is None:
             return rec, ("no live handle and no recorded pid — "
                          "cannot target the child safely"), 409
+        if proc is None and pid is not None:
+            verified, verify_error = _verify_bare_pid_identity(pid, rec)
+            if not verified:
+                return rec, verify_error, 409
         target_pid = live_pid if live_pid is not None else pid
     _code, _note = _terminate_child(proc, pid,
                                     grace_seconds=grace_seconds)
@@ -2508,7 +2595,22 @@ def api_create_run():
         return jsonify({"error": "spawn failed: %s" % exc}), 500
     # Durable child identity for pid-targeted cancel (fake spawns in
     # tests carry no pid — None then, cancel refuses without a target).
+    # The fingerprint (process start time + command-line marker) lets
+    # the restarted-server bare-pid path prove the pid still names
+    # THIS child before signalling (PID reuse refuses as unknown
+    # target). The marker is the resolved output path: it rides the
+    # child argv (--out) for both flows, so it appears in the live
+    # command line. Best-effort here (None/"" when unreadable) —
+    # verification is fail-closed, so an incomplete fingerprint can
+    # only refuse a later bare-pid cancel, never mis-signal.
     record["pid"] = _proc_pid(proc)
+    try:
+        _fp_time, _ = _pid_identity(record["pid"]) \
+            if record["pid"] is not None else (None, "")
+    except Exception:
+        _fp_time = None
+    record["pid_create_time"] = _fp_time
+    record["pid_marker"] = out
 
     def _pump(_secrets=_run_secret_values):
         try:
