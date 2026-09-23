@@ -155,6 +155,17 @@ def test_report_location_blocked_respects_cooldown_override():
     assert not NET.is_cool(cfg, lease["server_id"], "google")
 
 
+def test_report_location_blocked_exiles_persistent_scale():
+    cfg = _cfg(cooldown_s=None)
+    lease = NET.lease_for(cfg, "google")
+    assert NET.report_lease(cfg, lease["lease_id"],
+                            "location-blocked") == {"action": "switch"}
+    # Geo-block is persistent: still cooling past the 4s google
+    # post-429 scale, on the generic 300s exile instead.
+    cfg._now[0] += 5.0
+    assert NET.is_cool(cfg, lease["server_id"], "google")
+
+
 def test_lease_parks_when_everything_cools():
     cfg = _cfg()
     for target in ("google", "google"):

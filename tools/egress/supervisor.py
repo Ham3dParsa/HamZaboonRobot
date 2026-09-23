@@ -491,12 +491,15 @@ class Pool:
 
         The ONLY writer of cooldown_until (lease/report/rotate/probes
         all route through here). Falsy server_id is a no-op. An
-        explicit seconds wins; None resolves the per-provider table.
+        explicit seconds wins; None resolves the per-provider table,
+        honoring FACTORY_COOLDOWN_SECS when set (the same operator
+        knob the precard cool() honors via cfg.cooldown_s).
         """
         if not server_id:
             return
-        wait = (cooldown_for(provider) if seconds is None
-                else float(seconds))
+        wait = (cooldown_for(
+            provider, override=_cooldown_override_from_env())
+            if seconds is None else float(seconds))
         with self._lock:
             self.cooldown_until[(server_id,
                                  norm_provider(provider))] = \
@@ -683,8 +686,12 @@ class Pool:
             if outcome == "location-blocked" and lease.get("server"):
                 # Geo/sanction block: cool the pair for the geo
                 # duration and switch — the lease (and key) is KEPT,
-                # never reaped like auth_err.
-                self.cool(lease["server"], eff)
+                # never reaped like auth_err. Geo-blocks are persistent
+                # egress conditions (not transient quota), so exile runs
+                # on the persistent (generic) scale unless the operator
+                # override says otherwise.
+                self.cool(lease["server"], eff, seconds=cooldown_for(
+                    "generic", override=_cooldown_override_from_env()))
                 _append_lease_event(
                     {"event": "report", "lease": str(lease_id)[:8],
                      "outcome": outcome, "provider": eff,

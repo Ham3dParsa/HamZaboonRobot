@@ -584,7 +584,11 @@ def report_lease(cfg, lease_id, outcome, provider=None):
             cool(cfg, lease["server"], eff)
             return {"action": "switch"}
         if outcome == "location-blocked" and lease.get("server"):
-            cool(cfg, lease["server"], eff)
+            # Persistent egress condition (not transient quota): exile
+            # on the persistent (generic) scale unless the operator
+            # override (cfg.cooldown_s) says otherwise.
+            cool(cfg, lease["server"], eff, seconds=cooldown_for(
+                "generic", override=getattr(cfg, "cooldown_s", None)))
             return {"action": "switch"}
         if outcome in ("net_err",):
             return {"action": "switch"}

@@ -1397,6 +1397,30 @@ def test_report_location_blocked_cools_switches_keeps_lease():
     assert pool.report(lease["lease_id"], "ok") == {"action": "keep"}
 
 
+def test_report_location_blocked_exiles_persistent_scale():
+    """Geo-block exile runs on the persistent (generic 300s) scale, not
+    the 4s google post-429 scale: still cooling 5s later."""
+    import time as _time
+    pool = _link_pool()
+    lease = pool.lease("google")
+    assert pool.report(lease["lease_id"], "location-blocked") == {
+        "action": "switch"}
+    assert pool.is_cool("s1", "google", now=_time.time() + 5.0)
+
+
+def test_report_http429_honors_cooldown_secs_env(monkeypatch):
+    """FACTORY_COOLDOWN_SECS overrides the per-provider table on the
+    main report path (Pool.cool resolves the env when seconds is None)."""
+    import time as _time
+    import supervisor as sup
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429") == {"action": "switch"}
+    assert pool.is_cool("s1", "zen")
+    assert not pool.is_cool("s1", "zen", now=_time.time() + 12.0)
+
+
 def test_tunnel_cooldown_override_from_env_unset_and_garbage(monkeypatch):
     """Unset/unparseable/non-positive FACTORY_COOLDOWN_SECS means the
     table default (None); a finite positive value wins."""
