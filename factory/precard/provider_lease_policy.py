@@ -584,8 +584,7 @@ def report_lease(cfg, lease_id, outcome, provider=None):
             cool(cfg, lease["server"], eff)
             return {"action": "switch"}
         if outcome == "location-blocked" and lease.get("server"):
-            cool(cfg, lease["server"], eff,
-                 seconds=cooldown_for(eff))
+            cool(cfg, lease["server"], eff)
             return {"action": "switch"}
         if outcome in ("net_err",):
             return {"action": "switch"}

@@ -285,14 +285,18 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
             valid = judge_fn(chunk, prompt)
         except urllib.error.HTTPError as exc:
             code = getattr(exc, "code", None)
-            if (report_fn is not None and llm_json.classify(
-                    code, _error_body(exc), provider
-                    ) == llm_json.LOCATION_BLOCK):
+            action = (llm_json.classify(code, _error_body(exc), provider)
+                      if report_fn is not None else None)
+            if action == llm_json.LOCATION_BLOCK:
                 outcome = LOCATION_BLOCKED
-            elif code != 429:
-                raise
-            else:
+            elif code == 429 or action == llm_json.COOLDOWN_SWITCH:
+                # Project-level quota (e.g. Google 400
+                # resource_exhausted): report http429 so the
+                # supervisor cools the dead egress instead of
+                # re-leasing it on the next run.
                 outcome = "http429"
+            else:
+                raise
             strikes += 1
             _report(outcome)
             label = outcome if outcome == LOCATION_BLOCKED else "429"

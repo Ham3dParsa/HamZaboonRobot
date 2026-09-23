@@ -1397,6 +1397,69 @@ def test_report_location_blocked_cools_switches_keeps_lease():
     assert pool.report(lease["lease_id"], "ok") == {"action": "keep"}
 
 
+def test_tunnel_cooldown_override_from_env_unset_and_garbage(monkeypatch):
+    """Unset/unparseable/non-positive FACTORY_COOLDOWN_SECS means the
+    table default (None); a finite positive value wins."""
+    import supervisor as sup
+    monkeypatch.delenv("FACTORY_COOLDOWN_SECS", raising=False)
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "bogus")
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "-5")
+    assert sup._cooldown_override_from_env() is None
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    assert sup._cooldown_override_from_env() == 11.0
+
+
+def test_http_lease_failure_cool_honors_cooldown_secs_env(monkeypatch):
+    """End-to-end over HTTP: FACTORY_COOLDOWN_SECS overrides the fixed
+    tunnel_fetch 300s when an acquire failure cools the dead server."""
+    import time as _time
+    import supervisor as sup
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FailS2Tunnel)
+    monkeypatch.setattr(
+        sup, "_server_tcp_ping",
+        lambda server, timeout=2.0: None
+        if server["id"] == "s1" else 7)
+    monkeypatch.setenv("FACTORY_COOLDOWN_SECS", "11")
+    _FailS2Tunnel.started.clear()
+    _FailS2Tunnel.stopped.clear()
+    sup.TOKEN = "test-token"
+    sup.POOL.servers.clear()
+    sup.POOL.leases.clear()
+    sup.POOL.cooldown_until.clear()
+    sup.POOL.load([
+        {"scheme": "vless", "host": "a", "port": 1, "id": "s1",
+         "link": "vless://u@a:1"},
+        {"scheme": "vless", "host": "b", "port": 1, "id": "s2",
+         "link": "vless://u@b:1"},
+    ])
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+        req = _url.Request(
+            "http://127.0.0.1:%d/v1/lease" % port,
+            data=json.dumps({"target": "zen"}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer test-token"})
+        with _url.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+        assert body.get("error") == "park"
+        assert sup.POOL.is_cool("s2", "zen")
+        # Override honored: expired after 11s, not the fixed 300s.
+        assert not sup.POOL.is_cool("s2", "zen",
+                                    now=_time.time() + 12.0)
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TUNNELS.stop()
+        sup.TOKEN = ""
+
+
 def test_report_http429_and_auth_err_unchanged():
     """http429 still cools + switches; auth_err still reaps the lease."""
     pool = _link_pool()

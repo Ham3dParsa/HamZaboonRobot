@@ -122,6 +122,26 @@ COOLDOWN_S = cooldown_for("generic")
 CLEAN_TTL_VAR = "EGRESS_CLEAN_TTL"
 CLEAN_CACHE_PATH_VAR = "EGRESS_CLEAN_CACHE_PATH"
 
+# Explicit operator cooldown (FACTORY_COOLDOWN_SECS, i.e. the resolved
+# --cooldown-secs): run.py auto-spawns this supervisor with the
+# operator env inherited, so the same knob stays honored here.
+COOLDOWN_SECS_VAR = "FACTORY_COOLDOWN_SECS"
+
+
+def _cooldown_override_from_env():
+    """Explicit cooldown override or None (table decides).
+
+    Finite positive FACTORY_COOLDOWN_SECS wins; unset/unparseable/
+    non-positive means the per-provider table default, never infinity.
+    Garbage never raises (mirrors _clean_ttl_from_env fail-safe)."""
+    try:
+        value = float(os.environ.get(COOLDOWN_SECS_VAR, "") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not (value > 0) or not (value < float("inf")):
+        return None
+    return value
+
 # R7 lease-path probe budget (phase 03): /v1/lease runs on the
 # single-threaded HTTPServer handler, so cache pings are capped in
 # count (fastest-first) and time — excess rows fall through to the
@@ -653,8 +673,7 @@ class Pool:
             eff = norm_provider(provider) if provider is not None \
                 else lease.get("provider")
             if outcome == "http429" and lease.get("server"):
-                self.cool(lease["server"], eff,
-                          seconds=cooldown_for(eff))
+                self.cool(lease["server"], eff)
                 _append_lease_event(
                     {"event": "report", "lease": str(lease_id)[:8],
                      "outcome": outcome, "provider": eff,
@@ -665,8 +684,7 @@ class Pool:
                 # Geo/sanction block: cool the pair for the geo
                 # duration and switch — the lease (and key) is KEPT,
                 # never reaped like auth_err.
-                self.cool(lease["server"], eff,
-                          seconds=cooldown_for(eff))
+                self.cool(lease["server"], eff)
                 _append_lease_event(
                     {"event": "report", "lease": str(lease_id)[:8],
                      "outcome": outcome, "provider": eff,
@@ -906,8 +924,11 @@ class Handler(BaseHTTPRequestHandler):
                     failed = getattr(exc, "failed_server_id", "") \
                         or data.get("server_id", "")
                     try:
-                        POOL.cool(failed, data.get("provider"),
-                                  seconds=cooldown_for("tunnel_fetch"))
+                        POOL.cool(
+                            failed, data.get("provider"),
+                            seconds=cooldown_for(
+                                "tunnel_fetch",
+                                override=_cooldown_override_from_env()))
                     except Exception:
                         pass
                     POOL.discard_lease(data.get("lease_id", ""))
