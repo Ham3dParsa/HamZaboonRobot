@@ -167,9 +167,14 @@ def test_precard_cache_hit_is_provider_scoped():
 
 
 def test_targets_table_semantics_unchanged():
-    """Forbidden zone: TARGETS keys/providers/tunnel flags byte-identical."""
+    """Forbidden zone: TARGETS keys/providers/tunnel flags byte-identical.
+
+    Gap fix: the groq row exists so lease_for("groq") never parks; its
+    tunnel flag is False matching the registry row default (direct) —
+    the EGRESS_TUNNEL_PROVIDERS flag decides at runtime.
+    """
     assert set(NET.TARGETS) == {"direct", "zen", "google", "openrouter",
-                                "avalai"}
+                                "groq", "avalai"}
     assert NET.TARGETS["direct"] == {"provider": None, "tunnel": False,
                                      "probe": NET.TARGETS["direct"]["probe"]}
     assert NET.TARGETS["direct"]["tunnel"] is False
@@ -180,6 +185,8 @@ def test_targets_table_semantics_unchanged():
     assert NET.TARGETS["google"]["tunnel"] is True
     assert NET.TARGETS["openrouter"]["provider"] == "openrouter"
     assert NET.TARGETS["openrouter"]["tunnel"] is True
+    assert NET.TARGETS["groq"]["provider"] == "groq"
+    assert NET.TARGETS["groq"]["tunnel"] is False
     assert NET.TARGETS["avalai"]["provider"] == "avalai"
     assert NET.TARGETS["avalai"]["tunnel"] is False
     # Key semantics untouched: same vars, same order.
@@ -245,3 +252,50 @@ def test_old_precard_direct_path_deleted_same_ticket():
 def test_live_precard_single_attempt_capped():
     """Live single call_leg attempt, explicit flag only (gated, no CI)."""
     assert os.environ.get("HAMZABAN_LIVE_PRECARD") == "1"
+
+
+def _leased_servers():
+    return [{"id": "s-o", "host": "h", "port": 1, "scheme": "http"},
+            {"id": "s-g", "host": "h", "port": 2, "scheme": "http"}]
+
+
+def test_leased_openrouter_hits_own_cached_exit():
+    """Every leased route warms + hits its own namespace (openrouter)."""
+    cache = [{"server_id": "s-o", "provider": "openrouter",
+              "last_ok_ts": NOW - 10, "latency_ms": 50},
+             {"server_id": "s-g", "provider": "google",
+              "last_ok_ts": NOW - 10, "latency_ms": 5}]
+    cfg = NET.NetConfig(servers=_leased_servers(), clock=lambda: NOW)
+    lease = NET.lease_for(cfg, "openrouter", clean_cache=cache,
+                          ping_fn=lambda snap: True, now=NOW,
+                          tunneled={"openrouter"})
+    assert lease.get("cache_hit") is True
+    assert lease["server_id"] == "s-o"  # own row, not faster google row
+    assert set(lease) == {"lease_id", "mode", "server_id", "provider",
+                          "target", "cache_hit"}
+
+
+def test_leased_groq_misses_without_own_rows():
+    """Flagged groq with only foreign rows cached: MISS, no leak."""
+    cache = [{"server_id": "s-g", "provider": "google",
+              "last_ok_ts": NOW - 10, "latency_ms": 5}]
+    cfg = NET.NetConfig(servers=_leased_servers(), clock=lambda: NOW)
+    lease = NET.lease_for(cfg, "groq", clean_cache=cache,
+                          ping_fn=lambda snap: True, now=NOW,
+                          tunneled={"groq"})
+    assert lease.get("cache_hit") is False
+
+
+def test_proven_exit_write_back_stays_provider_scoped():
+    """record_clean_success for one provider never touches another's rows."""
+    cache = [{"server_id": "s-g", "provider": "google",
+              "last_ok_ts": NOW - 100, "latency_ms": 5}]
+    updated = NET.record_clean_success(cache, "s-o", "openrouter", 42,
+                                       NOW)
+    assert [r for r in updated if r["provider"] == "google"] == cache
+    assert {"server_id": "s-o", "provider": "openrouter",
+            "last_ok_ts": NOW, "latency_ms": 42} in updated
+    assert NET.order_cache_exits(updated, "openrouter", ["s-o", "s-g"],
+                                 NOW, TTL) == ["s-o"]
+    assert NET.order_cache_exits(updated, "google", ["s-o", "s-g"],
+                                 NOW, TTL) == ["s-g"]

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from pathlib import Path
 
@@ -42,13 +43,33 @@ def read_table(path):
 
 
 def read_wordlist(path):
-    """One headword-or-kid per line; blanks and ``#`` comments skipped."""
+    """One headword-or-kid per line; blanks and ``#`` comments skipped.
+
+    Polymorphic: lines starting with ``{`` parse as JSON objects
+    (screening JSONL outputs) extracting ``text`` else ``lemma``;
+    every other line reads directly as the input word (plain text
+    files). Unparseable ``{`` lines and objects without a text/lemma
+    value are skipped (never crash, never invent).
+    """
     words = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
-            if line and not line.startswith("#"):
-                words.append(line)
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("{"):
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                val = rec.get("text") or rec.get("lemma") or ""
+                val = val.strip() if isinstance(val, str) else ""
+                if val:
+                    words.append(val)
+                continue
+            words.append(line)
     return words
 
 

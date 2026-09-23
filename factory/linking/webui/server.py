@@ -580,6 +580,13 @@ def validate_sample_file(sample_path):
     exact problem in plain Persian: missing file, unreadable/corrupt JSON,
     bad top-level shape, empty list, or the first bad row (not a dict,
     missing kind/text, bad kind value).
+
+    Polymorphic: whole-file JSON that fails to parse falls back to the
+    linking line-based word list (the ``read_wordlist`` rule — ``{``
+    lines parse as objects extracting text/lemma, other lines read
+    directly as words), so plain text files and screening JSONL outputs
+    validate with gold 0 instead of failing as corrupt JSON. A
+    line-based read with zero words keeps the original JSON error.
     """
     path = str(sample_path or "").strip()
     if not path:
@@ -589,7 +596,16 @@ def validate_sample_file(sample_path):
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
-    except (OSError, ValueError):
+    except OSError:
+        return False, "فایل ورودی خوانا نیست (JSON خراب است): %s" % path, {}
+    except ValueError:
+        from factory.linking import cli as _link_cli
+        try:
+            words = _link_cli.read_wordlist(path)
+        except (OSError, ValueError):
+            words = []
+        if words:
+            return True, "", {"rows": len(words), "gold": 0}
         return False, "فایل ورودی خوانا نیست (JSON خراب است): %s" % path, {}
     if not isinstance(data, list):
         return False, ("شکل فایل ورودی درست نیست: فهرست واژه (آرایه) لازم است، "
@@ -753,20 +769,23 @@ def judge_preset_schema():
 
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
                         target_fn=None, clean_fn=None, verify_fn=None,
-                        remember_fn=None, report_fn=None):
+                        remember_fn=None, report_fn=None, tunneled=None,
+                        env_map=None, file_paths=None,
+                        registry_fn=None):
     """Server-side per-provider model list (key-gated, never faked).
 
     Resolves the provider key server-side (env/file/operator store —
     values in-memory only, never returned/logged/stored in the
-    browser) and fetches the provider's own list endpoint: Google via
-    models:list through a leased supervisor tunnel (tunnel-only —
-    direct Google dies with geo-block 403); OpenAI-compatible rows
-    via {base}/models with bearer auth. Returns
+    browser) and fetches the provider's own list endpoint: leased
+    (tunnel-route) providers via models:list through OUR leased
+    supervisor proxy (direct egress dies with geo-block/sanctions
+    403); direct-route OpenAI-compatible rows via {base}/models with
+    bearer auth. Returns
     (models_or_None, error_or_None): models is [exact ids]; error is
     an attributed plain line (provider + kind + http, never values).
     An empty real list is returned as ([], None) — never invented.
 
-    The Google lease/report/remember legs arrive via the tunnel seam
+    The lease/report/remember legs arrive via the tunnel seam
     (``lease_fn``/``report_fn``/``remember_fn`` inject them — tests
     pass fakes, never the network or the real cache file); the
     key-gated list fetch itself stays here (composition fact for the
@@ -816,10 +835,14 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                       "the providers panel first"
                       % (name, "+".join(var_order) or "no key refs"))
     protocol = str(row.get("protocol") or "")
-    if protocol == "gemini_rest" or name == "google":
+    route, _route_reason = route_for_provider(
+        name, registry_fn=registry_fn, tunneled=tunneled,
+        env_map=env_map, file_paths=file_paths)
+    if route == "leased":
         lease, lease_error = lease_tunnel_for_run(
             name, lease_fn=lease_fn, target_fn=target_fn,
-            clean_fn=clean_fn, verify_fn=verify_fn)
+            clean_fn=clean_fn, verify_fn=verify_fn, tunneled=tunneled,
+            env_map=env_map, file_paths=file_paths)
         if lease_error:
             return None, ("%s models:list refused: %s"
                           % (name, lease_error))
@@ -827,10 +850,20 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
         opener = _url.build_opener(_url.ProxyHandler(
             {"http": proxy_url, "https": proxy_url})) if proxy_url \
             else _url.build_opener()
-        endpoint = ("https://generativelanguage.googleapis.com/"
-                    "v1beta/models?pageSize=200")
-        req = _url.Request(endpoint, headers={
-            "x-goog-api-key": key_value})
+        if protocol == "gemini_rest" or name == "google":
+            endpoint = ("https://generativelanguage.googleapis.com/"
+                        "v1beta/models?pageSize=200")
+            headers = {"x-goog-api-key": key_value}
+            ids_of = _google_model_ids
+        else:
+            base = str(row.get("base_url") or "")
+            endpoint = _openai_models_endpoint(base)
+            if not endpoint:
+                return None, ("%s has no listable base address "
+                               "(no /models endpoint)" % name)
+            headers = {"Authorization": "Bearer " + key_value}
+            ids_of = _openai_model_ids
+        req = _url.Request(endpoint, headers=headers)
         try:
             import time as _time
             _start = _time.monotonic()
@@ -841,9 +874,11 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
             _report_lease_outcome(lease, name, exc, report_fn=report_fn)
             return None, _attributed_error(name, exc)
         _report_lease_outcome(lease, name, None, report_fn=report_fn)
-        # Proven exit: a successful Google list through OUR lease is a
-        # clean signal — write it back so the next lease prefers it
-        # (supervisor cache-first, no restart). Best-effort, ours only.
+        # Proven exit: a successful list through OUR lease is a clean
+        # signal for ANY leased-route provider — warm its own
+        # provider-scoped clean cache so the next lease prefers it
+        # (supervisor cache-first, no restart; namespaces never leak
+        # across providers). Best-effort, ours only.
         try:
             from factory.linking import google_clean as _gc_m
             remember = (remember_fn if remember_fn is not None
@@ -853,8 +888,7 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                 remember(_sid, name, _latency_ms)
         except Exception:
             pass
-        ids = _google_model_ids(data)
-        return ids, None
+        return ids_of(data), None
     base = str(row.get("base_url") or "")
     endpoint = _openai_models_endpoint(base)
     if not endpoint:
@@ -1249,6 +1283,283 @@ def _poll_proc(run_id):
         with _lock:
             _procs.pop(run_id, None)
     return code
+
+
+#: Durable stop marker written into a run record by the cancel endpoint.
+OPERATOR_STOP_MESSAGE = "operator-stopped by console cancel"
+
+#: Grace between the terminate signal and the force-kill fallback.
+CANCEL_GRACE_SECONDS = 5.0
+
+
+def _proc_pid(proc):
+    """Live pid of a child handle (None when unknown)."""
+    try:
+        pid = proc.pid
+    except Exception:
+        return None
+    return pid if isinstance(pid, int) else None
+
+
+def _pid_alive(pid):
+    """True when a pid still names a live process (best-effort)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return True
+    return True
+
+
+#: Start-time skew absorbed when comparing the stored fingerprint
+#: against the live process (float epoch seconds round-trip exactly
+#: through JSON; 1s absorbs read skew while a PID reuse hours later
+#: still mismatches loudly).
+_FINGERPRINT_TIME_TOLERANCE = 1.0
+
+
+def _pid_identity(pid):
+    """(create_time_or_None, cmdline_str) for a live pid (never raises).
+
+    Read-only identity probe for the restarted-server cancel path:
+    process start time plus full command line via psutil (portable —
+    no /proc parsing). (None, "") means unverifiable (no such
+    process, access denied, or psutil unavailable) — the caller must
+    refuse to signal, never guess. Values stay in-memory only.
+    """
+    try:
+        import psutil as _psutil
+    except ImportError:
+        return None, ""
+    try:
+        handle = _psutil.Process(int(pid))
+    except Exception:
+        return None, ""
+    try:
+        started = float(handle.create_time())
+    except Exception:
+        started = None
+    try:
+        cmdline = " ".join(handle.cmdline())
+    except Exception:
+        cmdline = ""
+    return started, cmdline or ""
+
+
+def _verify_bare_pid_identity(pid, rec):
+    """(ok, error_or_None): does pid still name THIS run's child?
+
+    The restarted-server path lost the live handle, so a bare pid
+    alone proves nothing (PID reuse could name an unrelated
+    process). The stored fingerprint (start time + command-line
+    marker, persisted at spawn) must both agree with the live
+    process; any mismatch — or any unverifiable state (pre-fix
+    record without a fingerprint, unreadable process table) —
+    refuses with an unknown-target error and nothing is signalled.
+    """
+    stored_time = rec.get("pid_create_time")
+    marker = rec.get("pid_marker") or ""
+    if stored_time is None or not marker:
+        return False, ("refusing to signal: pid %s has no child "
+                       "identity on record (unknown target — "
+                       "nothing signalled)" % (pid,))
+    try:
+        live_time, live_cmd = _pid_identity(pid)
+    except Exception:
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    if live_time is None or not live_cmd:
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    try:
+        drift = abs(float(live_time) - float(stored_time))
+    except (TypeError, ValueError):
+        return False, ("refusing to signal: pid %s identity "
+                       "unverifiable (unknown target — nothing "
+                       "signalled)" % (pid,))
+    if drift > _FINGERPRINT_TIME_TOLERANCE:
+        return False, ("refusing to signal: pid %s identity mismatch "
+                       "(unknown target — possible PID reuse, nothing "
+                       "signalled)" % (pid,))
+    if str(marker) not in live_cmd:
+        return False, ("refusing to signal: pid %s identity mismatch "
+                       "(unknown target — possible PID reuse, nothing "
+                       "signalled)" % (pid,))
+    return True, None
+
+
+def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS,
+                     verify=None):
+    """Stop one child by pid only: terminate signal, force-kill if needed.
+
+    The live handle is preferred (identity-checked by the caller); a
+    bare pid covers the restarted-server case (handle lost, record pid
+    kept). Never signals anything but the given child — no blanket
+    kills. Returns (exit_code_or_None, force_note).
+
+    Stale-handle guard: a live handle that already exited (``poll()``
+    non-None) is never signalled — the exit code returns with an
+    already-finished note. Bare-pid identity is re-verified through
+    ``verify`` (``verify(pid) -> (ok, error)``) immediately before
+    each kill call, closing the lock-to-signal gap: a pid reused
+    between the registry lock and the signal refuses with an
+    identity-lost note and nothing is signalled.
+    """
+    import signal
+    import time as _time
+
+    if proc is not None:
+        try:
+            _early = proc.poll()
+        except Exception:
+            _early = None
+        if _early is not None:
+            return _early, " (already finished)"
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            return proc.wait(timeout=grace_seconds), ""
+        except Exception:
+            pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            return proc.wait(timeout=grace_seconds), " (force-killed)"
+        except Exception:
+            return None, " (force-killed)"
+    if pid is None:
+        return None, ""
+    if verify is not None:
+        try:
+            _ok, _err = verify(pid)
+        except Exception:
+            return None, " (identity lost — nothing signalled)"
+        if not _ok:
+            return None, " (identity lost — nothing signalled)"
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return None, " (already gone)"
+    except Exception as exc:
+        return None, " (signal failed: %s)" % type(exc).__name__
+    deadline = _time.monotonic() + grace_seconds
+    while _time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return None, ""
+        _time.sleep(0.2)
+    if verify is not None:
+        try:
+            _ok, _err = verify(pid)
+        except Exception:
+            return None, " (identity lost — nothing signalled)"
+        if not _ok:
+            return None, " (identity lost — nothing signalled)"
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+    return None, " (force-killed)"
+
+
+#: Already-finished error marker: cancel arriving after a natural
+#: zero-exit returns this shape (409) so the console shows finished
+#: as finished, never as cancelled. The literal token
+#: ``already_finished`` rides the message so API clients can match
+#: it with either spelling ("already finished" / "already_finished").
+def _already_finished_error(code):
+    return ("run already finished (already_finished, exit %s) — "
+            "nothing to stop" % (code,))
+
+
+def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
+    """Cancel a running run: stop its child, mark failed/operator-stopped.
+
+    Pid-targeted only: when both the live handle pid and the recorded
+    pid are known they must match, or nothing is signalled; with
+    neither known the cancel is refused (never a blanket kill). After
+    a server restart the live handle is gone, so a bare recorded pid
+    is signalled only when its stored child fingerprint (start time
+    + command-line marker) still matches the live process — any
+    mismatch or unverifiable state refuses with 409 (unknown target).
+    A natural finish during the grace window (zero exit, or a record
+    that already left "running") returns the already-finished 409
+    shape (never 200 cancelled). Returns
+    (record_or_None, error_or_None, http_status).
+    """
+    with _lock:
+        records = _load_registry_migrated()
+        rec = _find_record(records, run_id)
+        if rec is None:
+            return None, "unknown run", 404
+        if rec.get("status") != "running":
+            return rec, ("run is not running (status: %s)"
+                         % rec.get("status")), 409
+        proc = _procs.get(run_id)
+        pid = rec.get("pid")
+        live_pid = _proc_pid(proc) if proc is not None else None
+        if (proc is not None and pid is not None
+                and live_pid is not None and live_pid != pid):
+            return rec, ("refusing to signal: live pid %d != "
+                         "recorded pid %s" % (live_pid, pid)), 409
+        if proc is None and pid is None:
+            return rec, ("no live handle and no recorded pid — "
+                         "cannot target the child safely"), 409
+        if proc is None and pid is not None:
+            verified, verify_error = _verify_bare_pid_identity(pid, rec)
+            if not verified:
+                return rec, verify_error, 409
+            _fp_time, _fp_marker = (rec.get("pid_create_time"),
+                                    rec.get("pid_marker"))
+        else:
+            _fp_time, _fp_marker = None, None
+        target_pid = live_pid if live_pid is not None else pid
+
+    def _reverify(_pid, _t=_fp_time, _m=_fp_marker):
+        return _verify_bare_pid_identity(
+            _pid, {"pid_create_time": _t, "pid_marker": _m})
+
+    _code, _note = _terminate_child(
+        proc, pid, grace_seconds=grace_seconds,
+        verify=(_reverify if proc is None and pid is not None else None))
+    if _note == " (identity lost — nothing signalled)":
+        with _lock:
+            records = _load_registry_migrated()
+            rec = _find_record(records, run_id)
+            if rec is None:
+                return None, "unknown run", 404
+        return rec, ("refusing to signal: pid %s identity mismatch "
+                     "(unknown target — possible PID reuse, nothing "
+                     "signalled)" % (pid,)), 409
+    with _lock:
+        records = _load_registry_migrated()
+        rec = _find_record(records, run_id)
+        if rec is None:
+            return None, "unknown run", 404
+        if rec.get("status") != "running":
+            return rec, _already_finished_error(rec.get("exit_code")), 409
+        final = _poll_proc(run_id)
+        code = final if final is not None else _code
+        if _note == " (already finished)" or code == 0:
+            rec["status"] = "done" if code == 0 else "failed"
+            rec["exit_code"] = code
+            _save_registry(records)
+            return rec, _already_finished_error(code), 409
+        if rec.get("status") == "running":
+            rec["status"] = "failed"
+            rec["exit_code"] = code
+            rec["stop_reason"] = "%s (pid %s)%s" % (
+                OPERATOR_STOP_MESSAGE, target_pid, _note)
+            _save_registry(records)
+        return rec, None, 200
 
 
 # ─── Presets + custom profiles (operator data, plain JSON files) ─────
@@ -1723,6 +2034,14 @@ def rate_state():
                          else "tunnel")
             except Exception:
                 route = ""
+        try:
+            from factory.precard.provider_lease_policy import (
+                is_tunneled as _tun)
+            row_default = (route == "tunnel")
+            route = ("tunnel" if _tun(name, row_tunnel=row_default)
+                     else "direct")
+        except Exception:
+            pass
         rows.append({
             "name": name,
             "key_var": presence.get("key_var"),
@@ -1759,18 +2078,20 @@ GOOGLE_TUNNEL_REASON = _probe_reasons.GOOGLE_TUNNEL_REASON
 _NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
 
-def route_for_provider(provider, registry_fn=None):
-    """(route, reason): "leased" for tunnel-route providers, else "direct".
+def route_for_provider(provider, registry_fn=None, tunneled=None,
+                       env_map=None, file_paths=None):
+    """(route, reason): "leased" for tunnel providers, else "direct".
 
-    Thin composition over the probe seam: the registry read arrives
-    via ``probe_providers.route_for`` (``registry_fn`` injects the row
-    reader — tests pass fakes; the default still resolves through the
-    engine registry, never a forced migration) and the one-line reason
-    via ``probe_providers.route_reason`` (names only — never values).
-    Operator custom profiles have no registry route — they read
-    "direct" honestly (no lease exists for names outside the engine
-    registry); that guard is operator-data composition, not tunnel
-    logic, so it stays here.
+    Thin composition over the probe seam: the flag-first decision
+    arrives via ``probe_providers.route_for`` (``registry_fn`` injects
+    the row reader, ``tunneled``/``env_map``/``file_paths`` inject the
+    flag — tests pass fakes; the default resolves live through the
+    engine registry + EGRESS_TUNNEL_PROVIDERS flag) and the one-line
+    reason via ``probe_providers.route_reason`` (names only — never
+    values). Operator custom profiles have no registry route — they
+    read "direct" honestly (no lease exists for names outside the
+    engine registry); that guard is operator-data composition, not
+    tunnel logic, so it stays here.
     """
     name = str(provider or "").strip()
     if _is_custom_profile(name):
@@ -1778,7 +2099,9 @@ def route_for_provider(provider, registry_fn=None):
                 "%s is an operator custom profile — no engine tunnel "
                 "route exists, runs direct" % name)
     from factory.linking import probe_providers as _pp
-    route = _pp.route_for(name, registry_fn=registry_fn)
+    route = _pp.route_for(name, registry_fn=registry_fn,
+                          tunneled=tunneled, env_map=env_map,
+                          file_paths=file_paths)
     return (route, _pp.route_reason(name, route))
 
 
@@ -1839,7 +2162,8 @@ def supervisor_health_snapshot(timeout=10):
 
 
 def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
-                           clean_fn=None, verify_fn=None):
+                           clean_fn=None, verify_fn=None, tunneled=None,
+                           env_map=None, file_paths=None):
     """Lease a clean tunnel for one WebUI run (no spawn, fail-closed).
 
     Thin composition over the probe lease seam: a tunnel-route provider
@@ -1860,7 +2184,9 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
     it. Verification never blocks a launch and never touches others'
     leases.
     """
-    route, _reason = route_for_provider(provider)
+    route, _reason = route_for_provider(
+        provider, tunneled=tunneled, env_map=env_map,
+        file_paths=file_paths)
     if route != "leased":
         return None, None
     token = _supervisor_token()
@@ -2012,8 +2338,9 @@ def api_provider_models(name):
 
     The key resolves server-side only (env/file/operator store —
     values in-memory, never returned, logged, or stored in the
-    browser). Google lists through a leased supervisor tunnel
-    (tunnel-only — direct Google dies with geo-block 403).
+    browser). Tunnel-route providers list through a leased
+    supervisor proxy (route-based — direct egress dies with
+    geo-block/sanctions 403).
     Errors are attributed (provider + kind + http). An exact-id
     manual entry stays available client-side as fallback.
     """
@@ -2153,7 +2480,8 @@ def api_runs():
             "id", "run_name", "created", "flow", "provider", "model",
             "route", "lease", "egress", "egress_clean", "sample",
             "limit", "concurrency", "out", "progress_dir", "resume", "cli",
-            "status", "exit_code", "has_gold", "watermark", "preset",
+            "status", "exit_code", "pid", "stop_reason",
+            "has_gold", "watermark", "preset",
             "preset_version", "profile")}
         for r in records
     ]})
@@ -2284,6 +2612,8 @@ def api_create_run():
         "dir": rundir,
         "status": "running",
         "exit_code": None,
+        "pid": None,
+        "stop_reason": None,
         "has_gold": bool(has_gold),
         "watermark": watermark,
         "preset": preset_stamp,
@@ -2329,6 +2659,24 @@ def api_create_run():
     except OSError as exc:
         log_handle.close()
         return jsonify({"error": "spawn failed: %s" % exc}), 500
+    # Durable child identity for pid-targeted cancel (fake spawns in
+    # tests carry no pid — None then, cancel refuses without a target).
+    # The fingerprint (process start time + command-line marker) lets
+    # the restarted-server bare-pid path prove the pid still names
+    # THIS child before signalling (PID reuse refuses as unknown
+    # target). The marker is the resolved output path: it rides the
+    # child argv (--out) for both flows, so it appears in the live
+    # command line. Best-effort here (None/"" when unreadable) —
+    # verification is fail-closed, so an incomplete fingerprint can
+    # only refuse a later bare-pid cancel, never mis-signal.
+    record["pid"] = _proc_pid(proc)
+    try:
+        _fp_time, _ = _pid_identity(record["pid"]) \
+            if record["pid"] is not None else (None, "")
+    except Exception:
+        _fp_time = None
+    record["pid_create_time"] = _fp_time
+    record["pid_marker"] = out
 
     def _pump(_secrets=_run_secret_values):
         try:
@@ -2379,6 +2727,26 @@ def api_run(run_id):
             rec["exit_code"] = code
             _save_registry(records)
         return jsonify({"run": rec})
+
+
+@app.route("/api/runs/<run_id>/cancel", methods=["POST"])
+def api_cancel_run(run_id):
+    """Stop a running child by pid only; terminal state failed/operator-stopped.
+
+    Unknown runs 404; runs that already left "running" 409 with the
+    record; a pid-identity mismatch or a missing target refuses
+    without signalling (never a blanket kill).
+    """
+    rec, error, status = cancel_run(
+        run_id, grace_seconds=CANCEL_GRACE_SECONDS)
+    if rec is None:
+        return jsonify({"error": error}), status
+    if error is not None:
+        body = {"run": rec, "error": error}
+        if "already_finished" in str(error or ""):
+            body["already_finished"] = True
+        return jsonify(body), status
+    return jsonify({"run": rec}), 200
 
 
 @app.route("/api/runs/<run_id>/events", methods=["GET"])

@@ -118,6 +118,9 @@ __all__ = [
     "target_for",
     "resolve_key",
     "require_key",
+    "TUNNEL_PROVIDERS_VAR",
+    "tunneled_providers",
+    "is_tunneled",
     "cool",
     "is_cool",
     "known_provider",
@@ -147,6 +150,8 @@ __all__ = [
 ]
 
 # Canonical lease-target table (moved from tools/egress/supervisor.py).
+# Rows are DEFAULTS only: the EGRESS_TUNNEL_PROVIDERS flag is authoritative
+# when set (see is_tunneled) — no row may ever hardcode a provider's route.
 # tunnel False = direct mode (no server); True = needs a server pick.
 # probe stays None here (hermetic core); the supervisor attaches its
 # live zen/google probe functions to this same dict on import.
@@ -154,6 +159,9 @@ __all__ = [
 # (pipeline/run require avalai|google), but the "zen" row STAYS: the
 # egress supervisor (tools/egress/supervisor.py, out of scope) attaches
 # its live zen probe to TARGETS["zen"] and serves zen tunnel leases.
+# NOTE (flag-first): the groq row exists only as the tunnel-target gap
+# fix (lease_for("groq") must not park) with tunnel False matching the
+# registry row default (direct); the flag decides at runtime.
 TARGETS = {
     "direct": {"provider": None, "tunnel": False, "probe": None},
     "zen": {"provider": "zen", "tunnel": True, "probe": None},
@@ -161,8 +169,65 @@ TARGETS = {
                "probe": None},
     "openrouter": {"provider": "openrouter", "tunnel": True,
                    "probe": None},
+    "groq": {"provider": "groq", "tunnel": False,
+             "probe": None},
     "avalai": {"provider": "avalai", "tunnel": False, "probe": None},
 }
+
+#: Single flag listing which providers ride the tunnel (names only,
+#: never values). Comma- and/or whitespace-separated, case-insensitive.
+#: Empty/unset => the registry row is the default (current behavior:
+#: google/openrouter leased, avalai/groq direct). Set (non-empty) =>
+#: authoritative for ANY provider, present or future: listed rides the
+#: tunnel, unlisted goes direct — no per-provider code edits ever again.
+TUNNEL_PROVIDERS_VAR = "EGRESS_TUNNEL_PROVIDERS"
+
+
+def tunneled_providers(*, raw=None, env_map=None, file_paths=None):
+    """Normalized set of flag-listed tunnel providers (names only).
+
+    ``raw`` injects the flag text (tests pass fakes — no env/files);
+    otherwise it resolves via :func:`resolve_key` (process env, then
+    the factory env file). Empty entries dropped, duplicates deduped.
+    """
+    if raw is None:
+        try:
+            raw = resolve_key(TUNNEL_PROVIDERS_VAR, env_map=env_map,
+                              file_paths=file_paths)
+        except Exception:
+            raw = ""
+    names = set()
+    for chunk in str(raw or "").replace(",", " ").split():
+        normed = norm_provider(chunk)
+        if normed:
+            names.add(normed)
+    return frozenset(names)
+
+
+def is_tunneled(provider, *, row_tunnel=False, tunneled=None,
+                env_map=None, file_paths=None):
+    """True when a provider rides the tunnel under the flag precedence.
+
+    ``row_tunnel`` is the registry-row default (True when the row says
+    tunnel). ``tunneled`` injects the parsed flag set (tests pass fakes);
+    otherwise it is read live via :func:`tunneled_providers` so operator
+    flag edits take effect with no restart and no code change. Empty
+    flag => row default; non-empty flag => listed rides, unlisted goes
+    direct. Unknown/blank providers never tunnel fail-closed.
+    """
+    want = norm_provider(provider)
+    if not want:
+        return False
+    if tunneled is None:
+        tunneled = tunneled_providers(env_map=env_map,
+                                      file_paths=file_paths)
+    try:
+        flagged = set(tunneled or ())
+    except TypeError:
+        flagged = set()
+    if not flagged:
+        return bool(row_tunnel)
+    return want in flagged
 
 # Provider -> key variables in resolution order (primary first).
 # Single owner of the provider/var pairing for the precard line.
@@ -269,20 +334,27 @@ def switch_plan(provider, step):
     return [base]
 
 
-def target_for(provider):
+def target_for(provider, *, tunneled=None, env_map=None,
+                 file_paths=None):
     """TARGETS target whose provider matches (leg-loop routing seam).
 
     Lets the leg batch loops route every model attempt through
     call_leg with their real provider ("avalai"/"google" are the run
     targets; "zen" stays a TARGETS key for the egress supervisor
     tunnel seam, out of scope). Unknown providers fall back to
-    "avalai" (direct: no server pick, fail-closed downstream).
+    "avalai" (direct: no server pick, fail-closed downstream) —
+    unless the tunnel flag lists them, in which case the normalized
+    provider name returns as a dynamic target so lease_for can mint
+    a flagged tunnel lease with no per-provider code edit.
     """
     want = norm_provider(provider)
     for name, spec in TARGETS.items():
         if spec.get("provider") is not None \
                 and norm_provider(spec["provider"]) == want:
             return name
+    if want and is_tunneled(want, row_tunnel=False, tunneled=tunneled,
+                            env_map=env_map, file_paths=file_paths):
+        return want
     return "avalai"
 
 _USE_DEFAULT = object()
@@ -314,25 +386,35 @@ def target_spec(target):
     return TARGETS.get(norm_target(target))
 
 
-def _known_provider(provider):
+def _known_provider(provider, *, tunneled=None, env_map=None,
+                    file_paths=None):
     """True when provider is absent/None or a TARGETS provider.
 
     Guards the cooldown table: an arbitrary caller-supplied string must
-    never mint junk (server, provider) keys.
+    never mint junk (server, provider) keys. Flag-listed future
+    providers count as known (no per-provider edit); anything else
+    unlisted and untabled stays unknown.
     """
     if provider is None:
         return True
     want = norm_provider(provider)
-    return any(spec["provider"] is not None
-               and norm_provider(spec["provider"]) == want
-               for spec in TARGETS.values())
+    if any(spec["provider"] is not None
+           and norm_provider(spec["provider"]) == want
+           for spec in TARGETS.values()):
+        return True
+    try:
+        return bool(is_tunneled(want, row_tunnel=False,
+                                tunneled=tunneled, env_map=env_map,
+                                file_paths=file_paths))
+    except Exception:
+        return False
 
 
-def known_provider(provider):
+def known_provider(provider, **kwargs):
     """Public alias of the TARGETS-membership guard (re-exported by the
     egress supervisor so ``from supervisor import known_provider`` keeps
     working; the table itself stays here)."""
-    return _known_provider(provider)
+    return _known_provider(provider, **kwargs)
 
 
 def resolve_key(var, *, explicit="", env_map=None, file_paths=None):
@@ -441,10 +523,17 @@ def is_cool(cfg, server_id, provider=None, now=None):
 
 
 def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
-                ping_fn=None, now=None, selector_fn=None):
+                ping_fn=None, now=None, selector_fn=None, tunneled=None,
+                env_map=None, file_paths=None):
     """Pick a lease for a target. Shapes mirror the egress supervisor:
     direct targets mint a direct lease; tunnel targets take the first
     non-cooling server; nothing usable parks with a message.
+
+    Flag-first: the effective tunnel decision is is_tunneled(provider,
+    row_tunnel=spec) — the static row is the default, the
+    EGRESS_TUNNEL_PROVIDERS flag is authoritative when set, and
+    flag-listed names unknown to TARGETS synthesize a dynamic spec so
+    future providers ride with no code edit.
 
     R7 cache-first (phase 03) through the tunnel-selection seam (T6):
     fresh (TTL, default 24h) + non-cooling rows for this provider are
@@ -480,12 +569,23 @@ def lease_for(cfg, target, *, clean_cache=None, clean_ttl=None,
         at = cfg._clock() if now is None else now
         spec = target_spec(target)
         if spec is None:
-            return {"error": "park",
-                    "message": "unknown target %r (want one of: %s)"
-                               % (target, ", ".join(sorted(TARGETS))),
-                    "cache_hit": False}
+            want = norm_target(target)
+            if want and want == norm_provider(target) and is_tunneled(
+                    want, row_tunnel=False, tunneled=tunneled,
+                    env_map=env_map, file_paths=file_paths):
+                spec = {"provider": want, "tunnel": False,
+                        "probe": None}
+            else:
+                return {"error": "park",
+                        "message": "unknown target %r (want one of: %s)"
+                                   % (target, ", ".join(sorted(TARGETS))),
+                        "cache_hit": False}
         name = norm_target(target)
-        if not spec["tunnel"]:
+        effective_tunnel = is_tunneled(
+            spec.get("provider"), row_tunnel=bool(spec.get("tunnel")),
+            tunneled=tunneled, env_map=env_map, file_paths=file_paths) \
+            if spec.get("provider") is not None else False
+        if not effective_tunnel:
             lid = secrets.token_hex(8)
             cfg._leases[lid] = {"mode": "direct", "server": None,
                                 "since": at,
