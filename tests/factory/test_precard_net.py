@@ -46,11 +46,13 @@ def _cfg(**kw):
 
 def test_targets_shape_and_single_owner():
     assert set(NET.TARGETS) == {"direct", "zen", "google",
-                                "openrouter", "avalai"}
+                                "openrouter", "groq", "avalai"}
     assert NET.TARGETS["direct"] == {"provider": None, "tunnel": False,
                                      "probe": None}
     assert NET.TARGETS["openrouter"] == {"provider": "openrouter",
                                          "tunnel": True, "probe": None}
+    assert NET.TARGETS["groq"] == {"provider": "groq",
+                                   "tunnel": False, "probe": None}
     assert NET.TARGETS["avalai"] == {"provider": "avalai",
                                      "tunnel": False, "probe": None}
     assert NET.TARGETS["zen"]["provider"] == "zen"

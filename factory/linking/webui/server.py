@@ -769,7 +769,9 @@ def judge_preset_schema():
 
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
                         target_fn=None, clean_fn=None, verify_fn=None,
-                        remember_fn=None, report_fn=None):
+                        remember_fn=None, report_fn=None, tunneled=None,
+                        env_map=None, file_paths=None,
+                        registry_fn=None):
     """Server-side per-provider model list (key-gated, never faked).
 
     Resolves the provider key server-side (env/file/operator store —
@@ -833,11 +835,14 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                       "the providers panel first"
                       % (name, "+".join(var_order) or "no key refs"))
     protocol = str(row.get("protocol") or "")
-    route, _route_reason = route_for_provider(name)
+    route, _route_reason = route_for_provider(
+        name, registry_fn=registry_fn, tunneled=tunneled,
+        env_map=env_map, file_paths=file_paths)
     if route == "leased":
         lease, lease_error = lease_tunnel_for_run(
             name, lease_fn=lease_fn, target_fn=target_fn,
-            clean_fn=clean_fn, verify_fn=verify_fn)
+            clean_fn=clean_fn, verify_fn=verify_fn, tunneled=tunneled,
+            env_map=env_map, file_paths=file_paths)
         if lease_error:
             return None, ("%s models:list refused: %s"
                           % (name, lease_error))
@@ -1876,6 +1881,14 @@ def rate_state():
                          else "tunnel")
             except Exception:
                 route = ""
+        try:
+            from factory.precard.provider_lease_policy import (
+                is_tunneled as _tun)
+            row_default = (route == "tunnel")
+            route = ("tunnel" if _tun(name, row_tunnel=row_default)
+                     else "direct")
+        except Exception:
+            pass
         rows.append({
             "name": name,
             "key_var": presence.get("key_var"),
@@ -1912,18 +1925,20 @@ GOOGLE_TUNNEL_REASON = _probe_reasons.GOOGLE_TUNNEL_REASON
 _NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
 
-def route_for_provider(provider, registry_fn=None):
-    """(route, reason): "leased" for tunnel-route providers, else "direct".
+def route_for_provider(provider, registry_fn=None, tunneled=None,
+                       env_map=None, file_paths=None):
+    """(route, reason): "leased" for tunnel providers, else "direct".
 
-    Thin composition over the probe seam: the registry read arrives
-    via ``probe_providers.route_for`` (``registry_fn`` injects the row
-    reader — tests pass fakes; the default still resolves through the
-    engine registry, never a forced migration) and the one-line reason
-    via ``probe_providers.route_reason`` (names only — never values).
-    Operator custom profiles have no registry route — they read
-    "direct" honestly (no lease exists for names outside the engine
-    registry); that guard is operator-data composition, not tunnel
-    logic, so it stays here.
+    Thin composition over the probe seam: the flag-first decision
+    arrives via ``probe_providers.route_for`` (``registry_fn`` injects
+    the row reader, ``tunneled``/``env_map``/``file_paths`` inject the
+    flag — tests pass fakes; the default resolves live through the
+    engine registry + EGRESS_TUNNEL_PROVIDERS flag) and the one-line
+    reason via ``probe_providers.route_reason`` (names only — never
+    values). Operator custom profiles have no registry route — they
+    read "direct" honestly (no lease exists for names outside the
+    engine registry); that guard is operator-data composition, not
+    tunnel logic, so it stays here.
     """
     name = str(provider or "").strip()
     if _is_custom_profile(name):
@@ -1931,7 +1946,9 @@ def route_for_provider(provider, registry_fn=None):
                 "%s is an operator custom profile — no engine tunnel "
                 "route exists, runs direct" % name)
     from factory.linking import probe_providers as _pp
-    route = _pp.route_for(name, registry_fn=registry_fn)
+    route = _pp.route_for(name, registry_fn=registry_fn,
+                          tunneled=tunneled, env_map=env_map,
+                          file_paths=file_paths)
     return (route, _pp.route_reason(name, route))
 
 
@@ -1992,7 +2009,8 @@ def supervisor_health_snapshot(timeout=10):
 
 
 def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
-                           clean_fn=None, verify_fn=None):
+                           clean_fn=None, verify_fn=None, tunneled=None,
+                           env_map=None, file_paths=None):
     """Lease a clean tunnel for one WebUI run (no spawn, fail-closed).
 
     Thin composition over the probe lease seam: a tunnel-route provider
@@ -2013,7 +2031,9 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
     it. Verification never blocks a launch and never touches others'
     leases.
     """
-    route, _reason = route_for_provider(provider)
+    route, _reason = route_for_provider(
+        provider, tunneled=tunneled, env_map=env_map,
+        file_paths=file_paths)
     if route != "leased":
         return None, None
     token = _supervisor_token()

@@ -167,9 +167,14 @@ def test_precard_cache_hit_is_provider_scoped():
 
 
 def test_targets_table_semantics_unchanged():
-    """Forbidden zone: TARGETS keys/providers/tunnel flags byte-identical."""
+    """Forbidden zone: TARGETS keys/providers/tunnel flags byte-identical.
+
+    Gap fix: the groq row exists so lease_for("groq") never parks; its
+    tunnel flag is False matching the registry row default (direct) —
+    the EGRESS_TUNNEL_PROVIDERS flag decides at runtime.
+    """
     assert set(NET.TARGETS) == {"direct", "zen", "google", "openrouter",
-                                "avalai"}
+                                "groq", "avalai"}
     assert NET.TARGETS["direct"] == {"provider": None, "tunnel": False,
                                      "probe": NET.TARGETS["direct"]["probe"]}
     assert NET.TARGETS["direct"]["tunnel"] is False
@@ -180,6 +185,8 @@ def test_targets_table_semantics_unchanged():
     assert NET.TARGETS["google"]["tunnel"] is True
     assert NET.TARGETS["openrouter"]["provider"] == "openrouter"
     assert NET.TARGETS["openrouter"]["tunnel"] is True
+    assert NET.TARGETS["groq"]["provider"] == "groq"
+    assert NET.TARGETS["groq"]["tunnel"] is False
     assert NET.TARGETS["avalai"]["provider"] == "avalai"
     assert NET.TARGETS["avalai"]["tunnel"] is False
     # Key semantics untouched: same vars, same order.

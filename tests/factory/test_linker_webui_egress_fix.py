@@ -95,10 +95,33 @@ def test_model_list_leased_openrouter_uses_tunnel_proxy(monkeypatch):
                        "https": FAKE_LEASE["proxy_url"]}
 
 
-def test_model_list_leased_groq_uses_tunnel_proxy(monkeypatch):
-    """Groq rides the leased tunnel like OpenRouter — never direct."""
+def test_model_list_groq_flag_off_means_row_default_direct(monkeypatch):
+    """Flag empty => groq row default (direct): no lease, straight fetch."""
     _keyed(monkeypatch, "GROQ_API_KEY")
-    assert webui.route_for_provider("groq")[0] == "leased"
+    assert webui.route_for_provider("groq", tunneled=set())[0] == "direct"
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("no lease on the flag-off direct route")
+
+    monkeypatch.setattr(webui, "lease_tunnel_for_run", _boom)
+    seen = {}
+
+    def _fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        return _FakeResp({"data": [{"id": "g1"}]})
+
+    monkeypatch.setattr(_url, "urlopen", _fake_urlopen)
+    models, err = webui.provider_model_list("groq", tunneled=set())
+    assert err is None
+    assert models == ["g1"]
+    assert seen["url"].startswith("https://api.groq.com")
+    assert seen["url"].endswith("/models")
+
+
+def test_model_list_groq_flag_on_means_leased(monkeypatch):
+    """Flag listing groq => leased: model list rides OUR tunnel proxy."""
+    _keyed(monkeypatch, "GROQ_API_KEY")
+    assert webui.route_for_provider("groq", tunneled={"groq"})[0] == "leased"
     leased = []
 
     def _fake_lease(provider, **kwargs):
@@ -111,7 +134,7 @@ def test_model_list_leased_groq_uses_tunnel_proxy(monkeypatch):
     monkeypatch.setattr(webui, "lease_tunnel_for_run", _fake_lease)
 
     def _boom(req, timeout=None):
-        raise AssertionError("groq must never fetch direct")
+        raise AssertionError("flagged groq must never fetch direct")
 
     monkeypatch.setattr(_url, "urlopen", _boom)
     seen = {}
@@ -127,7 +150,7 @@ def test_model_list_leased_groq_uses_tunnel_proxy(monkeypatch):
         return _FakeOpener()
 
     monkeypatch.setattr(_url, "build_opener", _fake_opener)
-    models, err = webui.provider_model_list("groq")
+    models, err = webui.provider_model_list("groq", tunneled={"groq"})
     assert err is None
     assert models == ["g1"]
     assert leased == ["groq"]

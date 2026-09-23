@@ -768,7 +768,7 @@ def _link_pool():
 def test_targets_table_shape():
     from supervisor import TARGETS, google_probe, zen_probe
     assert set(TARGETS) == {"direct", "zen", "google", "openrouter",
-                            "avalai"}
+                            "groq", "avalai"}
     assert TARGETS["direct"] == {"provider": None, "tunnel": False,
                                  "probe": None}
     assert TARGETS["zen"]["tunnel"] is True  # historic name unchanged
@@ -777,6 +777,8 @@ def test_targets_table_shape():
     assert TARGETS["google"]["probe"] is google_probe
     assert TARGETS["openrouter"] == {"provider": "openrouter",
                                      "tunnel": True, "probe": None}
+    assert TARGETS["groq"] == {"provider": "groq",
+                               "tunnel": False, "probe": None}
     assert TARGETS["avalai"] == {"provider": "avalai", "tunnel": False,
                                  "probe": None}
 

@@ -76,13 +76,16 @@ GOOGLE_TUNNEL_REASON = (
 NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
 
-def route_for(provider, registry_fn=None):
+def route_for(provider, registry_fn=None, tunneled=None, env_map=None,
+              file_paths=None):
     """Leased-vs-direct route for a provider: "leased" or "direct".
 
-    Mirrors the precard line's TARGETS table via the engine registry
-    row (``provider_registry.resolve_provider`` ``route`` field:
-    "tunnel" -> leased, anything else -> direct). ``registry_fn``
-    injects the row reader (tests pass fakes — no imports in tests).
+    Flag-first: the registry row ``route`` field is the default only
+    ("tunnel" -> row default leased); the EGRESS_TUNNEL_PROVIDERS flag
+    (via provider_lease_policy.is_tunneled, names only) is authoritative
+    when set — listed rides, unlisted goes direct — for ANY provider
+    with no per-provider edit. ``registry_fn`` injects the row reader
+    (tests pass fakes); ``tunneled`` injects the parsed flag set.
     """
     if registry_fn is None:
         from factory.precard import provider_registry as _reg
@@ -91,8 +94,17 @@ def route_for(provider, registry_fn=None):
         row = registry_fn(provider)
     except Exception:
         row = None
-    if isinstance(row, dict) and str(row.get("route") or "") == "tunnel":
-        return "leased"
+    row_tunnel = (isinstance(row, dict)
+                  and str(row.get("route") or "") == "tunnel")
+    try:
+        from factory.precard.provider_lease_policy import (
+            is_tunneled as _tun)
+        if _tun(provider, row_tunnel=row_tunnel, tunneled=tunneled,
+                env_map=env_map, file_paths=file_paths):
+            return "leased"
+    except Exception:
+        if row_tunnel:
+            return "leased"
     return "direct"
 
 
@@ -104,9 +116,9 @@ def route_reason(provider, route):
     if route == "leased":
         if name == "google":
             return GOOGLE_TUNNEL_REASON
-        return ("%s registry route is tunnel — leased clean egress "
-                "via the supervisor" % name)
-    return ("%s registry route is direct — no lease, no proxy"
+        return ("%s rides the tunnel (flag/row default) — leased clean "
+                "egress via the supervisor" % name)
+    return ("%s is direct (flag/row default) — no lease, no proxy"
             % name)
 
 
@@ -445,7 +457,8 @@ def probe_one(provider, prompt_text, model="", key_value="",
               lease_fn=None, report_fn=None, target_fn=None,
               registry_fn=None, clean_fn=None, remember_fn=None,
               selector_fn=None, subs_fn=None, store_fn=None,
-              batch=5, keep=5):
+              batch=5, keep=5, tunneled=None, env_map=None,
+              file_paths=None):
     """Probe one provider: (result dict). Secret value stays in-memory only.
 
     Thin caller of the tunnel-selection seam: egress arrives via
@@ -492,7 +505,9 @@ def probe_one(provider, prompt_text, model="", key_value="",
     want_route = str(route or "auto").strip().lower()
     if want_route not in ("auto", "leased", "direct"):
         want_route = "auto"
-    eff_route = (route_for(provider, registry_fn=registry_fn)
+    eff_route = (route_for(provider, registry_fn=registry_fn,
+                         tunneled=tunneled, env_map=env_map,
+                         file_paths=file_paths)
                  if want_route == "auto" else want_route)
     if transport_fn is None:
         row = _reg.resolve_provider(provider)
@@ -715,7 +730,8 @@ def probe_all(providers=PROBE_PROVIDERS, operator_models=None,
               report_fn=None, target_fn=None, registry_fn=None,
               clean_fn_for=None, remember_fn=None,
               selector_fn_for=None, subs_fn_for=None, store_fn_for=None,
-              batch=5, keep=5):
+              batch=5, keep=5, tunneled=None, env_map=None,
+              file_paths=None):
     """Probe every named provider; returns [result dicts] (order kept).
 
     ``key_value_fn(provider) -> plaintext`` defaults to resolving the
@@ -804,7 +820,8 @@ def probe_all(providers=PROBE_PROVIDERS, operator_models=None,
                         remember_fn=remember_fn,
                         selector_fn=selector_fn,
                         subs_fn=subs_fn, store_fn=store_fn,
-                        batch=batch, keep=keep)
+                        batch=batch, keep=keep, tunneled=tunneled,
+                        env_map=env_map, file_paths=file_paths)
         rec["key_vars"] = names
         rec["model_source"] = model_source(
             provider, operator_models, chain_fn=chain_fn)
