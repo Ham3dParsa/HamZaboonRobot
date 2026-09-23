@@ -45,7 +45,7 @@ PROVIDERS = {
     "groq": {
         "protocol": "openai_compat",
         "base_url": "https://api.groq.com/openai/v1/chat/completions",
-        "route": "direct",
+        "route": "tunnel",
         "key_vars": ("GROQ_API_KEY",),
         "request_extras": {},
     },

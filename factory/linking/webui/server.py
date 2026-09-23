@@ -580,6 +580,13 @@ def validate_sample_file(sample_path):
     exact problem in plain Persian: missing file, unreadable/corrupt JSON,
     bad top-level shape, empty list, or the first bad row (not a dict,
     missing kind/text, bad kind value).
+
+    Polymorphic: whole-file JSON that fails to parse falls back to the
+    linking line-based word list (the ``read_wordlist`` rule — ``{``
+    lines parse as objects extracting text/lemma, other lines read
+    directly as words), so plain text files and screening JSONL outputs
+    validate with gold 0 instead of failing as corrupt JSON. A
+    line-based read with zero words keeps the original JSON error.
     """
     path = str(sample_path or "").strip()
     if not path:
@@ -589,7 +596,16 @@ def validate_sample_file(sample_path):
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
-    except (OSError, ValueError):
+    except OSError:
+        return False, "فایل ورودی خوانا نیست (JSON خراب است): %s" % path, {}
+    except ValueError:
+        from factory.linking import cli as _link_cli
+        try:
+            words = _link_cli.read_wordlist(path)
+        except (OSError, ValueError):
+            words = []
+        if words:
+            return True, "", {"rows": len(words), "gold": 0}
         return False, "فایل ورودی خوانا نیست (JSON خراب است): %s" % path, {}
     if not isinstance(data, list):
         return False, ("شکل فایل ورودی درست نیست: فهرست واژه (آرایه) لازم است، "
@@ -758,15 +774,16 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
 
     Resolves the provider key server-side (env/file/operator store —
     values in-memory only, never returned/logged/stored in the
-    browser) and fetches the provider's own list endpoint: Google via
-    models:list through a leased supervisor tunnel (tunnel-only —
-    direct Google dies with geo-block 403); OpenAI-compatible rows
-    via {base}/models with bearer auth. Returns
+    browser) and fetches the provider's own list endpoint: leased
+    (tunnel-route) providers via models:list through OUR leased
+    supervisor proxy (direct egress dies with geo-block/sanctions
+    403); direct-route OpenAI-compatible rows via {base}/models with
+    bearer auth. Returns
     (models_or_None, error_or_None): models is [exact ids]; error is
     an attributed plain line (provider + kind + http, never values).
     An empty real list is returned as ([], None) — never invented.
 
-    The Google lease/report/remember legs arrive via the tunnel seam
+    The lease/report/remember legs arrive via the tunnel seam
     (``lease_fn``/``report_fn``/``remember_fn`` inject them — tests
     pass fakes, never the network or the real cache file); the
     key-gated list fetch itself stays here (composition fact for the
@@ -816,7 +833,8 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
                       "the providers panel first"
                       % (name, "+".join(var_order) or "no key refs"))
     protocol = str(row.get("protocol") or "")
-    if protocol == "gemini_rest" or name == "google":
+    route, _route_reason = route_for_provider(name)
+    if route == "leased":
         lease, lease_error = lease_tunnel_for_run(
             name, lease_fn=lease_fn, target_fn=target_fn,
             clean_fn=clean_fn, verify_fn=verify_fn)
@@ -827,10 +845,22 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
         opener = _url.build_opener(_url.ProxyHandler(
             {"http": proxy_url, "https": proxy_url})) if proxy_url \
             else _url.build_opener()
-        endpoint = ("https://generativelanguage.googleapis.com/"
-                    "v1beta/models?pageSize=200")
-        req = _url.Request(endpoint, headers={
-            "x-goog-api-key": key_value})
+        if protocol == "gemini_rest" or name == "google":
+            endpoint = ("https://generativelanguage.googleapis.com/"
+                        "v1beta/models?pageSize=200")
+            headers = {"x-goog-api-key": key_value}
+            ids_of = _google_model_ids
+            google_sidecar = True
+        else:
+            base = str(row.get("base_url") or "")
+            endpoint = _openai_models_endpoint(base)
+            if not endpoint:
+                return None, ("%s has no listable base address "
+                               "(no /models endpoint)" % name)
+            headers = {"Authorization": "Bearer " + key_value}
+            ids_of = _openai_model_ids
+            google_sidecar = False
+        req = _url.Request(endpoint, headers=headers)
         try:
             import time as _time
             _start = _time.monotonic()
@@ -841,20 +871,21 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
             _report_lease_outcome(lease, name, exc, report_fn=report_fn)
             return None, _attributed_error(name, exc)
         _report_lease_outcome(lease, name, None, report_fn=report_fn)
-        # Proven exit: a successful Google list through OUR lease is a
-        # clean signal — write it back so the next lease prefers it
-        # (supervisor cache-first, no restart). Best-effort, ours only.
-        try:
-            from factory.linking import google_clean as _gc_m
-            remember = (remember_fn if remember_fn is not None
-                        else _gc_m.remember_success)
-            _sid = str((lease or {}).get("server_id") or "")
-            if _sid:
-                remember(_sid, name, _latency_ms)
-        except Exception:
-            pass
-        ids = _google_model_ids(data)
-        return ids, None
+        if google_sidecar:
+            # Proven exit: a successful Google list through OUR lease is
+            # a clean signal — write it back so the next lease prefers
+            # it (supervisor cache-first, no restart). Best-effort,
+            # ours only.
+            try:
+                from factory.linking import google_clean as _gc_m
+                remember = (remember_fn if remember_fn is not None
+                            else _gc_m.remember_success)
+                _sid = str((lease or {}).get("server_id") or "")
+                if _sid:
+                    remember(_sid, name, _latency_ms)
+            except Exception:
+                pass
+        return ids_of(data), None
     base = str(row.get("base_url") or "")
     endpoint = _openai_models_endpoint(base)
     if not endpoint:
@@ -1249,6 +1280,128 @@ def _poll_proc(run_id):
         with _lock:
             _procs.pop(run_id, None)
     return code
+
+
+#: Durable stop marker written into a run record by the cancel endpoint.
+OPERATOR_STOP_MESSAGE = "operator-stopped by console cancel"
+
+#: Grace between the terminate signal and the force-kill fallback.
+CANCEL_GRACE_SECONDS = 5.0
+
+
+def _proc_pid(proc):
+    """Live pid of a child handle (None when unknown)."""
+    try:
+        pid = proc.pid
+    except Exception:
+        return None
+    return pid if isinstance(pid, int) else None
+
+
+def _pid_alive(pid):
+    """True when a pid still names a live process (best-effort)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return True
+    return True
+
+
+def _terminate_child(proc, pid, grace_seconds=CANCEL_GRACE_SECONDS):
+    """Stop one child by pid only: terminate signal, force-kill if needed.
+
+    The live handle is preferred (identity-checked by the caller); a
+    bare pid covers the restarted-server case (handle lost, record pid
+    kept). Never signals anything but the given child — no blanket
+    kills. Returns (exit_code_or_None, force_note).
+    """
+    import signal
+    import time as _time
+
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            return proc.wait(timeout=grace_seconds), ""
+        except Exception:
+            pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            return proc.wait(timeout=grace_seconds), " (force-killed)"
+        except Exception:
+            return None, " (force-killed)"
+    if pid is None:
+        return None, ""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return None, " (already gone)"
+    except Exception as exc:
+        return None, " (signal failed: %s)" % type(exc).__name__
+    deadline = _time.monotonic() + grace_seconds
+    while _time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return None, ""
+        _time.sleep(0.2)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+    return None, " (force-killed)"
+
+
+def cancel_run(run_id, grace_seconds=CANCEL_GRACE_SECONDS):
+    """Cancel a running run: stop its child, mark failed/operator-stopped.
+
+    Pid-targeted only: when both the live handle pid and the recorded
+    pid are known they must match, or nothing is signalled; with
+    neither known the cancel is refused (never a blanket kill).
+    Returns (record_or_None, error_or_None, http_status).
+    """
+    with _lock:
+        records = _load_registry_migrated()
+        rec = _find_record(records, run_id)
+        if rec is None:
+            return None, "unknown run", 404
+        if rec.get("status") != "running":
+            return rec, ("run is not running (status: %s)"
+                         % rec.get("status")), 409
+        proc = _procs.get(run_id)
+        pid = rec.get("pid")
+        live_pid = _proc_pid(proc) if proc is not None else None
+        if (proc is not None and pid is not None
+                and live_pid is not None and live_pid != pid):
+            return rec, ("refusing to signal: live pid %d != "
+                         "recorded pid %s" % (live_pid, pid)), 409
+        if proc is None and pid is None:
+            return rec, ("no live handle and no recorded pid — "
+                         "cannot target the child safely"), 409
+        target_pid = live_pid if live_pid is not None else pid
+    _code, _note = _terminate_child(proc, pid,
+                                    grace_seconds=grace_seconds)
+    with _lock:
+        records = _load_registry_migrated()
+        rec = _find_record(records, run_id)
+        if rec is None:
+            return None, "unknown run", 404
+        if rec.get("status") == "running":
+            final = _poll_proc(run_id)
+            code = final if final is not None else _code
+            rec["status"] = "failed"
+            rec["exit_code"] = code
+            rec["stop_reason"] = "%s (pid %s)%s" % (
+                OPERATOR_STOP_MESSAGE, target_pid, _note)
+            _save_registry(records)
+        return rec, None, 200
 
 
 # ─── Presets + custom profiles (operator data, plain JSON files) ─────
@@ -2012,8 +2165,9 @@ def api_provider_models(name):
 
     The key resolves server-side only (env/file/operator store —
     values in-memory, never returned, logged, or stored in the
-    browser). Google lists through a leased supervisor tunnel
-    (tunnel-only — direct Google dies with geo-block 403).
+    browser). Tunnel-route providers list through a leased
+    supervisor proxy (route-based — direct egress dies with
+    geo-block/sanctions 403).
     Errors are attributed (provider + kind + http). An exact-id
     manual entry stays available client-side as fallback.
     """
@@ -2153,7 +2307,8 @@ def api_runs():
             "id", "run_name", "created", "flow", "provider", "model",
             "route", "lease", "egress", "egress_clean", "sample",
             "limit", "concurrency", "out", "progress_dir", "resume", "cli",
-            "status", "exit_code", "has_gold", "watermark", "preset",
+            "status", "exit_code", "pid", "stop_reason",
+            "has_gold", "watermark", "preset",
             "preset_version", "profile")}
         for r in records
     ]})
@@ -2284,6 +2439,8 @@ def api_create_run():
         "dir": rundir,
         "status": "running",
         "exit_code": None,
+        "pid": None,
+        "stop_reason": None,
         "has_gold": bool(has_gold),
         "watermark": watermark,
         "preset": preset_stamp,
@@ -2329,6 +2486,9 @@ def api_create_run():
     except OSError as exc:
         log_handle.close()
         return jsonify({"error": "spawn failed: %s" % exc}), 500
+    # Durable child identity for pid-targeted cancel (fake spawns in
+    # tests carry no pid — None then, cancel refuses without a target).
+    record["pid"] = _proc_pid(proc)
 
     def _pump(_secrets=_run_secret_values):
         try:
@@ -2379,6 +2539,23 @@ def api_run(run_id):
             rec["exit_code"] = code
             _save_registry(records)
         return jsonify({"run": rec})
+
+
+@app.route("/api/runs/<run_id>/cancel", methods=["POST"])
+def api_cancel_run(run_id):
+    """Stop a running child by pid only; terminal state failed/operator-stopped.
+
+    Unknown runs 404; runs that already left "running" 409 with the
+    record; a pid-identity mismatch or a missing target refuses
+    without signalling (never a blanket kill).
+    """
+    rec, error, status = cancel_run(
+        run_id, grace_seconds=CANCEL_GRACE_SECONDS)
+    if rec is None:
+        return jsonify({"error": error}), status
+    if error is not None:
+        return jsonify({"run": rec, "error": error}), status
+    return jsonify({"run": rec}), 200
 
 
 @app.route("/api/runs/<run_id>/events", methods=["GET"])
