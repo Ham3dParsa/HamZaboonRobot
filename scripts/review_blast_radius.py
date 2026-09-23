@@ -38,6 +38,12 @@ MAX_CALLEES = 30
 MAX_PROBE_FUNCTIONS = 8
 PROBE_OUTPUT_LEN = 200
 PROBE_TIMEOUT_SEC = 5.0
+# Local edge-probe row cap (B2): dirty-tree suites stop paying the full
+# hostile-input probe tax locally (rows from actual probe invocations;
+# skip/import-failed rows never consume the budget). CI passes
+# --full-probes (or --max-probes 0) for full analysis. Selection is
+# deterministic: first-N probeable functions in changed-symbol order.
+DEFAULT_MAX_PROBES = 12
 
 # Probe allowlist (R6): only known-pure modules are imported/probed by
 # default. Everything else is skipped unless --allow-risky is passed.
@@ -962,13 +968,18 @@ def run_edge_probes(
     symbols: list[dict],
     allow_risky: bool = False,
     timeout: float = PROBE_TIMEOUT_SEC,
+    max_probes: int | None = DEFAULT_MAX_PROBES,
 ) -> tuple[list[dict], bool]:
     """Import touched modules, probe changed functions; return (rows, trunc).
 
     Only allowlisted known-pure modules probe by default; every other
     module is skipped unless *allow_risky* is True. Every skip is recorded
     as a data row (never silent). Each probe call is bounded by *timeout*
-    seconds.
+    seconds. *max_probes* caps edge-probe rows from actual invocations
+    (skip/import-failed rows are free); ``0``/``None`` means unlimited
+    (CI ``--full-probes``). Functions are taken first-N in changed-symbol
+    order (deterministic, no sampling); overflow sets the truncation flag.
+    The MAX_PROBE_FUNCTIONS backstop still applies in all modes.
     """
     if REPO_ROOT.as_posix() not in sys.path:
         sys.path.insert(0, REPO_ROOT.as_posix())
@@ -977,6 +988,7 @@ def run_edge_probes(
     rows: list[dict] = []
     truncated = False
     probed = 0
+    probe_rows = 0
     by_module: dict[str, list[str]] = {}
     for sym in symbols:
         if sym["kind"] != "def" or "." in sym["name"]:
@@ -984,8 +996,10 @@ def run_edge_probes(
         mod = _module_for_relpath(sym["file"])
         if mod is None:
             continue
-        by_module.setdefault(mod, []).append(sym["name"])
-    for mod, names in sorted(by_module.items()):
+        names = by_module.setdefault(mod, [])
+        if sym["name"] not in names:
+            names.append(sym["name"])
+    for mod, names in by_module.items():
         if probed >= MAX_PROBE_FUNCTIONS:
             truncated = True
             break
@@ -1011,6 +1025,9 @@ def run_edge_probes(
             if probed >= MAX_PROBE_FUNCTIONS:
                 truncated = True
                 break
+            if max_probes and probe_rows >= max_probes:
+                truncated = True
+                break
             if is_risky_function(name) and not allow_risky:
                 rows.append({
                     "function": f"{mod}.{name}",
@@ -1023,7 +1040,14 @@ def run_edge_probes(
             if not callable(fn) or inspect.isclass(fn):
                 continue
             probed += 1
-            rows.extend(probe_function(mod, fn, timeout=timeout))
+            new_rows = probe_function(mod, fn, timeout=timeout)
+            if max_probes:
+                new_rows = new_rows[: max_probes - probe_rows]
+            probe_rows += len(new_rows)
+            rows.extend(new_rows)
+            if max_probes and probe_rows >= max_probes:
+                truncated = True
+                break
     return rows, truncated
 
 
@@ -1040,6 +1064,7 @@ def build_context(
     allow_risky: bool = False,
     probe_timeout: float = PROBE_TIMEOUT_SEC,
     graph_explicit: bool = False,
+    max_probes: int | None = DEFAULT_MAX_PROBES,
 ) -> tuple[dict, str | None, int]:
     """Assemble the review context.
 
@@ -1056,7 +1081,8 @@ def build_context(
     probes_truncated = False
     if run_probes:
         edge_probes, probes_truncated = run_edge_probes(
-            changed_symbols, allow_risky=allow_risky, timeout=probe_timeout
+            changed_symbols, allow_risky=allow_risky, timeout=probe_timeout,
+            max_probes=max_probes,
         )
 
     graph_built: str | None = None
@@ -1151,8 +1177,16 @@ def main(argv: list[str] | None = None) -> int:
                               "services/db/, services/ai/, bot.py, ...)")
     parser.add_argument("--probe-timeout", type=float, default=PROBE_TIMEOUT_SEC,
                         help="per-probe-call timeout in seconds")
+    parser.add_argument("--max-probes", type=int, default=DEFAULT_MAX_PROBES,
+                        help="cap edge-probe rows from actual invocations "
+                             "(deterministic first-N in symbol order); "
+                             "0 = unlimited")
+    parser.add_argument("--full-probes", action="store_true",
+                        help="unlimited edge-probe rows (CI full analysis)")
     args = parser.parse_args(argv)
 
+    max_probes = 0 if (args.full_probes or args.max_probes <= 0) \
+        else args.max_probes
     context, note, exit_code = build_context(
         base=args.base,
         graph_json=_graph_path(args.graph),
@@ -1162,6 +1196,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_risky=args.allow_risky,
         probe_timeout=args.probe_timeout,
         graph_explicit=args.graph is not None,
+        max_probes=max_probes,
     )
     out_path = Path(args.out)
     out_path.write_text(json.dumps(context, indent=2), encoding="utf-8")

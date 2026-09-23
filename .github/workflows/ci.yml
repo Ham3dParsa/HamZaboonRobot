@@ -123,7 +123,7 @@ jobs:
         run: pip install graphifyy || true
 
       - name: Build review context
-        run: python scripts/review_blast_radius.py --base origin/main --out review-context.json || test $? -eq 2
+        run: python scripts/review_blast_radius.py --base origin/main --out review-context.json --full-probes || test $? -eq 2
 
       - name: Upload review context
         uses: actions/upload-artifact@v4

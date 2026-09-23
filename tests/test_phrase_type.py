@@ -259,11 +259,15 @@ def test_backoff_stops_when_all_keys_429(monkeypatch):
         call_with_backoff(transport, "k1", "m", "p",
                           ring=KeyRing(["k1", "k2"]))
 
-def test_cefr_grade_propagates_ratelimited():
+def test_cefr_grade_propagates_ratelimited(monkeypatch):
     import urllib.error
     import pytest
     from factory.precard.provider_transport import KeyRing
     from factory.lexicon.phrase_judge import RateLimited, grade_batch
+    # Same no-op convention as the sibling backoff tests above: this asserts
+    # propagation (raises RateLimited), not duration — the 5s value is pinned
+    # by test_backoff_rotates_keys_then_succeeds (sleeps == [5]).
+    monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
 
     def transport(api_key, model, prompt, sys_text=None):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)

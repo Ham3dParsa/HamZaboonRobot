@@ -161,8 +161,12 @@ def test_auth_aborts_loud():
         generate_card(item, "key", transport=transport, model_calls={})
 
 
-def test_rate_limit_recorded_not_raised():
+def test_rate_limit_recorded_not_raised(monkeypatch):
     import urllib.error
+    # Pacing sleeps are production behavior, not what this asserts
+    # (recorded-not-raised + call count) — sibling backoff tests use the
+    # same no-op convention; duration is covered by CALL_SLEEP itself.
+    monkeypatch.setattr(card_pilot.time, "sleep", lambda s: None)
     item = {"kind": "word", "text": "xyz", "pool_level": "A1"}
     calls = {}
 

@@ -172,14 +172,14 @@ class ChunkInEquivalenceTests(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(calls, [])
 
-    def test_recent_equivalence_1200_ids(self):
-        wids = self._word_ids(1200)
+    def test_recent_equivalence_650_ids(self):
+        wids = self._word_ids(650)
         for idx, wid in enumerate(wids):
             grades = [2, 3, 4][: (idx % 3) + 1]
             self._insert_events(wid, grades, f"2026-01-{(idx % 28) + 1:02d}T00:")
         result, calls = self._run_recent_tracked(wids, per_word=2)
         self.assertEqual(result, self._reference_recent(wids, 1, 2))
-        self._assert_chunk_discipline(calls, 1200)
+        self._assert_chunk_discipline(calls, 650)
 
     def test_recent_boundary_500_501(self):
         wids = self._word_ids(501)

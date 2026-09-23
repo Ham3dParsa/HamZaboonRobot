@@ -6,9 +6,13 @@ nightly purges + backup stand-in + growth curve), and R4 (expiry / streak /
 quota edges across 3 consecutive days, plus one full 60-day smoke asserting
 growth-curve length 60 and zero violations). No production code is touched;
 no real AI tokens (this harness makes no AI calls at all).
+
+Volumes are env-gated (B1): the 60-day smoke defaults to the HALF cohort
+(100 users x 60 days); HAMZABAN_LOAD_SIM_FULL=1 selects FULL (200 x 60).
 """
 
 import datetime
+import os
 import unittest
 
 from tests.test_integration import helpers
@@ -22,6 +26,13 @@ from tools.load_sim.multiday import (
     sim_day_iso,
     simulate_day,
 )
+
+# B1 slice scaling: default CI runs the HALF cohort (100 users x 60 days);
+# the FULL smoke (200 users x 60 days) runs in the nightly workflow with
+# HAMZABAN_LOAD_SIM_FULL=1. Day count stays 60 so growth-curve/milestone
+# coverage is preserved.
+_FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
+_SLICE_N = DEFAULT_COHORT_N if _FULL else DEFAULT_COHORT_N // 2
 
 
 class DayLoopPureTests(unittest.TestCase):
@@ -196,18 +207,18 @@ class SixtyDaySmokeTests(unittest.TestCase):
         self._holder.cleanup()
 
     def test_full_60day_smoke(self):
-        result = run_60day(n=DEFAULT_COHORT_N, seed=7, db_path=self.db_path)
+        result = run_60day(n=_SLICE_N, seed=7, db_path=self.db_path)
 
-        self.assertEqual(result["total"], DEFAULT_COHORT_N)
+        self.assertEqual(result["total"], _SLICE_N)
         self.assertEqual(result["days"], 60)
         self.assertEqual(len(result["day_totals"]), 60)
         self.assertEqual(len(result["growth_curve_bytes"]), 60)
         self.assertEqual(len(result["backup_runs"]), 59)
         self.assertEqual(result["violations"], [])
-        self.assertEqual(len(set(result["cohort_user_ids"])), 200)
+        self.assertEqual(len(set(result["cohort_user_ids"])), _SLICE_N)
         for day_total in result["day_totals"]:
             self.assertGreaterEqual(day_total["active"], 0)
-            self.assertLessEqual(day_total["active"], 200)
+            self.assertLessEqual(day_total["active"], _SLICE_N)
         for size in result["growth_curve_bytes"]:
             self.assertGreaterEqual(size, 0)
         for entry in result["backup_runs"]:
@@ -216,8 +227,8 @@ class SixtyDaySmokeTests(unittest.TestCase):
         total_sessions = sum(d["sessions"] for d in result["day_totals"])
         self.assertGreater(total_sessions, 0)
         # Population projection helper on the measured cohort figure.
-        projected = project_cost(total_sessions, 200, 5000)
-        self.assertAlmostEqual(projected, total_sessions * 25.0)
+        projected = project_cost(total_sessions, _SLICE_N, 5000)
+        self.assertAlmostEqual(projected, total_sessions * 5000.0 / _SLICE_N)
 
 
 if __name__ == "__main__":
