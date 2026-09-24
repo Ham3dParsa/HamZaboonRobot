@@ -18,7 +18,7 @@ if PROJECT_ROOT not in sys.path:
 from factory.linking import cli
 from factory.linking.webui import server as webui
 
-HTML_PATH = os.path.join(PROJECT_ROOT, "factory", "linking", "webui",
+HTML_PATH = os.path.join(PROJECT_ROOT, "factory", "webui",
                          "index.html")
 
 KID_APPLE = "en-apple-en-noun-AAAA1111"
@@ -507,22 +507,16 @@ def test_cancel_bare_pid_unverifiable_refuses_without_signalling(
         webui._procs.pop(rid, None)
 
 
-def test_cancel_route_registered_and_html_wires_stop_button():
-    """Route exists; the red stop button sits by the progress indicator."""
+def test_cancel_route_registered_and_no_demo_stop_wiring():
+    """Route exists; v5 ships no run-watch UI, so no demo stop wiring."""
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/runs/<run_id>/cancel" in rules
     with open(HTML_PATH, encoding="utf-8") as handle:
         text = handle.read()
-    assert 'id="btn-stop-run"' in text
-    assert "solid-danger" in text
-    assert 'id="stop-status"' in text
-    label_at = text.index('id="watch-progress-label"')
-    stop_at = text.index('id="btn-stop-run"')
-    cli_at = text.index('id="watch-cli"')
-    assert label_at < stop_at < cli_at  # next to progress, before receipt
-    assert "stopSelectedRun" in text
-    assert "/cancel" in text and "'POST'" in text
-    assert "$('btn-stop-run').addEventListener" in text
+    # run control stays API-level in v5 (no fabricated stop button)
+    assert 'id="btn-stop-run"' not in text
+    assert "stopSelectedRun" not in text
+    assert "/cancel" not in text
 
 
 # ─── Item 3: polymorphic wordlist ─────────────────────────────────────
@@ -714,13 +708,12 @@ def test_cancel_natural_zero_exit_returns_already_finished(
         webui._procs.pop(rid, None)
 
 
-def test_cancel_finished_ui_alignment():
-    """Stop button + status line show finished as finished, never cancelled."""
-    with open(HTML_PATH, encoding="utf-8") as handle:
-        text = handle.read()
-    assert "already_finished" in text  # cancel path branches on the shape
-    assert "اجرا به پایان رسیده است." in text  # finished wording, not stopped
-    assert "btn.disabled = !live" in text  # button dead unless running
+def test_cancel_finished_shape_stays_server_side():
+    """Finished-vs-cancelled stays a server shape (no v5 UI text)."""
+    import inspect
+
+    body = inspect.getsource(webui.api_cancel_run)
+    assert "already_finished" in body  # cancel path branches on the shape
 
 
 # ─── Warning 3: proven-exit write-back for every leased route ───────

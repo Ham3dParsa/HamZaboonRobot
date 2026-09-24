@@ -15,7 +15,7 @@ if PROJECT_ROOT not in sys.path:
 
 from factory.linking.webui import server as webui
 
-HTML_PATH = os.path.join(PROJECT_ROOT, "factory", "linking", "webui",
+HTML_PATH = os.path.join(PROJECT_ROOT, "factory", "webui",
                          "index.html")
 
 
@@ -26,137 +26,101 @@ def _html():
 
 def test_wide_canvas_two_column():
     text = _html()
-    assert "max-inline-size:1400px" in text
-    assert "grid-template-columns:minmax(0,7fr) minmax(0,5fr)" in text
+    assert "max-width: 1600px" in text
+    assert "minmax(0, 7.5fr) minmax(320px, 4.5fr)" in text
 
 
-def test_separation_drawer_and_templates():
+def test_v5_identity_and_no_demo_constants():
     text = _html()
-    # run form alone on compose; provider configuration only in drawer
-    assert 'id="drawer-settings"' in text
-    assert 'id="btn-settings"' in text
-    drawer = text.split('id="drawer-settings"')[1].split("</aside>")[0]
-    assert 'id="provider-cards"' in drawer and 'id="s-name"' in drawer
-    assert 'id="s-key"' in drawer  # unified custom form includes key field
-    # no loose-keys card, no manual variable typing in the drawer
-    assert 'id="key-list"' not in drawer
-    assert 'id="k-value"' not in drawer and 'id="k-var"' not in drawer
-    assert 'id="s-keyvar"' not in drawer
-    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
-    assert 'id="provider-cards"' not in compose
-    assert 'id="s-name"' not in compose
-
-
-def test_engineering_renames_consistent():
-    text = _html()
-    # new names present across page + guide + receipts
-    for token in ("کنسول کارخانه داده", "غربال‌سازی و داوری",
-                  "پیش‌تنظیم‌های اجرا", "پیش‌تنظیم", "رسید فرمان",
-                  "رسید فرمان پیوند", "محک",
-                  "کارت‌های رویداد", "اتصال‌های سفارشی"):
+    for token in ("کنسول عملیات کارخانه داده هم‌زبان",
+                  "view-linking", "view-providers", "view-telemetry",
+                  "view-paths", "btn-nav-linking"):
         assert token in text, token
-    # old names gone from visible headings/labels
-    for old in ("پریست‌ها", "پریست", "قبض فرمان", "سنجش با طلا",
-                "داور پیوند", "ساخت اجرا", "قالب‌های داور",
-                "قالب‌های کاری", "نشاندن در فرم", "قالب داور",
-                "قالب کاری"):
-        assert old not in text, old
-    # linking-tab receipt builds the linking line's own command (never precard)
-    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
-    assert "رسید فرمان پیوند" in compose
-    assert "factory.linking.cli" in text  # receipt builder script
-    assert "factory.precard" not in compose
-    assert "precard" not in compose
-    # job-template alias routes exist alongside canonical presets
+    assert "kilo" not in text.lower()  # NOT ready engine-side: never shown
+    for demo in ("124 / 200 RPH", "screened_run20.jsonl",
+                 "run%2:38:00::", "verdictAlert", "gemini-3.8",
+                 "llama-3.3-70b", "precards.jsonl", "kaikki-en-words.jsonl"):
+        assert demo not in text, demo
+
+
+def test_nav_sidebar_views_no_popups():
+    text = _html()
+    assert 'id="main-nav"' in text
+    assert 'id="menu-toggle-btn"' in text
+    assert 'id="nav-backdrop"' in text
+    for view in ("view-providers", "view-telemetry", "view-paths",
+                 "view-screening", "view-linking", "view-precard",
+                 "view-pilot", "view-transfer"):
+        assert 'id="%s"' % view in text, view
+    assert "openView" in text
+    # no popups, no side drawer, no thick colored borders
+    assert "alert(" not in text
+    assert "confirm(" not in text
+    assert "prompt(" not in text
+
+
+def test_status_bar_wired_to_real_endpoints():
+    text = _html()
+    for ctrl in ('id="badge-root"', 'id="badge-keys"',
+                 'id="badge-egress"'):
+        assert ctrl in text, ctrl
+    assert "/api/master/status" in text
+    assert "/api/egress/health" in text
+    assert "/api/files/roots" in text
+
+
+def test_linking_queue_from_screened_and_label_wiring():
+    text = _html()
+    # queue + current sense render only from the screened output
+    assert 'id="queue-list"' in text
+    assert 'id="sense-id"' in text and 'id="sense-def"' in text
+    assert 'id="sense-example"' in text and 'id="sense-meta"' in text
+    assert "/api/screened" in text
+    assert 'id="handoff-path"' in text and 'id="handoff-total"' in text
+    # reject-all + link vote post to the label endpoint with a receipt
+    assert 'id="btn-reject-all"' in text
+    assert 'id="btn-record-link"' in text
+    assert 'id="btn-skip-next"' in text
+    assert 'id="label-target"' in text
+    assert 'id="label-stratum"' in text
+    assert 'id="label-annotator"' in text
+    assert 'id="label-receipt"' in text
+    assert "'POST'" in text and "/api/labels" in text
+    # no candidate feed exists server-side: honest empty state, never stubs
+    assert "بدون فید زنده نامزدها" in text
+
+
+def test_paths_view_from_live_roots():
+    text = _html()
+    assert 'id="paths-tbody"' in text
+    assert 'id="paths-badge"' in text
+    assert "/api/files/roots" in text
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/job_templates" in rules
-    assert "/api/presets" in rules
+    assert "/api/files/list" in rules
 
 
-def test_ergonomics_controls():
+def test_preset_form_live_registry_locked_temp():
     text = _html()
-    assert 'id="btn-skey-toggle"' in text  # client-side only toggle
-    assert 'id="provider-cards"' in text  # per-provider cards
-    assert 'pill done' in text and 'pill fail' in text  # status pills
-    assert 'id="file-picker"' in text  # input/output path picker
-    # spare run form: no steppers, spinners, or extra knobs
-    for gone in ('id="btn-conc-minus"', 'id="btn-conc-plus"',
-                 'id="paths-spinner"', 'id="f-limit"',
-                 'id="f-concurrency"', 'id="f-resume"',
-                 'id="f-progress"'):
-        assert gone not in text, gone
-
-
-def test_watch_cards_progress_no_raw_dump():
-    text = _html()
-    assert 'id="watch-cards"' in text
-    assert 'id="watch-progress"' in text
-    assert 'role="progressbar"' in text
-    assert 'evcard lv-' in text
-    assert 'id="watch-events"' not in text  # raw dump removed
-
-
-def test_benchmark_filters_sort_search_pagination():
-    text = _html()
-    assert 'id="b-mismatch-only"' in text
-    # meaning-first sorts: source word, gold, prediction (no key sort:
-    # internal w:key ids are secondary small text only)
-    assert 'data-sort="text"' in text and 'data-sort="gold"' in text
-    assert 'data-sort="predicted"' in text
-    assert 'data-sort="key"' not in text
-    assert 'id="b-search"' in text
-    assert 'id="b-prev"' in text and 'id="b-next"' in text
-    assert 'BENCH_PAGE_SIZE' in text
-
-
-def test_compose_path_pickers_plus_manual_entry():
-    text = _html()
-    # spare form: picker dialog buttons next to input + output only
-    for btn, field in (("btn-browse-sample", "f-sample"),
-                       ("btn-browse-out", "f-out")):
-        assert 'id="%s"' % btn in text, btn
-        assert 'id="%s"' % field in text, field
-    assert 'id="btn-browse-progress"' not in text
-    assert 'id="f-progress"' not in text
-    assert 'id="file-picker"' in text
-    assert 'id="picker-list"' in text and 'id="picker-pick"' in text
-
-
-def test_spare_run_form_provider_model_input_output():
-    text = _html()
-    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
-    # spare and modern: provider, model, input file, output path, run button
-    for ctrl in ('id="f-provider"', 'id="f-model"', 'id="f-sample"',
-                 'id="f-out"', 'id="btn-launch"'):
-        assert ctrl in compose, ctrl
-    assert "فایل ورودی" in compose
-    assert "مسیر خروجی" in compose
-    # removed knobs stay out of the linking tab
-    for gone in ('id="f-limit"', 'id="f-concurrency"', 'id="f-resume"',
-                 'id="f-progress"', 'id="sample-about"',
-                 'id="schema-example"', 'id="paths-echo"'):
-        assert gone not in compose, gone
-
-
-def test_single_run_preset_section():
-    text = _html()
-    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
-    # one straightforward section for run presets: a single save/load
-    assert "پیش‌تنظیم‌های اجرا" in compose
-    assert 'id="t-name"' in compose and 'id="t-list"' in compose
-    assert 'id="btn-template-save"' in compose
-    assert 'id="btn-template-load"' in compose
-    assert 'id="btn-template-del"' in compose
-    # the two side-column boxes are gone (no judge presets, no job presets)
-    for gone in ('id="j-name"', 'id="j-list"',
-                 'id="btn-judge-save"', 'id="btn-judge-apply"',
-                 'id="btn-judge-del"', 'judge-kind'):
-        assert gone not in text, gone
-    # backend endpoints stay working; old stored records keep loading
+    assert 'id="preset-provider"' in text
+    assert 'id="preset-model"' in text
+    assert 'id="btn-fetch-models"' in text
+    assert 'id="preset-models"' in text
+    assert "/api/providers/" in text and "/models" in text
+    assert "/api/engine_info" in text
+    # backend preset kinds stay working (no preset UI save in v5)
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/presets" in rules
     assert "/api/job_templates" in rules
     assert "/api/judge_presets" in rules
+
+
+def test_telemetry_live_facts_honest_empty_tokens():
+    text = _html()
+    assert 'id="telemetry-tbody"' in text
+    assert 'id="telemetry-badge"' in text
+    assert "/api/rate_state" in text
+    # token/cost aggregates have no server computation: honest "—", never faked
+    assert "سرور ثبت نمی‌کند" in text
 
 
 def test_provider_list_matches_engine_registry_no_kilo():
@@ -174,56 +138,44 @@ def test_provider_list_matches_engine_registry_no_kilo():
 
 def test_benchmark_table_meaning_first():
     text = _html()
-    assert "منبع" in text and "شاهد مرجع" in text
-    assert "پیش‌بینی موتور" in text
-    assert "هم‌خوان با شاهد" in text and "مغایر با شاهد" in text
-    assert "badge-ok" in text and "badge-mis" in text
-    assert "sub-id" in text  # technical ids kept as secondary small text
-    assert "شناسه‌های فنی" in text
+    # telemetry table keeps the provider/model-first columns; every
+    # token/cost cell renders the honest empty state (no fake numbers)
+    assert "ارائه‌دهنده" in text and "مدل فعال" in text
+    assert "توکن ورودی عادی" in text and "ارزش تخمینی دلاری" in text
 
 
 def test_form_hints_progressive_disclosure():
     text = _html()
-    # every kept field help is a tooltip popup toggled by a small button,
-    # never an always-visible paragraph
-    for tip in ("tip-provider", "tip-model", "tip-sample",
-                "tip-out", "tip-tname", "tip-tlist",
-                "tip-brun", "tip-gsearch",
-                "tip-sname", "tip-sbase", "tip-skey", "tip-smodel"):
-        assert 'id="%s"' % tip in text, tip
-        assert '<p class="hint" id="%s"' % tip not in text, tip
-        assert 'data-tip="%s"' % tip in text, tip
-    # removed knobs leave no tooltip behind
-    for gone in ("tip-limit", "tip-concurrency", "tip-resume",
-                 "tip-progress", "tip-jname", "tip-jlist"):
-        assert 'id="%s"' % gone not in text, gone
-    assert "bindTips" in text
-    # dynamic validation line stays a live paragraph
-    assert 'id="sample-check"' in text
+    # v5 carries no tooltip popups and no always-visible hint paragraphs
+    # on the wiring surfaces; dynamic latin is isolated via classes
+    assert "bindTips" not in text
+    assert "data-tip=" not in text
+    # dynamic validation/errors stay inline text lines
+    assert 'id="provider-err"' in text
+    assert 'id="label-status"' in text
 
 
 def test_guide_grouped_accordion_with_bulk_toggle_and_search_expand():
     text = _html()
-    assert 'id="guide-expand-all"' in text
-    assert 'id="guide-collapse-all"' in text
-    assert "<details" in text and "<summary>" in text
-    assert 'class="qgroup"' in text
-    assert "guideSetAll" in text
-    assert "card.open = true" in text  # search auto-expands hits
+    # v5 ships no guide accordion; the linking queue is the live browser
+    assert "guideSetAll" not in text
+    assert 'id="queue-list"' in text
 
 
 def test_dark_default_persisted_toggle():
     text = _html()
     assert 'data-theme="dark"' in text
-    assert "hb-theme" in text
-    assert 'id="btn-theme"' in text
+    assert "hz-theme" in text
+    assert 'id="theme-btn"' in text
 
 
 def test_rtl_persian_digits_latin_isolation():
     text = _html()
     assert '<html lang="fa" dir="rtl"' in text
     assert "faNum" in text
-    assert 'lang="en" dir="ltr"' in text
+    # v5 isolation contract: dedicated classes, never bare latin runs
+    assert "ltr-text" in text and "code-token" in text
+    assert "unicode-bidi: isolate" in text
 
 
 def test_safety_surfaces_unchanged():
@@ -282,11 +234,12 @@ def test_provider_cards_explicit_keyvar_mapping_and_rate_state():
     assert "refreshProviderCards" in text
     # per-card status pills: ready versus missing
     assert "کلید آماده است" in text and "بدون کلید" in text
-    # explicit per-provider key-variable mapping (names only, persisted)
-    assert "providerKeyVarSave" in text
-    assert "/key_var" in text
+    # effective key-variable mapping is displayed (names only, persisted);
+    # the rename (PUT) stays API-level in v5
+    assert "key_var" in text
     assert 'id="btn-master-ensure"' in text
     assert "masterEnsure" in text
+    assert "/api/master/ensure" in text
     # honest per-provider rate facts under each card
     assert "rateLineFor" in text and "/api/rate_state" in text
     # loose-keys card and manual generic variable inputs are gone
@@ -337,13 +290,13 @@ def test_provider_cards_explicit_keyvar_mapping_and_rate_state():
     assert denied.status_code == 400
 
 
-def test_custom_unified_creation_form():
+def test_custom_profiles_stay_api_level():
+    # v5 ships no custom-profile form; the backend routes stay working
+    # (creation round-trips are covered in the adapter suite).
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/custom_providers" in rules
     text = _html()
-    drawer = text.split('id="drawer-settings"')[1].split("</aside>")[0]
-    for ctrl in ('id="s-name"', 'id="s-base"', 'id="s-model"',
-                 'id="s-key"', 'id="btn-profile-save"',
-                 'id="profile-list"'):
-        assert ctrl in drawer, ctrl
+    assert 'id="drawer-settings"' not in text
 
 
 def test_compare_returns_full_rows_for_filter(tmp_path, monkeypatch):
@@ -375,10 +328,8 @@ def test_compare_returns_full_rows_for_filter(tmp_path, monkeypatch):
 
 def test_routing_line_visible_before_launch():
     text = _html()
-    # leased-vs-direct routing line under the provider select
-    assert 'id="route-line"' in text
-    assert "updateRouteLine" in text
-    assert "تونل اجاره‌ای" in text and "مستقیم" in text
+    # leased-vs-direct routing facts render under each provider card
+    assert "تونل استیجاری" in text and "مستقیم" in text
     client = webui.app.test_client()
     rows = {r["name"]: r
             for r in client.get("/api/providers").get_json()["providers"]}
@@ -605,15 +556,9 @@ def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
 
 
 def test_input_hint_and_footer_word_list_identity():
-    """Hint names the linking word list; footer matches console identity."""
+    """Handoff strip names the screened input; console identity kept."""
     text = _html()
-    tip = text.split('id="tip-sample"')[1].split("</span>")[0]
-    assert "فهرست واژه" in tip
-    assert "sample.json" not in tip
-    compose = text.split('id="panel-compose"')[1].split("</section>")[0]
-    assert "sample.json" not in compose
-    assert "factory.precard" not in compose
-    footer = text.split("<footer>")[1].split("</footer>")[0]
-    assert "factory.precard" not in footer
-    assert "کنسول" in footer and "کارخانه داده" in footer
-    assert "موتور خط فرمان" not in footer
+    assert 'id="handoff-path"' in text
+    assert 'id="handoff-total"' in text
+    assert "/api/screened" in text
+    assert "کنسول عملیات کارخانه داده هم‌زبان" in text
