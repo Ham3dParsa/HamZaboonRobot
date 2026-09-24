@@ -79,13 +79,14 @@ def test_server_up_with_few_workers_passes(monkeypatch):
 
 
 def test_mid_ram_caps_workers(monkeypatch, capsys):
-    # 2GB free fits 7 workers (2048 // 260), not 14: auto-cap with a
-    # notice, never a refusal and never a "lower your workers" advice.
+    # 2GB free - 1GB headroom = 1024MB usable -> 3 workers (not 7):
+    # auto-cap with a notice, never a refusal, never a "lower your
+    # workers" advice.
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
     monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 2 * GB)
     monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
-    assert mod.run_preflight_checks(14) == 7
+    assert mod.run_preflight_checks(14) == 3
     err = capsys.readouterr().err
     assert "capping requested 14" in err
     assert "-n 4" not in err  # R4
@@ -103,12 +104,13 @@ def test_bottom_ram_refuses(monkeypatch, capsys):
     assert "-n 4" not in err  # R4
 
 
-def test_exact_cap_boundary(monkeypatch):
-    # free == exactly 8 workers of budget runs all 8 with no notice path
-    # taken for the cap (requested <= cap).
+def test_exact_usable_boundary(monkeypatch):
+    # usable == exactly 8 workers of budget -> 8, requested <= cap so
+    # no cap path is taken.
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
-    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 8 * 260 * 1024**2)
+    monkeypatch.setattr(mod, "_free_ram_bytes",
+                        lambda: 1 * GB + 8 * 260 * 1024**2)
     monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 20 * GB)
     assert mod.run_preflight_checks(8) == 8
 
@@ -221,7 +223,7 @@ def test_main_mid_ram_caps_and_launches(monkeypatch):
     assert mod.main(["-n", "14"]) == 0
     assert len(calls) == 1
     cmd = calls[0]
-    assert cmd[cmd.index("-n") + 1] == "7"
+    assert cmd[cmd.index("-n") + 1] == "3"
 
 
 def test_main_bottom_ram_refuses_without_launching(monkeypatch):

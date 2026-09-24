@@ -19,9 +19,10 @@ Preflight (R1 serialize rule): the full parallel suite and a LOADED LM-Studio
 model must never run together. Before launching pytest, the wrapper refuses
 (exit 1) when a model server on 127.0.0.1:1234 reports a non-empty
 `/v1/models` list (or the list cannot be read — fail-closed) while the
-EFFECTIVE workers > 4, or when free RAM fits fewer than 2 workers.
+EFFECTIVE workers > 4, or when free RAM minus a 1GB OS/controller
+headroom fits fewer than 2 workers.
 Otherwise RAM auto-caps workers (~260MB each, measured): 3GB free runs up
-to 11, 2.2GB runs 8, 1GB runs 3 — with a notice, never a refusal. An idle
+to 7, 2.2GB runs 4, 1GB refuses — with a notice, never a refusal. An idle
 server (port open, zero models loaded) is allowed: it holds ~50MB, not
 gigabytes. Serial runs (-n 0/1) always proceed. Escape hatch for CI/exotic
 runners: `--skip-preflight` or `HAMZABAN_SKIP_PREFLIGHT=1`
@@ -55,6 +56,10 @@ SERIALIZE_WORKER_THRESHOLD = 4
 MAX_WORKERS = 14
 MIN_WORKERS_FOR_RUN = 2
 PER_WORKER_RSS_MB = 260
+# OS/controller headroom: the first GB of free RAM is never counted toward
+# workers (telemetry showed ~0.5-1GB system fluctuation mid-run; the
+# controller itself holds ~100-200MB). Prevents swap/OOM at the floor.
+RAM_HEADROOM_BYTES = 1 * 1024**3
 SKIP_PREFLIGHT_ENV_VAR = "HAMZABAN_SKIP_PREFLIGHT"
 INCLUDE_RESEARCH_ENV_VAR = "HAMZABAN_INCLUDE_RESEARCH"
 
@@ -131,7 +136,9 @@ def run_preflight_checks(workers: int):
     free = _free_ram_bytes()
     total = _total_ram_bytes()
     if workers >= MIN_WORKERS_FOR_RUN and free is not None:
-        cap = min(free // (PER_WORKER_RSS_MB * 1024 * 1024), MAX_WORKERS)
+        usable = free - RAM_HEADROOM_BYTES
+        cap = min(max(usable, 0) // (PER_WORKER_RSS_MB * 1024 * 1024),
+                  MAX_WORKERS)
         if cap < MIN_WORKERS_FOR_RUN:
             total_gb = (f" of {total / (1024 ** 3):.1f}GB total"
                         if total else "")
