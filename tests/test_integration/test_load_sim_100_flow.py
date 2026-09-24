@@ -5,9 +5,9 @@ routers (``bot.callback_router`` / ``bot.text_router``) on an isolated SQLite
 file (snapshot-DB isolation via ``tests/test_integration/helpers.py``), with
 all Telegram sends and AI steps mocked (AI budget: 0 real tokens — the real
 ``services.ai.ai.ask_card`` provider is patched to raise if ever reached).
-Volumes are env-gated (B1): default CI runs the HALF slice (n=50);
-HAMZABAN_LOAD_SIM_FULL=1 selects the FULL slice (n=100) in the nightly
-workflow.
+Volumes are env-gated (B1): local runs default to the HALF slice (n=50);
+HAMZABAN_LOAD_SIM_FULL=1 selects the FULL slice (n=100), which CI sets, so
+every PR asserts the full-volume gates.
 
 Locked R4 gates asserted here:
 - grade-path p95 under 800ms,
@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 
 from tests.test_integration import helpers
 
-# B1 slice scaling: default CI runs the HALF slice (n=50); the FULL slice
-# (n=100) runs in the nightly workflow with HAMZABAN_LOAD_SIM_FULL=1.
+# B1 slice scaling: local runs default to the HALF slice (n=50); the FULL
+# slice (n=100) runs in CI with HAMZABAN_LOAD_SIM_FULL=1.
 _FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
 _SLICE_N = 100 if _FULL else 50
 

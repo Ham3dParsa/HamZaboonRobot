@@ -56,6 +56,9 @@ jobs:
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
+          # Load-sim slices run at FULL volumes here (fast HALF default is
+          # for local runs); see tests/test_integration/test_load_sim_5k_flow.py.
+          HAMZABAN_LOAD_SIM_FULL: "1"
         run: python -m pytest tests/ -n 4 -m "not research" --junitxml=junit/test-results.xml -v
 
       - name: Test factory scripts

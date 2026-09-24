@@ -566,15 +566,21 @@ def test_words_filter_lemma_less_mini_table(tmp_path):
                              "wordnet_sensekey": "bear%%2:01:%02d::" % i,
                              "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
                              "provenance": "test"})
+        # Adversarial short word: guards word_matches_kid over-matching
+        # (OC review on PR #823); keeps the get/light family covered.
+        writer.writerow({"kaikki_sense_id": "en-get-en-verb-00",
+                         "wordnet_sensekey": "get%%2:01:00::",
+                         "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
+                         "provenance": "test"})
     header = _csv.DictReader(
         open(table, encoding="utf-8")).fieldnames or []
     assert "lemma" not in header  # tables lack the column
     out = tmp_path / "gallery.html"
     assert viewer.main(["--table", str(table),
-                        "--words", "run,take",
+                        "--words", "run,take,get",
                         "--out", str(out)]) == 0
     page = out.read_text(encoding="utf-8")
-    assert page.count('tr class="summary"') == 6
+    assert page.count('tr class="summary"') == 7
 
 
 def test_link_stats_none_method_no_crash():

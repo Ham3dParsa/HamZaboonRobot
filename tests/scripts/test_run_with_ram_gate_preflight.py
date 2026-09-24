@@ -42,7 +42,7 @@ def test_loaded_server_with_many_workers_refuses(monkeypatch, capsys):
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: True)
     monkeypatch.setattr(mod, "_loaded_model_count", lambda: 2)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(14) == 1
+    assert mod.run_preflight_checks(14) is None
     err = capsys.readouterr().err
     assert "Unload the model" in err
     assert "-n 4" not in err  # R4: never suggest lowering workers
@@ -53,7 +53,7 @@ def test_idle_server_with_zero_models_allows(monkeypatch, capsys):
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: True)
     monkeypatch.setattr(mod, "_loaded_model_count", lambda: 0)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(14) is None
+    assert mod.run_preflight_checks(14) == 14
     err = capsys.readouterr().err
     assert "0 models loaded" in err
 
@@ -63,7 +63,7 @@ def test_unreadable_model_list_refuses_fail_closed(monkeypatch, capsys):
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: True)
     monkeypatch.setattr(mod, "_loaded_model_count", lambda: None)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(14) == 1
+    assert mod.run_preflight_checks(14) is None
     err = capsys.readouterr().err
     assert "fail-closed" in err
     assert "-n 4" not in err  # R4
@@ -75,34 +75,57 @@ def test_server_up_with_few_workers_passes(monkeypatch):
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: True)
     monkeypatch.setattr(mod, "_loaded_model_count", lambda: 2)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(2) is None
+    assert mod.run_preflight_checks(2) == 2
 
 
-def test_low_ram_refuses(monkeypatch, capsys):
+def test_mid_ram_caps_workers(monkeypatch, capsys):
+    # 2GB free fits 7 workers (2048 // 260), not 14: auto-cap with a
+    # notice, never a refusal and never a "lower your workers" advice.
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
     monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 2 * GB)
     monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
-    assert mod.run_preflight_checks(14) == 1
+    assert mod.run_preflight_checks(14) == 7
     err = capsys.readouterr().err
-    assert "20%" in err
+    assert "capping requested 14" in err
     assert "-n 4" not in err  # R4
 
 
-def test_ram_at_floor_boundary_passes(monkeypatch):
-    # free == exactly 20% of total is not below the floor.
+def test_bottom_ram_refuses(monkeypatch, capsys):
+    # 400MB free fits 1 worker: below the 2-worker minimum -> refuse.
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
-    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 4 * GB)
-    monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 20 * GB)
+    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: int(0.4 * GB))
+    monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
     assert mod.run_preflight_checks(14) is None
+    err = capsys.readouterr().err
+    assert "REFUSE" in err
+    assert "-n 4" not in err  # R4
+
+
+def test_exact_cap_boundary(monkeypatch):
+    # free == exactly 8 workers of budget runs all 8 with no notice path
+    # taken for the cap (requested <= cap).
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 8 * 260 * 1024**2)
+    monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 20 * GB)
+    assert mod.run_preflight_checks(8) == 8
+
+
+def test_serial_always_proceeds(monkeypatch):
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: int(0.4 * GB))
+    monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
+    assert mod.run_preflight_checks(0) == 0
 
 
 def test_happy_path_passes(monkeypatch):
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(14) is None
+    assert mod.run_preflight_checks(14) == 14
 
 
 def test_psutil_missing_skips_ram_check(monkeypatch):
@@ -112,7 +135,7 @@ def test_psutil_missing_skips_ram_check(monkeypatch):
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
     monkeypatch.setattr(mod, "psutil", None)
-    assert mod.run_preflight_checks(14) is None
+    assert mod.run_preflight_checks(14) == 14
 
 
 class _FakeProc:
@@ -188,10 +211,23 @@ def test_main_unreadable_list_refuses_without_launching(monkeypatch):
     assert calls == []
 
 
-def test_main_low_ram_refuses_without_launching(monkeypatch):
+def test_main_mid_ram_caps_and_launches(monkeypatch):
     mod = _load_module(monkeypatch)
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
     monkeypatch.setattr(mod, "_free_ram_bytes", lambda: 2 * GB)
+    monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
+    monkeypatch.setattr(mod, "_peak_rss_mb", lambda pid: 100.0)
+    calls = _fake_popen_factory(monkeypatch, mod, rc=0)
+    assert mod.main(["-n", "14"]) == 0
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[cmd.index("-n") + 1] == "7"
+
+
+def test_main_bottom_ram_refuses_without_launching(monkeypatch):
+    mod = _load_module(monkeypatch)
+    monkeypatch.setattr(mod, "_model_server_is_up", lambda: False)
+    monkeypatch.setattr(mod, "_free_ram_bytes", lambda: int(0.4 * GB))
     monkeypatch.setattr(mod, "_total_ram_bytes", lambda: 16 * GB)
     calls = _fake_popen_factory(monkeypatch, mod, rc=0)
     assert mod.main(["-n", "14"]) == 1  # exit 1 preserved
@@ -285,8 +321,8 @@ def test_worker_threshold_boundary(monkeypatch):
     monkeypatch.setattr(mod, "_model_server_is_up", lambda: True)
     monkeypatch.setattr(mod, "_loaded_model_count", lambda: 1)
     _healthy_ram(monkeypatch, mod)
-    assert mod.run_preflight_checks(4) is None  # at threshold: allowed
-    assert mod.run_preflight_checks(5) == 1  # above threshold: refused
+    assert mod.run_preflight_checks(4) == 4  # at threshold: allowed
+    assert mod.run_preflight_checks(5) is None  # above threshold: refused
 
 
 def test_default_workers_is_eight(monkeypatch):

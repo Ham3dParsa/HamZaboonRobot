@@ -3,10 +3,10 @@
 Drives ``tools.load_sim.driver.run_load_5k`` with seed=11 through the
 REAL routers on an isolated SQLite file (snapshot-DB isolation via
 ``tests/test_integration/helpers.py``), with all Telegram sends and AI steps
-mocked (AI budget: 0 real tokens). Volumes are env-gated (B1): default CI
-runs the HALF slice (n=100, concurrency=10); HAMZABAN_LOAD_SIM_FULL=1
-selects the FULL proof slice (n=200, concurrency=10) in the nightly
-workflow.
+mocked (AI budget: 0 real tokens). Volumes are env-gated (B1): local runs
+default to the HALF slice (n=100, concurrency=10); HAMZABAN_LOAD_SIM_FULL=1
+selects the FULL proof slice (n=200, concurrency=10), which CI sets, so
+every PR asserts the full-volume gates.
 
 Locked R3 gates, scaled for the proof slice:
 - grade-path p95 under 1500ms,
@@ -25,8 +25,8 @@ from unittest.mock import MagicMock, patch
 
 from tests.test_integration import helpers
 
-# B1 slice scaling: default CI runs the HALF slice (n=100); the FULL proof
-# slice (n=200) runs in the nightly workflow with HAMZABAN_LOAD_SIM_FULL=1.
+# B1 slice scaling: local runs default to the HALF slice (n=100); the FULL
+# proof slice (n=200) runs in CI with HAMZABAN_LOAD_SIM_FULL=1.
 # Concurrency stays 10 in both so contention character is preserved.
 _FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
 _SLICE_N = 200 if _FULL else 100

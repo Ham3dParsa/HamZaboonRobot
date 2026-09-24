@@ -8,7 +8,8 @@ growth-curve length 60 and zero violations). No production code is touched;
 no real AI tokens (this harness makes no AI calls at all).
 
 Volumes are env-gated (B1): the 60-day smoke defaults to the HALF cohort
-(100 users x 60 days); HAMZABAN_LOAD_SIM_FULL=1 selects FULL (200 x 60).
+(100 users x 60 days); HAMZABAN_LOAD_SIM_FULL=1 selects FULL (200 x 60),
+which CI sets, so every PR asserts the full-volume gates.
 """
 
 import datetime
@@ -27,10 +28,9 @@ from tools.load_sim.multiday import (
     simulate_day,
 )
 
-# B1 slice scaling: default CI runs the HALF cohort (100 users x 60 days);
-# the FULL smoke (200 users x 60 days) runs in the nightly workflow with
-# HAMZABAN_LOAD_SIM_FULL=1. Day count stays 60 so growth-curve/milestone
-# coverage is preserved.
+# B1 slice scaling: local runs default to the HALF cohort (100 x 60); the
+# FULL smoke (200 x 60) runs in CI with HAMZABAN_LOAD_SIM_FULL=1. Day count
+# stays 60 so growth-curve/milestone coverage is preserved.
 _FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
 _SLICE_N = DEFAULT_COHORT_N if _FULL else DEFAULT_COHORT_N // 2
 
