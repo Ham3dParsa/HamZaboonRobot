@@ -18,15 +18,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _egress_clean_cache_isolated(monkeypatch, tmp_path):
-    """R7: Pool.lease tunnel path reads/writes clean_cache.json and pings
-    via tcp_ping — pin the file at tmp_path and the probe at dead so
-    this hermetic suite never touches the repo file or real DNS.
+def _egress_probe_isolated(monkeypatch):
+    """R7: Pool.lease tunnel path pings via tcp_ping — pin the probe at
+    dead so this hermetic suite never touches real DNS. (Clean-cache
+    file pin lives in the shared tests/conftest.py fixture.)
     TunnelOwner.acquire() probes via _server_tcp_ping (not tcp_ping),
     so per-test liveness overrides that seam; the default here is live
     so spawn-focused tests never pay the probe path."""
-    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
-                       str(tmp_path / "clean_cache.json"))
     monkeypatch.setattr(supervisor, "tcp_ping",
                         lambda *args, **kwargs: None)
     monkeypatch.setattr(supervisor, "_server_tcp_ping",

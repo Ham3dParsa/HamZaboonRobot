@@ -146,6 +146,28 @@ def pytest_runtest_teardown(item, nextitem):
 
 
 @pytest.fixture(autouse=True)
+def _egress_shared_isolated(monkeypatch, tmp_path):
+    """Serial-order isolation for egress suites (PR #824): urllib's
+    process-global _opener cache and EGRESS_* env would otherwise leak
+    across tests in one process (a build_opener fake or real opener
+    cached by one test shadows later mocks; load_factory_env writes
+    real file values into os.environ). The clean-cache file is pinned
+    to tmp here too (single home for the former per-suite copies).
+    Reset manually before AND after each test — monkeypatch undo would
+    restore a poisoned cached value, so it is not used for _opener. Var
+    list owned by factory.core.env_loader.EGRESS_VARS (single source)."""
+    import urllib.request as _url
+    from factory.core.env_loader import EGRESS_VARS
+    _url._opener = None
+    for _var in EGRESS_VARS:
+        monkeypatch.delenv(_var, raising=False)
+    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
+                       str(tmp_path / "clean_cache.json"))
+    yield
+    _url._opener = None
+
+
+@pytest.fixture(autouse=True)
 def _ai_master_key():
     old = getattr(config, "AI_MASTER_KEY", "")
     config.AI_MASTER_KEY = TEST_MASTER_KEY
