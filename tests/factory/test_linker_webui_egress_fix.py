@@ -10,8 +10,6 @@ import os
 import sys
 import urllib.request as _url
 
-import pytest
-
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 if PROJECT_ROOT not in sys.path:
@@ -53,14 +51,6 @@ class _FakeResp:
 
     def read(self):
         return json.dumps(self._payload)
-
-
-@pytest.fixture(autouse=True)
-def _egress_clean_cache_isolated(monkeypatch, tmp_path):
-    """R7 mirror: pin the clean-cache file at tmp_path so this suite
-    never touches the repo file."""
-    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
-                       str(tmp_path / "clean_cache.json"))
 
 
 def _header_map(req):
