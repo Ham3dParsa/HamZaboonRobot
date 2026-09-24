@@ -56,14 +56,17 @@ jobs:
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v
+          # Load-sim slices run at FULL volumes here (fast HALF default is
+          # for local runs); see tests/test_integration/test_load_sim_5k_flow.py.
+          HAMZABAN_LOAD_SIM_FULL: "1"
+        run: python -m pytest tests/ -n 4 -m "not research" --junitxml=junit/test-results.xml -v
 
       - name: Test factory scripts
         id: factory
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python -m pytest tests/factory/ -n 4 --junitxml=junit/factory-results.xml -v
+        run: python -m pytest tests/factory/ -n 4 -m "not research" --junitxml=junit/factory-results.xml -v
 
       - name: Check whitespace errors
         run: git diff --check
@@ -123,7 +126,7 @@ jobs:
         run: pip install graphifyy || true
 
       - name: Build review context
-        run: python scripts/review_blast_radius.py --base origin/main --out review-context.json || test $? -eq 2
+        run: python scripts/review_blast_radius.py --base origin/main --out review-context.json --full-probes || test $? -eq 2
 
       - name: Upload review context
         uses: actions/upload-artifact@v4

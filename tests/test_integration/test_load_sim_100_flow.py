@@ -1,10 +1,13 @@
 """100-user load-simulation GREEN test (locked plan scale/plan-load-sim-100, T1).
 
-Drives ``tools.load_sim.driver.run_load`` with n=100 seed=7 through the REAL
+Drives ``tools.load_sim.driver.run_load`` with seed=7 through the REAL
 routers (``bot.callback_router`` / ``bot.text_router``) on an isolated SQLite
 file (snapshot-DB isolation via ``tests/test_integration/helpers.py``), with
 all Telegram sends and AI steps mocked (AI budget: 0 real tokens — the real
 ``services.ai.ai.ask_card`` provider is patched to raise if ever reached).
+Volumes are env-gated (B1): local runs default to the HALF slice (n=50);
+HAMZABAN_LOAD_SIM_FULL=1 selects the FULL slice (n=100), which CI sets, so
+every PR asserts the full-volume gates.
 
 Locked R4 gates asserted here:
 - grade-path p95 under 800ms,
@@ -13,10 +16,16 @@ Locked R4 gates asserted here:
 - error rate under 0.5%.
 """
 
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
 from tests.test_integration import helpers
+
+# B1 slice scaling: local runs default to the HALF slice (n=50); the FULL
+# slice (n=100) runs in CI with HAMZABAN_LOAD_SIM_FULL=1.
+_FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
+_SLICE_N = 100 if _FULL else 50
 
 
 class LoadSim100FlowTests(unittest.IsolatedAsyncioTestCase):
@@ -54,10 +63,10 @@ class LoadSim100FlowTests(unittest.IsolatedAsyncioTestCase):
         from tools.load_sim.driver import run_load
 
         metrics = await run_load(
-            n=100, seed=7, db_path=self.db_path, bot_mock=None, ai_mock=None
+            n=_SLICE_N, seed=7, db_path=self.db_path, bot_mock=None, ai_mock=None
         )
 
-        self.assertEqual(metrics["total"], 100)
+        self.assertEqual(metrics["total"], _SLICE_N)
         for key in (
             "telegram_429",
             "telegram_retries",

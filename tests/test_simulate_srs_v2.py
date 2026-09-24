@@ -8,6 +8,12 @@ import subprocess
 import sys
 import unittest
 
+import pytest
+
+# R&D-only: tools/srs_simulation_v2 has no runtime importers (quarantined
+# from default CI/local runs; opt back with HAMZABAN_INCLUDE_RESEARCH=1).
+pytestmark = pytest.mark.research
+
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 

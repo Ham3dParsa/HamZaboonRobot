@@ -1,6 +1,6 @@
 """R2 CI gate: run the test suite and assert peak combined RAM stays <= 2600 MB.
 
-Usage (local):  python scripts/run_with_ram_gate.py [-n 14]
+Usage (local):  python scripts/run_with_ram_gate.py [-n 8]
 Usage (CI):     python scripts/run_with_ram_gate.py -n 4
 
 The wrapper launches pytest as a child process, samples the combined working
@@ -9,25 +9,36 @@ if peak RAM exceeds the budget. pytest's own exit code is propagated, so this is
 both the correctness gate and the RAM gate in one command.
 
 Budget: 2600 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
-measured cap (16 approaches the limit); do not raise workers without re-running
+measured cap (16 approaches the limit); 8 is the daily default (peak ~2.0GB,
+~75% of budget) and 14 stays available as explicit opt-in for quiet machines.
+Measured cost is ~260MB/worker (clean-tree -n 10 peaks 2.3-2.4GB), which is
+also the preflight auto-cap unit. Do not raise workers without re-running
 this gate.
 
-Preflight (R1 serialize rule): the full -n 14 suite and the LM-Studio model
-server must never run together. Before launching pytest, the wrapper refuses
-(exit 1) when a model server answers on 127.0.0.1:1234 while workers > 4, or
-when free system RAM is below the 6GB floor. Escape hatch for CI/exotic
-runners: `--skip-preflight` or `HAMZABAN_SKIP_PREFLIGHT=1` (default: enforce).
-CI safety: CI runners have no :1234 listener, run with -n 2 (below the
-workers > 4 trigger), and have >6GB free — so the preflight cannot fire there;
-the escape hatch covers the rest.
+Preflight (R1 serialize rule): the full parallel suite and a LOADED LM-Studio
+model must never run together. Before launching pytest, the wrapper refuses
+(exit 1) when a model server on 127.0.0.1:1234 reports a non-empty
+`/v1/models` list (or the list cannot be read — fail-closed) while the
+EFFECTIVE workers > 4, or when free RAM minus a 1GB OS/controller
+headroom fits fewer than 2 workers.
+Otherwise RAM auto-caps workers (~260MB each, measured): 3GB free runs up
+to 7, 2.2GB runs 4, 1GB refuses — with a notice, never a refusal. An idle
+server (port open, zero models loaded) is allowed: it holds ~50MB, not
+gigabytes. Serial runs (-n 0/1) always proceed. Escape hatch for CI/exotic
+runners: `--skip-preflight` or `HAMZABAN_SKIP_PREFLIGHT=1`
+(default: enforce). CI safety: CI runners have no :1234 listener and run
+with -n 2 (below the workers > 4 trigger) — so the preflight cannot fire
+there; the escape hatch covers the rest.
 """
 
 import argparse
+import json
 import os
 import socket
 import subprocess
 import sys
 import time
+import urllib.request
 
 try:
     import psutil
@@ -40,9 +51,17 @@ SAMPLE_INTERVAL = 0.2
 MODEL_SERVER_HOST = "127.0.0.1"
 MODEL_SERVER_PORT = 1234
 MODEL_SERVER_TIMEOUT_S = 1.0
+MODEL_LIST_TIMEOUT_S = 1.0
 SERIALIZE_WORKER_THRESHOLD = 4
-MIN_FREE_RAM_BYTES = 6 * 1024**3
+MAX_WORKERS = 14
+MIN_WORKERS_FOR_RUN = 2
+PER_WORKER_RSS_MB = 260
+# OS/controller headroom: the first GB of free RAM is never counted toward
+# workers (telemetry showed ~0.5-1GB system fluctuation mid-run; the
+# controller itself holds ~100-200MB). Prevents swap/OOM at the floor.
+RAM_HEADROOM_BYTES = 1 * 1024**3
 SKIP_PREFLIGHT_ENV_VAR = "HAMZABAN_SKIP_PREFLIGHT"
+INCLUDE_RESEARCH_ENV_VAR = "HAMZABAN_INCLUDE_RESEARCH"
 
 
 def _preflight_skip_requested(cli_skip: bool) -> bool:
@@ -71,33 +90,104 @@ def _free_ram_bytes():
         return None
 
 
-def run_preflight_checks(workers: int):
-    """Fail-fast serialize guard (R1). Returns 1 on refusal, else None.
+def _total_ram_bytes():
+    if psutil is None:
+        return None
+    try:
+        return psutil.virtual_memory().total
+    except Exception:
+        return None
 
-    Refuses when (a) a model server answers on 127.0.0.1:1234 while
-    workers > 4, or (b) free system RAM is below the 6GB floor.
-    psutil missing -> RAM check skipped here (main() still fails closed
-    with exit 2 after the run). Never suggests lowering workers (R4).
+
+def _loaded_model_count():
+    """Number of models loaded on the local server, or None when unknown.
+
+    Queries GET /v1/models (LM-Studio OpenAI-compatible metadata endpoint;
+    no model call, no tokens). Any error (timeout, refused, bad JSON)
+    returns None so the caller can fail closed.
     """
-    if _model_server_is_up() and workers > SERIALIZE_WORKER_THRESHOLD:
-        print(
-            f"[RAM-GATE] REFUSE: model server detected on "
-            f"{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} while requesting "
-            f"{workers} workers. Stop the model server, then re-run. "
-            "The full -n 14 suite and the model server must never run together.",
-            file=sys.stderr,
-        )
-        return 1
+    url = f"http://{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}/v1/models"
+    try:
+        with urllib.request.urlopen(url, timeout=MODEL_LIST_TIMEOUT_S) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        return len(data) if isinstance(data, list) else None
+    except Exception:
+        return None
+
+
+def run_preflight_checks(workers: int):
+    """Fail-fast serialize guard (R1) + RAM worker auto-cap.
+
+    Returns the EFFECTIVE worker count to run, or None on refusal.
+
+    Refuses when (a) a LOADED model server answers on 127.0.0.1:1234 while
+    effective workers > 4 (idle server with zero models is allowed), or
+    (b) free RAM fits fewer than MIN_WORKERS_FOR_RUN workers. An
+    unreadable model list fails closed (treated as loaded). Serial runs
+    (-n 0/1) always proceed. RAM auto-caps: effective = min(requested,
+    free // PER_WORKER_RSS_MB, MAX_WORKERS), announced on stderr when it
+    bites — a notice, never a "lower your workers" advice (R4).
+    psutil missing -> RAM check skipped here (main() still fails closed
+    with exit 2 after the run).
+    """
     free = _free_ram_bytes()
-    if free is not None and free < MIN_FREE_RAM_BYTES:
+    total = _total_ram_bytes()
+    if workers >= MIN_WORKERS_FOR_RUN and free is not None:
+        usable = free - RAM_HEADROOM_BYTES
+        cap = min(max(usable, 0) // (PER_WORKER_RSS_MB * 1024 * 1024),
+                  MAX_WORKERS)
+        if cap < MIN_WORKERS_FOR_RUN:
+            total_gb = (f" of {total / (1024 ** 3):.1f}GB total"
+                        if total else "")
+            print(
+                f"[RAM-GATE] REFUSE: free system RAM is {free / (1024 ** 3):.1f}GB"
+                f"{total_gb}, fitting fewer than {MIN_WORKERS_FOR_RUN} workers. "
+                "Free RAM, then re-run.",
+                file=sys.stderr,
+            )
+            return None
+        effective = min(workers, cap)
+    else:
+        effective = workers
+    if effective > SERIALIZE_WORKER_THRESHOLD and _model_server_is_up():
+        count = _loaded_model_count()
+        if count is None:
+            print(
+                "[RAM-GATE] REFUSE: model server detected on "
+                f"{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} while requesting "
+                f"{workers} workers, and its /v1/models list is unreadable "
+                "(fail-closed). Stop the model server, then re-run.",
+                file=sys.stderr,
+            )
+            return None
+        if count > 0:
+            print(
+                "[RAM-GATE] REFUSE: model server on "
+                f"{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} has {count} loaded "
+                f"model(s) while requesting {workers} workers. Unload the "
+                "model(s), then re-run. A loaded model and the full parallel "
+                "suite must never run together.",
+                file=sys.stderr,
+            )
+            return None
         print(
-            f"[RAM-GATE] REFUSE: free system RAM is {free / (1024 ** 3):.1f}GB, "
-            "below the 6GB floor. Free RAM (stop the model server / heavy apps), "
-            "then re-run.",
+            "[RAM-GATE] idle model server on "
+            f"{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} (0 models loaded) — "
+            "proceeding.",
             file=sys.stderr,
         )
-        return 1
-    return None
+    if effective != workers:
+        free_gb = (f"{free / (1024 ** 3):.1f}GB free"
+                   if free is not None else "unknown free RAM")
+        print(
+            f"[RAM-GATE] RAM allows {effective} workers ({free_gb}); "
+            f"capping requested {workers}.",
+            file=sys.stderr,
+        )
+    return effective
 
 
 def _peak_rss_mb(pid: int) -> float:
@@ -125,7 +215,7 @@ def _peak_rss_mb(pid: int) -> float:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--workers", default="14")
+    parser.add_argument("-n", "--workers", default="8")
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -136,16 +226,26 @@ def main(argv=None) -> int:
 
     if _preflight_skip_requested(args.skip_preflight):
         print("[RAM-GATE] preflight skipped via escape hatch.", file=sys.stderr)
+        try:
+            workers = int(args.workers)
+        except (TypeError, ValueError):
+            workers = 0
     else:
         try:
             workers = int(args.workers)
         except (TypeError, ValueError):
             workers = 0
-        refusal = run_preflight_checks(workers)
-        if refusal is not None:
-            return refusal
+        effective = run_preflight_checks(workers)
+        if effective is None:
+            return 1
+        workers = effective
 
-    cmd = [sys.executable, "-m", "pytest", "tests/", "-n", args.workers, "-q"]
+    cmd = [sys.executable, "-m", "pytest", "tests/", "-n", str(workers), "-q"]
+    if ("-m" not in rest
+            and os.environ.get(INCLUDE_RESEARCH_ENV_VAR, "") != "1"):
+        # R&D-only tests (marked research) stay out of default runs;
+        # explicit -m from the caller, or HAMZABAN_INCLUDE_RESEARCH=1, wins.
+        cmd += ["-m", "not research"]
     cmd += rest
     proc = subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

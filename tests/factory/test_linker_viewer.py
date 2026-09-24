@@ -538,19 +538,49 @@ def test_link_method_vocab_single_source():
     assert len(core.LINK_METHOD_VOCAB) == 13
 
 
-def test_words_filter_lemma_less_real_table(tmp_path):
+def test_words_filter_lemma_less_mini_table(tmp_path):
+    # Same filter contract as the real-table test, but on an 8-row fixture:
+    # tables carry no ``lemma`` column, --words matches kaikki ids via
+    # cli.word_matches_kid. Real-table shape stays covered
+    # by test_signal_sentences_and_muted_codes / gallery tests below.
     import csv as _csv
-    import pathlib as _pl
-    table = _pl.Path(viewer.__file__).parent / "table.tsv"
+    table = tmp_path / "mini.tsv"
+    with open(table, "w", encoding="utf-8", newline="") as fh:
+        writer = _csv.DictWriter(
+            fh, fieldnames=["kaikki_sense_id", "wordnet_sensekey",
+                            "method", "evidence", "provenance"],
+            delimiter="\t")
+        writer.writeheader()
+        for i in range(3):
+            writer.writerow({"kaikki_sense_id": "en-run-en-verb-%02d" % i,
+                             "wordnet_sensekey": "run%%2:01:%02d::" % i,
+                             "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
+                             "provenance": "test"})
+        for i in range(3):
+            writer.writerow({"kaikki_sense_id": "en-take-en-verb-%02d" % i,
+                             "wordnet_sensekey": "take%%2:01:%02d::" % i,
+                             "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
+                             "provenance": "test"})
+        for i in range(2):
+            writer.writerow({"kaikki_sense_id": "en-bear-en-verb-%02d" % i,
+                             "wordnet_sensekey": "bear%%2:01:%02d::" % i,
+                             "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
+                             "provenance": "test"})
+        # Adversarial short word: guards word_matches_kid over-matching
+        # (OC review on PR #823); keeps the get/light family covered.
+        writer.writerow({"kaikki_sense_id": "en-get-en-verb-00",
+                         "wordnet_sensekey": "get%%2:01:00::",
+                         "method": "LINK:2-sig", "evidence": "Sa:j=0.40",
+                         "provenance": "test"})
     header = _csv.DictReader(
         open(table, encoding="utf-8")).fieldnames or []
-    assert "lemma" not in header  # real tables lack the column
+    assert "lemma" not in header  # tables lack the column
     out = tmp_path / "gallery.html"
     assert viewer.main(["--table", str(table),
-                        "--words", "run,take,get,light",
+                        "--words", "run,take,get",
                         "--out", str(out)]) == 0
     page = out.read_text(encoding="utf-8")
-    assert page.count('tr class="summary"') == 37
+    assert page.count('tr class="summary"') == 7
 
 
 def test_link_stats_none_method_no_crash():

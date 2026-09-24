@@ -1,9 +1,12 @@
 """5k load-simulation small-scale proof (locked plan scale/plan-load-sim-5k, T1).
 
-Drives ``tools.load_sim.driver.run_load_5k`` with n=200 seed=11 through the
+Drives ``tools.load_sim.driver.run_load_5k`` with seed=11 through the
 REAL routers on an isolated SQLite file (snapshot-DB isolation via
 ``tests/test_integration/helpers.py``), with all Telegram sends and AI steps
-mocked (AI budget: 0 real tokens).
+mocked (AI budget: 0 real tokens). Volumes are env-gated (B1): local runs
+default to the HALF slice (n=100, concurrency=10); HAMZABAN_LOAD_SIM_FULL=1
+selects the FULL proof slice (n=200, concurrency=10), which CI sets, so
+every PR asserts the full-volume gates.
 
 Locked R3 gates, scaled for the proof slice:
 - grade-path p95 under 1500ms,
@@ -15,11 +18,19 @@ Locked R3 gates, scaled for the proof slice:
 Full n=2800 runs in T2, not in CI: this proof stays under ~60s.
 """
 
+import os
 import time
 import unittest
 from unittest.mock import MagicMock, patch
 
 from tests.test_integration import helpers
+
+# B1 slice scaling: local runs default to the HALF slice (n=100); the FULL
+# proof slice (n=200) runs in CI with HAMZABAN_LOAD_SIM_FULL=1.
+# Concurrency stays 10 in both so contention character is preserved.
+_FULL = os.environ.get("HAMZABAN_LOAD_SIM_FULL", "") == "1"
+_SLICE_N = 200 if _FULL else 100
+_SLICE_CONCURRENCY = 10
 
 
 class LoadSim5kFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -70,10 +81,10 @@ class LoadSim5kFlowTests(unittest.IsolatedAsyncioTestCase):
         # with synchronous handler/DB slices; 10-way keeps real contention
         # while fitting the scaled latency gate and the ~60s CI budget.
         metrics = await run_load_5k(
-            n=200, seed=11, db_path=self.db_path, concurrency=10
+            n=_SLICE_N, seed=11, db_path=self.db_path, concurrency=_SLICE_CONCURRENCY
         )
         wall_s = time.perf_counter() - t0
-        print(f"\n[load-sim-5k-proof] n=200 wall={wall_s:.1f}s")
+        print(f"\n[load-sim-5k-proof] n={_SLICE_N} wall={wall_s:.1f}s")
         print(
             "[load-sim-5k-proof] grade_p95={:.1f}ms txn_p95={:.1f}ms "
             "lag_p95={:.1f}ms busy={} errors={} err_rate={:.4f} "
@@ -94,7 +105,7 @@ class LoadSim5kFlowTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        self.assertEqual(metrics["total"], 200)
+        self.assertEqual(metrics["total"], _SLICE_N)
         for key in (
             "telegram_429",
             "telegram_retries",
