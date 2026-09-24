@@ -9,7 +9,6 @@ import json
 import os
 import sys
 import threading
-import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools",
                                 "egress"))
@@ -32,20 +31,6 @@ def _egress_clean_cache_isolated(monkeypatch, tmp_path):
                         lambda *args, **kwargs: None)
     monkeypatch.setattr(supervisor, "_server_tcp_ping",
                         lambda *args, **kwargs: 4)
-
-
-@pytest.fixture(autouse=True)
-def _egress_opener_env_isolated(monkeypatch):
-    """Serial-run isolation: urllib's global _opener is cached per
-    process, so a build_opener fake (or real opener) installed by one
-    test would leak into later tests. Reset it before AND after each
-    test, and scrub EGRESS_* env so local exports never leak in."""
-    urllib.request._opener = None
-    for var in ("EGRESS_SUP_TOKEN", "EGRESS_SUB_URL", "EGRESS_SUB_URLS",
-                "EGRESS_SUP_PORT", "EGRESS_TUNNEL_PROVIDERS"):
-        monkeypatch.delenv(var, raising=False)
-    yield
-    urllib.request._opener = None
 
 
 def _sub_body():

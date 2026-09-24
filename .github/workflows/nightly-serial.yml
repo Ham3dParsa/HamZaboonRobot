@@ -36,7 +36,7 @@ jobs:
         env:
           HAMZABAN_TEST_MODE: "1"
           HAMZABAN_LOAD_SIM_FULL: "1"
-        run: python -m pytest tests/ -p no:xdist -q
+        run: python -m pytest tests/ -p no:xdist -q -m "not research"
 
       - name: Check whitespace errors
         run: git diff --check

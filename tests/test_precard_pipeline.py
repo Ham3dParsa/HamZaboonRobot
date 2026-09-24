@@ -1658,6 +1658,11 @@ def test_full_avalai_needs_only_its_key(tmp_path, monkeypatch):
     import os as _os
     from factory.core import env_loader
     monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    # Same latent trap as the google test above: patch the pipeline-bound
+    # name (pipeline.py does from-import), and clear grouped vars so no
+    # real factory/.env value can slip ahead of the legacy var.
+    monkeypatch.delenv("AVALAI_API_KEY_G1", raising=False)
+    monkeypatch.delenv("AVALAI_API_KEY_G2", raising=False)
 
     def strict_loader(required=()):
         missing = [k for k in required if not _os.environ.get(k)]
@@ -1665,7 +1670,8 @@ def test_full_avalai_needs_only_its_key(tmp_path, monkeypatch):
             raise KeyError("missing: " + ", ".join(missing))
         return {k: _os.environ.get(k, "") for k in env_loader.KEYS}
 
-    monkeypatch.setattr(env_loader, "load_factory_env", strict_loader)
+    monkeypatch.setattr("factory.precard.pipeline.load_factory_env",
+                        strict_loader)
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
     seen = []
