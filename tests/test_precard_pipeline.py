@@ -1599,8 +1599,31 @@ def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
 
 def test_full_llm_provider_google_wires_lite(tmp_path, monkeypatch):
     """Google leg: --llm-provider google routes S2 to the Lite default,
-    key from env (egress fallback covered by unit test)."""
+    key from env (egress fallback covered by unit test).
+
+    Isolation mirrors test_full_avalai_needs_only_its_key: a strict
+    loader with no factory/.env file fallback + G1/G2 delenv, so the
+    monkeypatched GOOGLE_AI_API_KEY wins over real local keys.
+    DEVIATION from brief (verified): the sibling patches
+    ``factory.core.env_loader.load_factory_env``, but pipeline.py binds
+    the name via ``from ... import`` (pipeline.py:33), so a module-attr
+    patch never redirects pipeline's call — reproduced locally with a
+    dummy factory/.env (file key won). Patch the lookup site instead.
+    """
+    import os as _os
+    from factory.core import env_loader
     monkeypatch.setenv("GOOGLE_AI_API_KEY", "google-key")
+    monkeypatch.delenv("GOOGLE_API_KEY_G1", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY_G2", raising=False)
+
+    def strict_loader(required=()):
+        missing = [k for k in required if not _os.environ.get(k)]
+        if missing:
+            raise KeyError("missing: " + ", ".join(missing))
+        return {k: _os.environ.get(k, "") for k in env_loader.KEYS}
+
+    monkeypatch.setattr("factory.precard.pipeline.load_factory_env",
+                        strict_loader)
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
     seen = []

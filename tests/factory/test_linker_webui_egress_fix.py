@@ -10,6 +10,8 @@ import os
 import sys
 import urllib.request as _url
 
+import pytest
+
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 if PROJECT_ROOT not in sys.path:
@@ -51,6 +53,27 @@ class _FakeResp:
 
     def read(self):
         return json.dumps(self._payload)
+
+
+@pytest.fixture(autouse=True)
+def _egress_opener_env_isolated(monkeypatch):
+    """Serial-run isolation (mirrors tests/test_egress.py): reset
+    urllib's cached global _opener before AND after each test so a
+    build_opener fake never leaks across tests; scrub EGRESS_* env."""
+    _url._opener = None
+    for var in ("EGRESS_SUP_TOKEN", "EGRESS_SUB_URL", "EGRESS_SUB_URLS",
+                "EGRESS_SUP_PORT", "EGRESS_TUNNEL_PROVIDERS"):
+        monkeypatch.delenv(var, raising=False)
+    yield
+    _url._opener = None
+
+
+@pytest.fixture(autouse=True)
+def _egress_clean_cache_isolated(monkeypatch, tmp_path):
+    """R7 mirror: pin the clean-cache file at tmp_path so this suite
+    never touches the repo file."""
+    monkeypatch.setenv("EGRESS_CLEAN_CACHE_PATH",
+                       str(tmp_path / "clean_cache.json"))
 
 
 def _header_map(req):

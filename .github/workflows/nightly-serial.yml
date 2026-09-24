@@ -1,0 +1,42 @@
+name: Nightly serial
+
+# Serial full-suite run: catches cross-test process-global pollution
+# (urllib _opener cache, os.environ writes, real factory/.env keys)
+# that parallel xdist workers mask. Test-isolation only; never commits.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-serial:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Test full suite serially
+        env:
+          HAMZABAN_TEST_MODE: "1"
+          HAMZABAN_LOAD_SIM_FULL: "1"
+        run: python -m pytest tests/ -p no:xdist -q
+
+      - name: Check whitespace errors
+        run: git diff --check
