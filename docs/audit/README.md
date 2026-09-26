@@ -1,3 +1,5 @@
+> Status: valid as of 2026-09-24; the three reports below moved to `docs/archive/audits/`, remainders in `docs/audits/carry-forward.md`.
+
 # Audit Reports
 
 Read-only audit reports and architecture alignment blueprints. These analyze
