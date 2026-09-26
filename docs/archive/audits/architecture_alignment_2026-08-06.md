@@ -1,3 +1,5 @@
+> Status: archived as of 2026-09-24; see docs/audits/carry-forward.md
+
 # System Architecture Alignment & Technical Blueprint
 **Document Reference:** `docs/audit/pool_semantic_cache_audit_2026-08-06.md`
 **Status:** Under Revision (reconciled 2026-08-08 — B6 `entry_source` landed; see § entry_source status below)
