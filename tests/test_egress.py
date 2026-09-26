@@ -771,8 +771,16 @@ def test_targets_table_shape():
                                  "probe": None}
     assert TARGETS["zen"]["tunnel"] is True  # historic name unchanged
     assert TARGETS["zen"]["provider"] == "zen"
-    assert TARGETS["zen"]["probe"] is zen_probe
-    assert TARGETS["google"]["probe"] is google_probe
+    # Name-compared, not `is`: the suite imports the egress supervisor
+    # through two supported paths (plain `supervisor` here vs
+    # `tools.egress.supervisor` elsewhere), so two module instances can
+    # share this one TARGETS dict and last-writer-wins the probe slot.
+    # The pin is that each slot references its own probe, not None or
+    # another target's probe.
+    assert TARGETS["zen"]["probe"].__name__ == zen_probe.__name__ == \
+        "zen_probe"
+    assert TARGETS["google"]["probe"].__name__ == \
+        google_probe.__name__ == "google_probe"
     assert TARGETS["openrouter"] == {"provider": "openrouter",
                                      "tunnel": True, "probe": None}
     assert TARGETS["groq"] == {"provider": "groq",

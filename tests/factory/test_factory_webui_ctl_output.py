@@ -112,3 +112,12 @@ def test_ctl_pid_only_safety():
         assert "taskkill /IM" not in body, path
         assert "pkill" not in body, path
         assert "Get-Process -Name" not in body, path
+
+
+def test_ctl_usage_names_lan_exposure_and_loopback_escape():
+    text = _text(CTL_PATH)
+    usage = _body(text, "Show-Usage")
+    assert "LAN-visible" in usage
+    assert "operator-only" in usage
+    assert "no auth" in usage
+    assert "-BindHost 127.0.0.1" in usage

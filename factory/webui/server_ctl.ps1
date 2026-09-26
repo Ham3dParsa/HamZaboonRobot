@@ -263,6 +263,7 @@ function Show-Usage {
   "  restart — stop, then start"
   "  (no action shows status plus this help; --status/--restart dashed forms map to the action)"
   "  tablet (LAN): plain start binds all interfaces and is LAN-visible — open the tablet/LAN link printed above (loopback link is for this machine only)"
+  "  caution: operator-only — plain start exposes key-accepting endpoints with no auth (trusted LAN only); -BindHost 127.0.0.1 for loopback-only"
   Show-Example
 }
 

@@ -11,6 +11,8 @@ Usage:
     from a tablet on the LAN (plain start binds all interfaces, so it
     is LAN-visible with no flags; set HAMZABAN_WEBUI_HOST or pass
     --host to override, e.g. --host 127.0.0.1 for loopback-only).
+    Operator-only caution: the plain LAN-visible bind exposes
+    key-accepting endpoints with no auth (trusted LAN only).
 
 Screens (four): compose a run, watch a run live, compare a run against
 gold labels, and a full guide. Safety: key VALUES never appear in pages,
@@ -392,7 +394,18 @@ def ensure_factory_master_key(confirmed=False):
     missing), then mirrors it into the process. Requires confirmed=True
     (the operator pressed the button); the value is never displayed,
     returned, or logged — names only out. (ok, error, created)
+
+    The whole check+generate+append runs under ``_lock``: two racing
+    confirmed calls must not both append (the loser would orphan keys
+    encrypted under the other key). Re-entrant safe — callees take no
+    other lock, and request handlers are synchronous.
     """
+    with _lock:
+        return _ensure_factory_master_key_locked(confirmed=confirmed)
+
+
+def _ensure_factory_master_key_locked(confirmed=False):
+    """ensure_factory_master_key body; caller must hold ``_lock``."""
     if master_status().get("configured"):
         return True, "", False
     if not confirmed:
@@ -1208,7 +1221,8 @@ def _routing_clean_exit(provider, clean_fn=None):
         return ""
 
 
-# ─── Server-side file browser (localhost console only) ────────────
+# ─── Server-side file browser (operator-only console: plain start is ──
+# LAN-visible with no auth, so treat every /api/files path as LAN-reachable)
 
 _FILE_LIST_LIMIT = 500
 
@@ -3720,8 +3734,8 @@ def api_key_delete(var):
 # and the viewer's pure wordnet readers (resolver + parse_wn_parts +
 # sensekey locator). Scoring, screening, evidence, and ranking code
 # stay untouched. Join discipline: every row shows identifier + gloss
-# together, never bare row numbers. Localhost only (HOST is 127.0.0.1,
-# fixed).
+# together, never bare row numbers. Operator-only console (plain start
+# binds all interfaces — LAN-visible with no auth — never localhost-only).
 
 DEFAULT_SCREENED_PATH = (
     "W:/hamzaban_data_factory/proof-linker/screened/screened.jsonl")
@@ -4302,9 +4316,10 @@ def build_boot_lines(host, port, pid, lan):
 
     First line always reproduces the bound host/port/pid exactly.
     A plain all-interfaces start appends a LAN-visibility note (which
-    address to open from a tablet vs loopback on this machine); an
-    explicit override reproduces exactly with no note. Names only,
-    no secrets.
+    address to open from a tablet vs loopback on this machine) plus an
+    operator-only caution: the plain bind exposes key-accepting
+    endpoints with no auth, with the loopback escape. An explicit
+    override reproduces exactly with no note. Names only, no secrets.
     """
     lines = ["webui boot host=%s port=%s pid=%s" % (host, port, pid)]
     if str(host or "").strip() in (ALL_INTERFACES, "::"):
@@ -4319,6 +4334,12 @@ def build_boot_lines(host, port, pid, lan):
                 "webui net lan=unavailable note=plain start binds all "
                 "interfaces but no LAN address detected: open "
                 "http://127.0.0.1:%s on this machine" % (port,))
+        lines.append(
+            "webui caution operator-only: plain start exposes "
+            "key-accepting endpoints (/api/providers/<name>/key, "
+            "/api/supervisor/token, /api/runs, /api/files/list, "
+            "/api/labels) with no auth — trusted LAN only; pass "
+            "--host 127.0.0.1 for loopback-only")
     return lines
 
 

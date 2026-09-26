@@ -82,3 +82,19 @@ def test_boot_receipt_shows_bound_address_and_lan_note():
 def test_boot_receipt_reproduces_explicit_override_exactly():
     lines = webui.build_boot_lines("127.0.0.1", 5561, 123, "10.9.9.9")
     assert lines == ["webui boot host=127.0.0.1 port=5561 pid=123"]
+
+
+def test_boot_receipt_warns_operator_only_on_lan_default():
+    lines = webui.build_boot_lines("0.0.0.0", 5561, 123, "10.9.9.9")
+    caution = " ".join(lines[1:])
+    assert "operator-only" in caution
+    assert "no auth" in caution
+    assert "/api/providers/" in caution
+    assert "--host 127.0.0.1" in caution
+
+
+def test_boot_receipt_warns_without_lan_address_too():
+    lines = webui.build_boot_lines("0.0.0.0", 5561, 123, "")
+    caution = " ".join(lines[1:])
+    assert "operator-only" in caution
+    assert "--host 127.0.0.1" in caution

@@ -8,6 +8,8 @@ operator store — everything rides tmp paths + monkeypatched seams.
 import json
 import logging
 import os
+import threading
+import time
 
 import pytest
 
@@ -149,3 +151,55 @@ def test_surfaces_names_only(tmp_path, monkeypatch):
                          json={"key_value": CANARY + "-no-master"})
     assert denied.status_code in (400, 500)
     assert CANARY not in denied.get_data(as_text=True)
+
+
+def test_concurrent_master_confirm_appends_single_line(tmp_path, monkeypatch):
+    """Two racing confirmed POSTs create exactly one master-key line.
+
+    Regression pin for the check-then-append race: both threads must
+    pass the readiness check together (start barrier + slowed makedirs
+    widen the window), so without the lock both append and orphan a
+    key; holding ``_lock`` across check+generate+append serializes
+    them and the loser sees the winner's key. Tmp env file only —
+    the real factory env file is never touched.
+    """
+    import config as _cfg
+    env_file = tmp_path / "factory.env"
+    monkeypatch.setattr(webui, "FACTORY_ENV_PATH", str(env_file))
+    monkeypatch.delenv(MASTER_VAR, raising=False)
+    monkeypatch.setattr(_cfg, MASTER_VAR, "")
+    real_makedirs = os.makedirs
+
+    def _slow_makedirs(*args, **kwargs):
+        time.sleep(0.3)
+        return real_makedirs(*args, **kwargs)
+
+    monkeypatch.setattr(os, "makedirs", _slow_makedirs)
+    gate = threading.Barrier(2)
+    outcomes = []
+
+    def _confirm():
+        gate.wait(timeout=30)
+        outcomes.append(
+            webui.ensure_factory_master_key(confirmed=True))
+
+    workers = [threading.Thread(target=_confirm) for _ in range(2)]
+    try:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=60)
+        assert all(not worker.is_alive() for worker in workers)
+        assert len(outcomes) == 2
+        assert all(ok for ok, _error, _created in outcomes)
+        created = [flag for _ok, _error, flag in outcomes]
+        assert sorted(created) == [False, True]
+        lines = [line for line in env_file.read_text(
+            encoding="utf-8").splitlines()
+            if line.startswith(MASTER_VAR + "=")]
+        assert len(lines) == 1
+    finally:
+        # ensure_factory_master_key writes the process seams directly
+        # (not via monkeypatch) — restore the patched empties by hand.
+        os.environ.pop(MASTER_VAR, None)
+        _cfg.AI_MASTER_KEY = ""
