@@ -63,6 +63,54 @@
     display: inline-block;
   }
 
+  /* نوار لغزشی هم‌تم: باریک و گرد، هماهنگ با تم شب/روز (فقط استایل) */
+  /* ریشه (پنجره): متغیرهای تم از [data-theme] به ارث می‌رسند */
+  html, body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-base); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 8px;
+    border: 2px solid var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  /* کلاس عمومی نوار لغزشی هم‌تم برای ناحیه‌های لغزشی درونی:
+     تم را از ریشه به ارث می‌برد (شب/روز خودکار)؛ هر ناحیه لغزشی
+     (صف، جدول، نامزدها) با افزودن همین کلاس هم‌تم می‌شود. */
+  .themed-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .themed-scroll::-webkit-scrollbar-track {
+    background: var(--bg-base);
+    border-radius: 6px;
+  }
+  .themed-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 6px;
+    border: 2px solid var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  .queue-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-secondary) var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar { width: 8px; height: 8px; }
+  .queue-list::-webkit-scrollbar-track {
+    background: var(--bg-elevated);
+    border-radius: 6px;
+  }
+  .queue-list::-webkit-scrollbar-thumb {
+    background: var(--c-secondary);
+    border-radius: 6px;
+    border: 2px solid var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar-thumb:hover { background: var(--c-primary); }
+
   /* نوار وضعیت سراسری در بالای صفحه */
   header.top-header {
     background: var(--bg-surface);
@@ -192,16 +240,25 @@
     grid-template-columns: minmax(0, 7.5fr) minmax(320px, 4.5fr);
     gap: 16px;
     align-items: start;
+    min-width: 0;
   }
 
   /* ستون داوری سنس */
-  .arbitration-column { display: flex; flex-direction: column; gap: 12px; }
+  .arbitration-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* بخش جزئیات سنس: تنها مالک نامزدها، مثال‌ها و متن کامل —
+     ردیف‌های صف فقط شناسه، برش معنی و وضعیت را حمل می‌کنند */
+  #sense-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
   /* کارت سنس کایکی (حذف نوار عمودی رنگی ضخیم) — چسبان در نما حین داوری */
+  /* مهار سرریز معنی سنس: کارت هرگز از ستون بیرون نمی‌زند (min-width:0 +
+     overflow:hidden روی خود کارت چسبان بی‌خطر است)؛ تعریف و مثال با
+     شکست امن واژه‌های بلند لاتین تمیز می‌شکنند، نه با برش افقی زشت */
   .source-sense-card {
     background: var(--bg-surface); border: 1px solid var(--border-color);
     border-radius: 8px; padding: 14px;
     position: sticky; top: 58px; z-index: 5;
+    min-width: 0; overflow: hidden;
   }
   .sense-header-line {
     display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
@@ -209,25 +266,36 @@
   .sense-id-label { font-size: 1.15rem; font-weight: 700; color: var(--c-primary); }
   .sense-def-text {
     font-size: 0.95rem; font-weight: 500; color: var(--text-primary); margin-bottom: 8px;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
   }
   .sense-example-box {
     background: var(--bg-elevated); border: 1px solid var(--border-color);
     border-radius: 6px; padding: 8px 12px; font-size: 0.85rem; color: var(--text-secondary);
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
   }
 
   /* کارت‌های متراکم کاندیداهای وردنت */
-  .candidates-stack { display: flex; flex-direction: column; gap: 8px; }
+  .candidates-stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .candidate-row-card {
     background: var(--bg-surface); border: 1px solid var(--border-color);
     border-radius: 6px; padding: 10px 14px;
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     transition: border-color 0.15s;
+    overflow: hidden; min-width: 0;
   }
   .candidate-row-card:hover { border-color: var(--c-secondary); }
-  .c-info-block { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .candidate-row-card.selected { border-color: var(--c-success); }
+  .c-info-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
   .c-key-tag { font-size: 0.75rem; color: var(--c-accent); font-weight: 600; }
-  .c-gloss-text { font-size: 0.86rem; color: var(--text-primary); }
-  .c-synonyms-text { font-size: 0.75rem; color: var(--text-muted); }
+  /* مهار سرریز معنی نامزد: جعبه حداکثر ۳ خط با بیضی، شکست امن واژه‌های
+     بلند لاتین، ایزوله BiDi (کلاس ltr-text)؛ متن کامل روی title (hover) */
+  .c-gloss-text {
+    font-size: 0.86rem; color: var(--text-primary);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .c-synonyms-text { font-size: 0.75rem; color: var(--text-muted); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
 
   .btn-select-candidate {
     flex-shrink: 0;
@@ -268,14 +336,31 @@
   }
   .queue-list {
     display: flex; flex-direction: column; gap: 6px;
-    overflow-y: auto; max-height: 42vh; min-height: 0; flex: 1 1 auto;
+    overflow-y: auto; overflow-x: hidden; max-height: 42vh; min-height: 0; flex: 1 1 auto;
+  }
+  /* ورودی جمع‌وجور پالایش زنده صف (تمام‌عرض، هم‌خانواده فرم) */
+  .queue-filter {
+    max-width: none; width: 100%; min-height: 36px;
   }
   .queue-item {
     background: var(--bg-elevated); border: 1px solid var(--border-color);
     border-radius: 5px; padding: 8px 10px; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; overflow: hidden; min-width: 0; flex-shrink: 0;
   }
   .queue-item.active { border-color: var(--c-primary); }
+  /* ستون متن صف: تنها بخش منعطف — با min-width:0 جمع می‌شود تا معنی
+     هرگز از ردیف بیرون نزند؛ برش تک‌خطی با بیضی + title (hover) */
+  .queue-item > div:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .queue-item > div:first-child > b { flex-shrink: 0; }
+  .queue-item > .status-tag { flex-shrink: 0; }
+  /* برش تک‌خطی معنی در صف: لحن کم‌رنگ، چپ‌چین لاتین ایزوله (BiDi) */
+  .queue-gloss {
+    font-size: 0.72rem; color: var(--text-muted);
+    direction: ltr; text-align: left; unicode-bidi: isolate;
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%; overflow-wrap: anywhere;
+  }
   .metrics-mini-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
     padding-top: 10px; border-top: 1px solid var(--border-color);
@@ -323,6 +408,20 @@
   }
   table.data-table th { background: var(--bg-elevated); color: var(--text-muted); font-weight: 600; }
 
+  /* تنظیمات ثبت رأی: خارج از دید مستقیم اپراتور، با برچسب فارسی */
+  .label-settings {
+    border: 1px solid var(--border-color); border-radius: 6px;
+    padding: 6px 10px; background: var(--bg-surface);
+    flex-basis: 100%;
+  }
+  .label-settings summary {
+    cursor: pointer; font-size: 0.78rem; color: var(--text-secondary);
+    font-weight: 600; min-height: 32px; display: flex; align-items: center;
+  }
+  .label-settings .settings-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px; margin-top: 8px;
+  }
   /* ورودی‌های جمع‌وجور نوار اقدام (هم‌خانواده دکمه‌ها، بدون حاشیه ضخیم) */
   .inline-input {
     font: inherit; font-size: 0.8rem; color: var(--text-primary);
@@ -342,7 +441,8 @@
     }
     aside.main-nav.open { right: 0; }
     .nav-backdrop.open { display: block; }
-    .candidate-row-card { flex-direction: column; align-items: flex-start; }
+    .candidate-row-card { flex-direction: column; align-items: stretch; }
+    .c-info-block { width: 100%; }
     .btn-select-candidate { width: 100%; min-height: 44px; }
     .btn-reject-all, .btn-skip-next { min-height: 44px; }
   }
@@ -419,15 +519,18 @@
       </div>
 
       <div class="cockpit-tabs">
-        <button class="tab-link">۱. تصفیه کاندیداها</button>
-        <button class="tab-link">۲. داوری زنده هوش مصنوعی</button>
-        <button class="tab-link active">۳. صف داوری و بازبینی انسانی (اختلافی)</button>
-        <button class="tab-link">۴. مرور جدول پیوند (TSV)</button>
+        <button class="tab-link" data-tab-index="0" title="shortlisting — factory/linking/linker.py shortlist">۱. کوتاه‌فهرست نامزدها</button>
+        <button class="tab-link" data-tab-index="1" title="mechanical linking — factory/linking build_link_index/lookup_link + cli.py link over table.tsv">۲. پیوند مکانیکی</button>
+        <button class="tab-link" data-tab-index="2" title="AI arbitration — factory/linking/arbitration.py ArbitrationService">۳. داوری هوش مصنوعی</button>
+        <button class="tab-link active" data-tab-index="3" title="human review — factory/linking/human_queue.py + witness labels">۴. بازبینی انسانی (اختلافی)</button>
+        <button class="tab-link" data-tab-index="4" title="TSV export — factory/linking/cli.py read_table + viewer.py export">۵. خروجی جدول پیوند (TSV)</button>
       </div>
 
       <div class="dense-workspace-grid">
         <!-- ستون کاندیداها -->
         <div class="arbitration-column">
+          <section id="sense-detail" aria-label="جزئیات سنس">
+            <div class="panel-heading"><span>جزئیات سنس</span></div>
           <article class="source-sense-card">
             <div class="sense-header-line">
               <span class="sense-id-label code-token" id="sense-id">…</span>
@@ -438,23 +541,25 @@
           </article>
 
           <div class="candidates-stack" id="candidates-stack">
-            <div class="candidate-row-card" id="no-candidates-note">
-              <div class="c-info-block">
-                <span class="c-key-tag">بدون فید زنده نامزدها</span>
-                <div class="c-gloss-text">سرور هیچ مسیر نامزدی منتشر نمی‌کند (غربال فقط شناسه+معنی می‌دهد؛ رتبه‌بندی در موتور است). برای ثبت رأی «پیوند»، شناسه سین‌ست هدف را دستی وارد کنید؛ «رد همه» بدون هدف ثبت می‌شود.</div>
-              </div>
-            </div>
           </div>
+          <div class="p-meta" id="candidates-status">…</div>
+          </section>
 
           <div class="action-bar-footer">
             <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر / NONE)</button>
             <button class="btn-skip-next" id="btn-skip-next">پرش به سنس بعد ⏭</button>
-            <input class="inline-input code-token" id="label-target" placeholder="target synset (for link vote)" dir="ltr">
-            <input class="inline-input" id="label-stratum" placeholder="stratum">
-            <input class="inline-input" id="label-annotator" placeholder="annotator">
+            <span class="inline-input code-token" id="label-target-name" dir="ltr">نامزدی انتخاب نشده است</span>
             <button class="btn-select-candidate" id="btn-record-link">ثبت رأی پیوند</button>
+            <!-- شناسه داور و لایه نمونه‌برداری عمداً خارج از جریان فرم‌اند:
+                 در پس‌زمینه پیش‌فرض‌گذاری امن می‌شوند (مقادیر بخش تنظیمات
+                 اگر اپراتور تعیین کرده باشد، وگرنه پیش‌فرض‌های امن
+                 نقش‌محور «operator» — هرگز نام شخصی ساخته نمی‌شود). -->
             <span id="label-status" style="font-size: 0.72rem; color: var(--text-muted);"></span>
             <span id="label-receipt" style="font-size: 0.72rem; color: var(--text-secondary);" hidden></span>
+            <!-- راهنمای آدرس کنسول (بوت روی همه رابط‌ها): از تبلت با آدرس LAN، از همین دستگاه با لوپ‌بک -->
+            <span id="boot-addr-note" style="font-size: 0.72rem; color: var(--text-muted);"
+                  title="plain start binds all interfaces (LAN-visible)">پیش‌فرض روی همه رابط‌ها باز است:
+              از تبلت با آدرس LAN سرور، از همین دستگاه با <span class="code-token">127.0.0.1</span> باز کنید.</span>
             <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;">
               * رأی‌ها در labels.jsonl افزوده می‌شوند؛ غیرشاهد watermark می‌خورد (قابل امتیاز نیست).
             </span>
@@ -467,7 +572,9 @@
             <span>صف سنس‌های نیازمند بازبینی</span>
             <span class="badge" id="queue-remaining">…</span>
           </div>
-          <div class="queue-list" id="queue-list">
+          <input class="inline-input queue-filter" id="queue-filter" type="search"
+                 placeholder="پالایش صف: شناسه، معنی یا وضعیت…" aria-label="پالایش صف سنس‌ها">
+          <div class="queue-list themed-scroll" id="queue-list">
           </div>
 
           <div class="metrics-mini-grid">
@@ -509,6 +616,27 @@
         <div class="p-meta" id="master-note">…</div>
         <div><button class="btn-select-candidate" id="btn-master-ensure">فعال‌سازی ذخیره امن کلید</button></div>
         <div class="p-meta" id="provider-err" style="color: var(--c-danger);"></div>
+      </div>
+
+      <div class="cfg-form-card" style="margin-top: 10px;" id="supervisor-card">
+        <div class="p-header">
+          <span class="p-title">توکن سرپرست (یک‌بار چسباندن؛ مقدار هرگز نمایش داده نمی‌شود)</span>
+          <span class="badge" id="supervisor-state">…</span>
+        </div>
+        <div class="p-meta" id="supervisor-note">…</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <span class="badge" id="supervisor-lifecycle-state">…</span>
+          <button class="btn-select-candidate" id="btn-supervisor-wake">بیدار کردن سرپرست</button>
+          <button class="btn-skip-next" id="btn-supervisor-sleep">خواباندن سرپرست (بی‌کار)</button>
+        </div>
+        <div class="p-meta" id="supervisor-lifecycle-note">…</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <input class="inline-input code-token" id="supervisor-token-input" dir="ltr" type="password"
+                 placeholder="supervisor bearer (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست">
+          <button class="btn-select-candidate" id="btn-supervisor-save">ذخیره توکن</button>
+          <button class="btn-skip-next" id="btn-supervisor-delete">حذف توکن</button>
+        </div>
+        <div class="p-meta" id="supervisor-err" style="color: var(--c-danger);"></div>
       </div>
 
       <div class="cfg-form-card" style="margin-top: 10px;">
@@ -681,10 +809,63 @@
     const target = document.getElementById(viewId);
     if (target) target.classList.add('active');
 
+    // همگام‌سازی برجستگی دکمه ناوبری با نمای فعال
+    document.querySelectorAll('.nav-btn').forEach(b => {
+      const handler = b.getAttribute('onclick') || '';
+      if (handler.indexOf("'" + viewId + "'") !== -1) b.classList.add('active');
+    });
+
+    // حافظه نما: آخرین کابین (فقط شناسه نما، بدون راز)
+    saveViewMemory(viewId);
+
     // بستن منو در موبایل پس از انتخاب
     mainNav.classList.remove('open');
     backdrop.classList.remove('open');
   }
+
+  /* ── حافظه نما: آخرین کابین + زبانه پیوندزنی در localStorage ──
+     فقط شناسه‌ها (view-* و شماره زبانه)؛ هیچ راز/کلید/مقدار اپراتوری.
+     اجرای اول (مقدار ذخیره‌نشده یا خراب) بدون تغییر، پیش‌فرض موجود می‌ماند. */
+  function readViewMemory() {
+    try {
+      const raw = localStorage.getItem('hz-view-memory');
+      if (!raw) return null;
+      const mem = JSON.parse(raw);
+      if (!mem || typeof mem !== 'object') return null;
+      return mem;
+    } catch(e){ return null; }
+  }
+  function saveViewMemory(viewId, tabIndex) {
+    try {
+      const mem = readViewMemory() || {};
+      if (typeof viewId === 'string' && viewId.indexOf('view-') === 0) mem.view = viewId;
+      if (Number.isInteger(tabIndex)) mem.tab = tabIndex;
+      localStorage.setItem('hz-view-memory', JSON.stringify(mem));
+    } catch(e){}
+  }
+  function selectLinkingTab(index, persist) {
+    const tabs = document.querySelectorAll('.cockpit-tabs .tab-link');
+    if (!tabs.length) return;
+    const idx = Number(index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
+    tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
+    if (persist !== false) saveViewMemory(null, idx);
+  }
+  function restoreViewMemory() {
+    try {
+      const mem = readViewMemory();
+      if (!mem) return;
+      if (typeof mem.view === 'string' && document.getElementById(mem.view)) {
+        openView(mem.view);
+      }
+      if (mem.tab !== undefined && document.getElementById('view-linking')) {
+        selectLinkingTab(mem.tab, false);
+      }
+    } catch(e){}
+  }
+  document.querySelectorAll('.cockpit-tabs .tab-link').forEach((t, i) => {
+    t.addEventListener('click', () => selectLinkingTab(i));
+  });
 
   /* ── سیم‌کشی زنده: همه عددها از سرور، بدون عدد نمایشی ── */
   const FA_DIGITS = {'0':'۰','1':'۱','2':'۲','3':'۳','4':'۴','5':'۵','6':'۶','7':'۷','8':'۸','9':'۹'};
@@ -710,6 +891,7 @@
   let screenedPath = '';
   let currentSense = null;
   let queueIndex = 0;
+  let selectedTarget = null;
 
   /* نوار وضعیت سراسری: master، egress، ریشه‌ها */
   async function refreshBadges() {
@@ -739,11 +921,18 @@
       document.getElementById('badge-keys').textContent = 'نامشخص';
     }
     try {
-      const h = await getJSON('/api/egress/health');
+      const r = await fetch('/api/egress/health');
+      let j = null;
+      try { j = await r.json(); } catch(e){}
+      if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
       document.getElementById('badge-egress').textContent =
-        h.healthy ? ('خروج تمیز: فعال (' + faNum(h.servers) + ' سرور)') : 'خروج: ناسالم';
+        j.healthy ? ('خروج تمیز: فعال (' + faNum(j.servers) + ' سرور)') : 'خروج: ناسالم';
+      document.getElementById('badge-egress').title = '';
     } catch(e) {
-      document.getElementById('badge-egress').textContent = 'خروج: پیکربندی‌نشده/نامشخص';
+      /* سرور پایین: متن خطا (شامل دستور دقیق راه‌اندازی، بدون راز) در عنوان نشان */
+      const badge = document.getElementById('badge-egress');
+      badge.textContent = 'خروج: ناسالم';
+      badge.title = e.message || e;
     }
     try {
       const f = await getJSON('/api/files/roots');
@@ -893,6 +1082,87 @@
     } catch(e) { errEl.textContent = e.message || e; }
   }
 
+  /* توکن سرپرست: یک‌بار چسباندن در پنل ارائه‌دهندگان — ورودی بلافاصله
+     پس از ارسال پاک می‌شود (نمایش یک‌باره) و مقدار هرگز بازخوانده
+     نمی‌شود؛ وضعیت فقط نام + بولی است. */
+  async function refreshSupervisorToken() {
+    try {
+      const s = await getJSON('/api/supervisor/status');
+      document.getElementById('supervisor-state').textContent =
+        s.configured ? ('پیکربندی شده (' + (s.var || '') + ')') : 'پیکربندی نشده';
+      document.getElementById('supervisor-note').textContent = s.configured
+        ? 'توکن سرپرست ذخیره شده است؛ فقط نام متغیر (' + (s.var || '') + ') نمایش داده می‌شود.'
+        : 'توکن سرپرست را یک‌بار بچسبانید؛ رمزشده ذخیره می‌شود و مقدار هرگز نمایش داده نمی‌شود.';
+    } catch(e) {
+      document.getElementById('supervisor-state').textContent = 'نامشخص';
+      document.getElementById('supervisor-note').textContent = 'خواندن وضعیت ناموفق بود.';
+    }
+  }
+  async function supervisorTokenSave() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    const inp = document.getElementById('supervisor-token-input');
+    const value = inp ? inp.value : '';
+    if (inp) inp.value = '';
+    if (!value) { errEl.textContent = 'توکن خالی است (چیزی ذخیره نشد).'; return; }
+    try {
+      await getJSON('/api/supervisor/token',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
+      await refreshSupervisorToken();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function supervisorTokenDelete() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    const inp = document.getElementById('supervisor-token-input');
+    if (inp) inp.value = '';
+    try {
+      await getJSON('/api/supervisor/token', {method: 'DELETE'});
+      await refreshSupervisorToken();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+
+  /* سطح وضعیت سرپرست: بیدار/خواب + نشان زنده، متصل به
+     /api/supervisor/wake + /api/supervisor/sleep (نام‌ها فقط) */
+  async function refreshSupervisorLifecycle() {
+    const badge = document.getElementById('supervisor-lifecycle-state');
+    const note = document.getElementById('supervisor-lifecycle-note');
+    if (!badge) return;
+    try {
+      const r = await fetch('/api/egress/health');
+      let j = null;
+      try { j = await r.json(); } catch(e){}
+      if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
+      badge.textContent = j.healthy ? 'سرپرست: بیدار' : 'سرپرست: خواب';
+      if (note) note.textContent = j.healthy
+        ? 'سرپرست سالم است (بیدارسازی دوباره انجام نمی‌شود).'
+        : 'سرپرست پایین است؛ دکمه بیدار، بیدارسازی در پس‌زمینه می‌کند.';
+    } catch(e) {
+      badge.textContent = 'سرپرست: نامشخص';
+      if (note) note.textContent = 'خواندن وضعیت ناموفق بود.';
+    }
+  }
+  async function supervisorWake() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/supervisor/wake', {method: 'POST'});
+      await refreshSupervisorLifecycle();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function supervisorSleep() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/supervisor/sleep', {method: 'POST'});
+      await refreshSupervisorLifecycle();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+
   /* فرم پریست مدل: گزینه‌ها و قفل‌ها از engine_info */
   function renderPresetForm(info, rates) {
     const sel = document.getElementById('preset-provider');
@@ -997,11 +1267,56 @@
       document.getElementById('handoff-total').textContent = '';
     }
   }
+  /* ── ماژول پالایش عمیق: کنترلر فهرست پالایش‌پذیر (مستقل و قابل استفاده مجدد) ──
+     ورودی: شناسه ورودی پالایش، شناسه ظرف اقلام، تابع تطابق متن
+     (row, index, query)؛ خروجی: پالایش زنده بدون دست‌کاری داده.
+     نمونه‌سازی فعلی: صف داوری (پالایش زنده با شناسه یا وضعیت)؛
+     آماده استفاده مجدد در کابین‌های پیش‌کارت و مخزن داده. */
+  class FilterableListController {
+    constructor(filterInputId, itemsContainerId, matchFn, onFilter) {
+      this.filterEl = document.getElementById(filterInputId);
+      this.itemsEl = document.getElementById(itemsContainerId);
+      this.matchFn = matchFn;
+      this.onFilter = onFilter || function(){};
+      this.query = '';
+      if (this.filterEl) {
+        this.filterEl.addEventListener('input', (ev) => {
+          this.query = ev.target.value || '';
+          this.onFilter(this.query);
+        });
+      }
+    }
+    matches(row, i) {
+      try { return this.matchFn(row, i, this.query); }
+      catch(e) { return true; }
+    }
+    apply() { this.onFilter(this.query); }
+  }
+
+  /* پالایش زنده صف: زیررشته‌ای روی شناسه، لم، معنی، یا برچسب وضعیت */
+  let queueFilter = '';
+  function queueItemMatches(row, i, q) {
+    const needle = (q !== undefined && q !== null ? q : queueFilter || '').trim();
+    if (!needle) return true;
+    const status = i === queueIndex ? 'داوری جاری' : 'در انتظار';
+    return (row.sense_id || '').includes(needle)
+      || (row.lemma || '').includes(needle)
+      || (row.gloss || '').includes(needle)
+      || status.includes(needle);
+  }
+  /* نمونه‌سازی صف داوری: ورودی queue-filter + ظرف queue-list */
+  const queueFilterCtl = new FilterableListController(
+    'queue-filter', 'queue-list',
+    function(row, i, q) { return queueItemMatches(row, i, q); },
+    function(q) { queueFilter = q || ''; renderQueue(); });
   function renderQueue() {
     const box = document.getElementById('queue-list');
     box.replaceChildren();
-    document.getElementById('queue-remaining').textContent = faNum(screenedRows.length) + ' مورد در صف';
-    screenedRows.forEach((row, i) => {
+    const visible = screenedRows.map((row, i) => ({row, i}))
+      .filter(({row, i}) => queueItemMatches(row, i));
+    document.getElementById('queue-remaining').textContent =
+      faNum(visible.length) + ' از ' + faNum(screenedRows.length) + ' مورد';
+    visible.forEach(({row, i}) => {
       const item = document.createElement('div');
       item.className = 'queue-item' + (i === queueIndex ? ' active' : '');
       const wrap = document.createElement('div');
@@ -1009,9 +1324,17 @@
       b.className = 'code-token';
       if (i === queueIndex) b.style.color = 'var(--c-primary)';
       b.textContent = row.sense_id || '—';
+      /* ردیف صف دقیقاً سه چیز حمل می‌کند: شناسه کایکی، برش معنی، وضعیت —
+         نامزدها/مثال‌ها/متن کامل هرگز در ردیف نیست (مالک آن‌ها بخش «جزئیات سنس» است) */
+      const glossFlat = (row.gloss || '').replace(/\s+/g, ' ').trim();
+      const glossSlice = glossFlat
+        ? (glossFlat.length > 120 ? glossFlat.slice(0, 120) + '…' : glossFlat)
+        : '—';
       const sub = document.createElement('div');
-      sub.style.cssText = 'font-size: 0.72rem; color: var(--text-muted);';
-      sub.textContent = row.lemma || '';
+      sub.className = 'queue-gloss ltr-text';
+      sub.setAttribute('dir', 'ltr');
+      sub.textContent = glossSlice;
+      sub.title = glossSlice;
       wrap.append(b, sub);
       const tag = document.createElement('span');
       tag.className = 'status-tag';
@@ -1029,6 +1352,7 @@
       document.getElementById('sense-meta').textContent = 'صفی خالی است';
       document.getElementById('sense-def').textContent = '—';
       document.getElementById('sense-example').textContent = '—';
+      renderCandidates([]);
       return;
     }
     queueIndex = ((i % screenedRows.length) + screenedRows.length) % screenedRows.length;
@@ -1039,6 +1363,109 @@
     document.getElementById('sense-def').textContent = currentSense.gloss || '—';
     document.getElementById('sense-example').textContent = currentSense.example || '—';
     renderQueue();
+    loadCandidates();
+  }
+  let candidatesRequest = 0;
+  async function loadCandidates() {
+    const box = document.getElementById('candidates-stack');
+    const statusEl = document.getElementById('candidates-status');
+    const myTicket = ++candidatesRequest;
+    selectedTarget = null;
+    document.getElementById('label-target-name').textContent = 'نامزدی انتخاب نشده است';
+    box.replaceChildren();
+    if (!currentSense || !currentSense.sense_id) {
+      statusEl.textContent = 'سنسی در صف نیست.';
+      return;
+    }
+    statusEl.textContent = 'در حال بارگذاری نامزدها…';
+    try {
+      /* the queue id is short (run#5): the server resolves it to the
+         full kaikki id through the same screened export the queue came
+         from, then joins real-run shortlists plus human-review lists */
+      let url = '/api/candidates?sense_id=' + encodeURIComponent(currentSense.sense_id);
+      if (screenedPath) url += '&screened=' + encodeURIComponent(screenedPath);
+      const j = await getJSON(url);
+      if (myTicket !== candidatesRequest) return;  // a newer sense won the race
+      renderCandidates(j.candidates || [], {cause: j.cause || '', fullId: j.full_id || '',
+        witness: j.witness_verdict || ''});
+    } catch(e) {
+      if (myTicket !== candidatesRequest) return;
+      statusEl.textContent = 'بارگذاری نامزدها ناموفق بود: ' + (e.message || e);
+    }
+  }
+  function ltrLine(text, cls, tip) {
+    const el = document.createElement('div');
+    el.className = cls + ' ltr-text';
+    el.setAttribute('dir', 'ltr');
+    el.textContent = text;
+    /* متن کامل روی hover: جعبه بیضی می‌شود اما title همیشه کامل است */
+    if (tip) el.title = tip;
+    return el;
+  }
+  function renderCandidates(cands, feed) {
+    const box = document.getElementById('candidates-stack');
+    const statusEl = document.getElementById('candidates-status');
+    box.replaceChildren();
+    const cause = (feed && feed.cause) || '';
+    if (!cands.length) {
+      if (cause === 'no-join') {
+        /* حالت خالی پیوندنخورده: شناسه در نگاشت غربالگری و هیچ اجرایی
+           پیدا نشد — جعبه لاتین ایزوله، بدون شکست چیدمان */
+        statusEl.replaceChildren(
+          ltrLine('No join for this sense: identifier not found in the screened map or any run.', 'p-meta'));
+      } else {
+        /* حالت خالی خنثی: جعبه لاتین ایزوله، بدون شکست چیدمان */
+        statusEl.replaceChildren(
+          ltrLine('No candidates in the link table for this sense.', 'p-meta'));
+      }
+      return;
+    }
+    const witness = (feed && feed.witness) || '';
+    statusEl.textContent = faNum(cands.length) + ' نامزد از اجرای واقعی'
+      + (witness ? ' · شاهد: ' + witness : '');
+    cands.forEach((cand) => {
+      const card = document.createElement('div');
+      card.className = 'candidate-row-card';
+      card.dataset.sensekey = cand.sensekey || '';
+      const info = document.createElement('div');
+      info.className = 'c-info-block';
+      const keyTag = ltrLine((cand.synset || cand.sensekey || '—') +
+        (cand.synset_locator ? ' (' + cand.synset_locator + ')' : ''), 'c-key-tag code-token');
+      info.append(keyTag);
+      info.append(ltrLine(cand.gloss || '—', 'c-gloss-text', cand.gloss || ''));
+      if ((cand.synonyms || []).length) {
+        const synText = '= ' + cand.synonyms.join('; ');
+        info.append(ltrLine(synText, 'c-synonyms-text', synText));
+      }
+      if (cand.example) {
+        const exText = '◈ ' + cand.example;
+        info.append(ltrLine(exText, 'c-synonyms-text', exText));
+      }
+      if (cand.method || cand.evidence) {
+        info.append(ltrLine([cand.method, cand.evidence].filter(Boolean).join(' · '), 'c-synonyms-text code-token'));
+      }
+      /* human-review flags ride the card (read-only join, never typed) */
+      if (cand.in_review || cand.witness_pick) {
+        const bits = [];
+        if (cand.in_review) bits.push('review' + (cand.review_reason ? ': ' + cand.review_reason : ''));
+        if (cand.witness_pick) bits.push('witness pick' + (witness ? ': ' + witness : ''));
+        info.append(ltrLine(bits.join(' · '), 'c-synonyms-text code-token'));
+      }
+      const pick = document.createElement('button');
+      pick.className = 'btn-select-candidate';
+      pick.type = 'button';
+      pick.textContent = 'انتخاب برای پیوند';
+      pick.addEventListener('click', () => setSelectedTarget(cand.sensekey || '', card));
+      card.append(info, pick);
+      box.append(card);
+    });
+  }
+  function setSelectedTarget(sensekey, card) {
+    selectedTarget = sensekey || null;
+    document.getElementById('label-target-name').textContent = selectedTarget || 'نامزدی انتخاب نشده است';
+    document.querySelectorAll('#candidates-stack .candidate-row-card').forEach((el) => {
+      el.classList.toggle('selected', !!selectedTarget && el.dataset.sensekey === selectedTarget);
+    });
   }
   async function refreshLabelStats() {
     try {
@@ -1052,14 +1479,33 @@
       document.getElementById('m-none').textContent = 'نامشخص';
     }
   }
+  /* پیش‌فرض‌گذاری امن ابرداده رأی (پس‌زمینه، خارج از جریان فرم):
+     مقادیر بخش تنظیمات اگر اپراتور تعیین کرده باشد، وگرنه پیش‌فرض‌های
+     امن نقش‌محور — هرگز نام شخصی ساخته نمی‌شود. */
+  const LABEL_DEFAULT_STRATUM = 'operator-review';
+  const LABEL_DEFAULT_ANNOTATOR = 'operator';
+  function labelDefaults() {
+    let s = '', a = '';
+    try {
+      const sEl = document.getElementById('label-stratum');
+      const aEl = document.getElementById('label-annotator');
+      s = (sEl && sEl.value || '').trim();
+      a = (aEl && aEl.value || '').trim();
+    } catch(e){}
+    return {
+      stratum: s || LABEL_DEFAULT_STRATUM,
+      annotator: a || LABEL_DEFAULT_ANNOTATOR,
+    };
+  }
   function labelFields(verdict, target) {
+    const defs = labelDefaults();
     return {
       sense_id: currentSense ? (currentSense.sense_id || '') : '',
       lemma: currentSense ? (currentSense.lemma || '') : '',
       target_synset: target,
       verdict: verdict,
-      stratum: (document.getElementById('label-stratum').value || '').trim(),
-      annotator: (document.getElementById('label-annotator').value || '').trim(),
+      stratum: defs.stratum,
+      annotator: defs.annotator,
     };
   }
   async function postLabel(verdict, target) {
@@ -1068,10 +1514,6 @@
     receiptEl.hidden = true;
     if (!currentSense) { statusEl.textContent = 'سنسی در صف نیست.'; return; }
     const body = labelFields(verdict, target);
-    if (!body.stratum || !body.annotator) {
-      statusEl.textContent = 'stratum و annotator خالی است (سرور رأی بدون آن‌ها را برمی‌گرداند).';
-      return;
-    }
     statusEl.textContent = 'در حال ذخیره…';
     try {
       const j = await getJSON('/api/labels', {method: 'POST',
@@ -1086,16 +1528,28 @@
   }
 
   document.getElementById('btn-refresh-screened').addEventListener('click', loadScreened);
+  /* پالایش زنده صف از طریق کنترلر (شناسه یا وضعیت) — سیم‌کشی ورودی
+     در سازنده FilterableListController انجام می‌شود. */
   document.getElementById('btn-skip-next').addEventListener('click', () => selectSense(queueIndex + 1));
   document.getElementById('btn-reject-all').addEventListener('click', () => postLabel('none', null));
   document.getElementById('btn-record-link').addEventListener('click', () => {
-    const target = (document.getElementById('label-target').value || '').trim() || null;
-    postLabel('link', target);
+    if (!selectedTarget) {
+      document.getElementById('label-status').textContent = 'اول یک نامزد را از کارت‌ها انتخاب کنید.';
+      return;
+    }
+    postLabel('link', selectedTarget);
   });
   document.getElementById('btn-master-ensure').addEventListener('click', masterEnsure);
+  document.getElementById('btn-supervisor-save').addEventListener('click', supervisorTokenSave);
+  document.getElementById('btn-supervisor-delete').addEventListener('click', supervisorTokenDelete);
+  document.getElementById('btn-supervisor-wake').addEventListener('click', supervisorWake);
+  document.getElementById('btn-supervisor-sleep').addEventListener('click', supervisorSleep);
   document.getElementById('btn-fetch-models').addEventListener('click', fetchPresetModels);
 
+  restoreViewMemory();
   refreshBadges();
+  refreshSupervisorToken();
+  refreshSupervisorLifecycle();
   refreshProviderCards();
   loadScreened();
 </script>

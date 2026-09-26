@@ -6,10 +6,11 @@ record. Every UI run spawns the exact receipt command shown on screen
 replays identically from a terminal.
 
 Usage:
-    python factory/webui/server.py [--host 127.0.0.1] [--port 5561]
-    Open http://127.0.0.1:5561 in a browser (loopback by default; set
-    HAMZABAN_WEBUI_HOST / HAMZABAN_WEBUI_PORT or pass the flags to serve
-    the local network, e.g. for tablet access).
+    python factory/webui/server.py [--host <ip>] [--port 5561]
+    Open http://127.0.0.1:5561 on this machine, or http://<lan-ip>:5561
+    from a tablet on the LAN (plain start binds all interfaces, so it
+    is LAN-visible with no flags; set HAMZABAN_WEBUI_HOST or pass
+    --host to override, e.g. --host 127.0.0.1 for loopback-only).
 
 Screens (four): compose a run, watch a run live, compare a run against
 gold labels, and a full guide. Safety: key VALUES never appear in pages,
@@ -41,6 +42,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import uuid
 
@@ -54,13 +56,63 @@ app = Flask(__name__, static_folder=None)
 HOST = "127.0.0.1"
 PORT = 5561
 
+#: Plain-start bind: all interfaces (loopback and LAN both work, so a
+#: plain start is LAN-visible with no flags).
+ALL_INTERFACES = "0.0.0.0"
+
 HOST_ENV_VAR = "HAMZABAN_WEBUI_HOST"
 PORT_ENV_VAR = "HAMZABAN_WEBUI_PORT"
 
 
+def _detect_lan_ipv4():
+    """Machine LAN IPv4 for tablet access ("" when undetectable).
+
+    Local-only, zero traffic: a UDP connect() against a public address
+    never transmits — it only selects the outbound interface whose
+    address we read back. Fallback is the platform address list.
+    Loopback and link-local are excluded; "" means the caller binds
+    loopback instead. No I/O beyond sockets, no secret values.
+    """
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            hit = sock.getsockname()[0]
+        finally:
+            sock.close()
+        if hit and not str(hit).startswith("127.") \
+                and str(hit) != "0.0.0.0":
+            return str(hit)
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None,
+                                       socket.AF_INET):
+            ip = (info[4] or [None])[0] if len(info) > 4 else None
+            text = str(ip or "")
+            if text and not text.startswith("127.") \
+                    and not text.startswith("169.254."):
+                return text
+    except OSError:
+        pass
+    return ""
+
+
 def _default_host():
-    """Loopback unless HAMZABAN_WEBUI_HOST names another interface."""
-    return os.environ.get(HOST_ENV_VAR) or HOST
+    """All interfaces unless HAMZABAN_WEBUI_HOST names another one.
+
+    Precedence: explicit HAMZABAN_WEBUI_HOST, else all-interfaces
+    (loopback and LAN both work, so plain start is LAN-visible with
+    no flags). An explicit --host flag still overrides this default
+    at the argparse layer (e.g. 127.0.0.1 for loopback-only).
+    ``_detect_lan_ipv4`` stays for the boot-receipt LAN note only —
+    it no longer selects the bind address.
+    """
+    explicit = (os.environ.get(HOST_ENV_VAR) or "").strip()
+    if explicit:
+        return explicit
+    return ALL_INTERFACES
 
 
 def _default_port():
@@ -77,15 +129,18 @@ def _default_port():
 def parse_server_args(argv=None):
     """CLI flags for serving the console (tablet access included).
 
-    ``--host`` defaults to HAMZABAN_WEBUI_HOST else loopback;
-    ``--port`` (int) defaults to HAMZABAN_WEBUI_PORT else 5561.
+    ``--host`` defaults to HAMZABAN_WEBUI_HOST else all-interfaces
+    (0.0.0.0 — loopback and LAN both work); pass --host 127.0.0.1
+    for loopback-only. ``--port`` (int) defaults to
+    HAMZABAN_WEBUI_PORT else 5561.
     Hermetic: no I/O, no behavior change to any route.
     """
     parser = argparse.ArgumentParser(
         description="HamZaban linker-line local WebUI console.")
     parser.add_argument("--host", default=_default_host(),
-                        help="interface to bind (default: %s else %s)"
-                        % (HOST_ENV_VAR, HOST))
+                        help="interface to bind (default: %s else %s; "
+                        "pass 127.0.0.1 for loopback-only)"
+                        % (HOST_ENV_VAR, ALL_INTERFACES))
     parser.add_argument("--port", type=int, default=_default_port(),
                         help="port to bind (default: %s else %d)"
                         % (PORT_ENV_VAR, PORT))
@@ -97,6 +152,11 @@ PROFILES_DIR = os.path.join(SCRIPT_DIR, "provider_profiles")
 OPERATOR_KEYS_PATH = os.path.join(SCRIPT_DIR, "operator_keys.json")
 KEY_VAR_MAP_PATH = os.path.join(SCRIPT_DIR, "provider_key_vars.json")
 MASTER_VAR = "AI_MASTER_KEY"
+
+#: Supervisor bearer variable (name only — the value is pasted once in the
+#: providers panel, stored encrypted in the operator store, and never
+#: displayed, logged, or returned).
+SUPERVISOR_TOKEN_VAR = "EGRESS_SUP_TOKEN"
 
 FACTORY_ENV_PATH = os.path.abspath(
     os.path.join(PROJECT_ROOT, "factory", ".env"))
@@ -808,10 +868,10 @@ def judge_preset_schema():
 
 
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
-                        target_fn=None, clean_fn=None, verify_fn=None,
-                        remember_fn=None, report_fn=None, tunneled=None,
-                        env_map=None, file_paths=None,
-                        registry_fn=None):
+                         target_fn=None, clean_fn=None, verify_fn=None,
+                         remember_fn=None, report_fn=None, tunneled=None,
+                         env_map=None, file_paths=None,
+                         registry_fn=None, wake_fn=None, health_fn=None):
     """Server-side per-provider model list (key-gated, never faked).
 
     Resolves the provider key server-side (env/file/operator store —
@@ -824,6 +884,12 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     (models_or_None, error_or_None): models is [exact ids]; error is
     an attributed plain line (provider + kind + http, never values).
     An empty real list is returned as ([], None) — never invented.
+
+    Universal auto-wake: a leased-route provider with no supervisor
+    token wakes the shared supervisor from the factory domain path in
+    the background (``wake_fn`` injects the wake leg — tests pass
+    fakes, never a process) and retries; the caller sees a friendly
+    wait line, never a raw error. Route-based, never Google-only.
 
     The lease/report/remember legs arrive via the tunnel seam
     (``lease_fn``/``report_fn``/``remember_fn`` inject them — tests
@@ -882,7 +948,8 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
         lease, lease_error = lease_tunnel_for_run(
             name, lease_fn=lease_fn, target_fn=target_fn,
             clean_fn=clean_fn, verify_fn=verify_fn, tunneled=tunneled,
-            env_map=env_map, file_paths=file_paths)
+            env_map=env_map, file_paths=file_paths,
+            wake_fn=wake_fn, health_fn=health_fn)
         if lease_error:
             return None, ("%s models:list refused: %s"
                           % (name, lease_error))
@@ -2145,20 +2212,419 @@ def route_for_provider(provider, registry_fn=None, tunneled=None,
     return (route, _pp.route_reason(name, route))
 
 
-def _supervisor_token():
-    """Supervisor bearer (in-memory only, never logged or returned)."""
-    hit = os.environ.get("EGRESS_SUP_TOKEN", "")
-    if hit:
-        return hit
+#: Exact operator command that starts the shared egress supervisor
+#: (loopback lease service, tools/egress/supervisor.py). Shown verbatim
+#: in every supervisor-down error — names only, never secret values.
+SUPERVISOR_START_CMD = "python tools/egress/supervisor.py"
+
+
+def _factory_supervisor_script():
+    """Factory-domain supervisor entry (single source, never a copy).
+
+    The path is owned by ``factory.run`` (SUPERVISOR_SCRIPT); this
+    adapter only reads it so the wake path and the CLI can never drift
+    into rival literals.
+    """
     try:
-        from factory.precard.provider_lease_policy import (
-            resolve_key as _resolve)
-        return _resolve("EGRESS_SUP_TOKEN") or ""
+        from factory import run as _frun
+        return str(getattr(_frun, "SUPERVISOR_SCRIPT", "") or "")
     except Exception:
         return ""
 
 
+def _factory_supervisor_port():
+    """Loopback port for a woken supervisor (URL first, factory default).
+
+    The resolved supervisor URL wins when it names a loopback port;
+    otherwise the factory default (factory.run.SUP_DEFAULT_PORT).
+    """
+    try:
+        from urllib.parse import urlsplit as _split
+        port = _split(_supervisor_url()).port
+        if port:
+            return int(port)
+    except Exception:
+        pass
+    try:
+        from factory import run as _frun
+        return int(getattr(_frun, "SUP_DEFAULT_PORT", 18789))
+    except Exception:
+        return 18789
+
+
+def _wake_supervisor_background(port=None, spawn_fn=None, health_fn=None,
+                                timeout=5.0):
+    """Background wake of the shared supervisor (best-effort, never raises).
+
+    Health-first: a healthy supervisor is returned as-is (never
+    restarted, never re-spawned). Otherwise the factory-domain entry
+    (``factory.run.SUPERVISOR_SCRIPT``) is launched detached in the
+    background — bearer rides the child env only, never argv/logs —
+    and health is re-polled on a bounded budget. Others' leases are
+    never touched (no lease/report call exists on this path).
+    ``spawn_fn``/``health_fn`` inject the spawn + health legs (tests
+    pass fakes, never a real process). Returns True when a healthy
+    supervisor answers after the attempt.
+    """
+    health = health_fn or supervisor_health_snapshot
+    try:
+        ok, _ = health()
+    except Exception:
+        ok = False
+    if ok:
+        return True
+    script = _factory_supervisor_script()
+    if not script or not os.path.isfile(script):
+        return False
+    target = int(port or _factory_supervisor_port())
+    try:
+        if spawn_fn is not None:
+            spawn_fn(target)
+        else:
+            env = dict(os.environ)
+            tok = _supervisor_token()
+            if tok:
+                env["EGRESS_SUP_TOKEN"] = tok
+            subprocess.Popen(
+                [sys.executable, script, "--port", str(target)],
+                env=env, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, close_fds=True)
+    except Exception:
+        return False
+    import time as _time
+    try:
+        budget = max(0.5, float(timeout or 0))
+    except (TypeError, ValueError):
+        budget = 5.0
+    deadline = _time.monotonic() + budget
+    while _time.monotonic() < deadline:
+        try:
+            ok, _ = health()
+        except Exception:
+            ok = False
+        if ok:
+            return True
+        _time.sleep(0.5)
+    return False
+
+
+def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
+                                  tunneled=None, env_map=None,
+                                  file_paths=None):
+    """Universal auto-wake gate for leased-route providers (never raw).
+
+    Route-based, never provider-named: any provider whose flag-driven
+    route is "leased" rides this gate (Google-only gates are banned).
+    Direct-route providers return ready without touching the
+    supervisor. Otherwise the token is checked; when missing, the
+    supervisor is woken in the background from the factory domain path
+    and the token re-resolved (a child cannot change the parent
+    environment, so the retry re-reads the shared temp file the
+    supervisor workflow leaves behind), then the request retries — the
+    caller sees a friendly wait line, never a raw error. ``wake_fn`` injects
+    the wake leg (() -> bool; tests pass fakes, never a process).
+    Returns (ready_bool, error_or_None).
+    """
+    route, _reason = route_for_provider(
+        provider, tunneled=tunneled, env_map=env_map,
+        file_paths=file_paths)
+    if route != "leased":
+        return True, None
+    if _supervisor_token():
+        _touch_supervisor_active()
+        return True, None
+    if wake_fn is not None:
+        try:
+            woke = wake_fn()
+        except Exception:
+            woke = False
+    else:
+        woke = _wake_supervisor_background(health_fn=health_fn)
+    if woke and _supervisor_token():
+        _touch_supervisor_active()
+        return True, None
+    if woke:
+        return False, ("supervisor is starting in the background "
+                       "(EGRESS_SUP_TOKEN) — retry this request in a few "
+                       "seconds; manual start: %s" % SUPERVISOR_START_CMD)
+    return False, ("no supervisor token resolves (EGRESS_SUP_TOKEN) "
+                   "— the shared supervisor was woken in the background: "
+                   "%s (nothing else touched)" % SUPERVISOR_START_CMD)
+
+
+#: Idle-sleep minutes — PARKED (owner number pending, never invented).
+#: ``None`` means "no owner value yet": the idle path stays inert until
+#: the owner configures a real number (env override below or a future
+#: literal). Tests assert this parked default and drive the idle verdict
+#: with injected minutes instead of any real duration.
+IDLE_SLEEP_MINUTES = None
+
+#: Owner-configured idle-minutes override (name only; value never logged).
+SUPERVISOR_IDLE_MINUTES_ENV_VAR = "HAMZABAN_SUPERVISOR_IDLE_MINUTES"
+
+#: Last supervisor activity (monotonic seconds, in-memory only). Touched
+#: by the wake/lease legs so the sleep endpoint can tell idle from busy.
+_SUPERVISOR_LAST_ACTIVE_TS = None
+
+
+def _configured_idle_minutes(default=IDLE_SLEEP_MINUTES):
+    """Owner-configured idle minutes (env override else parked default).
+
+    Returns an int/float when the owner configured a positive number,
+    else the parked default (``None`` — never invented). Names only out;
+    unparseable values fall back to the parked default.
+    """
+    raw = (os.environ.get(SUPERVISOR_IDLE_MINUTES_ENV_VAR) or "").strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if val <= 0:
+        return default
+    return val
+
+
+def _touch_supervisor_active(now=None):
+    """Record supervisor activity (in-memory timestamp, never I/O)."""
+    global _SUPERVISOR_LAST_ACTIVE_TS
+    try:
+        import time as _time
+        _SUPERVISOR_LAST_ACTIVE_TS = (
+            float(now) if now is not None else _time.monotonic())
+    except (TypeError, ValueError):
+        pass
+
+
+def supervisor_idle_due(last_seen_ts, now_ts, minutes=IDLE_SLEEP_MINUTES,
+                        active_leases=0):
+    """True when an idle supervisor may sleep (pure, no I/O).
+
+    Honors the injected ``minutes`` (owner-configured value at the call
+    site); the parked default (``None``) never sleeps. Any active lease
+    blocks sleep — others' leases are never disturbed. Unknown
+    timestamps never sleep (honest fallback, never a guess).
+    """
+    try:
+        if int(active_leases or 0) > 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if minutes is None:
+        return False
+    try:
+        span = float(minutes)
+    except (TypeError, ValueError):
+        return False
+    if span <= 0:
+        return False
+    try:
+        idle_secs = float(now_ts) - float(last_seen_ts)
+    except (TypeError, ValueError):
+        return False
+    return idle_secs >= span * 60.0
+
+
+def supervisor_lifecycle_state(healthy=None, configured=None,
+                               active_leases=0, idle_minutes=None):
+    """State-surface facts: names + booleans only, never values."""
+    if configured is None:
+        configured = bool(_supervisor_token())
+    if idle_minutes is None:
+        idle_minutes = _configured_idle_minutes()
+    return {"var": SUPERVISOR_TOKEN_VAR,
+            "configured": bool(configured),
+            "healthy": bool(healthy) if healthy is not None else False,
+            "active_leases": int(active_leases or 0),
+            "idle_minutes": idle_minutes,
+            "idle_parked": idle_minutes is None}
+
+
+def request_supervisor_sleep(*, stop_fn=None, last_seen_ts=None,
+                             now_ts=None, active_leases=0, minutes=None):
+    """Best-effort idle sleep (never disturbs others' leases).
+
+    Sleeps only when the idle clock is due AND no lease is active;
+    otherwise returns (False, reason). ``stop_fn`` injects the stop leg
+    (tests pass fakes, never a process); the default has no stop hook
+    configured, so it honestly reports not-slept instead of guessing.
+    Never raises, never touches lease/report state.
+    """
+    if minutes is None:
+        minutes = _configured_idle_minutes()
+    if minutes is None:
+        return False, "idle minutes parked (owner number pending)"
+    try:
+        import time as _time
+        now = float(now_ts) if now_ts is not None else _time.monotonic()
+    except (TypeError, ValueError):
+        return False, "unknown clock (sleep refused)"
+    if last_seen_ts is None:
+        last_seen_ts = _SUPERVISOR_LAST_ACTIVE_TS
+    if last_seen_ts is None:
+        return False, "no activity timestamp yet (sleep refused)"
+    if not supervisor_idle_due(last_seen_ts, now, minutes=minutes,
+                               active_leases=active_leases):
+        try:
+            if int(active_leases or 0) > 0:
+                return False, "leases active (sleep refused)"
+        except (TypeError, ValueError):
+            pass
+        return False, "not idle yet (sleep refused)"
+    if stop_fn is None:
+        return False, "no stop hook configured (sleep refused)"
+    try:
+        stopped = stop_fn()
+    except Exception:
+        return False, "stop hook failed (sleep refused)"
+    return bool(stopped), ("" if stopped else "stop hook declined")
+
+
+def _supervisor_token():
+    """Supervisor bearer (in-memory only, never logged or returned).
+
+    Resolution order: process env, then the PRIMARY factory environment
+    file (``_factory_env_value``: ``factory/.env``), then the shared
+    supervisor-issued temp file (a woken child cannot change the parent
+    environment, so the parent re-reads the token the supervisor
+    workflow left on disk), then the shared egress loader
+    (``tools.egress.supervisor.load_env``: the canonical
+    tools/egress/.env, then the factory/.env fallback), then the
+    file-anchored lease-policy resolver, then the encrypted operator
+    store (pasted once in the providers panel, decrypted fail-closed).
+    Branch location plays no role: every lookup path is anchored at
+    the module file (``__file__``) or the shared temp directory,
+    never at the checkout directory or cwd.
+    """
+    hit = os.environ.get(SUPERVISOR_TOKEN_VAR, "")
+    if hit:
+        return hit
+    hit = _factory_env_value(SUPERVISOR_TOKEN_VAR)
+    if hit:
+        return hit
+    hit = _read_supervisor_token_file()
+    if hit:
+        return hit
+    try:
+        from tools.egress import supervisor as _sup
+        data = _sup.load_env() or {}
+        tok = str(data.get(SUPERVISOR_TOKEN_VAR, "") or "").strip()
+        if tok:
+            return tok
+    except Exception:
+        pass
+    try:
+        from factory.precard.provider_lease_policy import (
+            resolve_key as _resolve)
+        hit = _resolve(SUPERVISOR_TOKEN_VAR) or ""
+        if hit:
+            return hit
+    except Exception:
+        pass
+    try:
+        stored = _operator_key_values()
+        hit = stored.get(SUPERVISOR_TOKEN_VAR, "")
+        if hit:
+            return hit
+    except Exception:
+        pass
+    return ""
+
+
+#: Shared-temp-file name holding the supervisor-issued bearer the
+#: parent re-reads (a child process cannot change the parent
+#: environment). Written by whoever starts the supervisor with a token
+#: (operator workflow, mode 0600); read here, never logged/returned.
+SUP_TOKEN_FILENAME = "hamzaban-egress-sup-token"
+
+
+def _supervisor_token_file():
+    """Absolute path of the shared supervisor-token file (temp dir)."""
+    try:
+        base = tempfile.gettempdir()
+    except Exception:
+        return ""
+    if not base:
+        return ""
+    return os.path.join(base, SUP_TOKEN_FILENAME)
+
+
+_SUP_TOKEN_FILE_RX = re.compile(r"^[A-Za-z0-9_\-]{8,512}$")
+
+
+def _read_supervisor_token_file(path=None):
+    """Bearer from the shared temp file ("" when absent/invalid).
+
+    Single-line, charset-guarded read — values stay in-memory only,
+    never logged, returned only to in-process callers. A missing file
+    is the normal supervisor-down state, never an error.
+    """
+    target = path or _supervisor_token_file()
+    if not target:
+        return ""
+    try:
+        with open(target, encoding="utf-8") as handle:
+            raw = handle.read(4096)
+    except (OSError, ValueError):
+        return ""
+    line = (raw or "").strip().splitlines()
+    token = line[0].strip() if line else ""
+    if not token or not _SUP_TOKEN_FILE_RX.match(token):
+        return ""
+    return token
+
+
+def _refresh_egress_client_auth():
+    """Place the resolved bearer on the loopback lease legs (best-effort).
+
+    ``tools.egress.client`` binds SUP_TOKEN/SUP_URL at import time, so
+    a token that resolved after import (shared temp file, supervisor
+    workflow) would never reach the tunneled provider requests
+    (lease/health/report for every leased route — google and any
+    future leased row alike). Refreshing the module attributes from
+    the resolved values keeps those legs on the active token without
+    touching any file outside this adapter. Names only out — the
+    value is assigned in-memory, never logged or returned.
+    """
+    try:
+        from tools.egress import client as _client
+    except Exception:
+        return
+    try:
+        token = _supervisor_token()
+    except Exception:
+        token = ""
+    try:
+        url = _supervisor_url()
+    except Exception:
+        url = ""
+    try:
+        if token:
+            _client.SUP_TOKEN = token
+        if url:
+            _client.SUP_URL = url
+    except Exception:
+        pass
+
+
 def _supervisor_url():
+    """Supervisor base URL through the same unified path (never copied).
+
+    Same anchoring rule as :func:`_supervisor_token`: env first, then
+    the shared egress loader, else the loopback default.
+    """
+    hit = (os.environ.get("EGRESS_SUP_URL", "") or "").strip()
+    if hit:
+        return hit
+    try:
+        from tools.egress import supervisor as _sup
+        data = _sup.load_env() or {}
+        url = str(data.get("EGRESS_SUP_URL", "") or "").strip()
+        if url:
+            return url
+    except Exception:
+        pass
     try:
         from factory.precard.provider_lease_policy import (
             resolve_key as _resolve)
@@ -2182,7 +2648,9 @@ def supervisor_health_snapshot(timeout=10):
     if not token:
         return False, ("no supervisor token resolves "
                        "(EGRESS_SUP_TOKEN) — start the shared "
-                       "supervisor first")
+                       "supervisor first: %s (nothing spawned)"
+                       % SUPERVISOR_START_CMD)
+    _refresh_egress_client_auth()
     try:
         req = _url.Request(
             _supervisor_url().rstrip("/") + "/v1/health",
@@ -2192,8 +2660,9 @@ def supervisor_health_snapshot(timeout=10):
     except Exception as exc:
         return False, ("supervisor unreachable at %s (%s) — "
                        "shared infrastructure untouched, nothing "
-                       "spawned" % (_supervisor_url(),
-                                    type(exc).__name__))
+                       "spawned; start it with: %s"
+                       % (_supervisor_url(), type(exc).__name__,
+                          SUPERVISOR_START_CMD))
     if not isinstance(data, dict):
         return False, "supervisor health unreadable (bad shape)"
     return True, {"servers": data.get("servers"),
@@ -2203,16 +2672,22 @@ def supervisor_health_snapshot(timeout=10):
 
 def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
                            clean_fn=None, verify_fn=None, tunneled=None,
-                           env_map=None, file_paths=None):
-    """Lease a clean tunnel for one WebUI run (no spawn, fail-closed).
+                           env_map=None, file_paths=None, wake_fn=None,
+                           health_fn=None):
+    """Lease a clean tunnel for one WebUI run (auto-wake, fail-closed).
 
     Thin composition over the probe lease seam: a tunnel-route provider
     leases from the CURRENT supervisor health state via
     ``probe_providers.lease_tunnel`` (``lease_fn``/``target_fn`` inject
-    it — tests pass fakes, never the network); a down supervisor is a
-    loud refusal (never an auto-spawn — shared infrastructure stays
-    untouched, others' leases undisturbed). Returns
-    (lease_dict_or_None, error_or_None).
+    it — tests pass fakes, never the network). Universal auto-wake:
+    when no supervisor token resolves, the shared supervisor is woken
+    in the background from the factory domain path
+    (``wake_fn`` injects the wake leg — tests pass fakes, never a
+    process) and the request retries without a raw error; a still-down
+    supervisor is a friendly wait line (never a traceback, never an
+    auto-spawn storm — one background wake, shared infrastructure and
+    others' leases undisturbed). Route-based, never Google-only.
+    Returns (lease_dict_or_None, error_or_None).
 
     Google leases additionally carry the whitelist verdict
     (``clean``/``clean_note``/``clean_exit`` annotations on OUR lease
@@ -2229,11 +2704,17 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
         file_paths=file_paths)
     if route != "leased":
         return None, None
+    ready, wake_error = _ensure_supervisor_for_leased(
+        provider, wake_fn=wake_fn, health_fn=health_fn,
+        tunneled=tunneled, env_map=env_map, file_paths=file_paths)
+    if not ready:
+        return None, wake_error
     token = _supervisor_token()
     if not token:
         return None, ("no supervisor token resolves (EGRESS_SUP_TOKEN) "
-                      "— start the shared supervisor first "
-                      "(nothing spawned)")
+                      "— start the shared supervisor first: %s "
+                      "(nothing spawned)" % SUPERVISOR_START_CMD)
+    _refresh_egress_client_auth()
     try:
         from factory.linking import probe_providers as _pp
         lease = _pp.lease_tunnel(provider, lease_fn=lease_fn,
@@ -2417,6 +2898,119 @@ def api_master_ensure():
     if not ok:
         return jsonify({"error": error}), 500
     return jsonify({"master": master_status(), "created": bool(created)})
+
+
+def supervisor_token_status():
+    """Supervisor-token readiness: NAME + boolean only, never the value."""
+    return {"var": SUPERVISOR_TOKEN_VAR,
+            "configured": bool(_supervisor_token())}
+
+
+@app.route("/api/supervisor/status", methods=["GET"])
+def api_supervisor_status():
+    """Names-only supervisor-token readiness (never the value)."""
+    return jsonify(supervisor_token_status())
+
+
+@app.route("/api/supervisor/token", methods=["POST"])
+def api_supervisor_token_save():
+    """Paste the supervisor bearer ONCE (encrypted store, never returned).
+
+    Body {"key_value": "<bearer>"} stores encrypted via the existing
+    operator-key path (``_store_operator_key`` → ``key_crypto``,
+    fail-closed). The value is shown one time — in the operator's own
+    input before submit — then never returned, logged, or displayed:
+    every read after this is names + booleans only.
+    """
+    fields = request.get_json(force=True, silent=True) or {}
+    value = str((fields or {}).get("key_value")
+                or (fields or {}).get("key") or "")
+    ok, error = _store_operator_key(SUPERVISOR_TOKEN_VAR, value)
+    if not ok:
+        if "empty" in error or "reference name" in error:
+            return jsonify({"error": error}), 400
+        return jsonify({"error": error}), 500
+    return jsonify({"stored": SUPERVISOR_TOKEN_VAR})
+
+
+@app.route("/api/supervisor/token", methods=["DELETE"])
+def api_supervisor_token_delete():
+    """Delete the pasted supervisor bearer (names only out)."""
+    if not _remove_operator_key(SUPERVISOR_TOKEN_VAR):
+        return jsonify(
+            {"error": "key not found: %s" % SUPERVISOR_TOKEN_VAR}), 404
+    return jsonify({"deleted": SUPERVISOR_TOKEN_VAR})
+
+
+@app.route("/api/supervisor/wake", methods=["POST"])
+def api_supervisor_wake():
+    """Wake-on-demand: background wake, never a restart of healthy.
+
+    Health-first (read-only): a healthy supervisor returns woken True
+    without spawning. Otherwise one background wake from the factory
+    domain path; bearer rides the child env only. Names + booleans
+    only — values never leave. Never touches others' leases.
+    """
+    try:
+        ok, payload = supervisor_health_snapshot()
+    except Exception:
+        ok, payload = False, "health check failed"
+    if ok:
+        _touch_supervisor_active()
+        return jsonify({"woken": True, "already_healthy": True,
+                        "var": SUPERVISOR_TOKEN_VAR,
+                        "health": payload if isinstance(payload, dict)
+                        else {}})
+    woke = _wake_supervisor_background()
+    if woke:
+        _touch_supervisor_active()
+        return jsonify({"woken": True, "already_healthy": False,
+                        "var": SUPERVISOR_TOKEN_VAR,
+                        "note": ("supervisor is starting in the background "
+                                 "(EGRESS_SUP_TOKEN) — retry in a few "
+                                 "seconds")})
+    return jsonify({"woken": False, "already_healthy": False,
+                    "var": SUPERVISOR_TOKEN_VAR,
+                    "error": payload if isinstance(payload, str)
+                    else "wake refused"}), 503
+
+
+@app.route("/api/supervisor/sleep", methods=["POST"])
+def api_supervisor_sleep():
+    """Idle sleep: sleeps only when idle-due with zero active leases.
+
+    Parked idle minutes (owner number pending) honestly refuse with
+    slept False — never invented. Others' leases are never disturbed
+    (no lease/report call exists on this path). Names + booleans only.
+    """
+    minutes = _configured_idle_minutes()
+    if minutes is None:
+        return jsonify({"slept": False, "var": SUPERVISOR_TOKEN_VAR,
+                        "reason": "idle minutes parked "
+                        "(owner number pending)"})
+    try:
+        ok, payload = supervisor_health_snapshot()
+    except Exception:
+        ok, payload = False, "health check failed"
+    if not ok:
+        return jsonify({"slept": False, "var": SUPERVISOR_TOKEN_VAR,
+                        "reason": payload if isinstance(payload, str)
+                        else "supervisor not running"})
+    try:
+        leases = int((payload or {}).get("leases") or 0) \
+            if isinstance(payload, dict) else 0
+    except (TypeError, ValueError):
+        leases = 0
+    import time as _time
+    slept, reason = request_supervisor_sleep(
+        last_seen_ts=_SUPERVISOR_LAST_ACTIVE_TS, now_ts=_time.monotonic(),
+        active_leases=leases, minutes=minutes)
+    status = 200 if slept else 409
+    body = {"slept": bool(slept), "var": SUPERVISOR_TOKEN_VAR,
+            "idle_minutes": minutes, "active_leases": leases}
+    if reason:
+        body["reason"] = reason
+    return jsonify(body), status
 
 
 @app.route("/api/providers/<name>/key_var", methods=["GET"])
@@ -3119,16 +3713,91 @@ def api_key_delete(var):
 
 # ─── Screened browser + human labels (Steps 4-6, thin readers) ──────
 # Read-only browser over the Step-2 screened export; append-only label
-# store. NEVER imports screening (factory.precard.prune) or ranking
-# (factory.linking.linker) internals — rows are read from disk only.
-# Join discipline: every row shows identifier + gloss together, never
-# bare row numbers. Localhost only (HOST is 127.0.0.1, fixed).
+# store. Screening (factory.precard.prune) and scoring
+# (factory.linking.linker arbitrate/signals) are never called and never
+# modified — the candidates feed below only uses the linker's thin
+# pure index accessors (cli.read_table + build_link_index/lookup_link)
+# and the viewer's pure wordnet readers (resolver + parse_wn_parts +
+# sensekey locator). Scoring, screening, evidence, and ranking code
+# stay untouched. Join discipline: every row shows identifier + gloss
+# together, never bare row numbers. Localhost only (HOST is 127.0.0.1,
+# fixed).
 
 DEFAULT_SCREENED_PATH = (
     "W:/hamzaban_data_factory/proof-linker/screened/screened.jsonl")
 LABELS_PATH = os.path.join(SCRIPT_DIR, "labels.jsonl")
 
 SCREENED_LIMIT = 500
+
+#: Frozen vendor link table (shipped repo file — read-only via the
+#: linker's own thin index accessors; never scored or rewritten here).
+DEFAULT_LINK_TABLE = os.path.join(PROJECT_ROOT, "factory", "linking",
+                                  "table.tsv")
+
+#: REAL run candidate file (a linking run's own shortlist output, e.g.
+#: run20 ``candidates_run20.json`` — read-only, never re-ranked here).
+DEFAULT_CANDIDATES_RUN = (
+    "W:/hamzaban_data_factory/proof-linker/run20/candidates_run20.json")
+
+#: Human-review lists (both read-only, both honest-empty when absent):
+#: the escalation-queue sink owned by ``factory/linking/human_queue.py``
+#: plus one witness-label list (gold shape: list of ``{kid, ...}``).
+DEFAULT_HUMAN_QUEUE = (
+    "W:/hamzaban_data_factory/proof-linker/human_escalation_queue.jsonl")
+DEFAULT_WITNESS_LABELS = (
+    "W:/hamzaban_data_factory/proof-linker/gold/calibration_gold_26.json")
+
+#: Every console input/output path resolves through configuration:
+#: explicit query param, else these env vars, else the good default
+#: above — no step path or main path is ever hardcoded in the logic.
+SCREENED_ENV_VAR = "HAMZABAN_SCREENED_PATH"
+LINK_TABLE_ENV_VAR = "HAMZABAN_LINK_TABLE"
+CANDIDATES_RUN_ENV_VAR = "HAMZABAN_CANDIDATES_RUN"
+HUMAN_QUEUE_ENV_VAR = "HAMZABAN_HUMAN_QUEUE"
+WITNESS_LABELS_ENV_VAR = "HAMZABAN_WITNESS_LABELS"
+
+
+def _configured_path(explicit, env_var, default):
+    """Resolve one console path: explicit arg, else env, else default."""
+    hit = str(explicit or "").strip()
+    if hit:
+        return hit
+    hit = (os.environ.get(env_var) or "").strip()
+    if hit:
+        return hit
+    return default
+
+
+def screened_id_map(screened_path):
+    """Map SHORT queue ids (``sense.sense_id``, e.g. ``run#5``) to FULL
+    kaikki ids (``sense.id``, e.g. ``en-run-en-verb-tL7-sssU``).
+
+    Pure reader over the screened export: skips bad lines and rows
+    without both forms. Missing file -> ``{}`` (no join, never an
+    invented mapping).
+    """
+    mapping = {}
+    try:
+        handle = open(screened_path, encoding="utf-8")
+    except OSError:
+        return mapping
+    with handle:
+        for line in handle:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            sense = rec.get("sense")
+            if not isinstance(sense, dict):
+                continue
+            short = sense.get("sense_id")
+            full = sense.get("id")
+            if isinstance(short, str) and short.strip() \
+                    and isinstance(full, str) and full.strip():
+                mapping.setdefault(short.strip(), full.strip())
+    return mapping
 
 
 def _sense_gloss(sense):
@@ -3200,7 +3869,8 @@ def _label_watermark(rec):
 @app.route("/api/screened", methods=["GET"])
 def api_screened():
     """Read-only list of screened source senses (identifier + gloss)."""
-    path = (request.args.get("path") or "").strip() or DEFAULT_SCREENED_PATH
+    path = _configured_path(request.args.get("path"), SCREENED_ENV_VAR,
+                            DEFAULT_SCREENED_PATH)
     query = (request.args.get("q") or "").strip().lower()
     rows = screened_rows(path)
     if query:
@@ -3212,6 +3882,388 @@ def api_screened():
     return jsonify({"path": path, "total": total,
                     "rows": rows[:SCREENED_LIMIT],
                     "truncated": total > SCREENED_LIMIT})
+
+
+def _candidates_limit():
+    """Review-queue candidate cap from the linker owner (12 on fallback).
+
+    Reads ``SHORTLIST_CAP`` at call time (lazy: the linker core is
+    never imported at server startup); the literal is a fallback only,
+    never a second registry.
+    """
+    try:
+        from factory.linking import linker as _linker
+        return int(_linker.SHORTLIST_CAP)
+    except Exception:
+        return 12
+
+
+def _wordnet_live_fields(sensekey):
+    """(synset_name, example) for one sensekey, best-effort ("" when absent).
+
+    Read-only over the same ``synset_from_sense_key`` seam the viewer
+    resolver uses (the engine exposes no example/synset-name reader, so
+    this thin read lives here, in the adapter — never in the core).
+    Missing NLTK/wordnet data fails soft to ("", ""): honest empty,
+    never invented.
+    """
+    try:
+        from nltk.corpus import wordnet as _wn
+        syn = _wn.synset_from_sense_key(sensekey or "")
+    except Exception:
+        return "", ""
+    if syn is None:
+        return "", ""
+    try:
+        name = _wn.synset_from_sense_key(sensekey or "").name() or ""
+    except Exception:
+        name = ""
+    try:
+        examples = syn.examples() or []
+        first = examples[0] if examples else ""
+        example = first if isinstance(first, str) else ""
+    except Exception:
+        example = ""
+    return name, example
+
+
+def _read_run_candidates(run_path):
+    """Normalized candidates from a REAL run file (read-only, order kept).
+
+    The run file maps FULL kaikki ids to ``{top3: [{sensekey, gloss,
+    lemmas, examples, fires, jaccard}]}`` (run20 ``candidates_run20.json``
+    shape). Each entry becomes one adapter row (verbatim run data — no
+    wordnet lookups, no re-ranking, nothing invented). Missing or
+    unreadable file -> ``{}`` (honest empty, never fabricated).
+    """
+    try:
+        with open(run_path, encoding="utf-8") as handle:
+            blob = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(blob, dict):
+        return {}
+    try:
+        from factory.linking import viewer as _viewer
+    except Exception:
+        _viewer = None
+    out = {}
+    for kid, rec in blob.items():
+        if not isinstance(kid, str) or not kid.strip():
+            continue
+        if not isinstance(rec, dict):
+            continue
+        entries = rec.get("top3")
+        if not isinstance(entries, list):
+            continue
+        rows = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            skey = entry.get("sensekey")
+            if not (isinstance(skey, str) and skey.strip()):
+                continue
+            skey = skey.strip()
+            lemmas = entry.get("lemmas")
+            synonyms = [s for s in (lemmas or [])
+                        if isinstance(s, str) and s.strip()]
+            examples = entry.get("examples")
+            example = ""
+            for item in (examples or []):
+                text = item.get("text") if isinstance(item, dict) else item
+                if isinstance(text, str) and text.strip():
+                    example = text.strip()
+                    break
+            fires = [f for f in (entry.get("fires") or [])
+                     if isinstance(f, str) and f.strip()]
+            try:
+                jac = float(entry.get("jaccard"))
+                jac_text = "j=%.4g" % jac
+            except (TypeError, ValueError):
+                jac_text = ""
+            evidence = "+".join(fires)
+            if jac_text:
+                evidence = (evidence + " · " + jac_text).strip(" ·")
+            try:
+                locator = _viewer._parse_sensekey_locator(skey) \
+                    if _viewer is not None else ""
+            except Exception:
+                locator = ""
+            gloss = entry.get("gloss")
+            rows.append({
+                "sensekey": skey,
+                "synset": "",
+                "synset_locator": locator,
+                "gloss": gloss if isinstance(gloss, str) else "",
+                "synonyms": synonyms,
+                "example": example,
+                "method": "run:top3",
+                "evidence": evidence,
+            })
+        out[kid.strip()] = rows
+    return out
+
+
+def review_flags_for_sense(full_id, short_id, queue_path, witness_path):
+    """Human-review flags for one sense (read-only join, never invented).
+
+    The queue sink is read through the owner's own
+    ``human_queue.load_queue_deduped`` (records match on either key
+    form); the witness list accepts gold/witness shapes (a list of
+    ``{kid, ...}`` or ``{"rows": [...]}`` with a verdict-ish key and an
+    optional winner sensekey). Missing files -> empty flags.
+    """
+    flags = {"in_review": False, "review_reason": "",
+             "witness_verdict": "", "witness_pick": ""}
+    keys = {k for k in (full_id, short_id)
+            if isinstance(k, str) and k.strip()}
+    try:
+        from factory.linking import human_queue as _hq
+        queue_rows = _hq.load_queue_deduped(queue_path)
+    except Exception:
+        queue_rows = []
+    for rec in (queue_rows or []):
+        if not isinstance(rec, dict):
+            continue
+        hit = ""
+        entry = rec.get("source_entry")
+        if isinstance(entry, dict):
+            for key in ("sense_id", "id"):
+                value = entry.get(key)
+                if isinstance(value, str) and value.strip() in keys:
+                    hit = value.strip()
+                    break
+        if not hit:
+            for key in ("sense_id", "id", "kid"):
+                value = rec.get(key)
+                if isinstance(value, str) and value.strip() in keys:
+                    hit = value.strip()
+                    break
+        if hit:
+            flags["in_review"] = True
+            reason = rec.get("escalation_reason")
+            if isinstance(reason, str) and reason.strip():
+                flags["review_reason"] = reason.strip()
+            break
+    try:
+        with open(witness_path, encoding="utf-8") as handle:
+            blob = json.load(handle)
+    except (OSError, ValueError):
+        blob = None
+    entries = blob.get("rows") if isinstance(blob, dict) else blob
+    for entry in (entries or []):
+        if not isinstance(entry, dict):
+            continue
+        kid = entry.get("kid")
+        if not (isinstance(kid, str) and kid.strip() in keys):
+            continue
+        for key in ("gemini_verdict", "verdict", "class", "baseline"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                flags["witness_verdict"] = value.strip()
+                break
+        for key in ("winner_sensekey", "table_winner_sensekey",
+                    "target_synset"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                flags["witness_pick"] = value.strip()
+                break
+        break
+    return flags
+
+
+def _resolve_full_sense_id(kid, run_keys, table_index, screened_path):
+    """Resolve any queue identifier to its FULL kaikki id ("" = no join).
+
+    Direct hits (already-full ids present in the run file or vendor
+    table) pass through with no map read. Otherwise the SHORT screened
+    id resolves through the screened export's ``sense.id`` map. A
+    short-form id (``lemma#N``) absent from the map is unresolvable
+    (no-join); anything else is taken as a full-form id that simply
+    has no rows anywhere (no-data).
+    """
+    if kid in run_keys or kid in table_index:
+        return kid
+    mapping = screened_id_map(screened_path)
+    if kid in mapping:
+        return mapping[kid]
+    if "#" in kid:
+        return ""
+    return kid
+
+
+def candidates_for_sense(sense_id, table_path=None, resolver=None,
+                         run_path=None, queue_path=None, witness_path=None,
+                         screened_path=None):
+    """WordNet candidates for one sense id (read-only, no scoring).
+
+    Join order (nothing ever lost): REAL run rows first (file order),
+    then vendor-table rows for sensekeys not already seen (index
+    order), each annotated with read-only human-review flags
+    (``in_review`` / ``review_reason`` / ``witness_pick``). Every path
+    resolves through configuration (explicit arg, else ``HAMZABAN_*``
+    env, else the good default) — no literals. The queue's SHORT id
+    resolves to the FULL kaikki id through the screened map; full ids
+    pass through. ``[]`` is always honest (no join, or joined but no
+    rows) — rows are never fabricated.
+    """
+    kid = str(sense_id or "").strip()
+    if not kid:
+        return []
+    from factory.linking import build_link_index, lookup_link
+    from factory.linking import cli as _link_cli
+    from factory.linking import viewer as _viewer
+
+    table = _configured_path(table_path, LINK_TABLE_ENV_VAR,
+                             DEFAULT_LINK_TABLE)
+    run = _configured_path(run_path, CANDIDATES_RUN_ENV_VAR,
+                           DEFAULT_CANDIDATES_RUN)
+    queue = _configured_path(queue_path, HUMAN_QUEUE_ENV_VAR,
+                             DEFAULT_HUMAN_QUEUE)
+    witness = _configured_path(witness_path, WITNESS_LABELS_ENV_VAR,
+                               DEFAULT_WITNESS_LABELS)
+    screened = _configured_path(screened_path, SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    _header, rows = _link_cli.read_table(table)
+    index = build_link_index(rows or [])
+    run_rows = _read_run_candidates(run)
+    full = _resolve_full_sense_id(kid, set(run_rows), index, screened)
+    if not full:
+        return []
+    flags = review_flags_for_sense(full, kid, queue, witness)
+    pick = flags.get("witness_pick") or ""
+    out = []
+    seen = set()
+    for row in (run_rows.get(full) or []):
+        skey = row.get("sensekey") or ""
+        if skey in seen:
+            continue
+        seen.add(skey)
+        out.append({**row, "in_review": flags["in_review"],
+                    "review_reason": flags["review_reason"],
+                    "witness_pick": bool(pick) and skey == pick})
+    if resolver is None:
+        try:
+            resolver = _viewer._default_wordnet_resolver()
+        except Exception:
+            resolver = None
+    hits = lookup_link(index, full) or []
+    for row in hits[:_candidates_limit()]:
+        if not isinstance(row, dict):
+            continue
+        skey = str(row.get("wordnet_sensekey") or "")
+        if not skey or skey in seen:
+            continue
+        seen.add(skey)
+        try:
+            raw = _viewer._resolve_wordnet_def(skey, resolver)
+        except Exception:
+            raw = ""
+        try:
+            gloss, synonyms, _packed_eg = _viewer.parse_wn_parts(raw or "")
+        except Exception:
+            gloss, synonyms = "", []
+        try:
+            locator = _viewer._parse_sensekey_locator(skey)
+        except Exception:
+            locator = ""
+        synset_name, example = _wordnet_live_fields(skey)
+        if not example and isinstance(_packed_eg, str):
+            example = _packed_eg
+        out.append({
+            "sensekey": skey,
+            "synset": synset_name or locator,
+            "synset_locator": locator,
+            "gloss": gloss,
+            "synonyms": list(synonyms or []),
+            "example": example,
+            "method": str(row.get("method") or ""),
+            "evidence": str(row.get("evidence") or ""),
+            "in_review": flags["in_review"],
+            "review_reason": flags["review_reason"],
+            "witness_pick": bool(pick) and skey == pick,
+        })
+    return out
+
+
+def candidate_feed_for(sense_id, table_path=None, resolver=None,
+                       run_path=None, queue_path=None, witness_path=None,
+                       screened_path=None):
+    """Feed envelope for ``GET /api/candidates`` (pure join, no I/O here
+    beyond the readers above).
+
+    ``cause`` names the empty state: ``joined`` (rows found),
+    ``no-join`` (the id resolved to no kaikki identity), ``no-data``
+    (joined identity, rows nowhere). ``full_id`` is the resolved
+    identity ("" on no-join); ``witness_verdict`` rides at the sense
+    level so the page need not scan rows.
+    """
+    kid = str(sense_id or "").strip()
+    if not kid:
+        return {"sense_id": "", "full_id": "", "total": 0,
+                "candidates": [], "cause": "no-join",
+                "witness_verdict": ""}
+    from factory.linking import build_link_index
+    from factory.linking import cli as _link_cli
+
+    table = _configured_path(table_path, LINK_TABLE_ENV_VAR,
+                             DEFAULT_LINK_TABLE)
+    run = _configured_path(run_path, CANDIDATES_RUN_ENV_VAR,
+                           DEFAULT_CANDIDATES_RUN)
+    queue = _configured_path(queue_path, HUMAN_QUEUE_ENV_VAR,
+                             DEFAULT_HUMAN_QUEUE)
+    witness = _configured_path(witness_path, WITNESS_LABELS_ENV_VAR,
+                               DEFAULT_WITNESS_LABELS)
+    screened = _configured_path(screened_path, SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    try:
+        _header, rows = _link_cli.read_table(table)
+    except OSError:
+        raise
+    index = build_link_index(rows or [])
+    run_rows = _read_run_candidates(run)
+    full = _resolve_full_sense_id(kid, set(run_rows), index, screened)
+    if not full:
+        return {"sense_id": kid, "full_id": "", "total": 0,
+                "candidates": [], "cause": "no-join",
+                "witness_verdict": ""}
+    cands = candidates_for_sense(kid, table, resolver, run, queue,
+                                 witness, screened)
+    flags = review_flags_for_sense(full, kid, queue, witness)
+    return {"sense_id": kid, "full_id": full, "total": len(cands),
+            "candidates": cands,
+            "cause": "joined" if cands else "no-data",
+            "witness_verdict": flags.get("witness_verdict") or ""}
+
+
+@app.route("/api/candidates", methods=["GET"])
+def api_candidates():
+    """Read-only WordNet candidate feed for one review-queue sense.
+
+    ``GET /api/candidates?sense_id=<queue-sense-id>`` -> ``{"sense_id",
+    "full_id", "total", "candidates", "cause", "witness_verdict"}``.
+    The queue id may be SHORT (``run#5`` — resolved to the FULL kaikki
+    id through the screened map) or FULL (passes through). Rows join
+    REAL run shortlists first, then vendor-table rows, each annotated
+    with read-only human-review flags. Every path is configurable
+    (query param, else ``HAMZABAN_*`` env, else the good default).
+    400 when the sense identifier is missing; 500 when the vendor table
+    is unreadable; 200 with an (honest, possibly empty) list otherwise.
+    """
+    sense_id = (request.args.get("sense_id") or "").strip()
+    if not sense_id:
+        return jsonify({"error": "sense_id is required"}), 400
+    try:
+        feed = candidate_feed_for(
+            sense_id,
+            request.args.get("table"),
+            run_path=request.args.get("run"),
+            queue_path=request.args.get("queue"),
+            witness_path=request.args.get("witness"),
+            screened_path=request.args.get("screened"))
+    except OSError as exc:
+        return jsonify({"error": "cannot read link table: %s" % exc}), 500
+    return jsonify(feed)
 
 
 @app.route("/api/labels", methods=["GET"])
@@ -3245,8 +4297,39 @@ def api_label_save():
     }), 201
 
 
+def build_boot_lines(host, port, pid, lan):
+    """Boot receipt lines proving the exact bind (pure, no I/O).
+
+    First line always reproduces the bound host/port/pid exactly.
+    A plain all-interfaces start appends a LAN-visibility note (which
+    address to open from a tablet vs loopback on this machine); an
+    explicit override reproduces exactly with no note. Names only,
+    no secrets.
+    """
+    lines = ["webui boot host=%s port=%s pid=%s" % (host, port, pid)]
+    if str(host or "").strip() in (ALL_INTERFACES, "::"):
+        if lan:
+            lines.append(
+                "webui net lan=%s note=plain start is LAN-visible: "
+                "open http://%s:%s from tablet, "
+                "http://127.0.0.1:%s on this machine"
+                % (lan, lan, port, port))
+        else:
+            lines.append(
+                "webui net lan=unavailable note=plain start binds all "
+                "interfaces but no LAN address detected: open "
+                "http://127.0.0.1:%s on this machine" % (port,))
+    return lines
+
+
 if __name__ == "__main__":
     _args = parse_server_args()
     os.chdir(PROJECT_ROOT)
     os.makedirs(RUNS_DIR, exist_ok=True)
+    # Boot receipt: proves the exact host/port the process bound
+    # (operators match this line against the -BindHost/-Port they
+    # passed to server_ctl.ps1; names only, no secrets).
+    for _line in build_boot_lines(
+            _args.host, _args.port, os.getpid(), _detect_lan_ipv4()):
+        print(_line, flush=True)
     app.run(host=_args.host, port=_args.port)
