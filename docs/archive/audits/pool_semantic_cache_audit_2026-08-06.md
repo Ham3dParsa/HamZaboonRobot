@@ -1,3 +1,5 @@
+> Status: archived as of 2026-09-24; see docs/audits/carry-forward.md
+
 # Pool / Semantic-Cache Pre-Decision Audit
 
 **Date:** 2026-08-06 (reconciled 2026-08-08)

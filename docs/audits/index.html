@@ -1,3 +1,4 @@
+<!-- Status: valid as of 2026-09-24; wave reports + streak doc moved to docs/archive/audits/, remainders in docs/audits/carry-forward.md -->
 <!DOCTYPE html>
 <html lang="fa" dir="rtl"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -39,14 +40,14 @@
       <div class="title">🗄️ DB Persistence & Transaction</div>
       <div class="desc">تفکیک God Façade، یکپارچه‌سازی Quota (TOCTOU)، ادغام مسیر Grade و تفکیک Preset/Schema. داغ‌ترین فایل‌ها: <code>schema.py:1130</code>، <code>preset_registry.py:599</code>.</div>
       <div class="meta"><span class="pill"><strong>Strong</strong> ×2</span><span class="pill">Worth ×1</span><span class="pill">626→110 خط façade</span></div>
-      <a class="btn" href="./architecture_db_persistence_audit_v1.html">↗ باز کردن گزارش DB</a>
+      <a class="btn" href="../archive/audits/architecture_db_persistence_audit_v1.html">↗ باز کردن گزارش DB</a>
     </div>
     <div class="card">
       <div class="wave">WAVE 1 · AGENT B — ۴ RULE</div>
       <div class="title">🧭 Routing & Callback Handlers</div>
       <div class="desc">تکمیل رجیستری <code>services/routing</code> (۱۱ پیشوند builtin)، یکپارچه‌سازی text_router، تکمیل مهاجرت R3 به <code>send_pretty</code> و تفکیک <code>keyboards.py:1136</code>.</div>
       <div class="meta"><span class="pill"><strong>Strong</strong> ×2</span><span class="pill">Worth ×1</span><span class="pill">256→15 خط router</span></div>
-      <a class="btn" href="./architecture_routing_handlers_audit_v1.html">↗ باز کردن گزارش Routing</a>
+      <a class="btn" href="../archive/audits/architecture_routing_handlers_audit_v1.html">↗ باز کردن گزارش Routing</a>
     </div>
   </div>
   <h2 style="font-size:17px;color:#fff;margin:18px 0 8px">🌊 موج ۲ — Wave 2 (AI + Session/SRS)</h2>
@@ -56,14 +57,14 @@
       <div class="title">🤖 AI Pipeline & Preset/Fallback</div>
       <div class="desc">تفکیک Orchestrator (limiter/router/repair)، تفکیک <code>ai.py:827</code>، متمرکزسازی ORDER BY و پاکسازی <code>ai_presets</code> + جنریک‌سازی Cache.</div>
       <div class="meta"><span class="pill"><strong>Strong</strong> ×2</span><span class="pill">Medium ×1</span><span class="pill">827线 خدا شکسته</span></div>
-      <a class="btn" href="./architecture_ai_pipeline_audit_v1.html">↗ باز کردن گزارش AI</a>
+      <a class="btn" href="../archive/audits/architecture_ai_pipeline_audit_v1.html">↗ باز کردن گزارش AI</a>
     </div>
     <div class="card">
       <div class="wave">WAVE 2 · AGENT D — ۴ RULE</div>
       <div class="title">🧠 Session Engine & SRS/FSRS</div>
       <div class="desc">TierRegistry سه‌تایی، استخراج Lifecycle از handler ۱۳۰۶ خطی، تجمیع FSRS به <code>schedule_next</code> و پاکسازی GradePolicy خیالی.</div>
       <div class="meta"><span class="pill"><strong>Strong</strong> ×2</span><span class="pill">Medium ×1</span><span class="pill">1306→lifecycle</span></div>
-      <a class="btn" href="./architecture_session_srs_audit_v1.html">↗ باز کردن گزارش Session/SRS</a>
+      <a class="btn" href="../archive/audits/architecture_session_srs_audit_v1.html">↗ باز کردن گزارش Session/SRS</a>
     </div>
   </div>
   <h2 style="font-size:17px;color:#fff;margin:22px 0 8px">📎 مرجع الگو (Template Parity)</h2>
@@ -71,7 +72,7 @@
     <div class="wave">TEMPLATE — file:///C:/Users/HamedParsa/Downloads/streak_audit_and_contract_locked_v2.html</div>
     <div class="title">🔥 Streak Contract Lock v2 — نسخهٔ مرجع</div>
     <div class="desc">سند ممیزی + پنل تصمیم‌گیری استریک با ۵ قانون (RULE-001 تا 005) — مبنای بصری تمام گزارش‌های بالا. کپیِ دقیق در همین دایرکتوری نگهداری می‌شود تا parity قابل راستی‌آزمایی باشد.</div>
-    <a class="btn" href="./streak_audit_and_contract_locked_v2.html">↗ باز کردن سند Streak مرجع</a>
+    <a class="btn" href="../archive/audits/streak_audit_and_contract_locked_v2.html">↗ باز کردن سند Streak مرجع</a>
     <span style="margin-right:10px;font-size:12px;color:var(--muted)">اصل: <code>file:///C:/Users/HamedParsa/Downloads/streak_audit_and_contract_locked_v2.html</code></span>
   </div>
   <div class="hero-note" style="margin-top:22px">

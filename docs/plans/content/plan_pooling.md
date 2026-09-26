@@ -12,8 +12,8 @@
 > Additive, docs-only note. No locked decision below is changed. This section
 > records where this plan's assumptions no longer match current code and what a
 > future pool-builder Contract-Lock session must re-derive. Evidence-based from
-> `docs/audit/pool_semantic_cache_audit_2026-08-06.md`,
-> `docs/audit/architecture_alignment_2026-08-06.md`, and source.
+> `docs/archive/audits/pool_semantic_cache_audit_2026-08-06.md`,
+> `docs/archive/audits/architecture_alignment_2026-08-06.md`, and source.
 
 **Daily-card intake is obsolete.** The reserved `source_kind: daily_card`
 (§ Pool identity) and the sequencing step "Insert validated daily cards into
@@ -33,7 +33,7 @@ keyed by `(target_lang, goal, level, ...)`, but `saved_words` has no
 `(goal, level)` over `saved_words` is not reducible as written. The resolved
 design is to derive `(target_lang, goal, level)` dynamically from `tier3_context`
 at runtime (`handlers/study_handler.py:141-147`) rather than migrate the schema —
-see `docs/audit/architecture_alignment_2026-08-06.md` (Option B, R3).
+see `docs/archive/audits/architecture_alignment_2026-08-06.md` (Option B, R3).
 
 **`entry_source` has landed.** `saved_words.entry_source TEXT DEFAULT 'manual'`
 was added (`services/db/schema.py:124,304-306`), the manual write path wires
@@ -59,14 +59,14 @@ inputs, not locked rules):** source-kind set after daily-card removal; avoid-lis
 wording on the surviving personal-history path; inventory-floor "per segment/
 source" definition post re-anchor; and whether a bulk pool-builder CLI (~1000
 cards/segment) enters scope before the DAU trigger — see
-`docs/audit/architecture_alignment_2026-08-06.md` B2/B3/B5 and the Claude-decision
+`docs/archive/audits/architecture_alignment_2026-08-06.md` B2/B3/B5 and the Claude-decision
 context note. These do not unlock implementation; they only define the
 contract-lock surface.
 
 ### Claude decision context (non-normative — decision inputs, not locked rules)
 
 > Recorded 2026-08-08 from the 2026-08-04 audit
-> `docs/audit/audit_content_pool_feedback_2026-08.md` and the owner's Claude-
+> `docs/archive/audits/audit_content_pool_feedback_2026-08.md` and the owner's Claude-
 > conversation summary. This list is **evidence, not gate** — every item below is
 > a PENDING owner decision to be locked in the next pool-builder Contract-Lock
 > session, not an approved rule. The full Rules 1–12 enumeration is owned by that
