@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>کنسول عملیات کارخانه داده هم‌زبان v5.0</title>
+<style>
+  :root {
+    /* پالت رنگی اختصاصی تأییدشده مالک */
+    --c-primary: #D87B47;       /* تراکوتا / اقدامات اصلی و اجرای فعال */
+    --c-secondary: #00AFB5;     /* فیروزه‌ای متالیک / تله‌متری و پایش */
+    --c-accent: #6197E8;        /* آبی ملایم / شبکه و هستی‌شناسی */
+    --c-success: #41B676;       /* سبز زمردی / پیوند قطعی و سلامت */
+    --c-warning: #B284E3;       /* یاسی / داوری انسانی و صف اختلافی */
+    --c-danger: #E47490;        /* رز متالیک / رد سنس NONE و خطا */
+
+    /* تم شب استاندارد صنعتی (Dark Slate / Charcoal) */
+    --bg-base: #0d1117;
+    --bg-surface: #161b22;
+    --bg-elevated: #21262d;
+    --border-color: #30363d;
+    --border-subtle: #21262d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+    --sans: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+  }
+
+  [data-theme="light"] {
+    /* تم روز با کنتراست پایدار و تفکیک‌شده */
+    --bg-base: #f6f8fa;
+    --bg-surface: #ffffff;
+    --bg-elevated: #f0f2f5;
+    --border-color: #d0d7de;
+    --border-subtle: #e1e4e8;
+    --text-primary: #1f2328;
+    --text-secondary: #424a53;
+    --text-muted: #656d76;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    line-height: 1.5;
+    font-size: 13.5px;
+    min-height: 100vh;
+  }
+
+  /* مهار پرش و شکست نگارشی متن‌های لاتین (BiDi Isolation) */
+  .ltr-text {
+    direction: ltr;
+    text-align: left;
+    unicode-bidi: isolate;
+  }
+  .code-token {
+    font-family: var(--mono);
+    direction: ltr;
+    text-align: left;
+    unicode-bidi: isolate;
+    display: inline-block;
+  }
+
+  /* نوار لغزشی هم‌تم: باریک و گرد، هماهنگ با تم شب/روز (فقط استایل) */
+  /* ریشه (پنجره): متغیرهای تم از [data-theme] به ارث می‌رسند */
+  html, body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-base); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 8px;
+    border: 2px solid var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  /* کلاس عمومی نوار لغزشی هم‌تم برای ناحیه‌های لغزشی درونی:
+     تم را از ریشه به ارث می‌برد (شب/روز خودکار)؛ هر ناحیه لغزشی
+     (صف، جدول، نامزدها) با افزودن همین کلاس هم‌تم می‌شود. */
+  .themed-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .themed-scroll::-webkit-scrollbar-track {
+    background: var(--bg-base);
+    border-radius: 6px;
+  }
+  .themed-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 6px;
+    border: 2px solid var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  .queue-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-secondary) var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar { width: 8px; height: 8px; }
+  .queue-list::-webkit-scrollbar-track {
+    background: var(--bg-elevated);
+    border-radius: 6px;
+  }
+  .queue-list::-webkit-scrollbar-thumb {
+    background: var(--c-secondary);
+    border-radius: 6px;
+    border: 2px solid var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar-thumb:hover { background: var(--c-primary); }
+
+  /* نوار وضعیت سراسری در بالای صفحه */
+  header.top-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+  .app-branding { display: flex; align-items: center; gap: 8px; }
+  .btn-menu-toggle {
+    display: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .app-logo {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--c-primary); color: #fff;
+    display: grid; place-items: center; font-weight: 700; font-size: 0.9rem;
+  }
+  .app-title { font-size: 0.95rem; font-weight: 700; }
+  .system-badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .badge {
+    font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px;
+  }
+  .badge.live-disk { border-color: var(--c-success); color: var(--c-success); }
+  .badge.rate-cap { border-color: var(--c-warning); color: var(--c-warning); }
+  .badge.network { border-color: var(--c-secondary); color: var(--c-secondary); }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* چیدمان کلی پوسته کنسول */
+  .console-shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    min-height: calc(100vh - 46px);
+  }
+
+  /* سایدبار ناوبری ثابت دسکتاپ و واکنش‌گرا در تبلت */
+  aside.main-nav {
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border-color);
+    padding: 14px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .nav-section-title {
+    font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+    padding-inline: 6px; margin-bottom: 2px;
+  }
+  .nav-btn {
+    width: 100%; min-height: 38px; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid transparent; background: transparent; color: var(--text-secondary);
+    font: inherit; font-size: 0.82rem; cursor: pointer; text-align: right;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .nav-btn.active {
+    background: var(--bg-elevated); border-color: var(--border-color);
+    color: var(--c-secondary); font-weight: 700;
+  }
+  .status-tag {
+    font-size: 0.68rem; padding: 1px 5px; border-radius: 4px;
+    background: var(--border-subtle); color: var(--text-muted);
+  }
+
+  /* پرده تاریک‌کننده برای حالت منوی موبایل/تبلت */
+  .nav-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 45;
+  }
+
+  /* فضای اصلی کارخانه با محدودکننده استاندارد عرض عریض */
+  main.workspace-area {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 1600px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* بنر هوشمند جریان داده (حذف خط ضخیم نئونی) */
+  .handoff-strip {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 8px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .strip-details { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+  .strip-details b { color: var(--c-secondary); }
+
+  /* زبانه‌های فرعی کابین */
+  .cockpit-tabs {
+    display: flex; gap: 6px; border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px; flex-wrap: wrap;
+  }
+  .tab-link {
+    background: transparent; border: 1px solid transparent; border-radius: 6px;
+    padding: 6px 12px; font: inherit; font-size: 0.82rem; color: var(--text-secondary);
+    cursor: pointer; min-height: 34px;
+  }
+  .tab-link:hover { color: var(--text-primary); }
+  .tab-link.active {
+    background: var(--bg-surface); border-color: var(--border-color);
+    color: var(--text-primary); font-weight: 700;
+  }
+
+  /* چیدمان ۲ ستونه بهینه‌ساز فضا */
+  .dense-workspace-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7.5fr) minmax(320px, 4.5fr);
+    gap: 16px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  /* ستون داوری سنس */
+  .arbitration-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* بخش جزئیات سنس: تنها مالک نامزدها، مثال‌ها و متن کامل —
+     ردیف‌های صف فقط شناسه، برش معنی و وضعیت را حمل می‌کنند */
+  #sense-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* کارت سنس کایکی (حذف نوار عمودی رنگی ضخیم) — چسبان در نما حین داوری */
+  /* مهار سرریز معنی سنس: کارت هرگز از ستون بیرون نمی‌زند (min-width:0 +
+     overflow:hidden روی خود کارت چسبان بی‌خطر است)؛ تعریف و مثال با
+     شکست امن واژه‌های بلند لاتین تمیز می‌شکنند، نه با برش افقی زشت */
+  .source-sense-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 14px;
+    position: sticky; top: 58px; z-index: 5;
+    min-width: 0; overflow: hidden;
+  }
+  .sense-header-line {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+  }
+  .sense-id-label { font-size: 1.15rem; font-weight: 700; color: var(--c-primary); }
+  .sense-def-text {
+    font-size: 0.95rem; font-weight: 500; color: var(--text-primary); margin-bottom: 8px;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .sense-example-box {
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 8px 12px; font-size: 0.85rem; color: var(--text-secondary);
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+
+  /* کارت‌های متراکم کاندیداهای وردنت */
+  .candidates-stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .candidate-row-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    transition: border-color 0.15s;
+    overflow: hidden; min-width: 0;
+  }
+  .candidate-row-card:hover { border-color: var(--c-secondary); }
+  .candidate-row-card.selected { border-color: var(--c-success); }
+  .c-info-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .c-key-tag { font-size: 0.75rem; color: var(--c-accent); font-weight: 600; }
+  /* مهار سرریز معنی نامزد: جعبه حداکثر ۳ خط با بیضی، شکست امن واژه‌های
+     بلند لاتین، ایزوله BiDi (کلاس ltr-text)؛ متن کامل روی title (hover) */
+  .c-gloss-text {
+    font-size: 0.86rem; color: var(--text-primary);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .c-synonyms-text { font-size: 0.75rem; color: var(--text-muted); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+
+  .btn-select-candidate {
+    flex-shrink: 0;
+    min-height: 38px; padding: 6px 14px; border-radius: 6px;
+    background: var(--bg-elevated); border: 1px solid var(--c-secondary);
+    color: var(--c-secondary); font: inherit; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .btn-select-candidate:hover { background: var(--c-secondary); color: #fff; }
+
+  /* نوار دکمه‌های اقدام زیرین */
+  .action-bar-footer {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px;
+  }
+  .btn-reject-all {
+    min-height: 40px; padding: 0 16px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--c-danger);
+    color: var(--c-danger); font: inherit; font-weight: 700; cursor: pointer;
+  }
+  .btn-reject-all:hover { background: var(--c-danger); color: #fff; }
+  .btn-skip-next {
+    min-height: 40px; padding: 0 14px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--border-color);
+    color: var(--text-secondary); font: inherit; cursor: pointer;
+  }
+
+  /* ستون ناظر صف و آمار — چسبان به قاب‌نما با سقف ارتفاع، ستون فلکس */
+  .inspector-column {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 14px;
+    position: sticky; top: 58px; max-height: calc(100vh - 74px); overflow: hidden;
+  }
+  .inspector-column > .panel-heading,
+  .inspector-column > .metrics-mini-grid { flex-shrink: 0; }
+  .panel-heading {
+    font-size: 0.82rem; font-weight: 700; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .queue-list {
+    display: flex; flex-direction: column; gap: 6px;
+    overflow-y: auto; overflow-x: hidden; max-height: 42vh; min-height: 0; flex: 1 1 auto;
+  }
+  /* ورودی جمع‌وجور پالایش زنده صف (تمام‌عرض، هم‌خانواده فرم) */
+  .queue-filter {
+    max-width: none; width: 100%; min-height: 36px;
+  }
+  .queue-item {
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 5px; padding: 8px 10px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; overflow: hidden; min-width: 0; flex-shrink: 0;
+  }
+  .queue-item.active { border-color: var(--c-primary); }
+  /* ستون متن صف: تنها بخش منعطف — با min-width:0 جمع می‌شود تا معنی
+     هرگز از ردیف بیرون نزند؛ برش تک‌خطی با بیضی + title (hover) */
+  .queue-item > div:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .queue-item > div:first-child > b { flex-shrink: 0; }
+  .queue-item > .status-tag { flex-shrink: 0; }
+  /* برش تک‌خطی معنی در صف: لحن کم‌رنگ، چپ‌چین لاتین ایزوله (BiDi) */
+  .queue-gloss {
+    font-size: 0.72rem; color: var(--text-muted);
+    direction: ltr; text-align: left; unicode-bidi: isolate;
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%; overflow-wrap: anywhere;
+  }
+  .metrics-mini-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    padding-top: 10px; border-top: 1px solid var(--border-color);
+  }
+  .mini-metric-card {
+    background: var(--bg-elevated); border-radius: 6px; padding: 8px; text-align: center;
+  }
+  .mini-val { font-size: 1.1rem; font-weight: 700; font-family: var(--mono); color: var(--c-secondary); }
+  .mini-label { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* نماهای اختصاصی دیگر (غیر از داوری) */
+  .workspace-view { display: none; }
+  .workspace-view.active { display: flex; flex-direction: column; gap: 14px; }
+
+  /* کارت‌ها و فرم‌های تنظیمات ارائه‌دهنده و پریست‌ها */
+  .cards-grid-3 {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+  }
+  .provider-cfg-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .p-header { display: flex; justify-content: space-between; align-items: center; }
+  .p-title { font-weight: 700; font-size: 0.95rem; }
+  .p-meta { font-size: 0.75rem; color: var(--text-muted); }
+
+  .cfg-form-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .form-row-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .field-group { display: flex; flex-direction: column; gap: 4px; }
+  .field-group label { font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; }
+  .field-group input, .field-group select {
+    font: inherit; font-size: 0.82rem; color: var(--text-primary);
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 8px 10px; min-height: 38px;
+  }
+
+  /* جدول آمار تله‌متری و توکن‌های کش‌شده */
+  .table-responsive { overflow-x: auto; border: 1px solid var(--border-color); border-radius: 6px; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: right; }
+  table.data-table th, table.data-table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border-color);
+  }
+  table.data-table th { background: var(--bg-elevated); color: var(--text-muted); font-weight: 600; }
+
+  /* تنظیمات ثبت رأی: خارج از دید مستقیم اپراتور، با برچسب فارسی */
+  .label-settings {
+    border: 1px solid var(--border-color); border-radius: 6px;
+    padding: 6px 10px; background: var(--bg-surface);
+    flex-basis: 100%;
+  }
+  .label-settings summary {
+    cursor: pointer; font-size: 0.78rem; color: var(--text-secondary);
+    font-weight: 600; min-height: 32px; display: flex; align-items: center;
+  }
+  .label-settings .settings-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px; margin-top: 8px;
+  }
+  /* ورودی‌های جمع‌وجور نوار اقدام (هم‌خانواده دکمه‌ها، بدون حاشیه ضخیم) */
+  .inline-input {
+    font: inherit; font-size: 0.8rem; color: var(--text-primary);
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 6px 10px; min-height: 40px; max-width: 190px;
+  }
+  .inline-input::placeholder { color: var(--text-muted); }
+
+  /* واکنش‌گرایی برای تبلت و موبایل */
+  @media (max-width: 1024px) {
+    .console-shell { grid-template-columns: 1fr; }
+    .btn-menu-toggle { display: inline-flex; }
+    .dense-workspace-grid { grid-template-columns: 1fr; }
+    aside.main-nav {
+      position: fixed; top: 0; right: -280px; bottom: 0; width: 260px;
+      z-index: 50; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+    }
+    aside.main-nav.open { right: 0; }
+    .nav-backdrop.open { display: block; }
+    .candidate-row-card { flex-direction: column; align-items: stretch; }
+    .c-info-block { width: 100%; }
+    .btn-select-candidate { width: 100%; min-height: 44px; }
+    .btn-reject-all, .btn-skip-next { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top-header">
+  <div class="app-branding">
+    <button class="btn-menu-toggle" id="menu-toggle-btn" aria-label="بازکردن ناوبری">☰ منوی کارخانه</button>
+    <div class="app-logo">همـ</div>
+    <div class="app-title">کنسول عملیات کارخانه داده هم‌زبان</div>
+  </div>
+  <div class="system-badges">
+    <span class="badge live-disk"><span class="badge-dot"></span>ریشه: <span class="code-token" id="badge-root">…</span></span>
+    <span class="badge rate-cap"><span class="badge-dot"></span>کلیدها: <span class="code-token" id="badge-keys">…</span></span>
+    <span class="badge network"><span class="badge-dot"></span><span id="badge-egress">خروج: …</span></span>
+    <button id="theme-btn" class="badge" style="cursor: pointer;">🌙 / ☀️ تم شب/روز</button>
+  </div>
+</header>
+
+<div class="nav-backdrop" id="nav-backdrop"></div>
+
+<div class="console-shell">
+  <!-- سایدبار ناوبری با امکان باز شدن کشویی در موبایل و تبلت -->
+  <aside class="main-nav" id="main-nav">
+    <div class="nav-section-title">۱. مرکز پیکربندی و نظارت</div>
+    <button class="nav-btn" onclick="openView('view-providers')">
+      <span>ارائه‌دهندگان و مدل‌های هوش مصنوعی</span>
+      <span class="status-tag">AI</span>
+    </button>
+    <button class="nav-btn" onclick="openView('view-telemetry')">
+      <span>میز تله‌متری و تحلیل هزینه</span>
+      <span class="status-tag">توکن</span>
+    </button>
+    <button class="nav-btn" onclick="openView('view-paths')">
+      <span>مدیریت مخازن داده و مسیرها</span>
+    </button>
+
+    <div class="nav-section-title" style="margin-top: 10px;">۲. کابین‌های خط تولید</div>
+    <button class="nav-btn" onclick="openView('view-screening')">
+      <span>۱. غربالگری کایکی</span>
+      <span class="status-tag">مکانیکی</span>
+    </button>
+    <button class="nav-btn active" id="btn-nav-linking" onclick="openView('view-linking')">
+      <span>۲. کابین پیوندزنی سنس‌ها</span>
+      <span class="status-tag" style="color: var(--c-primary);">داوری زنده</span>
+    </button>
+    <button class="nav-btn" onclick="openView('view-precard')">
+      <span>۳. گزینش پیش‌کارت</span>
+    </button>
+    <button class="nav-btn" onclick="openView('view-pilot')">
+      <span>۴. غنی‌سازی و پایلوت کارت</span>
+    </button>
+
+    <div class="nav-section-title" style="margin-top: 10px;">۳. انتقال و ربات</div>
+    <button class="nav-btn" onclick="openView('view-transfer')">
+      <span>تزریق به پایگاه داده ربات</span>
+      <span class="status-tag">SQLite</span>
+    </button>
+  </aside>
+
+  <!-- فضای کاربری مرکزی -->
+  <main class="workspace-area">
+
+    <!-- نمای ۲: کابین پیوندزنی سنس‌ها (پیش‌فرض) -->
+    <section class="workspace-view active" id="view-linking">
+      <div class="handoff-strip">
+        <div class="strip-details">
+          <span style="font-size: 1.1rem;">⚡</span>
+          <span><b>ورودی آماده از گام غربالگری:</b> <span class="code-token" style="color: var(--text-primary);" id="handoff-path">…</span> <span id="handoff-total">…</span></span>
+        </div>
+        <button class="badge" id="btn-refresh-screened" style="cursor: pointer; background: transparent;">تازه‌سازی ورودی غربالگری</button>
+      </div>
+
+      <div class="cockpit-tabs">
+        <button class="tab-link" data-tab-index="0" title="shortlisting — factory/linking/linker.py shortlist">۱. کوتاه‌فهرست نامزدها</button>
+        <button class="tab-link" data-tab-index="1" title="mechanical linking — factory/linking build_link_index/lookup_link + cli.py link over table.tsv">۲. پیوند مکانیکی</button>
+        <button class="tab-link" data-tab-index="2" title="AI arbitration — factory/linking/arbitration.py ArbitrationService">۳. داوری هوش مصنوعی</button>
+        <button class="tab-link active" data-tab-index="3" title="human review — factory/linking/human_queue.py + witness labels">۴. بازبینی انسانی (اختلافی)</button>
+        <button class="tab-link" data-tab-index="4" title="TSV export — factory/linking/cli.py read_table + viewer.py export">۵. خروجی جدول پیوند (TSV)</button>
+      </div>
+
+      <div class="dense-workspace-grid">
+        <!-- ستون کاندیداها -->
+        <div class="arbitration-column">
+          <section id="sense-detail" aria-label="جزئیات سنس">
+            <div class="panel-heading"><span>جزئیات سنس</span></div>
+          <article class="source-sense-card">
+            <div class="sense-header-line">
+              <span class="sense-id-label code-token" id="sense-id">…</span>
+              <span class="badge" style="border-color: var(--c-primary); color: var(--c-primary);" id="sense-meta">…</span>
+            </div>
+            <div class="sense-def-text ltr-text" id="sense-def">…</div>
+            <div class="sense-example-box ltr-text" id="sense-example">…</div>
+          </article>
+
+          <div class="candidates-stack" id="candidates-stack">
+          </div>
+          <div class="p-meta" id="candidates-status">…</div>
+          </section>
+
+          <div class="action-bar-footer">
+            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر / NONE)</button>
+            <button class="btn-skip-next" id="btn-skip-next">پرش به سنس بعد ⏭</button>
+            <span class="inline-input code-token" id="label-target-name" dir="ltr">نامزدی انتخاب نشده است</span>
+            <button class="btn-select-candidate" id="btn-record-link">ثبت رأی پیوند</button>
+            <!-- شناسه داور و لایه نمونه‌برداری عمداً خارج از جریان فرم‌اند:
+                 در پس‌زمینه پیش‌فرض‌گذاری امن می‌شوند (مقادیر بخش تنظیمات
+                 اگر اپراتور تعیین کرده باشد، وگرنه پیش‌فرض‌های امن
+                 نقش‌محور «operator» — هرگز نام شخصی ساخته نمی‌شود). -->
+            <span id="label-status" style="font-size: 0.72rem; color: var(--text-muted);"></span>
+            <span id="label-receipt" style="font-size: 0.72rem; color: var(--text-secondary);" hidden></span>
+            <!-- راهنمای آدرس کنسول (بوت روی همه رابط‌ها): از تبلت با آدرس LAN، از همین دستگاه با لوپ‌بک -->
+            <span id="boot-addr-note" style="font-size: 0.72rem; color: var(--text-muted);"
+                  title="plain start binds all interfaces (LAN-visible)">پیش‌فرض روی همه رابط‌ها باز است:
+              از تبلت با آدرس LAN سرور، از همین دستگاه با <span class="code-token">127.0.0.1</span> باز کنید.</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;">
+              * رأی‌ها در labels.jsonl افزوده می‌شوند؛ غیرشاهد watermark می‌خورد (قابل امتیاز نیست).
+            </span>
+          </div>
+        </div>
+
+        <!-- ستون ناظر صف و آمار -->
+        <div class="inspector-column">
+          <div class="panel-heading">
+            <span>صف سنس‌های نیازمند بازبینی</span>
+            <span class="badge" id="queue-remaining">…</span>
+          </div>
+          <input class="inline-input queue-filter" id="queue-filter" type="search"
+                 placeholder="پالایش صف: شناسه، معنی یا وضعیت…" aria-label="پالایش صف سنس‌ها">
+          <div class="queue-list themed-scroll" id="queue-list">
+          </div>
+
+          <div class="metrics-mini-grid">
+            <div class="mini-metric-card">
+              <div class="mini-val" id="m-judged">…</div>
+              <div class="mini-label">رأی ثبت‌شده / سنس غربال‌شده</div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" style="color: var(--c-success);" id="m-agree">—</div>
+              <div class="mini-label">انطباق با شاهد (بدون محاسبه زنده)</div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" style="color: var(--c-warning);" id="m-none">…</div>
+              <div class="mini-label">موارد NONE</div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" id="m-saved">—</div>
+              <div class="mini-label">صرفه‌جویی توکن (ثبت نمی‌شود)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- نمای ۱: ارائه‌دهندگان و پریست‌های هوش مصنوعی -->
+    <section class="workspace-view" id="view-providers">
+      <div class="panel-heading">
+        <h2 style="font-size: 1.1rem;">اتصال‌های ارائه‌دهنده (Infrastructure Providers)</h2>
+        <span class="badge" id="providers-count">…</span>
+      </div>
+
+      <div class="cards-grid-3" id="provider-cards">
+      </div>
+      <div class="cfg-form-card" style="margin-top: 10px;" id="master-card">
+        <div class="p-header">
+          <span class="p-title">ذخیره امن کلید (نام‌ها فقط؛ مقدارها هرگز نمایش داده نمی‌شود)</span>
+          <span class="badge" id="master-state">…</span>
+        </div>
+        <div class="p-meta" id="master-note">…</div>
+        <div><button class="btn-select-candidate" id="btn-master-ensure">فعال‌سازی ذخیره امن کلید</button></div>
+        <div class="p-meta" id="provider-err" style="color: var(--c-danger);"></div>
+      </div>
+
+      <div class="cfg-form-card" style="margin-top: 10px;" id="supervisor-card">
+        <div class="p-header">
+          <span class="p-title">توکن سرپرست (یک‌بار چسباندن؛ مقدار هرگز نمایش داده نمی‌شود)</span>
+          <span class="badge" id="supervisor-state">…</span>
+        </div>
+        <div class="p-meta" id="supervisor-note">…</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <span class="badge" id="supervisor-lifecycle-state">…</span>
+          <button class="btn-select-candidate" id="btn-supervisor-wake">بیدار کردن سرپرست</button>
+          <button class="btn-skip-next" id="btn-supervisor-sleep">خواباندن سرپرست (بی‌کار)</button>
+        </div>
+        <div class="p-meta" id="supervisor-lifecycle-note">…</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <input class="inline-input code-token" id="supervisor-token-input" dir="ltr" type="password"
+                 placeholder="supervisor bearer (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست">
+          <button class="btn-select-candidate" id="btn-supervisor-save">ذخیره توکن</button>
+          <button class="btn-skip-next" id="btn-supervisor-delete">حذف توکن</button>
+        </div>
+        <div class="p-meta" id="supervisor-err" style="color: var(--c-danger);"></div>
+      </div>
+
+      <div class="cfg-form-card" style="margin-top: 10px;">
+        <div class="p-header">
+          <span class="p-title">پیکربندی پریست مدل و سقف‌های نرخ داوری (Model Preset)</span>
+          <span class="badge" id="preset-temp-note">…</span>
+        </div>
+        <div class="form-row-grid">
+          <div class="field-group">
+            <label>ارائه‌دهنده مبدأ</label>
+            <select id="preset-provider"></select>
+          </div>
+          <div class="field-group">
+            <label>شناسه دقیق مدل</label>
+            <input type="text" class="code-token" id="preset-model" dir="ltr">
+          </div>
+          <div class="field-group">
+            <label>فهرست مدل‌های سرور (کلید لازم دارد)</label>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-skip-next" id="btn-fetch-models" type="button">دریافت فهرست</button>
+            </div>
+            <div class="p-meta code-token" id="preset-models" dir="ltr">…</div>
+          </div>
+          <div class="field-group">
+            <label>سقف درخواست در دقیقه (RPM)</label>
+            <input type="text" id="preset-rpm" disabled>
+          </div>
+          <div class="field-group">
+            <label>سقف ساعتی (RPH)</label>
+            <input type="text" id="preset-rph" disabled>
+          </div>
+          <div class="field-group">
+            <label>دمای خروجی (Temperature)</label>
+            <input type="text" id="preset-temp" disabled>
+          </div>
+        </div>
+        <div class="p-meta" id="preset-err" style="color: var(--c-danger);"></div>
+      </div>
+    </section>
+
+    <!-- نمای ۳: تله‌متری و تحلیل هزینه توکن -->
+    <section class="workspace-view" id="view-telemetry">
+      <div class="panel-heading">
+        <h2 style="font-size: 1.1rem;">میز تله‌متری و حسابداری توکن‌های کش‌شده</h2>
+        <span class="badge" id="telemetry-badge">…</span>
+      </div>
+
+      <div class="metrics-mini-grid" style="border: none; padding: 0;">
+        <div class="mini-metric-card" style="padding: 14px;">
+          <div class="mini-val" id="t-ready">…</div>
+          <div class="mini-label">ارائه‌دهندگان با کلید آماده</div>
+        </div>
+        <div class="mini-metric-card" style="padding: 14px;">
+          <div class="mini-val" style="color: var(--c-warning);" id="t-groups">…</div>
+          <div class="mini-label">گروه‌های کلیدی پرشده (G1/G2)</div>
+        </div>
+        <div class="mini-metric-card" style="padding: 14px;">
+          <div class="mini-val" style="color: var(--c-success);" id="t-routes">…</div>
+          <div class="mini-label">مسیرهای مستقیم / تونلی</div>
+        </div>
+        <div class="mini-metric-card" style="padding: 14px;">
+          <div class="mini-val" id="t-tokens">—</div>
+          <div class="mini-label">توکن/هزینه (سرور ثبت نمی‌کند)</div>
+        </div>
+      </div>
+
+      <div class="table-responsive" style="margin-top: 10px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ارائه‌دهنده</th>
+              <th>مدل فعال</th>
+              <th>درخواست‌ها</th>
+              <th>توکن ورودی عادی</th>
+              <th>توکن کش‌شده (تخفیف ۷۵٪)</th>
+              <th>توکن خروجی</th>
+              <th>ارزش تخمینی دلاری</th>
+            </tr>
+          </thead>
+          <tbody id="telemetry-tbody">
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- نمای ۴: مخازن داده و نگاشت مسیرها -->
+    <section class="workspace-view" id="view-paths">
+      <div class="panel-heading">
+        <h2 style="font-size: 1.1rem;">مدیریت مخازن داده و نگاشت مسیرها (درایو W)</h2>
+        <span class="badge live-disk" id="paths-badge">…</span>
+      </div>
+
+      <div class="cfg-form-card">
+        <div class="p-meta">ریشه‌های زنده سرور محلی در جدول زیر می‌آیند؛ پوشه جابه‌جاشده/حذف‌شده خودبه‌خود کنار می‌رود.</div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>مخزن دامنه‌ای</th><th>مسیر قراردادی</th><th>آخرین فایل معتبر</th><th>تعداد سطرها / حجم</th></tr>
+            </thead>
+            <tbody id="paths-tbody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- سایر نماها با نشانگر آماده‌سازی -->
+    <section class="workspace-view" id="view-screening">
+      <div class="cfg-form-card">
+        <h2>ایستگاه غربالگری کایکی (Kaikki Screening)</h2>
+        <p class="p-meta">فیلتر اسامی خاص، دوقلوهای تکراری و صدور شناسه پایدار سنس‌ها.</p>
+      </div>
+    </section>
+    <section class="workspace-view" id="view-precard">
+      <div class="cfg-form-card">
+        <h2>ایستگاه گزینش پیش‌کارت (Precard Extraction)</h2>
+        <p class="p-meta">فرآیند ۷ مرحله‌ای استخراج مثال‌های آموزشی و بردارهای موضوعی.</p>
+      </div>
+    </section>
+    <section class="workspace-view" id="view-pilot">
+      <div class="cfg-form-card">
+        <h2>غنی‌سازی و پایلوت کارت کامل</h2>
+        <p class="p-meta">تولید ساختار نهایی فلش‌کارت و پیش‌نمایش در گالری HTML.</p>
+      </div>
+    </section>
+    <section class="workspace-view" id="view-transfer">
+      <div class="cfg-form-card">
+        <h2>پل انتقال و تزریق به پایگاه داده ربات</h2>
+        <p class="p-meta">اعتبارسنجی CARD_SCHEMA_V1 و درج تراکنشی در hamzaban.db.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // سیستم سوئیچ تم شب و روز
+  const themeBtn = document.getElementById('theme-btn');
+  try {
+    const savedTheme = localStorage.getItem('hz-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+  } catch(e){}
+  themeBtn.addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const nextTheme = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', nextTheme);
+    try { localStorage.setItem('hz-theme', nextTheme); } catch(e){}
+  });
+
+  // کنترل باز و بسته شدن سایدبار در تبلت و موبایل
+  const menuBtn = document.getElementById('menu-toggle-btn');
+  const mainNav = document.getElementById('main-nav');
+  const backdrop = document.getElementById('nav-backdrop');
+
+  function toggleMobileNav() {
+    mainNav.classList.toggle('open');
+    backdrop.classList.toggle('open');
+  }
+
+  menuBtn.addEventListener('click', toggleMobileNav);
+  backdrop.addEventListener('click', toggleMobileNav);
+
+  // تغییر نماهای فضای کاری
+  function openView(viewId) {
+    document.querySelectorAll('.workspace-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+    const target = document.getElementById(viewId);
+    if (target) target.classList.add('active');
+
+    // همگام‌سازی برجستگی دکمه ناوبری با نمای فعال
+    document.querySelectorAll('.nav-btn').forEach(b => {
+      const handler = b.getAttribute('onclick') || '';
+      if (handler.indexOf("'" + viewId + "'") !== -1) b.classList.add('active');
+    });
+
+    // حافظه نما: آخرین کابین (فقط شناسه نما، بدون راز)
+    saveViewMemory(viewId);
+
+    // بستن منو در موبایل پس از انتخاب
+    mainNav.classList.remove('open');
+    backdrop.classList.remove('open');
+  }
+
+  /* ── حافظه نما: آخرین کابین + زبانه پیوندزنی در localStorage ──
+     فقط شناسه‌ها (view-* و شماره زبانه)؛ هیچ راز/کلید/مقدار اپراتوری.
+     اجرای اول (مقدار ذخیره‌نشده یا خراب) بدون تغییر، پیش‌فرض موجود می‌ماند. */
+  function readViewMemory() {
+    try {
+      const raw = localStorage.getItem('hz-view-memory');
+      if (!raw) return null;
+      const mem = JSON.parse(raw);
+      if (!mem || typeof mem !== 'object') return null;
+      return mem;
+    } catch(e){ return null; }
+  }
+  function saveViewMemory(viewId, tabIndex) {
+    try {
+      const mem = readViewMemory() || {};
+      if (typeof viewId === 'string' && viewId.indexOf('view-') === 0) mem.view = viewId;
+      if (Number.isInteger(tabIndex)) mem.tab = tabIndex;
+      localStorage.setItem('hz-view-memory', JSON.stringify(mem));
+    } catch(e){}
+  }
+  function selectLinkingTab(index, persist) {
+    const tabs = document.querySelectorAll('.cockpit-tabs .tab-link');
+    if (!tabs.length) return;
+    const idx = Number(index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
+    tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
+    if (persist !== false) saveViewMemory(null, idx);
+  }
+  function restoreViewMemory() {
+    try {
+      const mem = readViewMemory();
+      if (!mem) return;
+      if (typeof mem.view === 'string' && document.getElementById(mem.view)) {
+        openView(mem.view);
+      }
+      if (mem.tab !== undefined && document.getElementById('view-linking')) {
+        selectLinkingTab(mem.tab, false);
+      }
+    } catch(e){}
+  }
+  document.querySelectorAll('.cockpit-tabs .tab-link').forEach((t, i) => {
+    t.addEventListener('click', () => selectLinkingTab(i));
+  });
+
+  /* ── سیم‌کشی زنده: همه عددها از سرور، بدون عدد نمایشی ── */
+  const FA_DIGITS = {'0':'۰','1':'۱','2':'۲','3':'۳','4':'۴','5':'۵','6':'۶','7':'۷','8':'۸','9':'۹'};
+  function faNum(v) {
+    return String(v === null || v === undefined ? '—' : v).replace(/[0-9]/g, d => FA_DIGITS[d]);
+  }
+  function ltrCode(text) {
+    const s = document.createElement('span');
+    s.className = 'code-token';
+    s.textContent = text;
+    return s;
+  }
+  async function getJSON(url, opts) {
+    const r = await fetch(url, opts);
+    let j = null;
+    try { j = await r.json(); } catch(e){}
+    if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
+    return j;
+  }
+
+  let screenedRows = [];
+  let screenedTotal = 0;
+  let screenedPath = '';
+  let currentSense = null;
+  let queueIndex = 0;
+  let selectedTarget = null;
+
+  /* نوار وضعیت سراسری: master، egress، ریشه‌ها */
+  async function refreshBadges() {
+    try {
+      const m = await getJSON('/api/master/status');
+      document.getElementById('master-state').textContent =
+        m.configured ? ('فعال (' + (m.var || '') + ')') : 'غیرفعال';
+      document.getElementById('master-note').textContent = m.configured
+        ? 'ذخیره امن کلید فعال است؛ فقط نام متغیر (' + (m.var || '') + ') نمایش داده می‌شود.'
+        : 'ذخیره امن کلید فعال نیست — با تأیید شما یک‌بار ساخته و در فایل محیط کارخانه ذخیره می‌شود؛ مقدار هرگز نمایش داده نمی‌شود.';
+      const btn = document.getElementById('btn-master-ensure');
+      if (btn) btn.hidden = !!m.configured;
+    } catch(e) {
+      document.getElementById('master-state').textContent = 'نامشخص';
+      document.getElementById('master-note').textContent = 'خواندن وضعیت ناموفق بود.';
+    }
+    try {
+      const r = await getJSON('/api/providers');
+      const rows = r.providers || [];
+      const ready = rows.filter(p => p.has_key).length;
+      const keysEl = document.getElementById('badge-keys');
+      keysEl.replaceChildren();
+      keysEl.append(document.createTextNode(faNum(ready) + ' از ' + faNum(rows.length) + ' آماده'));
+      const vars = rows.map(p => p.key_var).filter(Boolean).join(', ');
+      keysEl.title = vars || 'بدون نام متغیر';
+    } catch(e) {
+      document.getElementById('badge-keys').textContent = 'نامشخص';
+    }
+    try {
+      const r = await fetch('/api/egress/health');
+      let j = null;
+      try { j = await r.json(); } catch(e){}
+      if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
+      document.getElementById('badge-egress').textContent =
+        j.healthy ? ('خروج تمیز: فعال (' + faNum(j.servers) + ' سرور)') : 'خروج: ناسالم';
+      document.getElementById('badge-egress').title = '';
+    } catch(e) {
+      /* سرور پایین: متن خطا (شامل دستور دقیق راه‌اندازی، بدون راز) در عنوان نشان */
+      const badge = document.getElementById('badge-egress');
+      badge.textContent = 'خروج: ناسالم';
+      badge.title = e.message || e;
+    }
+    try {
+      const f = await getJSON('/api/files/roots');
+      const roots = f.roots || [];
+      const rootEl = document.getElementById('badge-root');
+      rootEl.replaceChildren();
+      if (roots.length) rootEl.append(document.createTextNode(roots[0].path + (roots.length > 1 ? ' (+' + faNum(roots.length - 1) + ')' : '')));
+      else rootEl.append(document.createTextNode('—'));
+      renderPaths(roots);
+    } catch(e) {
+      document.getElementById('badge-root').textContent = 'نامشخص';
+    }
+  }
+
+  /* ارائه‌دهندگان: کارت‌ها فقط از رجیستری موتور + rate_state */
+  let rateRows = [];
+  async function refreshProviderCards() {
+    const box = document.getElementById('provider-cards');
+    try {
+      const [p, rs, info] = await Promise.all([
+        getJSON('/api/providers'), getJSON('/api/rate_state'), getJSON('/api/engine_info')
+      ]);
+      rateRows = rs.providers || [];
+      const rows = p.providers || [];
+      document.getElementById('providers-count').textContent =
+        faNum(rows.length) + ' ارائه‌دهنده ثبت‌شده (رجیستری موتور)';
+      renderPresetForm(info, rateRows);
+      box.replaceChildren();
+      for (const row of rows) {
+        const rate = rateRows.find(x => x.name === row.name) || {};
+        const card = document.createElement('div');
+        card.className = 'provider-cfg-card';
+        const head = document.createElement('div');
+        head.className = 'p-header';
+        const title = document.createElement('span');
+        title.className = 'p-title code-token';
+        title.textContent = row.name;
+        const pill = document.createElement('span');
+        pill.className = 'badge ' + (row.has_key ? 'live-disk' : 'rate-cap');
+        pill.textContent = row.has_key ? 'کلید آماده است' : 'بدون کلید';
+        head.append(title, pill);
+        card.append(head);
+        const kv = document.createElement('div');
+        kv.className = 'p-meta';
+        kv.append(document.createTextNode('متغیر کلید: '));
+        kv.append(ltrCode(row.key_var || '—'));
+        card.append(kv);
+        const route = document.createElement('div');
+        route.className = 'p-meta';
+        route.textContent = 'مسیر: ' + (row.route === 'leased' ? 'تونل استیجاری' : 'مستقیم')
+          + (row.route_reason ? ' — ' + row.route_reason : '')
+          + (row.clean_exit ? ' (خروجی تمیز: ' + row.clean_exit + ')' : '');
+        card.append(route);
+        const rl = document.createElement('div');
+        rl.className = 'p-meta';
+        rl.textContent = rateLineFor(row.name);
+        card.append(rl);
+        const keyRow = document.createElement('div');
+        keyRow.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
+        const keyInp = document.createElement('input');
+        keyInp.className = 'inline-input code-token';
+        keyInp.id = 'pk-' + row.name;
+        keyInp.dir = 'ltr';
+        keyInp.placeholder = 'key value (stored encrypted)';
+        keyInp.autocomplete = 'off';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-select-candidate';
+        saveBtn.textContent = 'ذخیره کلید';
+        saveBtn.addEventListener('click', () => providerKeySave(row.name));
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-skip-next';
+        delBtn.textContent = 'حذف کلید';
+        delBtn.addEventListener('click', () => providerKeyDelete(row.name));
+        const modelsBtn = document.createElement('button');
+        modelsBtn.className = 'btn-skip-next';
+        modelsBtn.textContent = 'فهرست مدل‌ها';
+        modelsBtn.addEventListener('click', () => providerModels(row.name, modelsBox));
+        keyRow.append(keyInp, saveBtn, delBtn, modelsBtn);
+        card.append(keyRow);
+        const modelsBox = document.createElement('div');
+        modelsBox.className = 'p-meta code-token';
+        modelsBox.dir = 'ltr';
+        card.append(modelsBox);
+        box.append(card);
+      }
+      renderTelemetry(rows, rateRows, info);
+    } catch(e) {
+      box.replaceChildren();
+      const err = document.createElement('div');
+      err.className = 'p-meta';
+      err.style.color = 'var(--c-danger)';
+      err.textContent = 'خواندن ارائه‌دهندگان ناموفق بود: ' + (e.message || e);
+      box.append(err);
+    }
+  }
+  function rateLineFor(name) {
+    const row = rateRows.find(x => x.name === name);
+    if (!row) return 'وضعیت نرخ: نامشخص';
+    const g = row.groups || {};
+    const pace = row.pacing || {};
+    return 'گروه‌ها: G1=' + (g.G1 ? '۱' : '۰') + '‏ G2=' + (g.G2 ? '۱' : '۰')
+      + ' (' + faNum(row.groups_count || 0) + ' از ۲)'
+      + '؛ مسیر: ' + (row.route === 'direct' ? 'مستقیم' : 'تونل')
+      + '؛ آهنگ موتور: مکث ' + faNum(pace.sleep_secs_default) + ' ثانیه، مکث چرخش ' + faNum(pace.rotate_pause_secs) + ' ثانیه'
+      + (pace.rpm_limiter ? '' : '، بدون سقف دوربردکیقه‌ای') + '.';
+  }
+  async function providerKeySave(name) {
+    const errEl = document.getElementById('provider-err');
+    errEl.textContent = '';
+    const inp = document.getElementById('pk-' + name);
+    const value = inp ? inp.value : '';
+    if (!value) { errEl.textContent = 'کلید خالی است (چیزی ذخیره نشد).'; return; }
+    try {
+      await getJSON('/api/providers/' + encodeURIComponent(name) + '/key',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
+      if (inp) inp.value = '';
+      await refreshProviderCards();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function providerKeyDelete(name) {
+    const errEl = document.getElementById('provider-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/providers/' + encodeURIComponent(name) + '/key', {method: 'DELETE'});
+      await refreshProviderCards();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function providerModels(name, box) {
+    box.textContent = '…';
+    try {
+      const j = await getJSON('/api/providers/' + encodeURIComponent(name) + '/models');
+      const models = j.models || [];
+      box.replaceChildren();
+      box.append(document.createTextNode(models.length ? (faNum(j.count) + ' مدل: ' + models.join(', ')) : 'فهرستی برنگشت'));
+    } catch(e) { box.textContent = e.message || e; }
+  }
+  async function masterEnsure() {
+    const errEl = document.getElementById('provider-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/master/ensure',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm: true})});
+      await refreshProviderCards();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+
+  /* توکن سرپرست: یک‌بار چسباندن در پنل ارائه‌دهندگان — ورودی بلافاصله
+     پس از ارسال پاک می‌شود (نمایش یک‌باره) و مقدار هرگز بازخوانده
+     نمی‌شود؛ وضعیت فقط نام + بولی است. */
+  async function refreshSupervisorToken() {
+    try {
+      const s = await getJSON('/api/supervisor/status');
+      document.getElementById('supervisor-state').textContent =
+        s.configured ? ('پیکربندی شده (' + (s.var || '') + ')') : 'پیکربندی نشده';
+      document.getElementById('supervisor-note').textContent = s.configured
+        ? 'توکن سرپرست ذخیره شده است؛ فقط نام متغیر (' + (s.var || '') + ') نمایش داده می‌شود.'
+        : 'توکن سرپرست را یک‌بار بچسبانید؛ رمزشده ذخیره می‌شود و مقدار هرگز نمایش داده نمی‌شود.';
+    } catch(e) {
+      document.getElementById('supervisor-state').textContent = 'نامشخص';
+      document.getElementById('supervisor-note').textContent = 'خواندن وضعیت ناموفق بود.';
+    }
+  }
+  async function supervisorTokenSave() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    const inp = document.getElementById('supervisor-token-input');
+    const value = inp ? inp.value : '';
+    if (inp) inp.value = '';
+    if (!value) { errEl.textContent = 'توکن خالی است (چیزی ذخیره نشد).'; return; }
+    try {
+      await getJSON('/api/supervisor/token',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
+      await refreshSupervisorToken();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function supervisorTokenDelete() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    const inp = document.getElementById('supervisor-token-input');
+    if (inp) inp.value = '';
+    try {
+      await getJSON('/api/supervisor/token', {method: 'DELETE'});
+      await refreshSupervisorToken();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+
+  /* سطح وضعیت سرپرست: بیدار/خواب + نشان زنده، متصل به
+     /api/supervisor/wake + /api/supervisor/sleep (نام‌ها فقط) */
+  async function refreshSupervisorLifecycle() {
+    const badge = document.getElementById('supervisor-lifecycle-state');
+    const note = document.getElementById('supervisor-lifecycle-note');
+    if (!badge) return;
+    try {
+      const r = await fetch('/api/egress/health');
+      let j = null;
+      try { j = await r.json(); } catch(e){}
+      if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
+      badge.textContent = j.healthy ? 'سرپرست: بیدار' : 'سرپرست: خواب';
+      if (note) note.textContent = j.healthy
+        ? 'سرپرست سالم است (بیدارسازی دوباره انجام نمی‌شود).'
+        : 'سرپرست پایین است؛ دکمه بیدار، بیدارسازی در پس‌زمینه می‌کند.';
+    } catch(e) {
+      badge.textContent = 'سرپرست: نامشخص';
+      if (note) note.textContent = 'خواندن وضعیت ناموفق بود.';
+    }
+  }
+  async function supervisorWake() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/supervisor/wake', {method: 'POST'});
+      await refreshSupervisorLifecycle();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+  async function supervisorSleep() {
+    const errEl = document.getElementById('supervisor-err');
+    errEl.textContent = '';
+    try {
+      await getJSON('/api/supervisor/sleep', {method: 'POST'});
+      await refreshSupervisorLifecycle();
+      await refreshBadges();
+    } catch(e) { errEl.textContent = e.message || e; }
+  }
+
+  /* فرم پریست مدل: گزینه‌ها و قفل‌ها از engine_info */
+  function renderPresetForm(info, rates) {
+    const sel = document.getElementById('preset-provider');
+    sel.replaceChildren();
+    for (const name of (info.providers || [])) {
+      const o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      sel.append(o);
+    }
+    const temp = (info.temperature || {});
+    document.getElementById('preset-temp').value =
+      faNum(temp.fixed) + (temp.supported ? '' : ' (قفل قطعی داوری)');
+    document.getElementById('preset-temp-note').textContent =
+      temp.supported ? 'دما پشتیبانی می‌شود' : 'دما قفل روی ' + faNum(temp.fixed);
+    document.getElementById('preset-rpm').value = '—';
+    document.getElementById('preset-rpm').placeholder = 'محدودکننده RPM در موتور نیست';
+    document.getElementById('preset-rph').value = '—';
+    document.getElementById('preset-rph').placeholder = 'سقف ساعتی جداگانه منتشر نمی‌شود';
+  }
+  async function fetchPresetModels() {
+    const errEl = document.getElementById('preset-err');
+    errEl.textContent = '';
+    const box = document.getElementById('preset-models');
+    const name = document.getElementById('preset-provider').value;
+    box.textContent = '…';
+    try {
+      const j = await getJSON('/api/providers/' + encodeURIComponent(name) + '/models');
+      const models = j.models || [];
+      box.textContent = models.length ? models.join(', ') : 'فهرستی برنگشت';
+    } catch(e) {
+      box.textContent = '';
+      errEl.textContent = e.message || e;
+    }
+  }
+
+  /* تله‌متری: فقط حقایق زنده نرخ/کلید/مسیر؛ ستون توکن صادقانه خالی */
+  function renderTelemetry(providers, rates, info) {
+    const ready = providers.filter(p => p.has_key).length;
+    const groups = rates.reduce((n, r) => n + (r.groups_count || 0), 0);
+    const direct = rates.filter(r => r.route === 'direct').length;
+    const tunnel = rates.filter(r => r.route === 'tunnel').length;
+    document.getElementById('telemetry-badge').textContent =
+      faNum(providers.length) + ' ارائه‌دهنده زنده';
+    document.getElementById('t-ready').textContent = faNum(ready) + ' / ' + faNum(providers.length);
+    document.getElementById('t-groups').textContent = faNum(groups) + ' / ' + faNum(rates.length * 2);
+    document.getElementById('t-routes').textContent = faNum(direct) + ' مستقیم / ' + faNum(tunnel) + ' تونل';
+    const tb = document.getElementById('telemetry-tbody');
+    tb.replaceChildren();
+    const defaults = (info.default_models || {});
+    for (const p of providers) {
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td');
+      tdName.append(ltrCode(p.name));
+      const tdModel = document.createElement('td');
+      tdModel.append(ltrCode(defaults[p.name] || '—'));
+      tr.append(tdName, tdModel);
+      for (let i = 0; i < 5; i++) {
+        const td = document.createElement('td');
+        td.textContent = '—';
+        tr.append(td);
+      }
+      tb.append(tr);
+    }
+  }
+
+  /* مسیرها: فقط ریشه‌های زنده سرور */
+  function renderPaths(roots) {
+    document.getElementById('paths-badge').textContent = faNum(roots.length) + ' ریشه زنده';
+    const tb = document.getElementById('paths-tbody');
+    tb.replaceChildren();
+    for (const r of roots) {
+      const tr = document.createElement('tr');
+      const tdLabel = document.createElement('td');
+      tdLabel.textContent = r.label || '—';
+      const tdPath = document.createElement('td');
+      tdPath.append(ltrCode(r.path || '—'));
+      const tdLast = document.createElement('td');
+      tdLast.textContent = '—';
+      const tdRows = document.createElement('td');
+      tdRows.textContent = '—';
+      tr.append(tdLabel, tdPath, tdLast, tdRows);
+      tb.append(tr);
+    }
+  }
+
+  /* غربال: سنس جاری + صف از خروجی واقعی */
+  async function loadScreened() {
+    try {
+      const j = await getJSON('/api/screened');
+      screenedRows = j.rows || [];
+      screenedTotal = j.total || 0;
+      screenedPath = j.path || '';
+      document.getElementById('handoff-path').textContent = screenedPath || '—';
+      document.getElementById('handoff-total').textContent =
+        '(' + faNum(screenedTotal) + ' سنس' + (j.truncated ? ' — نمایش ' + faNum(screenedRows.length) + ' تای اول' : '') + ')';
+      if (queueIndex >= screenedRows.length) queueIndex = 0;
+      renderQueue();
+      selectSense(queueIndex);
+      await refreshLabelStats();
+    } catch(e) {
+      document.getElementById('handoff-path').textContent = 'خواندن ناموفق بود';
+      document.getElementById('handoff-total').textContent = '';
+    }
+  }
+  /* ── ماژول پالایش عمیق: کنترلر فهرست پالایش‌پذیر (مستقل و قابل استفاده مجدد) ──
+     ورودی: شناسه ورودی پالایش، شناسه ظرف اقلام، تابع تطابق متن
+     (row, index, query)؛ خروجی: پالایش زنده بدون دست‌کاری داده.
+     نمونه‌سازی فعلی: صف داوری (پالایش زنده با شناسه یا وضعیت)؛
+     آماده استفاده مجدد در کابین‌های پیش‌کارت و مخزن داده. */
+  class FilterableListController {
+    constructor(filterInputId, itemsContainerId, matchFn, onFilter) {
+      this.filterEl = document.getElementById(filterInputId);
+      this.itemsEl = document.getElementById(itemsContainerId);
+      this.matchFn = matchFn;
+      this.onFilter = onFilter || function(){};
+      this.query = '';
+      if (this.filterEl) {
+        this.filterEl.addEventListener('input', (ev) => {
+          this.query = ev.target.value || '';
+          this.onFilter(this.query);
+        });
+      }
+    }
+    matches(row, i) {
+      try { return this.matchFn(row, i, this.query); }
+      catch(e) { return true; }
+    }
+    apply() { this.onFilter(this.query); }
+  }
+
+  /* پالایش زنده صف: زیررشته‌ای روی شناسه، لم، معنی، یا برچسب وضعیت */
+  let queueFilter = '';
+  function queueItemMatches(row, i, q) {
+    const needle = (q !== undefined && q !== null ? q : queueFilter || '').trim();
+    if (!needle) return true;
+    const status = i === queueIndex ? 'داوری جاری' : 'در انتظار';
+    return (row.sense_id || '').includes(needle)
+      || (row.lemma || '').includes(needle)
+      || (row.gloss || '').includes(needle)
+      || status.includes(needle);
+  }
+  /* نمونه‌سازی صف داوری: ورودی queue-filter + ظرف queue-list */
+  const queueFilterCtl = new FilterableListController(
+    'queue-filter', 'queue-list',
+    function(row, i, q) { return queueItemMatches(row, i, q); },
+    function(q) { queueFilter = q || ''; renderQueue(); });
+  function renderQueue() {
+    const box = document.getElementById('queue-list');
+    box.replaceChildren();
+    const visible = screenedRows.map((row, i) => ({row, i}))
+      .filter(({row, i}) => queueItemMatches(row, i));
+    document.getElementById('queue-remaining').textContent =
+      faNum(visible.length) + ' از ' + faNum(screenedRows.length) + ' مورد';
+    visible.forEach(({row, i}) => {
+      const item = document.createElement('div');
+      item.className = 'queue-item' + (i === queueIndex ? ' active' : '');
+      const wrap = document.createElement('div');
+      const b = document.createElement('b');
+      b.className = 'code-token';
+      if (i === queueIndex) b.style.color = 'var(--c-primary)';
+      b.textContent = row.sense_id || '—';
+      /* ردیف صف دقیقاً سه چیز حمل می‌کند: شناسه کایکی، برش معنی، وضعیت —
+         نامزدها/مثال‌ها/متن کامل هرگز در ردیف نیست (مالک آن‌ها بخش «جزئیات سنس» است) */
+      const glossFlat = (row.gloss || '').replace(/\s+/g, ' ').trim();
+      const glossSlice = glossFlat
+        ? (glossFlat.length > 120 ? glossFlat.slice(0, 120) + '…' : glossFlat)
+        : '—';
+      const sub = document.createElement('div');
+      sub.className = 'queue-gloss ltr-text';
+      sub.setAttribute('dir', 'ltr');
+      sub.textContent = glossSlice;
+      sub.title = glossSlice;
+      wrap.append(b, sub);
+      const tag = document.createElement('span');
+      tag.className = 'status-tag';
+      if (i === queueIndex) tag.style.color = 'var(--c-warning)';
+      tag.textContent = i === queueIndex ? 'داوری جاری' : 'در انتظار';
+      item.append(wrap, tag);
+      item.addEventListener('click', () => selectSense(i));
+      box.append(item);
+    });
+  }
+  function selectSense(i) {
+    if (!screenedRows.length) {
+      currentSense = null;
+      document.getElementById('sense-id').textContent = '—';
+      document.getElementById('sense-meta').textContent = 'صفی خالی است';
+      document.getElementById('sense-def').textContent = '—';
+      document.getElementById('sense-example').textContent = '—';
+      renderCandidates([]);
+      return;
+    }
+    queueIndex = ((i % screenedRows.length) + screenedRows.length) % screenedRows.length;
+    currentSense = screenedRows[queueIndex];
+    document.getElementById('sense-id').textContent = currentSense.sense_id || '—';
+    document.getElementById('sense-meta').textContent =
+      (currentSense.lemma || '—') + ' · سنس ' + faNum(queueIndex + 1) + ' از ' + faNum(screenedRows.length);
+    document.getElementById('sense-def').textContent = currentSense.gloss || '—';
+    document.getElementById('sense-example').textContent = currentSense.example || '—';
+    renderQueue();
+    loadCandidates();
+  }
+  let candidatesRequest = 0;
+  async function loadCandidates() {
+    const box = document.getElementById('candidates-stack');
+    const statusEl = document.getElementById('candidates-status');
+    const myTicket = ++candidatesRequest;
+    selectedTarget = null;
+    document.getElementById('label-target-name').textContent = 'نامزدی انتخاب نشده است';
+    box.replaceChildren();
+    if (!currentSense || !currentSense.sense_id) {
+      statusEl.textContent = 'سنسی در صف نیست.';
+      return;
+    }
+    statusEl.textContent = 'در حال بارگذاری نامزدها…';
+    try {
+      /* the queue id is short (run#5): the server resolves it to the
+         full kaikki id through the same screened export the queue came
+         from, then joins real-run shortlists plus human-review lists */
+      let url = '/api/candidates?sense_id=' + encodeURIComponent(currentSense.sense_id);
+      if (screenedPath) url += '&screened=' + encodeURIComponent(screenedPath);
+      const j = await getJSON(url);
+      if (myTicket !== candidatesRequest) return;  // a newer sense won the race
+      renderCandidates(j.candidates || [], {cause: j.cause || '', fullId: j.full_id || '',
+        witness: j.witness_verdict || ''});
+    } catch(e) {
+      if (myTicket !== candidatesRequest) return;
+      statusEl.textContent = 'بارگذاری نامزدها ناموفق بود: ' + (e.message || e);
+    }
+  }
+  function ltrLine(text, cls, tip) {
+    const el = document.createElement('div');
+    el.className = cls + ' ltr-text';
+    el.setAttribute('dir', 'ltr');
+    el.textContent = text;
+    /* متن کامل روی hover: جعبه بیضی می‌شود اما title همیشه کامل است */
+    if (tip) el.title = tip;
+    return el;
+  }
+  function renderCandidates(cands, feed) {
+    const box = document.getElementById('candidates-stack');
+    const statusEl = document.getElementById('candidates-status');
+    box.replaceChildren();
+    const cause = (feed && feed.cause) || '';
+    if (!cands.length) {
+      if (cause === 'no-join') {
+        /* حالت خالی پیوندنخورده: شناسه در نگاشت غربالگری و هیچ اجرایی
+           پیدا نشد — جعبه لاتین ایزوله، بدون شکست چیدمان */
+        statusEl.replaceChildren(
+          ltrLine('No join for this sense: identifier not found in the screened map or any run.', 'p-meta'));
+      } else {
+        /* حالت خالی خنثی: جعبه لاتین ایزوله، بدون شکست چیدمان */
+        statusEl.replaceChildren(
+          ltrLine('No candidates in the link table for this sense.', 'p-meta'));
+      }
+      return;
+    }
+    const witness = (feed && feed.witness) || '';
+    statusEl.textContent = faNum(cands.length) + ' نامزد از اجرای واقعی'
+      + (witness ? ' · شاهد: ' + witness : '');
+    cands.forEach((cand) => {
+      const card = document.createElement('div');
+      card.className = 'candidate-row-card';
+      card.dataset.sensekey = cand.sensekey || '';
+      const info = document.createElement('div');
+      info.className = 'c-info-block';
+      const keyTag = ltrLine((cand.synset || cand.sensekey || '—') +
+        (cand.synset_locator ? ' (' + cand.synset_locator + ')' : ''), 'c-key-tag code-token');
+      info.append(keyTag);
+      info.append(ltrLine(cand.gloss || '—', 'c-gloss-text', cand.gloss || ''));
+      if ((cand.synonyms || []).length) {
+        const synText = '= ' + cand.synonyms.join('; ');
+        info.append(ltrLine(synText, 'c-synonyms-text', synText));
+      }
+      if (cand.example) {
+        const exText = '◈ ' + cand.example;
+        info.append(ltrLine(exText, 'c-synonyms-text', exText));
+      }
+      if (cand.method || cand.evidence) {
+        info.append(ltrLine([cand.method, cand.evidence].filter(Boolean).join(' · '), 'c-synonyms-text code-token'));
+      }
+      /* human-review flags ride the card (read-only join, never typed) */
+      if (cand.in_review || cand.witness_pick) {
+        const bits = [];
+        if (cand.in_review) bits.push('review' + (cand.review_reason ? ': ' + cand.review_reason : ''));
+        if (cand.witness_pick) bits.push('witness pick' + (witness ? ': ' + witness : ''));
+        info.append(ltrLine(bits.join(' · '), 'c-synonyms-text code-token'));
+      }
+      const pick = document.createElement('button');
+      pick.className = 'btn-select-candidate';
+      pick.type = 'button';
+      pick.textContent = 'انتخاب برای پیوند';
+      pick.addEventListener('click', () => setSelectedTarget(cand.sensekey || '', card));
+      card.append(info, pick);
+      box.append(card);
+    });
+  }
+  function setSelectedTarget(sensekey, card) {
+    selectedTarget = sensekey || null;
+    document.getElementById('label-target-name').textContent = selectedTarget || 'نامزدی انتخاب نشده است';
+    document.querySelectorAll('#candidates-stack .candidate-row-card').forEach((el) => {
+      el.classList.toggle('selected', !!selectedTarget && el.dataset.sensekey === selectedTarget);
+    });
+  }
+  async function refreshLabelStats() {
+    try {
+      const j = await getJSON('/api/labels');
+      const labels = j.labels || [];
+      const nones = labels.filter(l => l.verdict === 'none').length;
+      document.getElementById('m-judged').textContent = faNum(labels.length) + ' / ' + faNum(screenedTotal);
+      document.getElementById('m-none').textContent = faNum(nones);
+    } catch(e) {
+      document.getElementById('m-judged').textContent = 'نامشخص';
+      document.getElementById('m-none').textContent = 'نامشخص';
+    }
+  }
+  /* پیش‌فرض‌گذاری امن ابرداده رأی (پس‌زمینه، خارج از جریان فرم):
+     مقادیر بخش تنظیمات اگر اپراتور تعیین کرده باشد، وگرنه پیش‌فرض‌های
+     امن نقش‌محور — هرگز نام شخصی ساخته نمی‌شود. */
+  const LABEL_DEFAULT_STRATUM = 'operator-review';
+  const LABEL_DEFAULT_ANNOTATOR = 'operator';
+  function labelDefaults() {
+    let s = '', a = '';
+    try {
+      const sEl = document.getElementById('label-stratum');
+      const aEl = document.getElementById('label-annotator');
+      s = (sEl && sEl.value || '').trim();
+      a = (aEl && aEl.value || '').trim();
+    } catch(e){}
+    return {
+      stratum: s || LABEL_DEFAULT_STRATUM,
+      annotator: a || LABEL_DEFAULT_ANNOTATOR,
+    };
+  }
+  function labelFields(verdict, target) {
+    const defs = labelDefaults();
+    return {
+      sense_id: currentSense ? (currentSense.sense_id || '') : '',
+      lemma: currentSense ? (currentSense.lemma || '') : '',
+      target_synset: target,
+      verdict: verdict,
+      stratum: defs.stratum,
+      annotator: defs.annotator,
+    };
+  }
+  async function postLabel(verdict, target) {
+    const statusEl = document.getElementById('label-status');
+    const receiptEl = document.getElementById('label-receipt');
+    receiptEl.hidden = true;
+    if (!currentSense) { statusEl.textContent = 'سنسی در صف نیست.'; return; }
+    const body = labelFields(verdict, target);
+    statusEl.textContent = 'در حال ذخیره…';
+    try {
+      const j = await getJSON('/api/labels', {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      statusEl.textContent = 'ذخیره شد.';
+      receiptEl.hidden = false;
+      receiptEl.replaceChildren();
+      receiptEl.append(ltrCode(j.replay || '—'));
+      receiptEl.append(document.createTextNode(' — ' + (j.store || '') + (j.watermark ? ' — ' + j.watermark : '')));
+      await refreshLabelStats();
+    } catch(e) { statusEl.textContent = 'ذخیره ناموفق بود: ' + (e.message || e); }
+  }
+
+  document.getElementById('btn-refresh-screened').addEventListener('click', loadScreened);
+  /* پالایش زنده صف از طریق کنترلر (شناسه یا وضعیت) — سیم‌کشی ورودی
+     در سازنده FilterableListController انجام می‌شود. */
+  document.getElementById('btn-skip-next').addEventListener('click', () => selectSense(queueIndex + 1));
+  document.getElementById('btn-reject-all').addEventListener('click', () => postLabel('none', null));
+  document.getElementById('btn-record-link').addEventListener('click', () => {
+    if (!selectedTarget) {
+      document.getElementById('label-status').textContent = 'اول یک نامزد را از کارت‌ها انتخاب کنید.';
+      return;
+    }
+    postLabel('link', selectedTarget);
+  });
+  document.getElementById('btn-master-ensure').addEventListener('click', masterEnsure);
+  document.getElementById('btn-supervisor-save').addEventListener('click', supervisorTokenSave);
+  document.getElementById('btn-supervisor-delete').addEventListener('click', supervisorTokenDelete);
+  document.getElementById('btn-supervisor-wake').addEventListener('click', supervisorWake);
+  document.getElementById('btn-supervisor-sleep').addEventListener('click', supervisorSleep);
+  document.getElementById('btn-fetch-models').addEventListener('click', fetchPresetModels);
+
+  restoreViewMemory();
+  refreshBadges();
+  refreshSupervisorToken();
+  refreshSupervisorLifecycle();
+  refreshProviderCards();
+  loadScreened();
+</script>
+</body>
+</html>

@@ -83,6 +83,10 @@ tools/egress/leases.jsonl
 tools/egress/clean_cache.json
 # Linker-judge WebUI operator secrets (Fernet ciphertext — never commit)
 factory/linking/webui/operator_keys.json
+# Factory home console operator secrets (same rule at the new home —
+# the console moved to factory/webui/; a pasted key here must never
+# be committable either).
+factory/webui/operator_keys.json
 # Linker-judge WebUI operator-local data (machine-local paths — never commit).
 # The tracked seed preset below stays tracked via the ! exception.
 factory/linking/webui/labels.jsonl
@@ -94,3 +98,13 @@ factory/linking/webui/provider_profiles/*.json
 linker_probe_*.log
 factory/linking/webui/runs/
 factory/linking/webui/runs.json
+# Factory home console operator-local data (machine-local paths —
+# never commit). The tracked seed preset below stays tracked via the
+# ! exception.
+factory/webui/labels.jsonl
+factory/webui/provider_key_vars.json
+factory/webui/presets/*.json
+!factory/webui/presets/witness_benchmark.json
+factory/webui/provider_profiles/*.json
+factory/webui/runs/
+factory/webui/runs.json

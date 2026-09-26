@@ -621,8 +621,14 @@ def test_supervisor_leases_append_only(tmp_path, monkeypatch):
     assert "proxy_url" not in blob and "token" not in blob.lower()
     assert all(len(e["lease"]) <= 8 for e in events)
     # Probe seam owned by the parallel PR: still attached, uncalled here.
-    assert sup.TARGETS["zen"]["probe"] is sup.zen_probe
-    assert sup.TARGETS["google"]["probe"] is sup.google_probe
+    # Name-compared, not `is` (same dual-import caveat as
+    # test_egress.py::test_targets_table_shape: plain `supervisor`
+    # here vs `tools.egress.supervisor` elsewhere share one TARGETS
+    # dict, so the attaching instance may differ from this one).
+    assert sup.TARGETS["zen"]["probe"].__name__ == \
+        sup.zen_probe.__name__ == "zen_probe"
+    assert sup.TARGETS["google"]["probe"].__name__ == \
+        sup.google_probe.__name__ == "google_probe"
 
 
 def test_run_with_lease_line_gains_server_provider(

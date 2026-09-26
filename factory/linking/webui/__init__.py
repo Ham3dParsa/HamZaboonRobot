@@ -1,9 +1,8 @@
-"""Linker-line local WebUI (thin adapter over the precard engine).
+"""Backward-compatible shim: the console now lives at :mod:`factory.webui`.
 
-Lives next to the linker line it serves (:mod:`factory.linking`), not next
-to the precard judge tool. Import the Flask app as::
-
-    from factory.linking.webui import server
+The old ``from factory.linking.webui import server`` path keeps working
+(and keeps pointing at the canonical module); new code should import
+from :mod:`factory.webui` instead.
 """
 
 __all__ = ["server"]
