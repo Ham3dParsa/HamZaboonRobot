@@ -166,7 +166,13 @@ function Show-Status {
   } elseif ($s.Pid) {
     "status: STALE pidfile pid={0} host={1} (process gone) port_open={2} pidfile={3}" -f $s.Pid, $s.BindHost, $s.PortOpen, $s.PidFile
   } else {
-    "status: STOPPED host={0} port={1} port_open={2} (no pidfile)" -f $s.BindHost, $s.Port, $s.PortOpen
+    # No managed server (no pidfile): never print STOPPED alongside an
+    # open port — an open port here means a FOREIGN process holds it.
+    if ($s.PortOpen) {
+      "status: FOREIGN-PORT-HELD host={0} port={1} port_open=True (no pidfile — held by a process this script did not start)" -f $s.BindHost, $s.Port
+    } else {
+      "status: STOPPED host={0} port={1} port_open=False (no pidfile)" -f $s.BindHost, $s.Port
+    }
   }
   Show-Links $s.BindHost $s.Port
 }

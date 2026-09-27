@@ -415,6 +415,9 @@ def test_probe_key_never_returns_none_and_google_egress_last(
                           encoding="utf-8")
     real = SUP.FACTORY_DOTENV
     SUP.FACTORY_DOTENV = tmp_path / "missing.env"
+    # Isolated from the operator's primary checkout: absence here must
+    # read as absence, never as a real primary key.
+    monkeypatch.setattr(SUP, "_primary_root", lambda: "")
     monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
     try:
         got = SUP.probe_key("GOOGLE_AI_API_KEY",

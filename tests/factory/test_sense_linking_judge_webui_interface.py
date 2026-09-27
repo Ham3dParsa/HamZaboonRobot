@@ -26,7 +26,7 @@ def _html():
 
 def test_wide_canvas_two_column():
     text = _html()
-    assert "max-width: 1600px" in text
+    assert "max-width: 1200px" in text
     assert "minmax(0, 7.5fr) minmax(320px, 4.5fr)" in text
 
 
@@ -36,7 +36,9 @@ def test_v5_identity_and_no_demo_constants():
                   "view-linking", "view-providers", "view-telemetry",
                   "view-paths", "btn-nav-linking"):
         assert token in text, token
-    assert "kilo" not in text.lower()  # NOT ready engine-side: never shown
+    # kilo appears only as a preset smart-default branch (manifest-added
+    # providers need zero code change); never as a demo constant or card
+    assert text.lower().count("kilo") <= 1
     for demo in ("124 / 200 RPH", "screened_run20.jsonl",
                  "run%2:38:00::", "verdictAlert", "gemini-3.8",
                  "llama-3.3-70b", "precards.jsonl", "kaikki-en-words.jsonl"):
@@ -53,9 +55,9 @@ def test_nav_sidebar_views_no_popups():
                  "view-pilot", "view-transfer"):
         assert 'id="%s"' % view in text, view
     assert "openView" in text
-    # no popups, no side drawer, no thick colored borders
+    # no popups except destructive-delete confirms (exact encrypted wording);
+    # no alert/prompt anywhere, no side drawer, no thick colored borders
     assert "alert(" not in text
-    assert "confirm(" not in text
     assert "prompt(" not in text
 
 
@@ -346,11 +348,35 @@ def test_preset_form_live_registry_locked_temp():
     assert 'id="preset-models"' in text
     assert "/api/providers/" in text and "/models" in text
     assert "/api/engine_info" in text
+    # editable rate caps: rpm/rph enabled, temperature stays locked at 0.0
+    assert 'id="preset-rpm"' in text and 'id="preset-rph"' in text
+    assert 'id="preset-temp" disabled' in text
+    assert 'id="preset-rpm" disabled' not in text
+    assert 'id="preset-rph" disabled' not in text
+    assert "applyPresetCapsDefaults" in text
+    assert 'id="preset-caps-note"' in text
     # backend preset kinds stay working (no preset UI save in v5)
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/presets" in rules
     assert "/api/job_templates" in rules
     assert "/api/judge_presets" in rules
+
+
+def test_preset_caps_editable_and_smart_defaults():
+    text = _html()
+    rpm = text[text.index('id="preset-rpm"') - 200:text.index('id="preset-rpm"') + 200]
+    assert "disabled" not in rpm
+    rph = text[text.index('id="preset-rph"') - 200:text.index('id="preset-rph"') + 200]
+    assert "disabled" not in rph
+    # smart defaults: kilo -> hourly 200 + tunnel/address cycle note;
+    # others (google, ...) -> minute 15 + key-rotation note
+    assert "'200'" in text or '"200"' in text
+    assert "'15'" in text or '"15"' in text
+    assert "applyPresetCapsDefaults" in text
+    assert "preset-caps-note" in text
+    # temperature locked at 0.0 with a transparent locked label
+    assert "locked-note" in text
+    assert "قفل" in text
 
 
 def test_telemetry_live_facts_honest_empty_tokens():
@@ -364,8 +390,10 @@ def test_telemetry_live_facts_honest_empty_tokens():
 
 def test_provider_list_matches_engine_registry_no_kilo():
     import json as _json
-    text = _html().lower()
-    assert "kilo" not in text  # NOT ready engine-side: never shown
+    text = _html()
+    # provider cards never hardcode a kilo row; the preset form may
+    # branch on the name for smart caps (manifest-added providers)
+    assert 'pk-kilo' not in text
     client = webui.app.test_client()
     info = client.get("/api/engine_info").get_json()
     from factory.precard import provider_registry
@@ -565,7 +593,11 @@ def test_compare_returns_full_rows_for_filter(tmp_path, monkeypatch):
         {"key": "w:b", "gold": "b#0", "predicted": "b#9"}]
 
 
-def test_routing_line_visible_before_launch():
+def test_routing_line_visible_before_launch(monkeypatch):
+    # Isolated from the live whitelist: a proven exit remembered by a
+    # real run must never flip this empty-state rendering test.
+    from factory.linking import google_clean as _gc
+    monkeypatch.setattr(_gc, "fresh_clean_exits", lambda *a, **k: [])
     text = _html()
     # leased-vs-direct routing facts render under each provider card
     assert "تونل استیجاری" in text and "مستقیم" in text
@@ -609,7 +641,10 @@ def test_routing_line_notes_whitelisted_exit(monkeypatch):
     assert "clean_exit" in text and "خروجی تمیز" in text
 
 
-def test_engine_info_routing_and_judge_schema_mirror_bot():
+def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
+    # Same live-whitelist isolation as the routing-line test above.
+    from factory.linking import google_clean as _gc
+    monkeypatch.setattr(_gc, "fresh_clean_exits", lambda *a, **k: [])
     client = webui.app.test_client()
     info = client.get("/api/engine_info").get_json()
     # inspiration 1: routing table with the one-line Google reason
@@ -669,16 +704,16 @@ def test_model_list_endpoint_key_gated_and_attributed(monkeypatch):
     assert "no key resolves" in resp.get_json()["error"]
     # attributed errors pass through (provider + kind, never values)
     monkeypatch.setattr(webui, "provider_model_list",
-                        lambda p, timeout=30: (
+                        lambda p, timeout=30, state_log=None: (
                             None, "google models fetch failed: "
-                                   "http-403 (provider-side; check the "
-                                   "key and retry)"))
+                                    "http-403 (provider-side; check the "
+                                    "key and retry)"))
     resp = client.get("/api/providers/google/models")
     assert resp.status_code == 502
     assert "http-403" in resp.get_json()["error"]
     # exact ids pass through byte-identical (one-click copy source)
     monkeypatch.setattr(webui, "provider_model_list",
-                        lambda p, timeout=30: (
+                        lambda p, timeout=30, state_log=None: (
                             ["gemini-3.5-flash-lite", "gemini-2.0-flash"],
                             None))
     body = client.get("/api/providers/google/models").get_json()
@@ -706,17 +741,60 @@ def test_model_id_parsers_never_invent():
 
 
 def test_model_list_endpoint_stays_server_side():
-    # no model picker lives in the spare form; the key-gated endpoint
-    # stays on the server (keys never touch the browser)
+    # model explorer lives in the preset form; keys never touch the browser
     text = _html()
-    for gone in ('id="btn-model-list"', 'id="model-search"',
-                 'id="model-filter-chips"', 'id="model-list"',
-                 'id="model-err"', 'id="model-chips"'):
-        assert gone not in text, gone
+    for present in ('id="preset-model-filter"',
+                    'id="preset-free-chip"',
+                    'id="preset-model-list"',
+                    'id="preset-models-err"',
+                    'id="preset-models-count"'):
+        assert present in text, present
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/providers/<name>/models" in rules
     assert webui.app.test_client().get(
         "/api/providers/ghost/models").status_code == 404
+
+
+def test_model_explorer_second_filter_instance():
+    text = _html()
+    # second standalone FilterableListController on the model ids
+    assert text.count("new FilterableListController") >= 2
+    assert "presetModelFilterCtl" in text
+    assert "presetModelMatches" in text
+    assert "'preset-model-filter'" in text
+    assert "'preset-model-list'" in text
+    # free-only chip with distinct active styling
+    assert "presetFreeOnly" in text
+    assert "preset-free-chip" in text
+    assert ".free-chip.active" in text
+    assert "presetModelIsFree" in text
+
+
+def test_model_explorer_adopt_writes_exact_id():
+    text = _html()
+    # touch adopt button writes the exact id into the model field
+    assert "model-adopt" in text
+    assert "preset-model" in text
+    assert "document.getElementById('preset-model').value = id" in text
+    # compact rows ~40-44px, latin monospace id, green free badge,
+    # filtered-of-total telemetry strip
+    assert ".model-row" in text
+    assert "40px" in text and "44px" in text
+    assert ".model-id" in text
+    assert ".free-badge" in text
+    assert "preset-models-count" in text
+    assert "renderPresetModels" in text
+    assert "fetchPresetModels" in text
+
+
+def test_preset_fetch_renders_cards_and_isolated_errors():
+    text = _html()
+    start = text.index("async function fetchPresetModels()")
+    block = text[start:start + 2500]
+    assert "/api/providers/" in block and "/models" in block
+    assert "renderPresetModels" in block
+    assert "preset-models-err" in block
+    assert "presetModels = []" in block
 
 
 def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
@@ -732,7 +810,7 @@ def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
 
     leased = []
 
-    def _fake_lease(provider):
+    def _fake_lease(provider, state_log=None):
         leased.append(provider)
         return ({"lease_id": "bb11cc22dd33", "mode": "tunnel",
                  "proxy_url": "http://127.0.0.1:19998",
@@ -1221,3 +1299,692 @@ def test_view_memory_first_run_default():
     assert "key_var" not in block
     assert "API_KEY" not in block
     assert "access_token" not in block.lower()
+
+
+def test_wake_reports_true_probed_state_not_stale(monkeypatch):
+    """Wake on a reachable-but-empty supervisor refreshes, never stale.
+
+    Health-false must NOT return already_healthy True: the endpoint
+    refreshes live and reports the freshly probed counts (servers /
+    leases / healthy) with the bearer named, never valued.
+    """
+    monkeypatch.setattr(webui, "_supervisor_refresh",
+                        lambda timeout=60: (True, {"servers": 2,
+                                                  "leases": 0,
+                                                  "healthy": True,
+                                                  "before": 0}))
+    seen = []
+
+    def _probed(timeout=10):
+        seen.append(True)
+        if len(seen) == 1:
+            return True, {"servers": 0, "leases": 0, "healthy": False}
+        return True, {"servers": 2, "leases": 0, "healthy": True}
+
+    monkeypatch.setattr(webui, "supervisor_health_snapshot", _probed)
+    body = webui.app.test_client().post("/api/supervisor/wake").get_json()
+    assert body["woken"] is True
+    assert body["already_healthy"] is False  # never the stale True
+    assert body["health"] == {"servers": 2, "leases": 0,
+                              "healthy": True}
+    assert body["var"] == "EGRESS_SUP_TOKEN"
+
+
+def test_wake_healthy_never_spawns_nor_refreshes(monkeypatch):
+    """A healthy supervisor returns as-is: no refresh, no spawn."""
+    monkeypatch.setattr(webui, "supervisor_health_snapshot",
+                        lambda timeout=10: (True, {"servers": 3,
+                                                  "leases": 1,
+                                                  "healthy": True}))
+
+    def _boom_refresh(timeout=60):
+        raise AssertionError("healthy supervisor must not refresh")
+
+    def _boom_wake(**kwargs):
+        raise AssertionError("healthy supervisor must not wake")
+
+    monkeypatch.setattr(webui, "_supervisor_refresh", _boom_refresh)
+    monkeypatch.setattr(webui, "_wake_supervisor_background", _boom_wake)
+    body = webui.app.test_client().post("/api/supervisor/wake").get_json()
+    assert body == {"woken": True, "already_healthy": True,
+                    "var": "EGRESS_SUP_TOKEN",
+                    "health": {"servers": 3, "leases": 1,
+                               "healthy": True}}
+
+
+def test_lease_empty_pool_auto_refresh_then_proves(monkeypatch):
+    """No link-bearing server triggers refresh-plus-prove, no dead end.
+
+    First lease refused (empty pool) -> one live refresh -> lease
+    retried and recovered. Fakes only, never the network.
+    """
+    monkeypatch.setattr(webui, "route_for_provider",
+                        lambda p, **k: ("leased", "test leased"))
+    monkeypatch.setattr(webui, "_supervisor_token", lambda: "tok-test")
+    calls = {"lease": 0, "refresh": 0}
+
+    def _fake_lease(target):
+        calls["lease"] += 1
+        if calls["lease"] == 1:
+            return {"error": "park",
+                    "message": "no link-bearing server available "
+                               "(refresh the subscription)"}
+        return {"lease_id": "r1", "server_id": "s1",
+                "proxy_url": "http://127.0.0.1:1"}
+
+    def _fake_refresh():
+        calls["refresh"] += 1
+        return True, {"servers": 1, "leases": 0, "healthy": True,
+                      "before": 0}
+
+    monkeypatch.setattr(webui, "_pool_snapshot_rows", lambda *a, **k: [])
+    lease, err = webui.lease_tunnel_for_run(
+        "google", lease_fn=_fake_lease,
+        clean_fn=lambda: [], verify_fn=lambda *a, **k: None,
+        refresh_fn=_fake_refresh)
+    assert err is None
+    assert lease["lease_id"] == "r1"
+    assert calls == {"lease": 2, "refresh": 1}
+
+
+def test_lease_empty_pool_failed_refresh_names_bearer(monkeypatch):
+    """Refresh refused: honest error naming the bearer, never a value."""
+    monkeypatch.setattr(webui, "route_for_provider",
+                        lambda p, **k: ("leased", "test leased"))
+    monkeypatch.setattr(webui, "_supervisor_token", lambda: "tok-test")
+
+    def _fake_lease(target):
+        return {"error": "park",
+                "message": "no link-bearing server available "
+                           "(refresh the subscription)"}
+
+    monkeypatch.setattr(webui, "_pool_snapshot_rows", lambda *a, **k: [])
+    lease, err = webui.lease_tunnel_for_run(
+        "google", lease_fn=_fake_lease,
+        clean_fn=lambda: [], verify_fn=lambda *a, **k: None,
+        refresh_fn=lambda: (False, "subnet down"))
+    assert lease is None
+    assert "EGRESS_SUP_TOKEN" in err
+    assert "tok-test" not in err
+
+
+def test_wake_launched_but_starting_reports_in_flight(monkeypatch):
+    """Spawned child outlasting the budget reports a wake in flight.
+
+    A cold boot with subscription refresh takes seconds: the waiter
+    returns True once the child is launched (callers re-probe and
+    state the fresh counts), False only when nothing launched.
+    """
+    calls = []
+    assert webui._wake_supervisor_background(
+        spawn_fn=lambda port: calls.append(port),
+        health_fn=lambda: (False, "down"),
+        timeout=0.5) is True
+    assert len(calls) == 1
+    monkeypatch.setattr(webui, "_factory_supervisor_script",
+                        lambda: "/no/such/supervisor.py")
+    assert webui._wake_supervisor_background(
+        health_fn=lambda: (False, "down"), timeout=0.5) is False
+
+
+def test_primary_env_fallback_resolves_bearer(monkeypatch, tmp_path):
+    """Worktree run inherits the primary bearer (read-only, names out).
+
+    Hermetic: a fake primary root (obvious fake value); the serving
+    checkout keeps no bearer anywhere.
+    """
+    primary = tmp_path / "primary"
+    (primary / "factory").mkdir(parents=True)
+    (primary / "tools" / "egress").mkdir(parents=True)
+    (primary / "factory" / ".env").write_text(
+        "EGRESS_SUP_TOKEN=fake-primary-bearer\n", encoding="utf-8")
+    monkeypatch.delenv("EGRESS_SUP_TOKEN", raising=False)
+    monkeypatch.setattr(webui, "_factory_env_value", lambda var: "")
+    monkeypatch.setattr(webui, "_read_supervisor_token_file", lambda: "")
+    import tools.egress.supervisor as _sup
+    monkeypatch.setattr(_sup, "load_env", lambda: {})
+    monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
+    monkeypatch.setattr(webui, "_primary_root", lambda: str(primary))
+    import factory.precard.provider_lease_policy as _net
+    assert webui._supervisor_token() == "fake-primary-bearer"
+    assert _net.resolve_key(
+        "EGRESS_SUP_TOKEN",
+        file_paths=webui._extra_key_paths()) == "fake-primary-bearer"
+
+
+def test_sleep_parked_names_vars_not_values(monkeypatch):
+    """Parked idle minutes: honest refusal naming both variables."""
+    monkeypatch.setattr(webui, "_configured_idle_minutes", lambda: None)
+    body = webui.app.test_client().post("/api/supervisor/sleep").get_json()
+    assert body["slept"] is False
+    assert body["var"] == "EGRESS_SUP_TOKEN"
+    assert "HAMZABAN_SUPERVISOR_IDLE_MINUTES" in body["reason"]
+    assert "EGRESS_SUP_TOKEN" in body["reason"]
+
+
+def test_console_names_bearer_in_static_surfaces():
+    """Every supervisor surface names EGRESS_SUP_TOKEN (never a value)."""
+    text = _html()
+    assert "EGRESS_SUP_TOKEN" in text
+    assert 'placeholder="EGRESS_SUP_TOKEN (stored encrypted)"' in text
+    # lifecycle badge renders live counts, never a stale bare label
+    assert "refreshSupervisorLifecycle" in text
+    assert "سرور" in text and "لیز" in text
+
+
+# ─── Ticket 2.5: frontend ergonomics + UX polish + preset wiring ───
+
+def test_model_search_case_folded_and_live_count():
+    text = _html()
+    start = text.index("function presetModelMatches")
+    block = text[start:start + 600]
+    assert "toLowerCase" in block
+    assert 'aria-live="polite"' in text
+    assert 'id="preset-models-count"' in text
+    assert "role=\"status\"" in text
+
+
+def test_provider_cards_jump_wiring_no_raw_boxes():
+    text = _html()
+    # raw per-card model buttons/boxes are gone from the cards
+    assert "providerModels(row.name" not in text
+    assert "modelsBtn" not in text
+    assert "modelsBox" not in text
+    # one jump button per card: dropdown + caps + fetch + modal dialog
+    assert "jumpProviderToExplorer" in text
+    assert "preset-provider" in text
+    assert "applyPresetCapsDefaults" in text
+    assert "fetchPresetModels" in text
+    assert "openModelPicker" in text
+    assert 'id="model-picker"' in text
+    assert "preset-model-filter" in text
+
+
+def test_secrets_collapsed_block_auto_open():
+    text = _html()
+    assert 'id="operator-secrets"' in text
+    assert "کلید مادر و توکن سرپرست" in text
+    # collapsed by default: no open attribute on the details tag
+    tag_start = text.index('id="operator-secrets"')
+    tag_open = text.rindex("<details", 0, tag_start)
+    tag_end = text.index(">", tag_start)
+    assert "open" not in text[tag_open:tag_end].replace("opencode", "")
+    # both cards live inside the block; auto-open only when unconfigured
+    assert text.index('id="operator-secrets"') < text.index('id="master-card"')
+    assert text.index('id="operator-secrets"') < text.index('id="supervisor-card"')
+    assert "syncSecretsBlock" in text
+    assert "masterConfigured" in text and "supervisorConfigured" in text
+
+
+def test_destructive_deletes_confirm_encrypted_irreversible():
+    text = _html()
+    assert text.count("confirm(") >= 2
+    assert "برگشت‌ناپذیر" in text
+    assert "رمزشده" in text
+    assert "providerKeyDelete" in text and "supervisorTokenDelete" in text
+    for fn in ("async function providerKeyDelete",
+               "async function supervisorTokenDelete"):
+        block = text[text.index(fn):text.index(fn) + 800]
+        assert "confirm(" in block
+
+
+def test_busy_states_wake_and_fetch_models():
+    text = _html()
+    for fn in ("async function supervisorWake",
+               "async function fetchPresetModels"):
+        block = text[text.index(fn):text.index(fn) + 1600]
+        assert ".disabled = true" in block
+        assert "finally" in block
+        assert ".disabled = false" in block
+    assert "در حال بیدارسازی" in text
+    assert "در حال دریافت" in text
+
+
+def test_judge_preset_save_posts_values_to_server_route():
+    text = _html()
+    assert 'id="btn-save-judge-preset"' in text
+    assert "saveJudgePreset" in text
+    assert "/api/judge_presets" in text
+    block = text[text.index("async function saveJudgePreset"):
+                 text.index("async function saveJudgePreset") + 2500]
+    for field in ("max_rpm", "max_rph", "max_daily", "rate_scope",
+                  "temperature", "provider", "model", "label"):
+        assert field in block, field
+    # backend route genuinely exists: no duplicate route, no local-only path
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/judge_presets" in rules
+    # caps inputs stay enabled (temp alone stays locked at 0.0)
+    assert 'id="preset-rpm" disabled' not in text
+    assert 'id="preset-rph" disabled' not in text
+    assert 'id="preset-rpd" disabled' not in text
+    assert 'id="preset-temp" disabled' in text
+
+
+def test_judge_preset_save_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    client = webui.app.test_client()
+    resp = client.post("/api/judge_presets", json={
+        "name": "console-judge", "provider": "avalai", "model": "m-test",
+        "max_rpm": "15", "max_rph": "", "temperature": "0.0",
+        "limit": 0, "concurrency": 8})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["judge_preset"]["provider"] == "avalai"
+    assert body["judge_preset"]["model"] == "m-test"
+    assert client.delete("/api/judge_presets/console-judge").status_code == 200
+
+
+def test_design_tokens_spacing_scale_and_auto_fit_grid():
+    text = _html()
+    # spacing scale defined once at root, consumed by the standard grid
+    for token in ("--space-1: 4px", "--space-2: 8px", "--space-3: 12px",
+                  "--space-4: 16px", "--space-5: 24px",
+                  "--space-6: 32px", "--space-7: 48px"):
+        assert token in text, token
+    assert ".cards-grid-auto" in text
+    assert "repeat(auto-fit, minmax(290px, 1fr))" in text
+    assert "gap: var(--space-3)" in text
+    assert 'class="cards-grid-auto" id="provider-cards"' in text
+    # no fixed-column grid for the provider cards
+    assert "repeat(4, 1fr)" not in text
+    assert "cards-grid-3" not in text
+
+
+def test_design_bounded_lists_with_themed_scroll():
+    text = _html()
+    # candidates stack: capped + themed scroll
+    assert 'class="candidates-stack themed-scroll"' in text
+    assert ".candidates-stack { max-height: 320px; overflow-y: auto; }" in text
+    # dynamic data tables: capped + themed scroll
+    assert text.count('class="table-responsive bounded themed-scroll"') == 2
+    assert ".table-responsive.bounded" in text
+    # model + queue lists keep their ceilings
+    assert ".model-list" in text and "max-height: 260px" in text
+    assert ".queue-list" in text
+
+
+def test_design_provider_cards_badges_debug_details_and_copy():
+    text = _html()
+    # compact badges replace the long prose lines in the card body
+    assert "provider-badges" in text
+    assert "کلید فعال" in text
+    assert "provider-debug" in text
+    assert "جزئیات مسیر و نرخ" in text
+    assert "کپی جزئیات" in text
+    assert "copyReport" in text
+    assert "active_keys" in text
+    # routing facts still present (badges + details), names only
+    assert "تونل استیجاری" in text and "مستقیم" in text
+    assert "clean_exit" in text and "خروجی تمیز" in text
+    assert "rateLineFor" in text
+
+
+def test_design_managed_provider_wiring_confirm_busy():
+    text = _html()
+    # add-provider form posts to the existing management endpoint
+    assert 'id="btn-add-provider"' in text
+    assert "providerAdd" in text
+    assert "/api/managed_providers" in text
+    assert 'id="provider-add-name"' in text
+    assert 'id="provider-add-err"' in text
+    # per-card add-key slot + delete-provider on the managed endpoints
+    assert "providerKeyAdd" in text
+    assert "providerDelete" in text
+    assert "/keys" in text
+    # destructive delete behind confirm with the encrypted wording + busy
+    assert "async function providerDelete" in text
+    block = text[text.index("async function providerDelete"):
+                 text.index("async function providerDelete") + 1300]
+    assert "confirm(" in block
+    assert "برگشت‌ناپذیر" in block
+    assert "رمزشده" in block
+    assert "withBusy(btn" in block
+    # the shared busy helper implements disable + finally-restore once
+    busy = text[text.index("async function withBusy"):
+                text.index("async function withBusy") + 500]
+    assert ".disabled = true" in busy and "finally" in busy
+    assert ".disabled = false" in busy
+    block = text[text.index("async function providerAdd"):
+                 text.index("async function providerAdd") + 2200]
+    assert "withBusy(" in block
+    block = text[text.index("async function providerKeyAdd"):
+                 text.index("async function providerKeyAdd") + 900]
+    assert "withBusy(btn" in block
+    # backend management routes genuinely exist
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/managed_providers" in rules
+    assert "/api/managed_providers/<name>" in rules
+    assert "/api/managed_providers/<name>/keys" in rules
+
+
+def test_design_error_boxes_coded_three_part():
+    text = _html()
+    # code badge + standard prefixes, plain message, retry + log copy
+    assert "error-code" in text
+    assert "data-code" in text
+    assert "errCodeFor" in text
+    for prefix in ("NET-", "QUOTA-429", "AUTH-", "VALIDATION-"):
+        assert prefix in text, prefix
+    assert "کپی گزارش" in text
+    assert "تلاش دوباره" in text
+    start = text.index("function buildFormError")
+    block = text[start:start + 2500]
+    assert "badge error-code" in block
+    assert "form-error-msg" in block
+    assert "form-error-detail" in block
+    assert "form-error-actions" in block
+
+
+def test_design_latin_identifiers_isolated_bdi():
+    text = _html()
+    # the helper emits isolated bidirectional nodes, never bare spans
+    start = text.index("function ltrCode")
+    block = text[start:start + 400]
+    assert "createElement('bdi')" in block
+    assert "'dir'" in block and "'ltr'" in block
+    assert "code-token" in block
+    # static badge/readout identifiers carry the dir attribute too
+    assert '<bdi dir="ltr" class="code-token" id="badge-root">' in text
+    assert '<bdi dir="ltr" class="code-token" id="badge-keys">' in text
+
+
+def test_design_tables_honest_labeled_empties():
+    text = _html()
+    assert "honestEmptyCell" in text
+    assert "honest-empty" in text
+    assert "سرور ثبت نمی‌کند" in text
+    # empty-state rows instead of silent empty bodies
+    assert "بدون ارائه‌دهنده زنده" in text
+    assert "بدون ریشه زنده" in text
+    # labeled note under each table
+    assert "خالی صادقانه" in text
+
+
+def test_model_explorer_adopt_closes_dialog():
+    text = _html()
+    assert "closeModelPicker" in text
+    start = text.index("document.getElementById('preset-model').value = id")
+    assert "closeModelPicker()" in text[start:start + 200]
+
+
+def test_provider_connections_collapsed_out_of_first_screen():
+    text = _html()
+    assert 'id="provider-connections"' in text
+    assert "اتصال‌های ارائه‌دهنده" in text
+    # collapsed by default: no open attribute on the details tag
+    tag_start = text.index('id="provider-connections"')
+    tag_open = text.rindex("<details", 0, tag_start)
+    tag_end = text.index(">", tag_start)
+    assert "open" not in text[tag_open:tag_end].replace("opencode", "")
+    # whole block (cards + add form) lives inside the collapsed container
+    assert text.index('id="provider-connections"') < text.index('id="provider-cards"')
+    assert text.index('id="provider-connections"') < text.index('id="provider-add-card"')
+    assert text.index('id="provider-add-card"') < text.index('id="operator-secrets"')
+    # preset form sits first: visual focus without long scrolls
+    assert text.index('id="preset-card"') < text.index('id="provider-connections"')
+    assert 'class="cards-grid-auto" id="provider-cards"' in text
+
+
+def test_collapsible_blocks_shared_styling():
+    text = _html()
+    for block in ('id="provider-connections"', 'id="operator-secrets"'):
+        tag_start = text.index(block)
+        tag_open = text.rindex("<details", 0, tag_start)
+        assert "collapsible-block" in text[tag_open:text.index(">", tag_start)]
+    # explicit rotating marker with hover affordance
+    assert "collapsible-block" in text
+    assert ".chev" in text
+    assert "transform" in text and "rotate(" in text
+    assert "transition" in text
+    assert "summary:hover" in text
+    # soft border, standard padding, distinct background
+    assert "details.collapsible-block" in text
+    assert "border: 1px solid var(--border-color)" in text
+    assert "padding: 16px" in text
+    assert "background: var(--bg-surface)" in text
+    assert 'class="chev"' in text
+
+
+def test_model_picker_centered_modal_dialog():
+    text = _html()
+    assert '<dialog class="model-dialog" id="model-picker"' in text
+    assert 'id="btn-open-model-picker"' in text
+    assert 'id="btn-close-model-picker"' in text
+    assert "openModelPicker" in text and "closeModelPicker" in text
+    assert "showModal" in text
+    # centered modal styling with backdrop
+    assert "dialog.model-dialog" in text
+    assert "dialog.model-dialog::backdrop" in text
+    # explorer renders inside the dialog (filter, free chip, card rows)
+    dlg = text.index('id="model-picker"')
+    for token in ('id="preset-model-filter"', 'id="preset-free-chip"',
+                  'id="preset-model-list"', 'id="preset-models-count"',
+                  'id="preset-models-err"', 'id="btn-fetch-models"'):
+        assert dlg < text.index(token), token
+    assert "</dialog>" in text[dlg:dlg + 6000]
+    # long inline rows removed from the preset card itself
+    preset = text.index('id="preset-card"')
+    preset_end = text.index('id="provider-connections"')
+    assert 'id="preset-model-list"' not in text[preset:preset_end]
+    assert 'id="preset-model-filter"' not in text[preset:preset_end]
+
+
+def test_preset_form_compact_first_screen():
+    text = _html()
+    assert 'id="preset-card"' in text
+    assert "preset-compact" in text
+    assert ".preset-compact" in text
+    # provider, model id, both caps share one compact line
+    for token in ('id="preset-provider"', 'id="preset-model"',
+                  'id="preset-rpm"', 'id="preset-rph"',
+                  'id="btn-open-model-picker"'):
+        assert token in text, token
+    compact = text.index("preset-compact")
+    assert "grid-template-columns" in text[compact:compact + 600]
+
+
+def test_preset_catalog_table_under_form():
+    text = _html()
+    # catalog lives inside the preset card, below the save row
+    preset = text.index('id="preset-card"')
+    assert 'id="preset-catalog-table"' in text[preset:]
+    assert 'id="preset-catalog-tbody"' in text[preset:]
+    assert 'id="preset-catalog-count"' in text[preset:]
+    assert 'id="preset-catalog-note"' in text[preset:]
+    assert text.index('id="btn-save-judge-preset"') < text.index(
+        'id="preset-catalog-table"')
+    # columns: name, provider, model id, three caps, scope, actions
+    for header in ("نام پریست", "ارائه‌دهنده", "شناسه مدل",
+                   "سقف دقیقه‌ای", "سقف ساعتی", "سقف روزانه",
+                   "محدوده نرخ", "اقدام"):
+        assert header in text, header
+    # renders from the existing judge-presets endpoint with
+    # delete + load-into-form actions (no new server route)
+    assert "refreshJudgeCatalog" in text
+    assert "/api/judge_presets" in text[
+        text.index("async function refreshJudgeCatalog"):
+        text.index("async function refreshJudgeCatalog") + 800]
+    assert "loadJudgePresetIntoForm" in text
+    assert "deleteJudgePreset" in text
+    assert "نشاندن در فرم" in text
+    rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
+    assert "/api/judge_presets" in rules
+    assert "/api/judge_presets/<name>" in rules
+
+
+def test_preset_scope_selector_three_state():
+    text = _html()
+    # three-state scope selector on the creation form, model default
+    assert 'name="preset-scope"' in text
+    assert text.count('<input type="radio" name="preset-scope"') == 3
+    for scope in ('value="model"', 'value="address"', 'value="account"'):
+        assert scope in text, scope
+    assert "presetScopeValue" in text
+    assert "setPresetScopeValue" in text
+    # the save path posts the scope; the load path restores it
+    save = text[text.index("async function saveJudgePreset"):
+                text.index("async function saveJudgePreset") + 2500]
+    assert "rate_scope" in save
+    load = text[text.index("function loadJudgePresetIntoForm"):
+                text.index("function loadJudgePresetIntoForm") + 2500]
+    assert "setPresetScopeValue" in load
+
+
+def test_preset_daily_cap_label_and_unlimited_placeholders():
+    text = _html()
+    # daily cap field + optional preset label on the creation form
+    assert 'id="preset-rpd"' in text
+    assert 'id="preset-label"' in text
+    assert 'id="preset-rpd" disabled' not in text
+    # every cap input states empty-means-unlimited in its placeholder
+    for ctrl in ('id="preset-rpm"', 'id="preset-rph"', 'id="preset-rpd"'):
+        near = text[text.index(ctrl) - 60:text.index(ctrl) + 260]
+        assert "placeholder" in near, ctrl
+        assert "نامحدود" in near, ctrl
+    # smart defaults keep working and keep the explicit placeholders
+    assert "applyPresetCapsDefaults" in text
+    defaults = text[text.index("function applyPresetCapsDefaults"):
+                    text.index("function applyPresetCapsDefaults") + 1200]
+    assert defaults.count("نامحدود") >= 3
+
+
+def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    client = webui.app.test_client()
+    resp = client.post("/api/judge_presets", json={
+        "name": "hub-probe", "label": "hub-probe", "provider": "avalai",
+        "model": "m-hub", "max_rpm": "15", "max_rph": "200",
+        "max_daily": "1000", "rate_scope": "address",
+        "limit": 0, "concurrency": 8})
+    assert resp.status_code == 200
+    rec = resp.get_json()["judge_preset"]
+    assert rec["label"] == "hub-probe"
+    assert rec["max_rpm"] == 15
+    assert rec["max_rph"] == 200
+    assert rec["max_daily"] == 1000
+    assert rec["rate_scope"] == "address"
+    listed = client.get("/api/judge_presets").get_json()["judge_presets"]
+    (found,) = [r for r in listed if r["name"] == "hub-probe"]
+    assert found["max_daily"] == 1000
+    assert found["rate_scope"] == "address"
+    # empty caps read as unlimited (0); empty scope reads as model
+    resp = client.post("/api/judge_presets", json={
+        "name": "hub-empty", "provider": "avalai", "model": "",
+        "max_rpm": "", "max_rph": "", "max_daily": "",
+        "rate_scope": ""})
+    assert resp.status_code == 200
+    rec = resp.get_json()["judge_preset"]
+    assert rec["max_rpm"] == 0
+    assert rec["max_rph"] == 0
+    assert rec["max_daily"] == 0
+    assert rec["rate_scope"] == "model"
+    assert rec["label"] == ""
+    # invalid scope and negative caps fail closed (400, never stored)
+    for bad in ({"name": "hub-bad", "provider": "avalai",
+                 "rate_scope": "planet"},
+                {"name": "hub-neg", "provider": "avalai",
+                 "max_daily": "-3"}):
+        assert client.post(
+            "/api/judge_presets", json=bad).status_code == 400
+    names = [r["name"] for r in client.get(
+        "/api/judge_presets").get_json()["judge_presets"]]
+    assert "hub-bad" not in names
+    assert "hub-neg" not in names
+    assert client.delete("/api/judge_presets/hub-probe").status_code == 200
+    assert client.delete("/api/judge_presets/hub-empty").status_code == 200
+
+
+def test_judge_preset_edit_rename_migrates_without_duplicates(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    client = webui.app.test_client()
+    base = {"provider": "avalai", "model": "m",
+            "max_rpm": "15", "max_rph": "", "max_daily": "500",
+            "rate_scope": "model", "limit": 0, "concurrency": 8}
+    assert client.post("/api/judge_presets", json={
+        "name": "hub-orig", "label": "hub-orig", **base}).status_code == 200
+    # same-name re-save (load-into-form flow) bumps the version, no twin
+    resp = client.post("/api/judge_presets", json={
+        "name": "hub-orig", "label": "hub-orig",
+        "previous_name": "hub-orig", **base})
+    assert resp.status_code == 200
+    assert resp.get_json()["judge_preset"]["version"] == 2
+    # rename migrates: one record under the new name, caps preserved
+    resp = client.post("/api/judge_presets", json={
+        "name": "hub-new", "label": "hub-new",
+        "previous_name": "hub-orig", **base})
+    assert resp.status_code == 200
+    rec = resp.get_json()["judge_preset"]
+    assert rec["name"] == "hub-new"
+    assert rec["version"] == 3
+    assert rec["max_rpm"] == 15
+    assert rec["max_daily"] == 500
+    names = [r["name"] for r in client.get(
+        "/api/judge_presets").get_json()["judge_presets"]]
+    assert names.count("hub-new") == 1
+    assert "hub-orig" not in names
+    # fail-closed: unknown previous name, or a rename onto an live name
+    assert client.post("/api/judge_presets", json={
+        "name": "hub-ghost", "previous_name": "hub-missing",
+        **base}).status_code == 400
+    assert client.post("/api/judge_presets", json={
+        "name": "hub-other", "label": "hub-other", **base}).status_code == 200
+    assert client.post("/api/judge_presets", json={
+        "name": "hub-other", "previous_name": "hub-new",
+        **base}).status_code == 400
+    assert client.delete("/api/judge_presets/hub-new").status_code == 200
+    assert client.delete("/api/judge_presets/hub-other").status_code == 200
+
+
+def test_candidate_card_structure_hygiene():
+    text = _html()
+    block = text[text.index("function renderCandidates"):
+                 text.index("function setSelectedTarget")]
+    # top row: isolated Latin sensekey + select button
+    assert "c-top-row" in block
+    assert "c-sensekey" in block
+    assert "انتخاب برای پیوند" in block
+    # gloss prominent, synonyms on their own labeled line
+    assert "c-gloss-text" in block
+    assert "c-synonyms-line" in block
+    assert "مترادف" in block
+    # examples in a distinct quote block
+    assert "blockquote" in block
+    assert "c-example" in block
+    # debug variables ride a per-card metadata details block only
+    assert "createElement('details')" in block
+    assert "candidate-meta" in block
+    head, meta = block.split("const metaBits", 1)
+    for debug in ("synset_locator", "cand.method", "cand.evidence",
+                  "review_reason", "witness_pick"):
+        assert debug in meta, debug
+        assert debug not in head, debug
+    # the old flat body patterns are gone
+    assert "c-info-block" not in text
+    assert "c-key-tag" not in text
+    assert "'= ' + cand.synonyms" not in text
+    assert "'◈ ' + cand.example" not in text
+    # gloss box never uses the fragile -webkit-box clamp (it collapses
+    # to a ~9px blank in headless Chromium); gloss, synonyms, and the
+    # example quote flow free (no rigid height cap, no hidden overflow
+    # — mid-word clipping of synonyms/quotes is the proven bug)
+    assert "-webkit-box" not in text
+    assert "-webkit-line-clamp" not in text
+    gloss_css = text[text.index(".c-gloss-text {"):
+                    text.index(".c-gloss-text {") + 400]
+    assert "flex: none" in gloss_css
+    assert "max-height" not in gloss_css
+    assert "overflow: hidden" not in gloss_css
+    assert "padding:" in gloss_css
+    card_css = text[text.index(".candidate-row-card {"):
+                   text.index(".candidate-row-card {") + 400]
+    assert "overflow: hidden" not in card_css
+    syn_css = text[text.index(".c-synonyms-line {"):
+                  text.index(".c-synonyms-line {") + 300]
+    assert "max-height" not in syn_css
+    assert "overflow: hidden" not in syn_css
+    quote_css = text[text.index(".c-example {"):
+                    text.index(".c-example {") + 400]
+    assert "max-height" not in quote_css
+    assert "overflow: hidden" not in quote_css
+    assert "blockquote" in quote_css or "border-inline-start" in quote_css

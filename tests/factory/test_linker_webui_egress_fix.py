@@ -36,7 +36,7 @@ def _keyed(monkeypatch, var):
     monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
     import factory.precard.provider_lease_policy as _net
     monkeypatch.setattr(_net, "resolve_key",
-                        lambda v: "k-test" if v == var else "")
+                        lambda v, **k: "k-test" if v == var else "")
 
 
 class _FakeResp:
@@ -84,7 +84,12 @@ def test_model_list_leased_openrouter_uses_tunnel_proxy(monkeypatch):
         return _FakeOpener()
 
     monkeypatch.setattr(_url, "build_opener", _fake_opener)
-    models, err = webui.provider_model_list("openrouter")
+    # Terminal reporting + clean-cache write-back stay faked: the
+    # primary-checkout bearer now resolves even in tests, so the real
+    # report leg would fire (fakes only, never the network).
+    models, err = webui.provider_model_list(
+        "openrouter", report_fn=lambda *a, **k: None,
+        remember_fn=lambda *a, **k: None)
     assert err is None
     assert models == ["m1", "m2"]
     assert leased == ["openrouter"]

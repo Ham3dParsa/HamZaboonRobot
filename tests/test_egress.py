@@ -1505,6 +1505,141 @@ def test_report_http429_and_auth_err_unchanged():
         "action": "unknown-lease"}
 
 
+def test_sub_sources_skips_template_placeholder():
+    """Template-scaffolding chunks never become live sources (no fetch)."""
+    import supervisor as sup
+    env = {"EGRESS_SUB_URLS":
+           "https://paste-your-link-here.example/sub\n"
+           "https://real.example/sub\n"
+           "https://real.example/sub\n"
+           "https://template-placeholder.example/x"}
+    assert sup.sub_sources(env) == ["https://real.example/sub"]
+    assert sup.is_placeholder_source(
+        "https://h.example/?replace-me=1") is True
+    assert sup.is_placeholder_source("https://real.example/sub") is False
+    assert sup.sub_sources(
+        {"EGRESS_SUB_URL": "https://your-link.example/s"}) == []
+
+
+def test_load_env_primary_fallback_read_only(tmp_path, monkeypatch):
+    """Worktree run without own env files inherits primary files.
+
+    Hermetic: a fake primary root (obvious fake values, never real
+    secrets); the fake worktree anchor resolves through the real
+    ``_primary_root`` seam replaced by the fake path.
+    """
+    import supervisor as sup
+    primary = tmp_path / "primary"
+    (primary / "tools" / "egress").mkdir(parents=True)
+    (primary / "factory").mkdir(parents=True)
+    (primary / "tools" / "egress" / ".env").write_text(
+        "EGRESS_SUB_URLS=https://fake-primary.example/sub\n",
+        encoding="utf-8")
+    (primary / "factory" / ".env").write_text(
+        "EGRESS_SUP_TOKEN=fake-primary-token\n", encoding="utf-8")
+    monkeypatch.setattr(sup, "ENV_PATH", tmp_path / "no-such-env")
+    monkeypatch.setattr(sup, "_PRIMARY_ROOT_CACHE", {"root": None})
+    monkeypatch.setattr(sup, "_primary_root", lambda: str(primary))
+    monkeypatch.delenv("EGRESS_SUB_URLS", raising=False)
+    monkeypatch.delenv("EGRESS_SUB_URL", raising=False)
+    monkeypatch.delenv("EGRESS_SUP_TOKEN", raising=False)
+    data = sup.load_env()
+    assert data["EGRESS_SUB_URLS"] == "https://fake-primary.example/sub"
+    assert data["EGRESS_SUP_TOKEN"] == "fake-primary-token"
+    # own checkout still wins over the primary fallback
+    own = tmp_path / "own.env"
+    own.write_text("EGRESS_SUP_TOKEN=fake-own-token\n",
+                   encoding="utf-8")
+    monkeypatch.setattr(sup, "ENV_PATH", own)
+    assert sup.load_env()["EGRESS_SUP_TOKEN"] == "fake-own-token"
+
+
+def test_refresh_now_counts_only_no_values(monkeypatch):
+    """refresh_now returns counts + booleans (never URLs or values)."""
+    import supervisor as sup
+    sup.POOL.servers.clear()
+    body = ("vless://u@refresh.example:443?security=tls&sni=refresh.example"
+            "#r\n")
+    monkeypatch.setattr(sup, "fetch_sub",
+                        lambda url, attempts=2: body)
+    monkeypatch.setattr(sup.POOL, "save_pool", lambda path=None: None)
+    out = sup.refresh_now(
+        {"EGRESS_SUB_URLS": "https://paste-your-link.example/x\n"
+                            "https://fake-refresh.example/sub"})
+    assert out["refreshed"] is True
+    assert out["servers"] == 1 and out["before"] == 0
+    assert set(out) == {"refreshed", "servers", "leases", "healthy",
+                        "before"}
+    sup.POOL.servers.clear()
+
+
+def test_refresh_endpoint_bearer_authed_counts_only(monkeypatch):
+    """POST /v1/refresh behind the bearer: counts JSON, 401 without."""
+    import supervisor as sup
+    sup.POOL.servers.clear()
+    body = ("vless://u@endpoint.example:443?security=tls&sni=endpoint.example"
+            "#e\n")
+    monkeypatch.setattr(sup, "fetch_sub",
+                        lambda url, attempts=2: body)
+    monkeypatch.setattr(sup.POOL, "save_pool", lambda path=None: None)
+    sup.TOKEN = "test-refresh-token"
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+        import urllib.error as _httperr
+        req = _url.Request(
+            "http://127.0.0.1:%d/v1/refresh" % port,
+            data=b"{}",
+            headers={"Content-Type": "application/json"})
+        try:
+            with _url.urlopen(req, timeout=30):
+                raise AssertionError("refresh without bearer must 401")
+        except _httperr.HTTPError as exc:
+            assert exc.code == 401
+        req = _url.Request(
+            "http://127.0.0.1:%d/v1/refresh" % port,
+            data=b"{}",
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer test-refresh-token"})
+        with _url.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+        assert body["refreshed"] is True
+        assert set(body) == {"refreshed", "servers", "leases",
+                             "healthy", "before"}
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TOKEN = ""
+        sup.POOL.servers.clear()
+
+
+def test_xray_path_primary_bin_fallback(tmp_path, monkeypatch):
+    """No own-bin xray: the primary bin is used (read-only, never copied).
+
+    Hermetic: fake dirs + an empty fake binary (existence only —
+    nothing is ever executed here).
+    """
+    import tunnel as tunnel_mod
+    import supervisor as sup
+    primary_bin = tmp_path / "primary" / "tools" / "egress" / "bin"
+    primary_bin.mkdir(parents=True)
+    fake_exe = primary_bin / "xray.exe"
+    fake_exe.write_bytes(b"fake")
+    monkeypatch.setattr(sup, "_primary_root",
+                        lambda: str(tmp_path / "primary"))
+    monkeypatch.setattr(tunnel_mod, "XRAY",
+                        tmp_path / "no-such-bin" / "xray.exe")
+    assert tunnel_mod.xray_available() is True
+    assert tunnel_mod.xray_path() == fake_exe
+    # nothing resolvable anywhere: honest False, never a guess
+    monkeypatch.setattr(sup, "_primary_root", lambda: "")
+    assert tunnel_mod.xray_available() is False
+    assert tunnel_mod.xray_path() is None
+
+
 def test_client_report_location_blocked_vocab(monkeypatch):
     """client.report forwards the location-blocked outcome + provider."""
     import client as egress_client
