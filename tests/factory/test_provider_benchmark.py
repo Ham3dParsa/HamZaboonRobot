@@ -252,3 +252,12 @@ def test_manager_built_once_per_runner(monkeypatch, tmp_path):
     runner.run_sense({"kid": "k", "expected_verdict": "LINK",
                       "expected_winner": ""}, ["google"])
     assert builds["n"] == 1  # one cached manager, not per-call loads
+
+
+def test_round3_and_tokens_never_raise_on_overflow():
+    assert bench._round3(10 ** 1000) == 0.0
+    assert bench._round3(float("inf")) == 0.0
+    assert bench._round3(1.23456) == 1.235
+    assert bench._tokens(float("inf")) == 0
+    assert bench._tokens(-4) == 0
+    assert bench._tokens(7) == 7

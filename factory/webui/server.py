@@ -4572,13 +4572,22 @@ def _managed_delete_provider(name):
 def api_managed_provider_create():
     """Create a provider data row (protocol/route/base_url validated)."""
     fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
     name = str((fields or {}).get("name") or "").strip()
+    key_vars = (fields or {}).get("key_vars") or []
+    if isinstance(key_vars, str) or not isinstance(
+            key_vars, (list, tuple)):
+        return jsonify({"error": "key_vars must be a list of names"}), 400
+    extras = (fields or {}).get("request_extras") or {}
+    if not isinstance(extras, dict):
+        return jsonify({"error": "request_extras must be an object"}), 400
     row = {
         "protocol": str((fields or {}).get("protocol") or "").strip(),
         "base_url": (fields or {}).get("base_url"),
         "route": str((fields or {}).get("route") or "direct").strip(),
-        "key_vars": list((fields or {}).get("key_vars") or []),
-        "request_extras": dict((fields or {}).get("request_extras") or {}),
+        "key_vars": list(key_vars),
+        "request_extras": dict(extras),
     }
     rec, error = _managed_create_provider(name, row)
     if rec is None:

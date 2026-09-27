@@ -274,3 +274,67 @@ def test_request_paths_share_one_manifest_manager(monkeypatch, tmp_path):
     models, error = _srv.provider_model_list("nope")
     assert models is None and error.startswith("unknown provider")
     assert calls["n"] == 2  # second request, second single manager
+
+
+def test_managed_create_rejects_misshapen_body(monkeypatch, tmp_path):
+    from factory.webui import server as _srv
+
+    _patched_manifest(monkeypatch, tmp_path)
+    client = _srv.app.test_client()
+    bad_extras = client.post("/api/managed_providers", json={
+        "name": "weird1", "protocol": "openai_compat",
+        "base_url": "http://127.0.0.1:9/v1", "route": "direct",
+        "key_vars": [], "request_extras": "abc"})
+    assert bad_extras.status_code == 400
+    assert "request_extras" in bad_extras.get_json()["error"]
+    bad_keys = client.post("/api/managed_providers", json={
+        "name": "weird2", "protocol": "openai_compat",
+        "base_url": "http://127.0.0.1:9/v1", "route": "direct",
+        "key_vars": "abc", "request_extras": {}})
+    assert bad_keys.status_code == 400
+    assert "key_vars" in bad_keys.get_json()["error"]
+    plain = client.post("/api/managed_providers", data="abc",
+                        content_type="application/json")
+    assert plain.status_code == 400
+    assert "weird1" not in _registry.provider_names()
+    assert "weird2" not in _registry.provider_names()
+
+
+def test_names_fallback_filters_explicit_removals(monkeypatch, tmp_path):
+    _patched_manifest(monkeypatch, tmp_path)
+
+    class _Failing:
+        def provider_names(self):
+            raise OSError("disk full")
+
+        def is_removed(self, name):
+            return name == "groq"
+
+    monkeypatch.setattr(_registry, "_manifest", lambda: _Failing())
+    names = _registry.provider_names()
+    assert "groq" not in names
+    assert set(names) == set(_manifest_mod.SEED_PROVIDERS) - {"groq"}
+
+    class _Dead:
+        def provider_names(self):
+            raise OSError("disk full")
+
+        def is_removed(self, name):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(_registry, "_manifest", lambda: _Dead())
+    assert _registry.provider_names() == []
+
+
+def test_corrupt_manifest_quarantined_before_reseed(tmp_path):
+    import pathlib
+    path = str(tmp_path / "provider_manifest.json")
+    raw = b'{"providers": {"kilo": '
+    with open(path, "wb") as handle:
+        handle.write(raw)
+    mgr = _manifest_mod.ProviderManifestManager(path=path)
+    assert mgr.provider_names() != []  # seeds after quarantining
+    kept = sorted(pathlib.Path(str(tmp_path)).glob(
+        "provider_manifest.json.corrupt.*"))
+    assert len(kept) == 1
+    assert kept[0].read_bytes() == raw  # original bytes preserved

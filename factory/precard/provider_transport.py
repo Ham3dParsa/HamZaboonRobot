@@ -114,7 +114,7 @@ def _google_usage_number(value):
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if number != number or number in (float("inf"), float("-inf")):
         return None

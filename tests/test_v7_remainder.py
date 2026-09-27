@@ -302,6 +302,9 @@ def test_extract_usage_rejects_nonfinite_and_negative():
         {"usage": {"input_tokens": 7.9}}) == (7, None)
     assert telemetry.extract_usage(
         {"usage": {"output_tokens": "12"}}) == (None, 12)
+    # OverflowError territory (huge ints) never escapes either.
+    assert telemetry.extract_usage(
+        {"usage": {"input_tokens": 10 ** 1000}}) == (None, None)
 
 
 def test_google_usage_number_rejects_nonfinite_and_negative():
@@ -312,6 +315,7 @@ def test_google_usage_number_rejects_nonfinite_and_negative():
     assert _google_usage_number(float("nan")) is None
     assert _google_usage_number(-2) is None
     assert _google_usage_number("9") == 9
+    assert _google_usage_number(10 ** 1000) is None
     assert _google_usage({"usageMetadata": {
         "promptTokenCount": float("inf"),
         "candidatesTokenCount": -1}}) is None

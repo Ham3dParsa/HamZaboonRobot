@@ -99,7 +99,7 @@ def extract_usage(data) -> tuple:
                 continue
             try:
                 number = float(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if number != number or number in (
                     float("inf"), float("-inf")):

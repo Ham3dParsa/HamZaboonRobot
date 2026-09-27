@@ -64,7 +64,15 @@ def provider_names(_manager=None):
     try:
         return mgr.provider_names()
     except Exception:
-        return list(_seed_providers())
+        pass
+    # Manifest unreadable (e.g. load/save raising on disk-full): the
+    # seed fallback must not resurrect explicit deletions — filter
+    # best-effort through is_removed, empty when even that fails, so
+    # the listing never disagrees with resolve_provider.
+    try:
+        return [n for n in _seed_providers() if not mgr.is_removed(n)]
+    except Exception:
+        return []
 
 
 def resolve_provider(name, _manager=None):

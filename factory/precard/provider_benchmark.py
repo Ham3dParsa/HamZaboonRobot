@@ -167,7 +167,7 @@ def _round3(value):
         return 0.0
     try:
         num = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
     if num != num or abs(num) == float("inf"):
         return 0.0
@@ -180,7 +180,7 @@ def _tokens(value):
         return 0
     try:
         num = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
     return num if num > 0 else 0
 

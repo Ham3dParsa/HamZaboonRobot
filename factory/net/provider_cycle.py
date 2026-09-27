@@ -90,7 +90,7 @@ def refresh_candidates(pool_rows):
 def _latency_number(value):
     try:
         ms = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
     try:
         finite = ms == ms and abs(ms) != float("inf")

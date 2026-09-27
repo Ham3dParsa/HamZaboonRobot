@@ -25,6 +25,7 @@ import json
 import os
 import pathlib
 import re
+import time
 
 MANIFEST_FILENAME = "provider_manifest.json"
 
@@ -34,9 +35,9 @@ ROUTES = ("direct", "tunnel")
 _NAME_RX = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _KEY_VAR_RX = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY(_[A-Z0-9]+)?$")
 
-#: Seed rows (first-run only). Mirrors the registry seed; after seeding,
-#: the FILE is authoritative — adding a provider is a data write, never
-#: a Python edit.
+#: Canonical first-run seed (single owner — the registry reads it,
+#: never a second copy). After seeding, the FILE is authoritative —
+#: adding a provider is a data write, never a Python edit.
 SEED_PROVIDERS = {
     "avalai": {
         "protocol": "openai_compat",
@@ -200,6 +201,36 @@ class ProviderManifestManager:
             return None
         return doc
 
+    @staticmethod
+    def _quarantine_corrupt(path):
+        """Rename an existing-but-unparseable file aside (best-effort).
+
+        A corrupt manifest must never be silently reseeded over: one
+        bad byte would wipe all custom rows plus the ``removed`` set.
+        Moves ``path`` to ``<path>.corrupt.<ts>`` (original bytes kept)
+        and returns True; missing/parseable/unmovable files return
+        False without raising.
+        """
+        try:
+            if not os.path.isfile(path):
+                return False
+            with open(path, encoding="utf-8") as handle:
+                json.load(handle)
+            return False
+        except ValueError:
+            pass  # corrupt JSON: quarantine below
+        except OSError:
+            return False
+        try:
+            stamp = int(time.time())
+        except Exception:
+            stamp = 0
+        try:
+            os.replace(path, "%s.corrupt.%d" % (path, stamp))
+        except OSError:
+            return False
+        return True
+
     def _coerce_doc(self, doc):
         providers = {}
         removed = set()
@@ -235,6 +266,7 @@ class ProviderManifestManager:
         for path in self._paths:
             doc = self._read_doc(path)
             if doc is None:
+                self._quarantine_corrupt(path)
                 continue
             providers, removed = self._coerce_doc(doc)
             self._providers = {k: v for k, v in providers.items()

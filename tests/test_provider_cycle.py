@@ -244,6 +244,12 @@ def test_zero_ping_counts_reachable():
     assert ping["latencies"] == {"s1": 0.0, "s2": 0.0}
 
 
+def test_huge_latency_never_raises():
+    assert cycle._latency_number(10 ** 1000) == 0.0
+    assert cycle._latency_number(float("inf")) == 0.0
+    assert cycle._latency_number("12") == 12.0
+
+
 def test_pool_file_helper_reads_tmp_pool(monkeypatch, tmp_path):
     import json as _json
     from tools.egress import supervisor as _sup
