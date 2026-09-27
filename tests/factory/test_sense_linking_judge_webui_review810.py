@@ -50,7 +50,7 @@ def test_safe_filename_persian_collision_two_names_two_files(tmp_path,
     assert "/" not in safe_first and "\\" not in safe_first
     assert "/" not in safe_second and "\\" not in safe_second
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     rec1 = webui.save_preset({"name": first, "provider": "avalai",
                               "model": "", "sample": "", "limit": 0,
                               "concurrency": 0, "out": "",
@@ -113,7 +113,7 @@ def test_operator_key_store_restricts_file_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(_db.key_crypto, "encrypt_for_storage",
                         lambda v: "CTXT", raising=False)
     store = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(store))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(store))
     chmod_calls = []
     real_chmod = os.chmod
 

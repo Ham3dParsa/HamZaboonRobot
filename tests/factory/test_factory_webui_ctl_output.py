@@ -1,12 +1,14 @@
 """String-shape tests for the factory home WebUI console control script.
 
-Behavior spec (T2 tidy output): every invocation prints exactly one
-``status:`` line, one ``open:`` URL line per bound address (loopback plus
-LAN when bound to all interfaces, each with its own live port probe),
-and exactly one ``example:`` line on every path. STOP safety is
-pid-file-only: ``Stop-Process -Id`` over the recorded pid, never a
-blanket name/image kill. No I/O, no sockets, no spawned processes —
-pure text assertions over the ps1, same style as the interface tests.
+Behavior spec (tidy colored output): every invocation prints a compact
+``-- console :<port> --`` header, exactly one ``state`` line (RUNNING /
+STALE / STOPPED / FOREIGN-PORT-HELD), a ``bind`` line, and one probed
+link line per bound address (tablet plus local when bound to all
+interfaces). A quiet one-line ``hint:`` appears on bare invocations
+and error paths only — never after a clean status/start/stop. STOP
+safety is pid-file-only: ``Stop-Process -Id`` over the recorded pid,
+never a blanket name/image kill. No I/O, no sockets, no spawned
+processes — pure text assertions over the ps1.
 """
 
 import os
@@ -44,36 +46,39 @@ def _code(text):
 def test_ctl_status_line_shape():
     text = _text(CTL_PATH)
     status_body = _body(text, "Show-Status")
-    # One status literal per branch (RUNNING / STALE / STOPPED /
+    # One state literal per branch (RUNNING / STALE / STOPPED /
     # FOREIGN-PORT-HELD); only one branch ever executes, so every
-    # Show-Status call prints exactly one status line. STOPPED must
+    # Show-Status call prints exactly one state line. STOPPED must
     # never print alongside an open port — the no-pidfile branch
     # splits into STOPPED (port closed) vs FOREIGN-PORT-HELD (open).
-    for state in ("status: RUNNING", "status: STALE", "status: STOPPED",
-                  "status: FOREIGN-PORT-HELD"):
-        assert text.count('"%s' % state) == 1, state
-    assert status_body.count('"status:') == 4
-    # Stop paths each print exactly one status line (port_open probe).
+    for state in ("RUNNING", "STALE", "STOPPED", "FOREIGN-PORT-HELD"):
+        assert status_body.count("state   " + state) == 1, state
+    assert status_body.count('"  state') == 4
+    # Header plus bind line on every status.
+    assert status_body.count('"-- console :') == 1
+    assert status_body.count('"  bind') == 1
+    # Stop paths each print exactly one probed port line (open/closed
+    # variants = 3 paths x 2).
     stop_body = _body(text, "Stop-Server")
-    assert stop_body.count('"status:') == 3
-    # Start paths never print a raw status line; they route through
+    assert stop_body.count('"  port') == 6
+    # Start paths never print a raw state line; they route through
     # Show-Status (already-running + success = 2 calls).
     start_body = _body(text, "Start-Server")
-    assert start_body.count('"status:') == 0
+    assert start_body.count('"  state') == 0
     assert start_body.count("Show-Status") == 2
 
 
 def test_ctl_per_address_url_lines():
     text = _text(CTL_PATH)
     links_body = _body(text, "Show-Links")
-    # All-interfaces bind prints exactly two URL lines (LAN + loopback);
-    # an explicit bind prints exactly that address (one URL line).
-    assert links_body.count('"open (tablet/LAN): http://') == 1
-    assert links_body.count('"open (this machine): http://127.0.0.1:') == 1
-    assert links_body.count('"open: http://') == 1
+    # All-interfaces bind prints exactly two link lines (tablet + local),
+    # each with an open/closed probe variant; an explicit bind prints
+    # exactly that address (one link line, open/closed variants).
+    assert links_body.count('"  tablet  http://') == 2
+    assert links_body.count('"  local   http://127.0.0.1:') == 2
+    assert links_body.count('"  open    http://') == 2
     # Each printed address carries its own live port probe.
-    assert links_body.count("port_open=") >= 3
-    assert links_body.count("Test-PortOpen") >= 2
+    assert links_body.count("Test-PortOpen") >= 3
     # Probing an all-interfaces bind targets loopback (0.0.0.0 is not
     # connectable); one shared helper owns that mapping and every
     # probing call site uses it.
@@ -86,20 +91,23 @@ def test_ctl_per_address_url_lines():
     assert "-BindHost $BindHost" in shim
 
 
-def test_ctl_example_line_every_path():
+def test_ctl_hint_line_quiet_paths():
     text = _text(CTL_PATH)
-    # Exactly one example-line shape, naming the status probe.
-    assert len(re.findall(r'(?m)^\s*"example:', text)) == 1
-    assert "server_ctl.ps1 status -Port" in text
-    # Every emitting function carries the example to all its paths:
-    # start has 5 exits (already-running, refused, missing, early-exit,
-    # success), stop has 3 (no-pid, stale, success), usage has 1.
-    assert _body(text, "Start-Server").count("Show-Example") >= 5
-    assert _body(text, "Stop-Server").count("Show-Example") >= 3
-    assert "Show-Example" in _body(text, "Show-Usage")
-    # The dispatch tail covers status / empty / unknown-action paths.
+    # Exactly one hint-line shape.
+    assert text.count('"hint:') == 1
+    # Error paths carry the hint: start has 3 (refused, missing,
+    # early-exit), stop has 2 (no-pid, stale), usage has 1.
+    assert _body(text, "Start-Server").count("Show-Hint") == 3
+    assert _body(text, "Stop-Server").count("Show-Hint") == 2
+    assert "Show-Hint" in _body(text, "Show-Usage")
+    # The dispatch tail covers the bare path (status + hint); the
+    # unknown-action path routes through usage.
     tail = text.split("switch ($NormalizedAction)", 1)[1]
-    assert "Show-Example" in tail
+    assert "Show-Hint" in tail
+    # Clean paths print no hint: status action, start success, stop
+    # success. The status dispatch arm is hint-free.
+    status_arm = re.search(r'(?m)^\s*"status"\s*\{(.*?)\}', tail).group(1)
+    assert "Show-Hint" not in status_arm
 
 
 def test_ctl_pid_only_safety():

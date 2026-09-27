@@ -188,6 +188,27 @@ def _telegram_offline_pinned():
 
 
 @pytest.fixture(autouse=True)
+def _webui_boot_migration_suppressed():
+    """Keep webui tests hermetic: the Flask ``before_request`` boot hook
+    would otherwise copy the operator's real legacy presets into the
+    real shared data root on the first test_client request of each
+    worker (idempotent in production, but a side effect outside tmp
+    in tests). Suppressed here; the dedicated boot test in
+    ``test_webui_data_root.py`` re-arms the flag explicitly."""
+    try:
+        from factory.webui import server as _webui
+    except Exception:
+        yield
+        return
+    old = _webui._MIGRATED_ONCE.get("done", False)
+    _webui._MIGRATED_ONCE["done"] = True
+    try:
+        yield
+    finally:
+        _webui._MIGRATED_ONCE["done"] = old
+
+
+@pytest.fixture(autouse=True)
 def _per_user_rate_cleared():
     def _try_clear() -> None:
         try:

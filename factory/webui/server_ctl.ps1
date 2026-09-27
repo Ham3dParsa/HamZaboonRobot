@@ -145,6 +145,13 @@ function Get-Status {
   }
 }
 
+function Write-Ctl([string]$Text, [string]$Color = "") {
+  # Single owner of console color. Plain Write-Host when no color is
+  # asked (keeps redirected output clean). Never throws.
+  if ($Color) { Write-Host $Text -ForegroundColor $Color }
+  else { Write-Host $Text }
+}
+
 function Show-Links([string]$BoundHost, [int]$TcpPort) {
   # Correct open links for the effective bind: all-interfaces prints
   # both the LAN address (tablet) and loopback (this machine), each
@@ -152,28 +159,36 @@ function Show-Links([string]$BoundHost, [int]$TcpPort) {
   # address with its probe. Never throws.
   if ($BoundHost -eq "0.0.0.0" -or $BoundHost -eq "" -or $BoundHost -eq "::") {
     $lan = Get-LanIpv4
-    "open (tablet/LAN): http://{0}:{1} port_open={2}  — plain start is LAN-visible" -f $lan, $TcpPort, (Test-PortOpen $lan $TcpPort)
-    "open (this machine): http://127.0.0.1:{0} port_open={1}" -f $TcpPort, (Test-PortOpen "127.0.0.1" $TcpPort)
+    $lanOpen = Test-PortOpen $lan $TcpPort
+    $localOpen = Test-PortOpen "127.0.0.1" $TcpPort
+    if ($lanOpen) { Write-Ctl ("  tablet  http://{0}:{1}  (open)" -f $lan, $TcpPort) "Cyan" }
+    else { Write-Ctl ("  tablet  http://{0}:{1}  (closed)" -f $lan, $TcpPort) "DarkGray" }
+    if ($localOpen) { Write-Ctl ("  local   http://127.0.0.1:{0}  (open)" -f $TcpPort) "Cyan" }
+    else { Write-Ctl ("  local   http://127.0.0.1:{0}  (closed)" -f $TcpPort) "DarkGray" }
   } else {
-    "open: http://{0}:{1} port_open={2}" -f $BoundHost, $TcpPort, (Test-PortOpen $BoundHost $TcpPort)
+    $oneOpen = Test-PortOpen $BoundHost $TcpPort
+    if ($oneOpen) { Write-Ctl ("  open    http://{0}:{1}  (open)" -f $BoundHost, $TcpPort) "Cyan" }
+    else { Write-Ctl ("  open    http://{0}:{1}  (closed)" -f $BoundHost, $TcpPort) "DarkGray" }
   }
 }
 
 function Show-Status {
   $s = Get-Status
+  Write-Ctl ("-- console :{0} --" -f $s.Port) "Cyan"
   if ($s.Alive) {
-    "status: RUNNING pid={0} host={1} port={2} port_open={3} pidfile={4}" -f $s.Pid, $s.BindHost, $s.Port, $s.PortOpen, $s.PidFile
+    Write-Ctl ("  state   RUNNING   pid={0}" -f $s.Pid) "Green"
   } elseif ($s.Pid) {
-    "status: STALE pidfile pid={0} host={1} (process gone) port_open={2} pidfile={3}" -f $s.Pid, $s.BindHost, $s.PortOpen, $s.PidFile
+    Write-Ctl ("  state   STALE     pid={0} (process gone)" -f $s.Pid) "Yellow"
   } else {
     # No managed server (no pidfile): never print STOPPED alongside an
     # open port — an open port here means a FOREIGN process holds it.
     if ($s.PortOpen) {
-      "status: FOREIGN-PORT-HELD host={0} port={1} port_open=True (no pidfile — held by a process this script did not start)" -f $s.BindHost, $s.Port
+      Write-Ctl "  state   FOREIGN-PORT-HELD   (no pidfile — held by a process this script did not start)" "Red"
     } else {
-      "status: STOPPED host={0} port={1} port_open=False (no pidfile)" -f $s.BindHost, $s.Port
+      Write-Ctl "  state   STOPPED   (no pidfile)" "DarkGray"
     }
   }
+  Write-Ctl ("  bind    {0}" -f $s.BindHost) "Gray"
   Show-Links $s.BindHost $s.Port
 }
 
@@ -185,18 +200,17 @@ function Start-Server {
   $effHost = $s.BindHost
   if ($s.Alive) {
     Show-Status
-    "start: already running — refusing a second instance (stop it first via this script)."
-    Show-Example
+    Write-Ctl "start: already running — refusing a second instance (stop it first via this script)." "Yellow"
     return
   }
   if ($s.PortOpen) {
-    "start: REFUSED — port {0} is held by a process this script did not start (no pidfile). Free it manually, then retry." -f $Port
-    Show-Example
+    Write-Ctl ("start: REFUSED — port {0} is held by a process this script did not start (no pidfile). Free it manually, then retry." -f $Port) "Red"
+    Show-Hint
     exit 1
   }
   if (-not (Test-Path -LiteralPath $ServerScript)) {
-    "start: server script missing: {0}" -f $ServerScript
-    Show-Example
+    Write-Ctl ("start: server script missing: {0}" -f $ServerScript) "Red"
+    Show-Hint
     exit 1
   }
   $proc = Start-Process -FilePath "python" `
@@ -209,17 +223,16 @@ function Start-Server {
   $deadline = (Get-Date).AddSeconds(30)
   while ((Get-Date) -lt $deadline) {
     try { $null = Get-Process -Id $proc.Id -ErrorAction Stop } catch {
-      "start: process {0} exited early; tail of {1}:" -f $proc.Id, $ErrLog
+      Write-Ctl ("start: process {0} exited early; tail of {1}:" -f $proc.Id, $ErrLog) "Red"
       Get-Content -LiteralPath $ErrLog -Tail 10 -ErrorAction SilentlyContinue
       Remove-Item -LiteralPath $PidFile -ErrorAction SilentlyContinue
-      Show-Example
+      Show-Hint
       exit 1
     }
     if (Test-PortOpen (Get-ProbeHost $effHost) $Port) { break }
     Start-Sleep -Milliseconds 500
   }
   Show-Status
-  Show-Example
 }
 
 function Stop-Server {
@@ -229,18 +242,18 @@ function Stop-Server {
   $effHost = Resolve-BindHost $BindHost
   $probeHost = Get-ProbeHost $effHost
   if (-not $pidVal) {
-    "stop: REFUSED — no valid pid in {0}. Blanket kills are forbidden; nothing was signaled." -f $PidFile
-    "status: port_open={0}" -f (Test-PortOpen $probeHost $Port)
-    Show-Example
+    Write-Ctl ("stop: REFUSED — no valid pid in {0}. Blanket kills are forbidden; nothing was signaled." -f $PidFile) "Red"
+    if (Test-PortOpen $probeHost $Port) { Write-Ctl "  port    open" "Yellow" } else { Write-Ctl "  port    closed" "DarkGray" }
+    Show-Hint
     exit 1
   }
   $target = $null
   try { $target = Get-Process -Id $pidVal -ErrorAction Stop } catch { $target = $null }
   if (-not $target) {
-    "stop: pid {0} already gone (stale pidfile) — removing pidfile, nothing signaled." -f $pidVal
+    Write-Ctl ("stop: pid {0} already gone (stale pidfile) — removing pidfile, nothing signaled." -f $pidVal) "Yellow"
     Remove-Item -LiteralPath $PidFile -ErrorAction SilentlyContinue
-    "status: port_open={0}" -f (Test-PortOpen $probeHost $Port)
-    Show-Example
+    if (Test-PortOpen $probeHost $Port) { Write-Ctl "  port    open" "Yellow" } else { Write-Ctl "  port    closed" "DarkGray" }
+    Show-Hint
     return
   }
   # Signal exactly this id — never a name, never a group.
@@ -251,34 +264,33 @@ function Stop-Server {
     catch { break }
   }
   Remove-Item -LiteralPath $PidFile -ErrorAction SilentlyContinue
-  "stop: signaled pid {0} only; pidfile removed." -f $pidVal
-  "status: port_open={0} (want False)" -f (Test-PortOpen $probeHost $Port)
-  Show-Example
+  Write-Ctl ("stop: signaled pid {0} only; pidfile removed." -f $pidVal) "Green"
+  if (Test-PortOpen $probeHost $Port) { Write-Ctl "  port    open (want closed)" "Yellow" } else { Write-Ctl "  port    closed" "Green" }
 }
 
-function Show-Example {
-  # One correct usage example, printed on EVERY invocation (all paths).
-  "example: powershell -ExecutionPolicy Bypass -File factory\webui\server_ctl.ps1 status -Port {0}" -f $Port
+function Show-Hint {
+  # One quiet usage hint, printed on bare invocations and error paths
+  # only (never after a clean status/start/stop).
+  Write-Ctl ("hint: server_ctl.ps1 <start|stop|status|restart> [-Port {0}] [-BindHost <ip>]" -f $Port) "DarkGray"
 }
 
 function Show-Usage {
-  "usage: server_ctl.ps1 <start|stop|status|restart> [-Port <n>] [-BindHost <ip>]  (defaults: port 5561, all-interfaces bind — plain start is LAN-visible)"
-  "  start   — launch the console server on <host>:-Port (refuses a second instance; host is 0.0.0.0 unless -BindHost, e.g. -BindHost 127.0.0.1 for loopback-only)"
-  "  stop    — signal ONLY the pid recorded in the Temp pid file (never blanket kills)"
-  "  status  — current port/server state for <host>:-Port"
-  "  restart — stop, then start"
-  "  (no action shows status plus this help; --status/--restart dashed forms map to the action)"
-  "  tablet (LAN): plain start binds all interfaces and is LAN-visible — open the tablet/LAN link printed above (loopback link is for this machine only)"
-  "  caution: operator-only — plain start exposes key-accepting endpoints with no auth (trusted LAN only); -BindHost 127.0.0.1 for loopback-only"
-  Show-Example
+  Write-Ctl ("console control  (port {0}, all-interfaces bind — plain start is LAN-visible)" -f $Port) "Cyan"
+  Write-Ctl "  start    launch the console server (refuses a second instance)" "Gray"
+  Write-Ctl "  stop     signal ONLY the pid in the Temp pid file (never blanket kills)" "Gray"
+  Write-Ctl "  status   current server state" "Gray"
+  Write-Ctl "  restart  stop, then start" "Gray"
+  Write-Ctl "  tablet (LAN): plain start is LAN-visible — open the tablet link above (loopback is for this machine only)" "Gray"
+  Write-Ctl "  caution: operator-only — plain start exposes key-accepting endpoints with no auth (trusted LAN only); -BindHost 127.0.0.1 for loopback-only" "Yellow"
+  Show-Hint
 }
 
 $NormalizedAction = Get-NormalizedAction $Action
 switch ($NormalizedAction) {
   "start"   { Start-Server }
   "stop"    { Stop-Server }
-  "status"  { Show-Status; Show-Example }
+  "status"  { Show-Status }
   "restart" { Stop-Server; Start-Server }
-  ""        { Show-Status; Show-Usage }
-  default   { "unknown action: {0}" -f $Action; Show-Status; Show-Usage; exit 2 }
+  ""        { Show-Status; Show-Hint }
+  default   { Write-Ctl ("unknown action: {0}" -f $Action) "Red"; Show-Status; Show-Usage; exit 2 }
 }
