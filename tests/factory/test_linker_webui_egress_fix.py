@@ -263,7 +263,7 @@ class _LiveProc:
 
 def _run_client(tmp_path, monkeypatch, procs):
     """Isolated app client; Popen serves the given fake procs in order."""
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"

@@ -504,7 +504,7 @@ def test_safety_surfaces_unchanged():
 
 
 def test_job_template_alias_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     resp = client.post("/api/job_templates", json={"name": "jt1",
                                                    "provider": "avalai",
@@ -519,7 +519,7 @@ def test_job_template_alias_roundtrip(tmp_path, monkeypatch):
 
 
 def test_create_run_accepts_job_template_field(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -847,7 +847,7 @@ def test_preset_fetch_renders_cards_and_isolated_errors():
 def test_run_launch_leases_tunnel_for_google_only(tmp_path, monkeypatch):
     import subprocess as _sub
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -1610,7 +1610,7 @@ def test_judge_preset_save_posts_values_to_server_route():
 
 
 def test_judge_preset_save_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     resp = client.post("/api/judge_presets", json={
         "name": "console-judge", "provider": "avalai", "model": "m-test",
@@ -1904,7 +1904,7 @@ def test_preset_daily_cap_label_and_unlimited_placeholders():
 
 
 def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     resp = client.post("/api/judge_presets", json={
         "name": "hub-probe", "label": "hub-probe", "provider": "avalai",
@@ -1950,7 +1950,7 @@ def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
 
 
 def test_judge_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     # JSON Infinity parses to float("inf"): fail-closed 400, never 500.
     resp = client.post("/api/judge_presets", json={
@@ -1964,7 +1964,7 @@ def test_judge_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
 
 def test_judge_preset_edit_rename_migrates_without_duplicates(
         tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     base = {"provider": "avalai", "model": "m",
             "max_rpm": "15", "max_rph": "", "max_daily": "500",

@@ -306,7 +306,7 @@ def test_migrate_record_moves_dir_and_rewrites_paths(tmp_path, monkeypatch):
 
 
 def test_preset_save_version_bump_and_delete(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     rec1 = webui.save_preset({"name": "p1", "provider": "avalai",
                               "model": "m", "sample": "s", "limit": 5,
                               "concurrency": 3})
@@ -344,7 +344,7 @@ def test_comparability_custom_profile_always_watermark():
 
 
 def test_api_preset_crud_names_only_and_run_stamp(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -366,7 +366,7 @@ def test_api_preset_crud_names_only_and_run_stamp(tmp_path, monkeypatch):
 
 def test_api_keys_names_only_never_values(tmp_path, monkeypatch):
     keys = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(keys))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(keys))
     client = webui.app.test_client()
     secret = "op-secret-value-987654321"
     resp = client.post("/api/keys", json={"key_var": "OP_TEST_KEY",
@@ -417,7 +417,7 @@ def test_file_browser_roots_and_list(tmp_path):
 
 
 def test_preset_kinds_judge_and_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     # judge preset: kind forced by the judge route
     resp = client.post("/api/judge_presets", json={
@@ -448,7 +448,7 @@ def test_preset_kinds_judge_and_run(tmp_path, monkeypatch):
 
 
 def test_witness_preset_seeded_once_and_kept(tmp_path, monkeypatch):
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     names = [p["name"] for p in
              client.get("/api/presets").get_json()["presets"]]
@@ -519,7 +519,7 @@ def test_provider_key_var_resolves_first_ref():
 
 def test_shared_key_helpers_roundtrip(tmp_path, monkeypatch):
     keys = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(keys))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(keys))
     ok, _ = webui._store_operator_key("HELPER_TEST_KEY", "helper-secret-123")
     assert ok is True
     assert "HELPER_TEST_KEY" in webui.operator_key_names()
@@ -529,7 +529,7 @@ def test_shared_key_helpers_roundtrip(tmp_path, monkeypatch):
 
 def test_api_provider_key_endpoints(tmp_path, monkeypatch):
     keys = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(keys))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(keys))
     client = webui.app.test_client()
     secret = "provider-secret-value-123456789"
     # unknown provider -> 404, nothing stored
@@ -560,7 +560,7 @@ def test_api_provider_key_endpoints(tmp_path, monkeypatch):
 def test_api_custom_create_with_key_value_autoderives(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     keys = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(keys))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(keys))
     client = webui.app.test_client()
     secret = "custom-secret-value-123456789"
     resp = client.post("/api/custom_providers", json={
@@ -589,7 +589,7 @@ def test_api_custom_create_with_key_value_autoderives(tmp_path, monkeypatch):
 
 def test_api_generic_keys_stay_thin_wrappers(tmp_path, monkeypatch):
     keys = tmp_path / "operator_keys.json"
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(keys))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(keys))
     client = webui.app.test_client()
     secret = "wrapper-secret-value-123456789"
     resp = client.post("/api/keys", json={"key_var": "WRAPPER_TEST_KEY",
@@ -651,7 +651,7 @@ def test_domain_router_selects_runner_per_flow():
 def test_linking_run_executes_receipt_command_only(tmp_path, monkeypatch):
     import subprocess as _sub
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -699,7 +699,7 @@ def test_linking_run_executes_receipt_command_only(tmp_path, monkeypatch):
 def test_precard_run_executes_own_receipt_command(tmp_path, monkeypatch):
     import subprocess as _sub
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -739,7 +739,7 @@ def test_precard_run_executes_own_receipt_command(tmp_path, monkeypatch):
 def test_preset_load_dedups_witness_benchmark(tmp_path, monkeypatch):
     import json as _json
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     rec = {"name": "witness-benchmark", "version": 1, "kind": "run",
            "provider": "avalai", "model": "", "sample": "", "limit": 30,
            "concurrency": 8, "out": "", "progress_dir": "", "resume": "on"}
@@ -803,7 +803,7 @@ def _linking_run_client(tmp_path, monkeypatch):
     """Isolated app client for run-creation tests (fake spawn)."""
     import subprocess as _sub
 
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     monkeypatch.setattr(webui, "PROFILES_DIR", str(tmp_path / "profiles"))
     monkeypatch.setattr(webui, "RUNS_DIR", str(tmp_path / "runs"))
     registry = tmp_path / "runs.json"
@@ -912,7 +912,7 @@ def test_linking_run_skips_lease_and_keys(tmp_path, monkeypatch):
 
 def test_preset_dedup_survives_operator_data(tmp_path, monkeypatch):
     """Non-numeric versions and odd names never 500 the preset list."""
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     base = {"name": "op-twin", "kind": "run", "provider": "avalai",
             "model": "", "sample": "", "limit": 0, "concurrency": 0,
             "out": "", "progress_dir": "", "resume": "on"}
@@ -932,7 +932,7 @@ def test_preset_dedup_survives_operator_data(tmp_path, monkeypatch):
 
 def test_preset_dedup_keeps_kinds_apart(tmp_path, monkeypatch):
     """Same display name across kinds hides neither preset."""
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     for kind in ("run", "judge"):
         rec = {"name": "shared", "version": 1, "kind": kind,
                "provider": "avalai", "model": "", "sample": "",

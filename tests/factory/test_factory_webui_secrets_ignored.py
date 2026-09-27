@@ -48,8 +48,8 @@ def test_shared_operator_paths_live_outside_git():
     from factory.webui import server as webui
 
     repo = os.path.abspath(PROJECT_ROOT)
-    for path in (webui.PRESETS_DIR, webui.OPERATOR_KEYS_PATH,
-                 webui.LABELS_PATH):
+    for path in (webui.presets_dir(), webui.operator_keys_path(),
+                 webui.labels_path()):
         assert not os.path.abspath(path).startswith(repo), path
 
 

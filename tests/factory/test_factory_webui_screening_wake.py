@@ -310,8 +310,9 @@ def test_screening_status_tail_and_manifest(tmp_path, monkeypatch,
     """Tail keeps the last 100 merged lines; success attaches the summary."""
     import subprocess as _sub
 
-    out_dir = tmp_path / "screened"
-    out_dir.mkdir()
+    monkeypatch.setattr(webui, "data_root", lambda: str(tmp_path))
+    out_dir = tmp_path / "proof-linker" / "screened"
+    out_dir.mkdir(parents=True)
     manifest = {"created_at": "t", "words": ["run"], "kept_total": 7,
                 "dropped_total": 3,
                 "per_lemma": [{"lemma": "run", "kept": 7, "dropped": 3}],
@@ -334,7 +335,7 @@ def test_screening_status_tail_and_manifest(tmp_path, monkeypatch,
     done = _wait_for_status(client, "completed", min_log=100)
     assert done["exit_code"] == 0
     assert done["words"] == ["run"]
-    assert done["out_dir"] == str(out_dir)
+    assert done["out_dir"] == os.path.abspath(str(out_dir))
     assert len(done["log"]) == 100
     assert done["log"][0] == "line-50"
     assert done["log"][-1] == "line-149"
@@ -419,3 +420,55 @@ def test_screening_abort_kill_fallback_when_child_ignores_term(
     assert procs[0].killed == 1
     assert body["status"] == "failed"
     assert "abort" in body["note"]
+
+
+# ---------------------------------------------------------------------------
+# W3: input confinement — words validated + capped, out_dir jailed.
+# ---------------------------------------------------------------------------
+
+def test_screening_words_validated_and_capped():
+    """Only [a-z-]{1,64} tokens survive; the list caps at 50."""
+    assert webui._screening_parse_words("Run, LIGHT, take") == [
+        "run", "light", "take"]
+    assert webui._screening_parse_words(
+        "run,../x,C:\\win,has space,ok-word") == ["run", "ok-word"]
+    assert webui._screening_parse_words("") == [
+        "run", "light", "take", "get", "make"]
+    many = ",".join("z" * ((i % 60) + 1) for i in range(200))
+    assert len(webui._screening_parse_words(many)) == 50
+
+
+def test_screening_out_dir_escapes_rejected(tmp_path, monkeypatch,
+                                            _idle_screening):
+    """Absolute/traversal out_dir outside the screening root -> 400, no spawn."""
+    import subprocess as _sub
+
+    monkeypatch.setattr(webui, "data_root", lambda: str(tmp_path))
+    monkeypatch.setattr(_sub, "Popen", _popen_factory({}, []))
+    client = webui.app.test_client()
+    for evil in ("C:\\Windows\\Temp\\evil", "../../evil",
+                 str(tmp_path.parent / "sibling-evil")):
+        resp = client.post("/api/screening/run",
+                           json={"words": "run", "out_dir": evil})
+        assert resp.status_code == 400
+        assert "escapes" in resp.get_json()["error"]
+    assert client.get("/api/screening/status").get_json(
+    )["screening"]["status"] == "idle"
+
+
+def test_screening_out_dir_inside_root_accepted(tmp_path, monkeypatch,
+                                                _idle_screening):
+    """A subdir of the confined root spawns normally (abspath receipt)."""
+    import subprocess as _sub
+
+    seen, procs = {}, []
+    monkeypatch.setattr(_sub, "Popen", _popen_factory(seen, procs))
+    monkeypatch.setattr(webui, "data_root", lambda: str(tmp_path))
+    nested = str(tmp_path / "proof-linker" / "screened" / "custom")
+    client = webui.app.test_client()
+    resp = client.post("/api/screening/run",
+                       json={"words": "run", "out_dir": nested})
+    assert resp.status_code == 201
+    assert resp.get_json()["screening"]["out_dir"] == os.path.abspath(nested)
+    assert len(procs) == 1
+    procs[0]._done.set()

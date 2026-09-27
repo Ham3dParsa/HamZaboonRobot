@@ -46,6 +46,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -151,12 +152,22 @@ def parse_server_args(argv=None):
 RUNS_DIR = os.path.join(SCRIPT_DIR, "runs")
 REGISTRY_PATH = os.path.join(SCRIPT_DIR, "runs.json")
 #: Shared operator store (outside git): presets, operator keys, and labels
-#: live under the single-source data root (factory.core.env_loader.data_root
-#: owns the fallback chain — no second resolver here). Run history
+#: live under the single-source data root. These are lazy helpers (not
+#: module constants) because ``data_root()`` is lazy per call — binding
+#: paths once at import would split reads/writes across roots when
+#: ``HAMZABAN_DATA_ROOT`` changes later. Run history
 #: (RUNS_DIR/REGISTRY_PATH) stays per-console by design.
-PRESETS_DIR = os.path.join(data_root(), "webui", "presets")
+def presets_dir():
+    """Shared presets dir, re-resolved per call (never cached)."""
+    return os.path.join(data_root(), "webui", "presets")
+
+
 PROFILES_DIR = os.path.join(SCRIPT_DIR, "provider_profiles")
-OPERATOR_KEYS_PATH = os.path.join(data_root(), "webui", "operator_keys.json")
+
+
+def operator_keys_path():
+    """Shared operator-keys file, re-resolved per call (never cached)."""
+    return os.path.join(data_root(), "webui", "operator_keys.json")
 KEY_VAR_MAP_PATH = os.path.join(SCRIPT_DIR, "provider_key_vars.json")
 MASTER_VAR = "AI_MASTER_KEY"
 
@@ -576,7 +587,7 @@ def _operator_key_values():
     except Exception:
         return {}
     try:
-        stored = _read_json_file(OPERATOR_KEYS_PATH)
+        stored = _read_json_file(operator_keys_path())
     except (OSError, ValueError):
         return {}
     out = {}
@@ -691,7 +702,7 @@ def key_presence(clean_fn=None):
 def operator_key_names():
     """Names of operator-stored keys (names only, never values)."""
     try:
-        stored = json.load(open(OPERATOR_KEYS_PATH, encoding="utf-8"))
+        stored = json.load(open(operator_keys_path(), encoding="utf-8"))
     except (OSError, ValueError):
         return []
     if not isinstance(stored, dict):
@@ -1722,7 +1733,18 @@ def _data_file_facts():
     """kaikki_raw + screened facts for /api/files/roots (both paths resolved
     through their single sources: the kaikki raw default via the precard
     pipeline's data-root default, screened via _configured_path — no second
-    resolver here)."""
+    resolver here).
+
+    Short-TTL cached (``_FILE_FACTS_TTL``): every GET would otherwise
+    synchronously line-scan up to 2x50k lines and stall the Flask
+    worker under polling. Cache holds the last payload; callers get
+    the same dict (treat as read-only).
+    """
+    now = time.monotonic()
+    with _FILE_FACTS_LOCK:
+        if (_FILE_FACTS_CACHE["payload"] is not None
+                and now - _FILE_FACTS_CACHE["at"] < _FILE_FACTS_TTL):
+            return _FILE_FACTS_CACHE["payload"]
     try:
         from factory.precard import pipeline as _pipe
         kaikki_raw = _pipe.DEFAULT_KAIKKI_RAW
@@ -1733,8 +1755,26 @@ def _data_file_facts():
                                     DEFAULT_SCREENED_PATH)
     except Exception:
         screened = DEFAULT_SCREENED_PATH
-    return {"kaikki_raw": _file_facts(kaikki_raw),
-            "screened": _file_facts(screened)}
+    payload = {"kaikki_raw": _file_facts(kaikki_raw),
+               "screened": _file_facts(screened)}
+    with _FILE_FACTS_LOCK:
+        _FILE_FACTS_CACHE["payload"] = payload
+        _FILE_FACTS_CACHE["at"] = time.monotonic()
+    return payload
+
+
+#: Short TTL (seconds) for ``_data_file_facts`` — bounds per-request
+#: scan cost on the polling-heavy /api/files/roots endpoint.
+_FILE_FACTS_TTL = 30.0
+_FILE_FACTS_LOCK = threading.Lock()
+_FILE_FACTS_CACHE = {"at": 0.0, "payload": None}
+
+
+def _reset_file_facts_cache():
+    """Clear the facts cache (test seam; production never calls this)."""
+    with _FILE_FACTS_LOCK:
+        _FILE_FACTS_CACHE["payload"] = None
+        _FILE_FACTS_CACHE["at"] = 0.0
 
 
 # ─── Dated run layout (human-sortable, newest last) ──────────────────
@@ -2215,13 +2255,13 @@ def list_presets(kind=None):
     """
     by_key = {}
     try:
-        entries = sorted(os.listdir(PRESETS_DIR))
+        entries = sorted(os.listdir(presets_dir()))
     except OSError:
         return []
     for entry in entries:
         if not entry.endswith(".json"):
             continue
-        rec = _read_json_file(os.path.join(PRESETS_DIR, entry))
+        rec = _read_json_file(os.path.join(presets_dir(), entry))
         if isinstance(rec, dict) and rec.get("name"):
             rec.setdefault("kind", "run")
             if kind is not None and rec.get("kind") != kind:
@@ -2254,7 +2294,7 @@ def _ensure_witness_preset():
 def get_preset(name):
     safe = _safe_filename(name)
     if not safe or safe != str(name or "").strip():
-        alt = _read_json_file(os.path.join(PRESETS_DIR, safe + ".json"))
+        alt = _read_json_file(os.path.join(presets_dir(), safe + ".json"))
         if isinstance(alt, dict) and alt.get("name") == name:
             return alt
         # fall through to scan for exact display-name match
@@ -2262,7 +2302,7 @@ def get_preset(name):
             if rec.get("name") == name:
                 return rec
         return None
-    rec = _read_json_file(os.path.join(PRESETS_DIR, safe + ".json"))
+    rec = _read_json_file(os.path.join(presets_dir(), safe + ".json"))
     return rec if isinstance(rec, dict) else None
 
 
@@ -2336,7 +2376,7 @@ def save_preset(fields):
             raise ValueError("rate_scope must be one of %s" % "/".join(
                 JUDGE_RATE_SCOPES))
         judge_extra["rate_scope"] = scope
-    os.makedirs(PRESETS_DIR, exist_ok=True)
+    os.makedirs(presets_dir(), exist_ok=True)
     prev = get_preset(previous_name) if renamed else get_preset(name)
     if renamed and prev is None:
         raise ValueError("preset not found: %s" % previous_name)
@@ -2366,24 +2406,24 @@ def save_preset(fields):
     if (fields or {}).get("ready") is True or (
             prev or {}).get("ready") is True:
         rec["ready"] = True
-    tmp = os.path.join(PRESETS_DIR, safe + ".json.tmp")
+    tmp = os.path.join(presets_dir(), safe + ".json.tmp")
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(rec, handle, ensure_ascii=False, indent=1)
-    os.replace(tmp, os.path.join(PRESETS_DIR, safe + ".json"))
+    os.replace(tmp, os.path.join(presets_dir(), safe + ".json"))
     if renamed:
         # New record is durable before the old file goes: a failed
         # remove surfaces as 500 (retryable) instead of a silent twin.
         # Resolve the old file like delete_preset does (stale twins
         # may live under a scanned name, not the canonical stem).
-        old_path = os.path.join(PRESETS_DIR, prev_safe + ".json")
+        old_path = os.path.join(presets_dir(), prev_safe + ".json")
         if not os.path.isfile(old_path):
             for cand in list_presets():
                 if cand.get("name") == previous_name:
                     old_path = os.path.join(
-                        PRESETS_DIR,
+                        presets_dir(),
                         _safe_filename(cand["name"]) + ".json")
                     break
-        new_path = os.path.join(PRESETS_DIR, safe + ".json")
+        new_path = os.path.join(presets_dir(), safe + ".json")
         if os.path.abspath(old_path) != os.path.abspath(new_path):
             try:
                 os.remove(old_path)
@@ -2396,13 +2436,13 @@ def save_preset(fields):
 
 def delete_preset(name):
     safe = _safe_filename(name)
-    path = os.path.join(PRESETS_DIR, safe + ".json")
+    path = os.path.join(presets_dir(), safe + ".json")
     rec = get_preset(name)
     if rec is None or not os.path.isfile(path):
         # exact-name scan fallback (unicode names map 1:1, so this is rare)
         for cand in list_presets():
             if cand.get("name") == name:
-                path = os.path.join(PRESETS_DIR,
+                path = os.path.join(presets_dir(),
                                     _safe_filename(cand["name"]) + ".json")
                 rec = cand
                 break
@@ -2501,18 +2541,18 @@ def _store_operator_key(var, value):
                        "nothing was saved)")
     with _lock:
         try:
-            current = json.load(open(OPERATOR_KEYS_PATH, encoding="utf-8"))
+            current = json.load(open(operator_keys_path(), encoding="utf-8"))
         except (OSError, ValueError):
             current = {}
         if not isinstance(current, dict):
             current = {}
         current[var] = stored
-        tmp = OPERATOR_KEYS_PATH + ".tmp"
+        tmp = operator_keys_path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(current, handle, ensure_ascii=False, indent=1)
-        os.replace(tmp, OPERATOR_KEYS_PATH)
+        os.replace(tmp, operator_keys_path())
         try:
-            os.chmod(OPERATOR_KEYS_PATH, 0o600)
+            os.chmod(operator_keys_path(), 0o600)
         except OSError:
             pass
     # Names only in every surface: never echo the value back, never log it.
@@ -2525,19 +2565,19 @@ def _remove_operator_key(var):
     var = str(var or "").strip().upper()
     with _lock:
         try:
-            current = json.load(open(OPERATOR_KEYS_PATH, encoding="utf-8"))
+            current = json.load(open(operator_keys_path(), encoding="utf-8"))
         except (OSError, ValueError):
             current = {}
         if not isinstance(current, dict) or var not in current:
             return False
         del current[var]
-        tmp = OPERATOR_KEYS_PATH + ".tmp"
+        tmp = operator_keys_path() + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as handle:
                 json.dump(current, handle, ensure_ascii=False, indent=1)
-            os.replace(tmp, OPERATOR_KEYS_PATH)
+            os.replace(tmp, operator_keys_path())
             try:
-                os.chmod(OPERATOR_KEYS_PATH, 0o600)
+                os.chmod(operator_keys_path(), 0o600)
             except OSError:
                 pass
         except OSError:
@@ -4753,8 +4793,11 @@ def api_managed_provider_key_delete(name, index):
 DEFAULT_SCREENED_PATH = (
     "W:/hamzaban_data_factory/proof-linker/screened/screened.jsonl")
 #: Shared human-label store (outside git — same single-source data root
-#: as presets/operator keys; run history stays per-console).
-LABELS_PATH = os.path.join(data_root(), "webui", "labels.jsonl")
+#: as presets/operator keys; run history stays per-console). Lazy helper
+#: for the same reason as presets_dir()/operator_keys_path() above.
+def labels_path():
+    """Shared labels file, re-resolved per call (never cached)."""
+    return os.path.join(data_root(), "webui", "labels.jsonl")
 
 
 def _ensure_shared_store_migrated():
@@ -4768,10 +4811,10 @@ def _ensure_shared_store_migrated():
     """
     try:
         legacy_presets = os.path.join(SCRIPT_DIR, "presets")
-        if os.path.abspath(PRESETS_DIR) != os.path.abspath(legacy_presets):
+        if os.path.abspath(presets_dir()) != os.path.abspath(legacy_presets):
             if os.path.isdir(legacy_presets):
                 try:
-                    os.makedirs(PRESETS_DIR, exist_ok=True)
+                    os.makedirs(presets_dir(), exist_ok=True)
                 except OSError:
                     pass
                 try:
@@ -4782,7 +4825,7 @@ def _ensure_shared_store_migrated():
                     if not entry.endswith(".json"):
                         continue
                     src = os.path.join(legacy_presets, entry)
-                    dst = os.path.join(PRESETS_DIR, entry)
+                    dst = os.path.join(presets_dir(), entry)
                     try:
                         if os.path.isfile(src) and not os.path.exists(dst):
                             shutil.copy2(src, dst)
@@ -4791,8 +4834,8 @@ def _ensure_shared_store_migrated():
                     except OSError:
                         continue
         for legacy_name, shared_path in (
-                ("operator_keys.json", OPERATOR_KEYS_PATH),
-                ("labels.jsonl", LABELS_PATH)):
+                ("operator_keys.json", operator_keys_path()),
+                ("labels.jsonl", labels_path())):
             try:
                 src = os.path.join(SCRIPT_DIR, legacy_name)
                 if os.path.abspath(shared_path) == os.path.abspath(src):
@@ -4810,6 +4853,29 @@ def _ensure_shared_store_migrated():
                 continue
     except Exception:
         pass
+
+
+#: First-request migration guard: ``_ensure_shared_store_migrated`` must
+#: run on every serve path (plain ``__main__`` and any WSGI/import serve),
+#: so it also runs once before the first request. The ``__main__`` call
+#: below stays (idempotent) so the receipt appears even with no traffic.
+_MIGRATION_LOCK = threading.Lock()
+_MIGRATED_ONCE = {"done": False}
+
+
+@app.before_request
+def _ensure_boot_migrated():
+    """Run the shared-store migration once, on any serve path."""
+    if _MIGRATED_ONCE["done"]:
+        return
+    with _MIGRATION_LOCK:
+        if _MIGRATED_ONCE["done"]:
+            return
+        try:
+            _ensure_shared_store_migrated()
+        except Exception:
+            pass
+        _MIGRATED_ONCE["done"] = True
 
 SCREENED_LIMIT = 500
 
@@ -5007,13 +5073,54 @@ def _screening_default_out_dir():
     return os.path.join(str(root).strip(), "proof-linker", "screened")
 
 
+#: Screening word-list bounds: at most this many lemmas, each matching
+#: ``^[a-z-]{1,64}$`` (lowercase English lemma or hyphenated form).
+#: Non-matching tokens are dropped; an empty result falls back to the
+#: export script's own default list.
+_SCREENING_WORDS_MAX = 50
+_SCREENING_WORD_RE = re.compile(r"^[a-z-]{1,64}$")
+
+
 def _screening_parse_words(raw):
-    """Comma-separated words -> non-empty lemma list (default when empty)."""
-    words = [w.strip() for w in str(raw or "").split(",") if w.strip()]
+    """Comma-separated words -> validated lemma list (default when empty).
+
+    Tokens are stripped + lowercased, kept only when they match
+    ``_SCREENING_WORD_RE``, capped at ``_SCREENING_WORDS_MAX``. Empty
+    (or fully invalid) input falls back to the export script's own
+    default word list (validated the same way).
+    """
+    words = [w.strip().lower() for w in str(raw or "").split(",")]
+    words = [w for w in words if _SCREENING_WORD_RE.match(w)]
     if not words:
-        words = [w.strip()
-                 for w in _default_screening_words().split(",") if w.strip()]
-    return words
+        words = [w.strip().lower()
+                 for w in _default_screening_words().split(",")]
+        words = [w for w in words if _SCREENING_WORD_RE.match(w)]
+    return words[:_SCREENING_WORDS_MAX]
+
+
+def _screening_safe_out_dir(raw):
+    """Confine the requested screening output dir under the default root.
+
+    Returns ``(True, resolved_dir)`` when ``raw`` is blank (default) or
+    resolves inside ``_screening_default_out_dir()``; ``(False, reason)``
+    on absolute/traversal escapes. The console binds LAN-visible with
+    no auth, so arbitrary-path writes from a POST body are refused —
+    never silently rewritten (the caller sees the 400 reason).
+    """
+    base = _screening_default_out_dir()
+    cand = str(raw or "").strip() or base
+    try:
+        base_abs = os.path.abspath(base)
+        cand_abs = os.path.abspath(cand)
+    except (OSError, ValueError, TypeError):
+        return False, "unresolvable out_dir"
+    try:
+        inside = os.path.commonpath([base_abs, cand_abs]) == base_abs
+    except (OSError, ValueError):
+        return False, "out_dir escapes the screening root"
+    if not inside:
+        return False, "out_dir escapes the screening root"
+    return True, cand_abs
 
 
 def _screening_manifest_summary(out_dir):
@@ -5145,11 +5252,13 @@ def api_screening_run():
     ``subprocess.Popen`` and returns while a pump thread drains the
     merged stdout+stderr into the 100-line ring buffer. 409 while a
     run is already in flight; 201 with the running snapshot otherwise.
+    400 when ``out_dir`` escapes the confined screening root.
     """
     fields = request.get_json(force=True, silent=True) or {}
     words = _screening_parse_words(fields.get("words"))
-    out_dir = (str(fields.get("out_dir") or "").strip()
-               or _screening_default_out_dir())
+    ok, out_dir = _screening_safe_out_dir(fields.get("out_dir"))
+    if not ok:
+        return jsonify({"error": out_dir}), 400
     import time as _time
 
     with _SCREENING_LOCK:
@@ -5612,7 +5721,7 @@ def api_candidates():
 @app.route("/api/labels", methods=["GET"])
 def api_labels():
     """Read the human-annotation store (newest last, names only)."""
-    store = (request.args.get("store") or "").strip() or LABELS_PATH
+    store = (request.args.get("store") or "").strip() or labels_path()
     try:
         from factory.webui import labels as _labels
     except ImportError as exc:
@@ -5627,7 +5736,7 @@ def api_label_save():
     from factory.webui import labels as _labels
 
     fields = request.get_json(force=True, silent=True) or {}
-    store = str((fields or {}).get("store") or "").strip() or LABELS_PATH
+    store = str((fields or {}).get("store") or "").strip() or labels_path()
     try:
         rec = _labels.save_label(fields, store)
     except _labels.LabelError as exc:

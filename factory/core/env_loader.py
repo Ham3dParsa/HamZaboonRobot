@@ -40,15 +40,23 @@ EGRESS_VARS = (
 DATA_ROOT_ENV_VAR = "HAMZABAN_DATA_ROOT"
 
 #: Second fallback when no env root is set (machine-local factory data).
-#: Checked with isdir — absent drives never shadow the home fallback.
+#: Checked with isdir — absent drives never shadow the later fallbacks.
 W_DATA_ROOT = "W:\\hamzaban_data_factory"
+
+
+def _repo_data_root():
+    """Legacy repo-local ``data/`` dir (kept for existing installs)."""
+    return str(pathlib.Path(__file__).resolve().parent.parent.parent
+               / "data")
 
 
 def data_root():
     """External factory data root (stdlib only, no side effects).
 
     Chain: ``HAMZABAN_DATA_ROOT`` when set and non-blank, else
-    ``W:\\hamzaban_data_factory`` when that dir exists, else
+    ``W:\\hamzaban_data_factory`` when that dir exists, else the
+    legacy repo-local ``data/`` when that dir exists (existing
+    installs keep working — no migration needed), else
     ``~/.hamzaban/data``. Read lazily per call (never cached) so env
     changes and monkeypatching take effect between calls. Never
     creates dirs.
@@ -59,6 +67,12 @@ def data_root():
     try:
         if os.path.isdir(W_DATA_ROOT):
             return W_DATA_ROOT
+    except Exception:
+        pass
+    try:
+        repo = _repo_data_root()
+        if os.path.isdir(repo):
+            return repo
     except Exception:
         pass
     return str(pathlib.Path.home() / ".hamzaban" / "data")

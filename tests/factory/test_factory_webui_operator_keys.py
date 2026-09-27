@@ -41,7 +41,7 @@ def _isolate_token_seams(monkeypatch, tmp_path):
     """Point the operator store at tmp; silence every other token source."""
     store = tmp_path / "operator_keys.json"
     store.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH", str(store))
+    monkeypatch.setattr(webui, "operator_keys_path", lambda: str(store))
     monkeypatch.delenv(SUP_VAR, raising=False)
     monkeypatch.setattr(webui, "_read_supervisor_token_file", lambda *a, **k: "")
     try:

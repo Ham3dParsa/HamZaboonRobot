@@ -40,12 +40,13 @@ def _seed_legacy(legacy_dir, presets=("witness-benchmark.json",)):
 
 def _point_store_at(monkeypatch, webui, legacy_dir, shared_dir):
     monkeypatch.setattr(webui, "SCRIPT_DIR", legacy_dir)
-    monkeypatch.setattr(webui, "PRESETS_DIR",
-                        os.path.join(shared_dir, "presets"))
-    monkeypatch.setattr(webui, "OPERATOR_KEYS_PATH",
-                        os.path.join(shared_dir, "operator_keys.json"))
-    monkeypatch.setattr(webui, "LABELS_PATH",
-                        os.path.join(shared_dir, "labels.jsonl"))
+    monkeypatch.setattr(webui, "presets_dir",
+                        lambda: os.path.join(shared_dir, "presets"))
+    monkeypatch.setattr(webui, "operator_keys_path",
+                        lambda: os.path.join(shared_dir,
+                                             "operator_keys.json"))
+    monkeypatch.setattr(webui, "labels_path",
+                        lambda: os.path.join(shared_dir, "labels.jsonl"))
 
 
 def test_migration_copies_only_into_empty_slots(tmp_path, monkeypatch):
@@ -91,9 +92,9 @@ def test_migration_never_overwrites(tmp_path, monkeypatch):
 
 def test_preset_ops_work_against_pointed_store(tmp_path, monkeypatch):
     """save-upsert + rename-edit + delete + save-as clone, all on the store
-    the globals point at (shared in production)."""
+    the helpers point at (shared in production)."""
     webui = _webui()
-    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path / "presets"))
     rec = webui.save_preset({"name": "orig", "provider": "avalai",
                              "model": "", "limit": 5, "concurrency": 8})
     assert rec["version"] == 1
@@ -150,8 +151,12 @@ def test_file_facts_truncates_with_honest_label(tmp_path, monkeypatch):
             facts["truncated"]) == (50, "50+", True)
 
 
-def test_files_roots_reports_both_datasets():
+def test_files_roots_reports_both_datasets(monkeypatch):
     webui = _webui()
+    # Hermetic: never run the real boot migration off a bare GET here
+    # (dedicated test below covers the hook with a pointed store).
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    webui._reset_file_facts_cache()
     body = webui.app.test_client().get("/api/files/roots").get_json()
     assert body["roots"] and all(
         "path" in r and "label" in r for r in body["roots"])
@@ -165,6 +170,67 @@ def test_files_roots_reports_both_datasets():
             assert facts["lines_label"].endswith("+")
         else:
             assert facts["lines_label"] == str(facts["lines"])
+
+
+# ─── Lazy helpers + boot migration + facts TTL ────────────────
+
+def test_store_helpers_follow_data_root_between_calls(tmp_path, monkeypatch):
+    """presets_dir()/operator_keys_path()/labels_path() are lazy: a later
+    data_root() change moves every helper (no import-time split)."""
+    webui = _webui()
+    first, second = str(tmp_path / "one"), str(tmp_path / "two")
+    monkeypatch.setattr(webui, "data_root", lambda: first)
+    assert webui.presets_dir() == os.path.join(first, "webui", "presets")
+    assert webui.operator_keys_path() == os.path.join(
+        first, "webui", "operator_keys.json")
+    assert webui.labels_path() == os.path.join(
+        first, "webui", "labels.jsonl")
+    monkeypatch.setattr(webui, "data_root", lambda: second)
+    assert webui.presets_dir() == os.path.join(second, "webui", "presets")
+    assert webui.operator_keys_path() == os.path.join(
+        second, "webui", "operator_keys.json")
+    assert webui.labels_path() == os.path.join(
+        second, "webui", "labels.jsonl")
+
+
+def test_boot_migration_runs_on_first_request(tmp_path, monkeypatch):
+    """Any serve path (not only __main__) migrates once before serving."""
+    webui = _webui()
+    legacy, shared = str(tmp_path / "legacy"), str(tmp_path / "shared")
+    _seed_legacy(legacy)
+    _point_store_at(monkeypatch, webui, legacy, shared)
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", False)
+    webui._reset_file_facts_cache()
+    resp = webui.app.test_client().get("/api/files/roots")
+    assert resp.status_code == 200
+    assert webui._MIGRATED_ONCE["done"] is True
+    assert json.load(open(os.path.join(
+        shared, "presets", "witness-benchmark.json"),
+        encoding="utf-8"))["provider"] == "avalai"
+    assert "SOME_API_KEY" in json.load(open(
+        os.path.join(shared, "operator_keys.json"), encoding="utf-8"))
+
+
+def test_data_file_facts_cached_with_short_ttl(tmp_path, monkeypatch):
+    """Second /api/files/roots payload within TTL performs zero rescans."""
+    webui = _webui()
+    calls = {"n": 0}
+    real = webui._file_facts
+
+    def _counting(path):
+        calls["n"] += 1
+        return real(path)
+
+    monkeypatch.setattr(webui, "_file_facts", _counting)
+    webui._reset_file_facts_cache()
+    first = webui._data_file_facts()
+    assert calls["n"] == 2  # kaikki_raw + screened, exactly once each
+    second = webui._data_file_facts()
+    assert calls["n"] == 2  # served from cache — no rescan
+    assert second == first
+    webui._reset_file_facts_cache()
+    webui._data_file_facts()
+    assert calls["n"] == 4  # reset re-arms the scan
 
 
 # ─── T2: telemetry init race (controller-only) ───────────────────

@@ -9,7 +9,8 @@ locked modules (kaikki index/raw x2, CEFR TSV x2, tatoeba pools x2,
 topic vectors; EVP stays repo-local by design).
 
 Chain: HAMZABAN_DATA_ROOT (non-blank) -> W:\\hamzaban_data_factory
-(when that dir exists) -> ~/.hamzaban/data.
+(when that dir exists) -> legacy repo-local data/ (when that dir
+exists; existing installs keep working) -> ~/.hamzaban/data.
 """
 
 import os
@@ -80,12 +81,22 @@ def clean_env(monkeypatch):
     # Neutralize the machine W: drive so unset/blank tests are hermetic
     # on any host (this box HAS a W: drive). Only the real W root is
     # hidden — tmp stand-ins in W-present tests still resolve normally.
+    # The legacy repo data/ dir is hidden the same way (existing
+    # installs may carry one; the fallback tests must see a clean
+    # chain). Repo-present branches get dedicated tests below.
     real_w = env_loader.W_DATA_ROOT
+    try:
+        real_repo = os.path.abspath(env_loader._repo_data_root())
+    except Exception:
+        real_repo = None
     real_isdir = os.path.isdir
 
     def _fake_isdir(path):
         try:
-            if os.path.abspath(str(path)) == os.path.abspath(real_w):
+            here = os.path.abspath(str(path))
+            if here == os.path.abspath(real_w):
+                return False
+            if real_repo is not None and here == real_repo:
                 return False
         except (OSError, ValueError):
             pass
@@ -162,6 +173,42 @@ def test_blank_env_falls_through_to_present_w_drive(clean_attrs, clean_env,
     monkeypatch.setattr(env_loader, "W_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, "   ")
     assert data_root() == str(tmp_path)
+
+
+def test_repo_data_present_wins_over_home(clean_attrs, clean_env,
+                                          monkeypatch, tmp_path):
+    """No env, no W, existing legacy repo data/ -> repo root (existing
+    installs keep working with no migration)."""
+    repo = tmp_path / "data"
+    repo.mkdir()
+    monkeypatch.setattr(env_loader, "_repo_data_root",
+                        lambda: str(repo))
+    assert data_root() == str(repo)
+
+
+def test_env_wins_over_present_repo_data(clean_attrs, clean_env,
+                                         monkeypatch, tmp_path):
+    """Env root beats even an existing legacy repo data/ dir."""
+    repo = tmp_path / "data"
+    repo.mkdir()
+    env_root = tmp_path / "env"
+    monkeypatch.setattr(env_loader, "_repo_data_root",
+                        lambda: str(repo))
+    monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, str(env_root))
+    assert data_root() == str(env_root)
+
+
+def test_w_wins_over_present_repo_data(clean_attrs, clean_env,
+                                       monkeypatch, tmp_path):
+    """W drive beats the legacy repo data/ dir (documented precedence)."""
+    repo = tmp_path / "data"
+    repo.mkdir()
+    w_root = tmp_path / "w"
+    w_root.mkdir()
+    monkeypatch.setattr(env_loader, "_repo_data_root",
+                        lambda: str(repo))
+    monkeypatch.setattr(env_loader, "W_DATA_ROOT", str(w_root))
+    assert data_root() == str(w_root)
 
 
 def test_set_root_prefixes_every_resolved_default(clean_attrs, monkeypatch,
