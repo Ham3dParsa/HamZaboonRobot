@@ -1,0 +1,246 @@
+
+  .queue-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-secondary) var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar { width: 8px; height: 8px; }
+  .queue-list::-webkit-scrollbar-track {
+    background: var(--bg-elevated);
+    border-radius: 6px;
+  }
+  .queue-list::-webkit-scrollbar-thumb {
+    background: var(--c-secondary);
+    border-radius: 6px;
+    border: 2px solid var(--bg-elevated);
+  }
+  .queue-list::-webkit-scrollbar-thumb:hover { background: var(--c-primary); }
+
+  /* بخش جزئیات سنس: تنها مالک نامزدها، مثال‌ها و متن کامل —
+     ردیف‌های صف فقط شناسه، برش معنی و وضعیت را حمل می‌کنند */
+  #sense-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* کارت سنس کایکی (حذف نوار عمودی رنگی ضخیم) — چسبان در نما حین داوری */
+  /* مهار سرریز معنی سنس: کارت هرگز از ستون بیرون نمی‌زند (min-width:0 +
+     overflow:hidden روی خود کارت چسبان بی‌خطر است)؛ تعریف و مثال با
+     شکست امن واژه‌های بلند لاتین تمیز می‌شکنند، نه با برش افقی زشت */
+  .source-sense-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 14px;
+    position: sticky; top: 58px; z-index: 5;
+    min-width: 0; overflow: hidden;
+  }
+  .sense-header-line {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+  }
+  .sense-id-label { font-size: 1.15rem; font-weight: 700; color: var(--c-primary); }
+  .sense-def-text {
+    font-size: 0.95rem; font-weight: 500; color: var(--text-primary); margin-bottom: 8px;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .sense-example-box {
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 8px 12px; font-size: 0.85rem; color: var(--text-secondary);
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+
+  /* کارت‌های متراکم کاندیداهای وردنت */
+  .candidates-stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .candidate-row-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    transition: border-color 0.15s;
+    min-width: 0;
+  }
+  .candidate-row-card:hover { border-color: var(--c-secondary); }
+  .candidate-row-card.selected { border-color: var(--c-success); }
+  /* معنی نامزد آزاد جاری می‌شود (بدون سقف ارتفاع و بدون برش پنهان):
+     شکست امن واژه‌های بلند لاتین، ایزوله BiDi (کلاس ltr-text)؛
+     متن کامل روی title (hover).
+     flex:none الزامی است: فرزند ستون فلکس با shrink پیش‌فرض در
+     چیدمان ستونی فرومی‌ریزد. */
+  .c-gloss-text {
+    flex: none;
+    font-size: 0.92rem; font-weight: 600; color: var(--text-primary);
+    line-height: 1.4; padding: var(--space-2) 0;
+    display: block;
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .c-synonyms-text { font-size: 0.75rem; color: var(--text-muted); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+  /* بهداشت کارت نامزد: سطر بالایی شناسه + دکمه، معنی برجسته،
+     مترادف‌ها در سطر برچسب‌دار، مثال در بلوک نقل‌قول، متادیتای
+     فنی (شناسه‌های داخلی و پرچم‌ها) فقط در details تاشو */
+  .candidate-row-card { flex-direction: column; align-items: stretch; gap: 8px; }
+  .c-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+  .c-sensekey { font-size: 0.78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .c-gloss-text { font-size: 0.92rem; font-weight: 600; }
+  .c-synonyms-line { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+  .c-syn-label { color: var(--text-muted); font-size: 0.72rem; font-weight: 600; }
+  .c-example {
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: 0.8rem; color: var(--text-secondary);
+    border-inline-start: 3px solid var(--c-secondary); background: var(--bg-elevated);
+    border-radius: 4px; overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .candidate-meta { font-size: 0.72rem; color: var(--text-muted); }
+  .candidate-meta summary { cursor: pointer; min-height: 36px; display: inline-flex; align-items: center; }
+  .candidate-meta .meta-line { overflow-wrap: anywhere; word-break: break-word; }
+  /* فهرست پریست‌های ذخیره‌شده داوری: سقف تراکم (§1.5) + سطر محدوده نرخ */
+  .preset-catalog-wrap { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+  .scope-group { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; min-height: 36px; }
+  .scope-group label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; min-height: 36px; cursor: pointer; }
+  .scope-group input[type="radio"] { width: 18px; height: 18px; accent-color: var(--c-primary); }
+
+  .btn-select-candidate {
+    flex-shrink: 0;
+    min-height: 38px; padding: 6px 14px; border-radius: 6px;
+    background: var(--bg-elevated); border: 1px solid var(--c-secondary);
+    color: var(--c-secondary); font: inherit; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .btn-select-candidate:hover { background: var(--c-secondary); color: #fff; }
+
+  /* نوار دکمه‌های اقدام زیرین */
+  .action-bar-footer {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px;
+  }
+  .btn-reject-all {
+    min-height: 40px; padding: 0 16px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--c-danger);
+    color: var(--c-danger); font: inherit; font-weight: 700; cursor: pointer;
+  }
+  .btn-reject-all:hover { background: var(--c-danger); color: #fff; }
+  .btn-skip-next {
+    min-height: 40px; padding: 0 14px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--border-color);
+    color: var(--text-secondary); font: inherit; cursor: pointer;
+  }
+  .queue-list {
+    display: flex; flex-direction: column; gap: 6px;
+    overflow-y: auto; overflow-x: hidden; max-height: 42vh; min-height: 0; flex: 1 1 auto;
+  }
+  /* ورودی جمع‌وجور پالایش زنده صف (تمام‌عرض، هم‌خانواده فرم) */
+  .queue-filter {
+    max-width: none; width: 100%; min-height: 36px;
+  }
+  .queue-item {
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 5px; padding: 8px 10px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; overflow: hidden; min-width: 0; flex-shrink: 0;
+  }
+  .queue-item.active { border-color: var(--c-primary); }
+  /* ستون متن صف: تنها بخش منعطف — با min-width:0 جمع می‌شود تا معنی
+     هرگز از ردیف بیرون نزند؛ برش تک‌خطی با بیضی + title (hover) */
+  .queue-item > div:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .queue-item > div:first-child > b { flex-shrink: 0; }
+  .queue-item > .status-tag { flex-shrink: 0; }
+  /* برش تک‌خطی معنی در صف: لحن کم‌رنگ، چپ‌چین لاتین ایزوله (BiDi) */
+  .queue-gloss {
+    font-size: 0.72rem; color: var(--text-muted);
+    direction: ltr; text-align: left; unicode-bidi: isolate;
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%; overflow-wrap: anywhere;
+  }
+
+  /* کاوشگر مدل پریست: ردیف‌های فشرده ۴۰ تا ۴۴ پیکسل، شناسه لاتین چپ‌چین */
+  [hidden] { display: none !important; }
+  .model-explorer { display: flex; flex-direction: column; gap: 8px; }
+  .model-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .model-filter-input { flex: 1 1 180px; }
+  .free-chip {
+    min-height: 36px; padding: 6px 12px; border-radius: 999px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    color: var(--text-secondary); font: inherit; font-size: 0.78rem; cursor: pointer;
+  }
+  .free-chip.active {
+    border-color: var(--c-success); color: var(--c-success); font-weight: 700;
+    background: transparent;
+  }
+  .free-badge {
+    font-size: 0.68rem; padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--c-success); color: var(--c-success);
+    flex-shrink: 0;
+  }
+  .model-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+  .model-row {
+    min-height: 40px; max-height: 44px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 4px 10px; overflow: hidden;
+  }
+  .model-id {
+    font-family: var(--mono); direction: ltr; text-align: left; unicode-bidi: isolate;
+    font-size: 0.78rem; color: var(--text-primary); flex: 1 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .model-adopt { flex-shrink: 0; min-height: 36px; padding: 6px 12px; }
+  .model-count { font-size: 0.75rem; color: var(--text-secondary); }
+  .locked-note { opacity: 0.75; }
+
+  /* فرم فشرده پریست: ارائه‌دهنده + شناسه مدل + دو سقف در یک خط جمع‌وجور */
+  .preset-compact {
+    display: grid;
+    grid-template-columns: 1.1fr 1.7fr 0.7fr 0.7fr;
+    gap: 12px;
+  }
+  .preset-model-picker-row { display: flex; gap: 8px; align-items: center; }
+  .preset-model-picker-row input { flex: 1 1 auto; min-width: 0; }
+  .preset-model-picker-row button { flex-shrink: 0; }
+
+  /* دیالوگ مرکزی انتخاب مدل: متمرکز، سقف‌دار، لغزش درونی */
+  dialog.model-dialog {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    padding: 0;
+    width: min(560px, calc(100vw - 48px));
+    max-height: min(560px, calc(100vh - 96px));
+  }
+  dialog.model-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  .model-dialog-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .model-dialog-title { font-weight: 700; font-size: 0.9rem; }
+  .model-dialog-body {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px 16px;
+    overflow-y: auto;
+    max-height: calc(min(560px, calc(100vh - 96px)) - 60px);
+  }
+  /* ستون نامزدهای داوری: فهرست پویا با سقف استاندارد و لغزش هم‌تم (§1.5) */
+  .candidates-stack { max-height: 320px; overflow-y: auto; }
+
+  /* واکنش‌گرایی کابین‌ها (تبلت و موبایل): پس از مبانی همین فایل می‌آید تا
+     رفتار پیش‌از-تفکیک حفظ شود (رسانه، ویژگی اضافه نمی‌کند — ترتیب wins) */
+  @media (max-width: 1024px) {
+    .candidate-row-card { flex-direction: column; align-items: stretch; }
+    .c-top-row { flex-wrap: wrap; }
+    .btn-select-candidate { width: 100%; min-height: 44px; }
+    .btn-reject-all, .btn-skip-next { min-height: 44px; }
+    .preset-compact { grid-template-columns: 1fr; }
+    .preset-model-picker-row button { min-height: 44px; }
+  }
+
+  /* ── کابین غربالگری کایکی (W3): ردیف واژه‌ها، نوار اقدام، جعبه
+     گزارش <pre> با سقف ردیف گزارش (§1.5: 380px) + لغزش هم‌تم ── */
+  .screening-words-row {
+    display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center;
+  }
+  .screening-words-row input { flex: 1 1 220px; min-width: 0; }
+  .screening-words-row button { flex-shrink: 0; }
+  .screening-actions {
+    display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;
+  }
+  #screening-log {
+    font-family: var(--mono); font-size: 0.75rem; line-height: 1.5;
+    direction: ltr; text-align: left; unicode-bidi: isolate;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: var(--space-3); margin: 0;
+    max-height: 380px; min-height: calc(var(--space-6) * 3);
+    overflow-y: auto; overflow-x: auto; white-space: pre-wrap;
+    overflow-wrap: anywhere; word-break: break-word;
+    color: var(--text-primary);
+  }

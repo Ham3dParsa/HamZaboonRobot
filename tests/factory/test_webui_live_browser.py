@@ -31,7 +31,15 @@ PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SERVER_PATH = os.path.join(
     PROJECT_ROOT, "factory", "webui", "server.py")
-PRESETS_DIR = os.path.join(PROJECT_ROOT, "factory", "webui", "presets")
+
+
+def _shared_presets_dir():
+    """Where the live server actually stores presets (shared data root,
+    outside git — the per-console dir is only a migration source now)."""
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    from factory.core.env_loader import data_root
+    return os.path.join(data_root(), "webui", "presets")
 
 FA_TO_ASCII = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
 
@@ -158,7 +166,9 @@ def _providers_page(browser, base):
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     page.goto(base + "/")
     page.wait_for_timeout(1200)
-    page.evaluate("openView('view-providers')")
+    # Phase 2: navigation is data-attribute driven (no inline handlers or
+    # window globals) — drive the real nav button like an operator would.
+    page.click('button.nav-btn[data-view-target="view-providers"]')
     page.wait_for_timeout(600)
     return page
 
@@ -225,7 +235,7 @@ def test_preset_caps_save_and_edit_live_browser(live_console):
             urllib.request.urlopen(req, timeout=10).read()
         except Exception:
             pass
-        leftover = os.path.join(PRESETS_DIR, tag + ".json")
+        leftover = os.path.join(_shared_presets_dir(), tag + ".json")
         if os.path.isfile(leftover):
             os.remove(leftover)
 
@@ -298,3 +308,123 @@ def test_candidate_card_no_clipping_live_browser(live_console):
             live_console["tmpdir"], "candidate-cards.png"))
     finally:
         page.close()
+
+
+def test_shell_chrome_no_console_errors_live_browser(live_console):
+    """Phase-2 shell proof: tabs, modal, preset save, queue filter, 0 errors.
+
+    Drives the extracted ES-module shell (single module script tag, no
+    inline handlers, provider events over hz:*-refreshed) through the
+    operator chrome: every nav button, every linking tab, the model
+    modal open/close, a preset save, and a live queue-filter pass —
+    with zero JS console errors and zero uncaught page errors.
+    """
+    browser, base = live_console["browser"], live_console["base"]
+    tag = "chrome-%d" % os.getpid()
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    errors = []
+    crashes = []
+    page.on("console",
+            lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: crashes.append(str(exc)))
+    try:
+        page.goto(base + "/")
+        page.wait_for_selector("#queue-list .queue-item", timeout=15000)
+        page.wait_for_timeout(800)
+        # single module script tag, zero inline handlers
+        assert page.evaluate(
+            "document.querySelectorAll('script').length") == 1
+        assert page.evaluate(
+            "document.querySelectorAll('[onclick]').length") == 0
+        assert page.evaluate(
+            "document.querySelector('script').type") == "module"
+        # every nav button activates its view (data-view-target wiring)
+        for view in ("view-linking", "view-providers", "view-telemetry",
+                     "view-paths", "view-screening", "view-precard",
+                     "view-pilot", "view-transfer"):
+            page.click(
+                'button.nav-btn[data-view-target="%s"]' % view)
+            page.wait_for_timeout(250)
+            assert page.evaluate(
+                "document.getElementById('%s')"
+                ".classList.contains('active')" % view), view
+        # linking tabs switch and persist the active tab
+        page.click('button.nav-btn[data-view-target="view-linking"]')
+        page.wait_for_timeout(300)
+        n_tabs = page.evaluate(
+            "document.querySelectorAll('.cockpit-tabs .tab-link').length")
+        assert n_tabs == 5, n_tabs
+        for idx in range(n_tabs):
+            page.evaluate(
+                "document.querySelectorAll('.cockpit-tabs .tab-link')"
+                "[%d].click()" % idx)
+            page.wait_for_timeout(200)
+            assert page.evaluate(
+                "document.querySelectorAll('.cockpit-tabs .tab-link')"
+                "[%d].classList.contains('active')" % idx), idx
+        # queue filter narrows the 30-row list, clearing restores it
+        page.fill("#queue-filter", "run#25")
+        page.wait_for_timeout(400)
+        assert page.evaluate(
+            "document.querySelectorAll('#queue-list .queue-item').length") \
+            == 1
+        page.fill("#queue-filter", "")
+        page.wait_for_timeout(400)
+        assert page.evaluate(
+            "document.querySelectorAll('#queue-list .queue-item').length") \
+            == 30
+        # providers: model modal opens and closes via its own buttons
+        page.click('button.nav-btn[data-view-target="view-providers"]')
+        page.wait_for_timeout(500)
+        page.click("#btn-open-model-picker")
+        page.wait_for_timeout(800)
+        assert page.evaluate(
+            "document.getElementById('model-picker').open") is True
+        page.click("#btn-close-model-picker")
+        page.wait_for_timeout(300)
+        assert page.evaluate(
+            "document.getElementById('model-picker').open") is False
+        # providers: preset save round-trips through the catalog table
+        opts = page.evaluate(
+            "[...document.getElementById('preset-provider').options]"
+            ".map(o=>o.value)")
+        assert opts, "provider select must list real registry providers"
+        provider = "avalai" if "avalai" in opts else opts[0]
+        page.select_option("#preset-provider", provider)
+        page.fill("#preset-label", tag)
+        page.fill("#preset-model", "m-chrome")
+        page.fill("#preset-rpm", "15")
+        page.fill("#preset-rph", "")
+        page.fill("#preset-rpd", "500")
+        page.click("#btn-save-judge-preset")
+        page.wait_for_selector(
+            "#preset-catalog-tbody tr", timeout=15000)
+        page.wait_for_timeout(800)
+        cells = page.evaluate(
+            "[...document.querySelectorAll('#preset-catalog-tbody tr')]"
+            ".map(tr=>[...tr.cells].map(td=>td.innerText))")
+        mine = [c for c in cells if c and _norm_digits(c[0]) == tag]
+        assert len(mine) == 1, cells
+        # zero JS faults: no uncaught page exception, and no console error
+        # except the browser's own resource lines for upstream HTTP
+        # statuses the UI already handles (502/503 from the keyless test
+        # env — no keys, no supervisor). A 404 here (missing module) or
+        # any other console error fails the test.
+        assert not crashes, crashes
+        odd = [e for e in errors if not (
+            "Failed to load resource" in e
+            and (" 502" in e or " 503" in e))]
+        assert not odd, odd
+        page.screenshot(path=os.path.join(
+            live_console["tmpdir"], "shell-chrome.png"))
+    finally:
+        page.close()
+        req = urllib.request.Request(
+            base + "/api/judge_presets/" + tag, method="DELETE")
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception:
+            pass
+        leftover = os.path.join(_shared_presets_dir(), tag + ".json")
+        if os.path.isfile(leftover):
+            os.remove(leftover)

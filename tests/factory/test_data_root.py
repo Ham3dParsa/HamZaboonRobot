@@ -1,9 +1,15 @@
-"""HAMZABAN_DATA_ROOT data-root resolution (locked R1-R4).
+"""HAMZABAN_DATA_ROOT data-root resolution (shared webui store chain).
 
-Hermetic: tmp_path + monkeypatch only, no network, no W: drive.
+Hermetic: tmp_path + monkeypatch only, no network. The real W: drive
+presence is neutralized in ``clean_env`` (isdir wrapper hides the
+machine W root) so assertions are machine-independent; dedicated tests
+cover the W-present branch via a tmp stand-in.
 Covers data_root() itself plus every resolved data default in the four
 locked modules (kaikki index/raw x2, CEFR TSV x2, tatoeba pools x2,
 topic vectors; EVP stays repo-local by design).
+
+Chain: HAMZABAN_DATA_ROOT (non-blank) -> W:\\hamzaban_data_factory
+(when that dir exists) -> ~/.hamzaban/data.
 """
 
 import os
@@ -71,6 +77,21 @@ def clean_attrs():
 @pytest.fixture
 def clean_env(monkeypatch):
     monkeypatch.delenv(env_loader.DATA_ROOT_ENV_VAR, raising=False)
+    # Neutralize the machine W: drive so unset/blank tests are hermetic
+    # on any host (this box HAS a W: drive). Only the real W root is
+    # hidden — tmp stand-ins in W-present tests still resolve normally.
+    real_w = env_loader.W_DATA_ROOT
+    real_isdir = os.path.isdir
+
+    def _fake_isdir(path):
+        try:
+            if os.path.abspath(str(path)) == os.path.abspath(real_w):
+                return False
+        except (OSError, ValueError):
+            pass
+        return real_isdir(path)
+
+    monkeypatch.setattr(os.path, "isdir", _fake_isdir)
     return monkeypatch
 
 
@@ -78,18 +99,22 @@ def _norm(path):
     return str(path).replace("\\", "/")
 
 
-def test_data_root_unset_falls_back_to_repo_data(clean_attrs, clean_env):
+def test_data_root_unset_falls_back_to_home_data(clean_attrs, clean_env):
+    import pathlib
     root = data_root()
+    assert root == str(pathlib.Path.home() / ".hamzaban" / "data")
     assert _norm(root).endswith("/data")
     assert "W:" not in root
 
 
 @pytest.mark.parametrize("blank", ["", "   "])
-def test_data_root_blank_falls_back_to_repo_data(clean_attrs, clean_env,
-                                                     monkeypatch,
+def test_data_root_blank_falls_back_to_home_data(clean_attrs, clean_env,
+                                                 monkeypatch,
                                                  blank):
+    import pathlib
     monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, blank)
     root = data_root()
+    assert root == str(pathlib.Path.home() / ".hamzaban" / "data")
     assert _norm(root).endswith("/data")
     assert "W:" not in root
 
@@ -100,7 +125,7 @@ def test_data_root_set_returns_env_root(clean_attrs, monkeypatch, tmp_path):
 
 
 def test_data_root_reflects_env_changes_between_calls(clean_attrs,
-                                                      monkeypatch, tmp_path):
+                                                       monkeypatch, tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
     monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, str(first))
@@ -108,7 +133,35 @@ def test_data_root_reflects_env_changes_between_calls(clean_attrs,
     monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, str(second))
     assert data_root() == str(second)
     monkeypatch.delenv(env_loader.DATA_ROOT_ENV_VAR)
+    monkeypatch.setattr(env_loader, "W_DATA_ROOT",
+                        str(tmp_path / "no-such-w"))
     assert _norm(data_root()).endswith("/data")
+
+
+def test_w_drive_present_used_when_no_env(clean_attrs, clean_env,
+                                           monkeypatch, tmp_path):
+    """No env + existing W stand-in -> the W root wins over home."""
+    monkeypatch.setattr(env_loader, "W_DATA_ROOT", str(tmp_path))
+    assert data_root() == str(tmp_path)
+
+
+def test_env_wins_over_present_w_drive(clean_attrs, clean_env, monkeypatch,
+                                       tmp_path):
+    """Env root beats even an existing W drive."""
+    w_root = tmp_path / "w"
+    w_root.mkdir()
+    env_root = tmp_path / "env"
+    monkeypatch.setattr(env_loader, "W_DATA_ROOT", str(w_root))
+    monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, str(env_root))
+    assert data_root() == str(env_root)
+
+
+def test_blank_env_falls_through_to_present_w_drive(clean_attrs, clean_env,
+                                                    monkeypatch, tmp_path):
+    """Blank env behaves as unset: an existing W drive still wins."""
+    monkeypatch.setattr(env_loader, "W_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, "   ")
+    assert data_root() == str(tmp_path)
 
 
 def test_set_root_prefixes_every_resolved_default(clean_attrs, monkeypatch,
@@ -125,9 +178,9 @@ def test_set_root_prefixes_every_resolved_default(clean_attrs, monkeypatch,
         assert _norm(resolved) == _norm(os.path.join(str(tmp_path), *parts))
 
 
-def test_unset_root_resolves_under_repo_data_without_w(clean_attrs,
+def test_unset_root_resolves_under_home_data_without_w(clean_attrs,
                                                           clean_env):
-    """Env root unset -> every routed default under repo data/, zero W:."""
+    """Env root unset (no W) -> every routed default under ~/.hamzaban/data, zero W:."""
     for module, name, parts in ROUTED:
         resolved = getattr(module, name)
         assert "W:" not in resolved
@@ -135,8 +188,9 @@ def test_unset_root_resolves_under_repo_data_without_w(clean_attrs,
         assert _norm(resolved).endswith(tail)
 
 
-def test_blank_root_resolves_under_repo_data_without_w(clean_attrs,
-                                                       monkeypatch):
+def test_blank_root_resolves_under_home_data_without_w(clean_attrs,
+                                                           clean_env,
+                                                           monkeypatch):
     monkeypatch.setenv(env_loader.DATA_ROOT_ENV_VAR, "  ")
     for module, name, _parts in ROUTED:
         assert "W:" not in getattr(module, name)

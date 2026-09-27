@@ -76,8 +76,15 @@ def test_wake_sleep_buttons_wired():
     assert "btn-supervisor-wake" in html
     assert "btn-supervisor-sleep" in html
     assert "supervisor-lifecycle-state" in html
-    assert "/api/supervisor/wake" in html
-    assert "/api/supervisor/sleep" in html
+    # Phase 2: endpoint paths live in the shipped ES module
+    # (provider_registry_controller.js), not inline — assert on markup +
+    # module together; no string returns to index.html.
+    js = open(os.path.join(webui.SCRIPT_DIR, "static", "js", "providers",
+                           "provider_registry_controller.js"),
+              encoding="utf-8").read()
+    shipped = html + "\n" + js
+    assert "/api/supervisor/wake" in shipped
+    assert "/api/supervisor/sleep" in shipped
 
 
 def test_idle_sleep_uses_owner_minutes():

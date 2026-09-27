@@ -52,6 +52,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from factory.precard import provider_registry
 from factory.precard.accounting import source_item_key
+from factory.core.env_loader import data_root
 
 app = Flask(__name__, static_folder=None)
 
@@ -149,9 +150,13 @@ def parse_server_args(argv=None):
     return parser.parse_args(argv)
 RUNS_DIR = os.path.join(SCRIPT_DIR, "runs")
 REGISTRY_PATH = os.path.join(SCRIPT_DIR, "runs.json")
-PRESETS_DIR = os.path.join(SCRIPT_DIR, "presets")
+#: Shared operator store (outside git): presets, operator keys, and labels
+#: live under the single-source data root (factory.core.env_loader.data_root
+#: owns the fallback chain — no second resolver here). Run history
+#: (RUNS_DIR/REGISTRY_PATH) stays per-console by design.
+PRESETS_DIR = os.path.join(data_root(), "webui", "presets")
 PROFILES_DIR = os.path.join(SCRIPT_DIR, "provider_profiles")
-OPERATOR_KEYS_PATH = os.path.join(SCRIPT_DIR, "operator_keys.json")
+OPERATOR_KEYS_PATH = os.path.join(data_root(), "webui", "operator_keys.json")
 KEY_VAR_MAP_PATH = os.path.join(SCRIPT_DIR, "provider_key_vars.json")
 MASTER_VAR = "AI_MASTER_KEY"
 
@@ -1668,6 +1673,70 @@ def _list_dir(absdir):
                       "truncated": len(entries) > _FILE_LIST_LIMIT}
 
 
+#: Line-count cap for data-file facts (the kaikki raw dump is multi-GB:
+#: per-request counts stop after this many lines with an honest "N+").
+_FILE_LINES_CAP = 50000
+
+
+def _file_facts(path):
+    """Bounded facts for one data file (existence + size always, lines capped).
+
+    ``exists`` + ``size`` (bytes) are reported for every path; ``lines``
+    counts at most ``_FILE_LINES_CAP`` lines — when the file holds more,
+    ``lines`` stays at the cap with ``lines_label`` ``"50000+"`` and
+    ``truncated`` True (never a full unbounded count per request).
+    """
+    info = {"path": path, "exists": False, "size": 0,
+            "lines": 0, "lines_label": "0", "truncated": False}
+    try:
+        info["exists"] = bool(path) and os.path.isfile(path)
+    except (OSError, ValueError, TypeError):
+        return info
+    if not info["exists"]:
+        return info
+    try:
+        info["size"] = os.path.getsize(path)
+    except OSError:
+        info["size"] = 0
+    count, truncated = 0, False
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for _ in handle:
+                count += 1
+                if count > _FILE_LINES_CAP:
+                    truncated = True
+                    break
+    except OSError:
+        return info
+    if truncated:
+        info["lines"] = _FILE_LINES_CAP
+        info["lines_label"] = "%d+" % _FILE_LINES_CAP
+        info["truncated"] = True
+    else:
+        info["lines"] = count
+        info["lines_label"] = str(count)
+    return info
+
+
+def _data_file_facts():
+    """kaikki_raw + screened facts for /api/files/roots (both paths resolved
+    through their single sources: the kaikki raw default via the precard
+    pipeline's data-root default, screened via _configured_path — no second
+    resolver here)."""
+    try:
+        from factory.precard import pipeline as _pipe
+        kaikki_raw = _pipe.DEFAULT_KAIKKI_RAW
+    except Exception:
+        kaikki_raw = ""
+    try:
+        screened = _configured_path(None, SCREENED_ENV_VAR,
+                                    DEFAULT_SCREENED_PATH)
+    except Exception:
+        screened = DEFAULT_SCREENED_PATH
+    return {"kaikki_raw": _file_facts(kaikki_raw),
+            "screened": _file_facts(screened)}
+
+
 # ─── Dated run layout (human-sortable, newest last) ──────────────────
 
 def run_name_for(created_iso, run_id):
@@ -2868,6 +2937,13 @@ def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
     supervisor workflow leaves behind), then the request retries — the
     caller sees a friendly wait line, never a raw error. ``wake_fn`` injects
     the wake leg (() -> bool; tests pass fakes, never a process).
+    ``health_fn`` injects the health leg (() -> (ok, payload); tests pass
+    fakes, never network). When a token resolves, the probe still runs
+    (``health_fn`` when provided, else the read-only local
+    ``supervisor_health_snapshot``): a down probe falls through to the
+    wake branch below instead of reporting ready. A probe that cannot
+    run (raises) keeps the old assume-alive path — never a blind wake
+    on an unverifiable probe.
     Returns (ready_bool, error_or_None).
     """
     route, _reason = route_for_provider(
@@ -2876,8 +2952,17 @@ def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
     if route != "leased":
         return True, None
     if _supervisor_token():
-        _touch_supervisor_active()
-        return True, None
+        _probe = (health_fn if health_fn is not None
+                  else supervisor_health_snapshot)
+        try:
+            _up, _ = _probe()
+        except Exception:
+            _up = True
+        if _up:
+            _touch_supervisor_active()
+            return True, None
+        # Token resolves but the probe says down: fall through to the
+        # wake branch below (never report ready on a down supervisor).
     if wake_fn is not None:
         try:
             woke = wake_fn()
@@ -3563,6 +3648,11 @@ def _child_env_with_lease(child_env, lease):
 @app.route("/")
 def index():
     return send_from_directory(SCRIPT_DIR, "index.html")
+
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory(os.path.join(SCRIPT_DIR, "static"), filename)
 
 
 # ─── API ─────────────────────────────────────────────────────────────
@@ -4368,7 +4458,8 @@ def api_engine_info():
 
 @app.route("/api/files/roots", methods=["GET"])
 def api_files_roots():
-    return jsonify({"roots": _browse_roots()})
+    return jsonify({"roots": _browse_roots(),
+                    "files": _data_file_facts()})
 
 
 @app.route("/api/files/list", methods=["GET"])
@@ -4661,7 +4752,64 @@ def api_managed_provider_key_delete(name, index):
 
 DEFAULT_SCREENED_PATH = (
     "W:/hamzaban_data_factory/proof-linker/screened/screened.jsonl")
-LABELS_PATH = os.path.join(SCRIPT_DIR, "labels.jsonl")
+#: Shared human-label store (outside git — same single-source data root
+#: as presets/operator keys; run history stays per-console).
+LABELS_PATH = os.path.join(data_root(), "webui", "labels.jsonl")
+
+
+def _ensure_shared_store_migrated():
+    """First-boot copy of legacy per-console operator data to the shared root.
+
+    Copies each legacy slot (``presets/*.json``, ``operator_keys.json``,
+    ``labels.jsonl`` under ``SCRIPT_DIR``) into the shared ``data_root()``
+    store ONLY when the target slot is empty; never overwrites an existing
+    shared file. Idempotent across restarts. Names only in logs — values
+    never appear anywhere.
+    """
+    try:
+        legacy_presets = os.path.join(SCRIPT_DIR, "presets")
+        if os.path.abspath(PRESETS_DIR) != os.path.abspath(legacy_presets):
+            if os.path.isdir(legacy_presets):
+                try:
+                    os.makedirs(PRESETS_DIR, exist_ok=True)
+                except OSError:
+                    pass
+                try:
+                    entries = sorted(os.listdir(legacy_presets))
+                except OSError:
+                    entries = []
+                for entry in entries:
+                    if not entry.endswith(".json"):
+                        continue
+                    src = os.path.join(legacy_presets, entry)
+                    dst = os.path.join(PRESETS_DIR, entry)
+                    try:
+                        if os.path.isfile(src) and not os.path.exists(dst):
+                            shutil.copy2(src, dst)
+                            app.logger.info(
+                                "webui migrated preset %s", entry)
+                    except OSError:
+                        continue
+        for legacy_name, shared_path in (
+                ("operator_keys.json", OPERATOR_KEYS_PATH),
+                ("labels.jsonl", LABELS_PATH)):
+            try:
+                src = os.path.join(SCRIPT_DIR, legacy_name)
+                if os.path.abspath(shared_path) == os.path.abspath(src):
+                    continue
+                if os.path.isfile(src) and not os.path.exists(shared_path):
+                    parent = os.path.dirname(shared_path)
+                    if parent:
+                        try:
+                            os.makedirs(parent, exist_ok=True)
+                        except OSError:
+                            continue
+                    shutil.copy2(src, shared_path)
+                    app.logger.info("webui migrated %s", legacy_name)
+            except OSError:
+                continue
+    except Exception:
+        pass
 
 SCREENED_LIMIT = 500
 
@@ -4674,7 +4822,6 @@ DEFAULT_LINK_TABLE = os.path.join(PROJECT_ROOT, "factory", "linking",
 #: run20 ``candidates_run20.json`` — read-only, never re-ranked here).
 DEFAULT_CANDIDATES_RUN = (
     "W:/hamzaban_data_factory/proof-linker/run20/candidates_run20.json")
-
 #: Human-review lists (both read-only, both honest-empty when absent):
 #: the escalation-queue sink owned by ``factory/linking/human_queue.py``
 #: plus one witness-label list (gold shape: list of ``{kid, ...}``).
@@ -4818,6 +4965,266 @@ def api_screened():
     return jsonify({"path": path, "total": total,
                     "rows": rows[:SCREENED_LIMIT],
                     "truncated": total > SCREENED_LIMIT})
+
+
+#: Screening-export job states: idle (never ran here) / running / completed
+#: (exit 0) / failed (nonzero exit or operator abort). In-memory only —
+#: a console restart returns the job to idle (never a stale label).
+_SCREENING_LOG_MAX = 100
+
+_SCREENING_LOCK = threading.Lock()
+_SCREENING = {"proc": None, "pid": None, "status": "idle", "words": [],
+              "out_dir": "", "started": None, "exit_code": None,
+              "log": [], "manifest": None, "note": ""}
+
+
+def _default_screening_words():
+    """Screening word list default (owned by the export script).
+
+    Single source is ``factory.linking.export_screened.DEFAULT_WORDS``
+    (read lazily — the adapter never keeps a rival literal); the
+    fallback literal only covers an unreadable script module.
+    """
+    try:
+        from factory.linking import export_screened as _export
+        default = str(getattr(_export, "DEFAULT_WORDS", "") or "")
+        if default.strip():
+            return default
+    except Exception:
+        pass
+    return "run,light,take,get,make"
+
+
+def _screening_default_out_dir():
+    """Default screening output dir under the factory data root."""
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    if not str(root or "").strip():
+        return os.path.join(PROJECT_ROOT, "data", "proof-linker",
+                             "screened")
+    return os.path.join(str(root).strip(), "proof-linker", "screened")
+
+
+def _screening_parse_words(raw):
+    """Comma-separated words -> non-empty lemma list (default when empty)."""
+    words = [w.strip() for w in str(raw or "").split(",") if w.strip()]
+    if not words:
+        words = [w.strip()
+                 for w in _default_screening_words().split(",") if w.strip()]
+    return words
+
+
+def _screening_manifest_summary(out_dir):
+    """{kept_total, dropped_total, per_lemma} from the export manifest.
+
+    Pure reader over ``screened.manifest.json`` (written by the export
+    child on success): missing/unreadable file -> None (honest empty,
+    never invented). Only the summary keys are surfaced.
+    """
+    path = os.path.join(str(out_dir or ""), "screened.manifest.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    try:
+        kept = int(manifest.get("kept_total") or 0)
+    except (TypeError, ValueError):
+        kept = 0
+    try:
+        dropped = int(manifest.get("dropped_total") or 0)
+    except (TypeError, ValueError):
+        dropped = 0
+    per_lemma = manifest.get("per_lemma")
+    if not isinstance(per_lemma, list):
+        per_lemma = []
+    return {"kept_total": kept, "dropped_total": dropped,
+            "per_lemma": per_lemma}
+
+
+def _screening_public_locked():
+    """Public screening snapshot (caller must hold ``_SCREENING_LOCK``).
+
+    Polls the child once so a finished run settles to completed/failed
+    on read; on success the manifest summary is attached. Elapsed is
+    monotonic seconds since spawn (None before the first run).
+    """
+    import time as _time
+
+    proc = _SCREENING.get("proc")
+    code = None
+    if proc is not None:
+        try:
+            code = proc.poll()
+        except Exception:
+            code = None
+    if code is not None and _SCREENING.get("status") == "running":
+        _SCREENING["exit_code"] = code
+        if code == 0:
+            _SCREENING["status"] = "completed"
+            _SCREENING["manifest"] = _screening_manifest_summary(
+                _SCREENING.get("out_dir"))
+        else:
+            _SCREENING["status"] = "failed"
+    started = _SCREENING.get("started")
+    try:
+        elapsed = (_time.monotonic() - float(started)
+                   if started is not None else None)
+    except (TypeError, ValueError):
+        elapsed = None
+    return {"status": _SCREENING.get("status"),
+            "pid": _SCREENING.get("pid"),
+            "exit_code": _SCREENING.get("exit_code"),
+            "elapsed": elapsed,
+            "words": list(_SCREENING.get("words") or []),
+            "out_dir": _SCREENING.get("out_dir") or "",
+            "log": list(_SCREENING.get("log") or [])[-_SCREENING_LOG_MAX:],
+            "manifest": _SCREENING.get("manifest"),
+            "note": _SCREENING.get("note") or ""}
+
+
+def _screening_snapshot():
+    """Public screening snapshot (locking wrapper, never raises)."""
+    with _SCREENING_LOCK:
+        return _screening_public_locked()
+
+
+def _screening_pump(proc):
+    """Drain a screening child into the combined ring buffer (thread).
+
+    Stdout+stderr arrive merged (single chronological stream, max 100
+    lines kept); on child exit a still-running record settles to
+    completed/failed with the manifest summary on success. An abort
+    that already settled the record wins (never overwritten here).
+    Best-effort — never raises, never touches other jobs.
+    """
+    try:
+        stream = getattr(proc, "stdout", None)
+        if stream is not None:
+            for line in stream:
+                try:
+                    text = (line if isinstance(line, str)
+                            else str(line or ""))
+                except Exception:
+                    continue
+                with _SCREENING_LOCK:
+                    _SCREENING["log"].append(text.rstrip("\n"))
+                    del _SCREENING["log"][:-_SCREENING_LOG_MAX]
+    except Exception:
+        pass
+    try:
+        code = proc.wait()
+    except Exception:
+        code = None
+    with _SCREENING_LOCK:
+        if _SCREENING.get("status") != "running":
+            return
+        _SCREENING["exit_code"] = code
+        if code == 0:
+            _SCREENING["status"] = "completed"
+            _SCREENING["manifest"] = _screening_manifest_summary(
+                _SCREENING.get("out_dir"))
+        else:
+            _SCREENING["status"] = "failed"
+
+
+@app.route("/api/screening/run", methods=["POST"])
+def api_screening_run():
+    """Spawn the screened export (Step 2) in the background.
+
+    Body {"words" (optional, comma-separated; default is the export
+    script's own word list), "out_dir" (optional; default
+    ``<DATA_ROOT>/proof-linker/screened``)}. The child is exactly
+    ``python -m factory.linking.export_screened --words .. --out-dir
+    ..`` (receipt argv, replays from a terminal); the long export
+    never runs in the request thread — the handler spawns via
+    ``subprocess.Popen`` and returns while a pump thread drains the
+    merged stdout+stderr into the 100-line ring buffer. 409 while a
+    run is already in flight; 201 with the running snapshot otherwise.
+    """
+    fields = request.get_json(force=True, silent=True) or {}
+    words = _screening_parse_words(fields.get("words"))
+    out_dir = (str(fields.get("out_dir") or "").strip()
+               or _screening_default_out_dir())
+    import time as _time
+
+    with _SCREENING_LOCK:
+        proc = _SCREENING.get("proc")
+        try:
+            busy = proc is not None and proc.poll() is None
+        except Exception:
+            busy = False
+        if busy:
+            return jsonify({"error": "screening already running",
+                            "screening": _screening_public_locked()}), 409
+        argv = [sys.executable, "-m", "factory.linking.export_screened",
+                "--words", ",".join(words), "--out-dir", out_dir]
+        try:
+            proc = subprocess.Popen(
+                argv, cwd=PROJECT_ROOT,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return jsonify({"error": "spawn failed: %s" % exc}), 500
+        _SCREENING.update(proc=proc, pid=_proc_pid(proc),
+                          status="running", words=list(words),
+                          out_dir=out_dir, started=_time.monotonic(),
+                          exit_code=None, log=[], manifest=None, note="")
+        threading.Thread(target=_screening_pump, args=(proc,),
+                         daemon=True).start()
+        body = _screening_public_locked()
+    return jsonify({"screening": body}), 201
+
+
+@app.route("/api/screening/status", methods=["GET"])
+def api_screening_status():
+    """Screening job snapshot: idle/running/completed/failed + elapsed.
+
+    Carries the exit code, the single combined chronological tail
+    (max 100 lines, stdout+stderr merged) and — on success — the
+    manifest summary (kept_total/dropped_total/per_lemma). Never
+    spawns, never signals.
+    """
+    return jsonify({"screening": _screening_snapshot()})
+
+
+@app.route("/api/screening/abort", methods=["POST"])
+def api_screening_abort():
+    """Stop the running screening child by pid only (never a blanket kill).
+
+    SIGTERM on the recorded child, a short wait, then the kill
+    fallback (same stop leg as run cancel). The record settles to
+    failed with an operator-abort note. 409 when no run is in flight.
+    """
+    with _SCREENING_LOCK:
+        proc = _SCREENING.get("proc")
+        try:
+            busy = proc is not None and proc.poll() is None
+        except Exception:
+            busy = False
+        if not busy:
+            return jsonify({"error": "no screening run in flight",
+                            "screening": _screening_public_locked()}), 409
+        pid = _SCREENING.get("pid")
+    code, note = _terminate_child(proc, pid,
+                                  grace_seconds=CANCEL_GRACE_SECONDS,
+                                  verify=None)
+    if code is None:
+        try:
+            code = proc.poll()
+        except Exception:
+            code = None
+    with _SCREENING_LOCK:
+        _SCREENING["exit_code"] = code
+        _SCREENING["status"] = "failed"
+        _SCREENING["note"] = ("aborted by operator%s"
+                              % (note or ""))
+        body = _screening_public_locked()
+    return jsonify({"screening": body})
 
 
 def _candidates_limit():
@@ -5269,6 +5676,7 @@ if __name__ == "__main__":
     _args = parse_server_args()
     os.chdir(PROJECT_ROOT)
     os.makedirs(RUNS_DIR, exist_ok=True)
+    _ensure_shared_store_migrated()
     # Boot receipt: proves the exact host/port the process bound
     # (operators match this line against the -BindHost/-Port they
     # passed to server_ctl.ps1; names only, no secrets).

@@ -20,14 +20,60 @@ HTML_PATH = os.path.join(PROJECT_ROOT, "factory", "webui",
 
 
 def _html():
+    # Phase 2: page scripts live under static/js as native ES modules —
+    # return markup plus the shipped modules in dependency order so the
+    # behavior assertions below keep reading the same shipped source
+    # (centralized here, mirroring the Phase-1 _css() pattern; no
+    # assertion below was retouched for the move).
+    return _markup() + "\n" + _js()
+
+
+def _markup():
     with open(HTML_PATH, encoding="utf-8") as handle:
         return handle.read()
 
 
+STATIC_DIR = os.path.join(PROJECT_ROOT, "factory", "webui", "static")
+LINK_ORDER = ("tokens.css", "layout.css", "components.css", "cabins.css")
+
+
+def _css():
+    """Concatenated console stylesheets in <link> order (R3)."""
+    parts = []
+    for name in LINK_ORDER:
+        with open(os.path.join(STATIC_DIR, name),
+                  encoding="utf-8") as handle:
+            parts.append(handle.read())
+    return "\n".join(parts)
+
+
+STATIC_JS_DIR = os.path.join(STATIC_DIR, "js")
+JS_ORDER = (
+    os.path.join("shell", "api_client.js"),
+    os.path.join("shell", "view_navigator.js"),
+    os.path.join("shell", "filterable_list_controller.js"),
+    os.path.join("providers", "provider_registry_controller.js"),
+    os.path.join("arbitration_presets", "preset_catalog_controller.js"),
+    os.path.join("sense_linking", "human_review_controller.js"),
+    os.path.join("telemetry", "telemetry_dashboard_controller.js"),
+    "main.js",
+)
+
+
+def _js():
+    """Concatenated shipped ES modules in dependency order (Phase 2)."""
+    parts = []
+    for name in JS_ORDER:
+        with open(os.path.join(STATIC_JS_DIR, name),
+                  encoding="utf-8") as handle:
+            parts.append(handle.read())
+    return "\n".join(parts)
+
+
 def test_wide_canvas_two_column():
-    text = _html()
-    assert "max-width: 1200px" in text
-    assert "minmax(0, 7.5fr) minmax(320px, 4.5fr)" in text
+    css = _css()
+    assert "max-width: 1200px" in css
+    assert "minmax(0, 7.5fr) minmax(320px, 4.5fr)" in css
 
 
 def test_v5_identity_and_no_demo_constants():
@@ -442,7 +488,7 @@ def test_rtl_persian_digits_latin_isolation():
     assert "faNum" in text
     # v5 isolation contract: dedicated classes, never bare latin runs
     assert "ltr-text" in text and "code-token" in text
-    assert "unicode-bidi: isolate" in text
+    assert "unicode-bidi: isolate" in _css()
 
 
 def test_safety_surfaces_unchanged():
@@ -766,7 +812,7 @@ def test_model_explorer_second_filter_instance():
     # free-only chip with distinct active styling
     assert "presetFreeOnly" in text
     assert "preset-free-chip" in text
-    assert ".free-chip.active" in text
+    assert ".free-chip.active" in _css()
     assert "presetModelIsFree" in text
 
 
@@ -778,10 +824,11 @@ def test_model_explorer_adopt_writes_exact_id():
     assert "document.getElementById('preset-model').value = id" in text
     # compact rows ~40-44px, latin monospace id, green free badge,
     # filtered-of-total telemetry strip
-    assert ".model-row" in text
-    assert "40px" in text and "44px" in text
-    assert ".model-id" in text
-    assert ".free-badge" in text
+    css = _css()
+    assert ".model-row" in css
+    assert "40px" in css and "44px" in css
+    assert ".model-id" in css
+    assert ".free-badge" in css
     assert "preset-models-count" in text
     assert "renderPresetModels" in text
     assert "fetchPresetModels" in text
@@ -910,12 +957,13 @@ def test_themed_scrollbar_styles_only():
     in by class); day-night follows the theme variables by inheritance.
     """
     text = _html()
-    assert "scrollbar-width" in text
-    assert "scrollbar-color" in text
-    assert "::-webkit-scrollbar" in text
-    assert ".themed-scroll" in text
-    assert ".themed-scroll::-webkit-scrollbar-thumb" in text
-    assert ".queue-list::-webkit-scrollbar-thumb" in text
+    css = _css()
+    assert "scrollbar-width" in css
+    assert "scrollbar-color" in css
+    assert "::-webkit-scrollbar" in css
+    assert ".themed-scroll" in css
+    assert ".themed-scroll::-webkit-scrollbar-thumb" in css
+    assert ".queue-list::-webkit-scrollbar-thumb" in css
     assert 'class="queue-list themed-scroll"' in text
 
 
@@ -1181,11 +1229,12 @@ def test_cabin_tabs_match_five_linker_stages():
 def test_queue_rows_show_gloss_slice_muted_ltr():
     """Queue rows render identifier + one-line muted gloss (BiDi-safe)."""
     text = _html()
-    assert ".queue-gloss" in text
+    css = _css()
+    assert ".queue-gloss" in css
     assert "queue-gloss ltr-text" in text
     assert 'setAttribute' in text and "'dir', 'ltr'" in text
     assert "glossSlice" in text and "row.gloss" in text
-    assert "text-overflow: ellipsis" in text
+    assert "text-overflow: ellipsis" in css
     assert "queueItemMatches" in text and "(row.gloss || '')" in text
 
 
@@ -1576,31 +1625,34 @@ def test_judge_preset_save_roundtrip(tmp_path, monkeypatch):
 
 def test_design_tokens_spacing_scale_and_auto_fit_grid():
     text = _html()
+    css = _css()
     # spacing scale defined once at root, consumed by the standard grid
     for token in ("--space-1: 4px", "--space-2: 8px", "--space-3: 12px",
                   "--space-4: 16px", "--space-5: 24px",
                   "--space-6: 32px", "--space-7: 48px"):
-        assert token in text, token
-    assert ".cards-grid-auto" in text
-    assert "repeat(auto-fit, minmax(290px, 1fr))" in text
-    assert "gap: var(--space-3)" in text
+        assert token in css, token
+    assert ".cards-grid-auto" in css
+    assert "repeat(auto-fit, minmax(290px, 1fr))" in css
+    assert "gap: var(--space-3)" in css
     assert 'class="cards-grid-auto" id="provider-cards"' in text
     # no fixed-column grid for the provider cards
-    assert "repeat(4, 1fr)" not in text
-    assert "cards-grid-3" not in text
+    assert "repeat(4, 1fr)" not in text and "repeat(4, 1fr)" not in css
+    assert "cards-grid-3" not in text and "cards-grid-3" not in css
 
 
 def test_design_bounded_lists_with_themed_scroll():
     text = _html()
+    css = _css()
     # candidates stack: capped + themed scroll
     assert 'class="candidates-stack themed-scroll"' in text
-    assert ".candidates-stack { max-height: 320px; overflow-y: auto; }" in text
-    # dynamic data tables: capped + themed scroll
-    assert text.count('class="table-responsive bounded themed-scroll"') == 2
-    assert ".table-responsive.bounded" in text
+    assert ".candidates-stack { max-height: 320px; overflow-y: auto; }" in css
+    # dynamic data tables: capped + themed scroll (telemetry, paths,
+    # screening per-lemma)
+    assert text.count('class="table-responsive bounded themed-scroll"') == 3
+    assert ".table-responsive.bounded" in css
     # model + queue lists keep their ceilings
-    assert ".model-list" in text and "max-height: 260px" in text
-    assert ".queue-list" in text
+    assert ".model-list" in css and "max-height: 260px" in css
+    assert ".queue-list" in css
 
 
 def test_design_provider_cards_badges_debug_details_and_copy():
@@ -1727,21 +1779,22 @@ def test_provider_connections_collapsed_out_of_first_screen():
 
 def test_collapsible_blocks_shared_styling():
     text = _html()
+    css = _css()
     for block in ('id="provider-connections"', 'id="operator-secrets"'):
         tag_start = text.index(block)
         tag_open = text.rindex("<details", 0, tag_start)
         assert "collapsible-block" in text[tag_open:text.index(">", tag_start)]
     # explicit rotating marker with hover affordance
     assert "collapsible-block" in text
-    assert ".chev" in text
-    assert "transform" in text and "rotate(" in text
-    assert "transition" in text
-    assert "summary:hover" in text
+    assert ".chev" in css
+    assert "transform" in css and "rotate(" in css
+    assert "transition" in css
+    assert "summary:hover" in css
     # soft border, standard padding, distinct background
-    assert "details.collapsible-block" in text
-    assert "border: 1px solid var(--border-color)" in text
-    assert "padding: 16px" in text
-    assert "background: var(--bg-surface)" in text
+    assert "details.collapsible-block" in css
+    assert "border: 1px solid var(--border-color)" in css
+    assert "padding: 16px" in css
+    assert "background: var(--bg-surface)" in css
     assert 'class="chev"' in text
 
 
@@ -1753,8 +1806,9 @@ def test_model_picker_centered_modal_dialog():
     assert "openModelPicker" in text and "closeModelPicker" in text
     assert "showModal" in text
     # centered modal styling with backdrop
-    assert "dialog.model-dialog" in text
-    assert "dialog.model-dialog::backdrop" in text
+    css = _css()
+    assert "dialog.model-dialog" in css
+    assert "dialog.model-dialog::backdrop" in css
     # explorer renders inside the dialog (filter, free chip, card rows)
     dlg = text.index('id="model-picker"')
     for token in ('id="preset-model-filter"', 'id="preset-free-chip"',
@@ -1773,14 +1827,15 @@ def test_preset_form_compact_first_screen():
     text = _html()
     assert 'id="preset-card"' in text
     assert "preset-compact" in text
-    assert ".preset-compact" in text
+    css = _css()
+    assert ".preset-compact" in css
     # provider, model id, both caps share one compact line
     for token in ('id="preset-provider"', 'id="preset-model"',
                   'id="preset-rpm"', 'id="preset-rph"',
                   'id="btn-open-model-picker"'):
         assert token in text, token
-    compact = text.index("preset-compact")
-    assert "grid-template-columns" in text[compact:compact + 600]
+    compact = css.index("preset-compact")
+    assert "grid-template-columns" in css[compact:compact + 600]
 
 
 def test_preset_catalog_table_under_form():
@@ -1951,6 +2006,7 @@ def test_judge_preset_edit_rename_migrates_without_duplicates(
 
 def test_candidate_card_structure_hygiene():
     text = _html()
+    css = _css()
     block = text[text.index("function renderCandidates"):
                  text.index("function setSelectedTarget")]
     # top row: isolated Latin sensekey + select button
@@ -1973,31 +2029,31 @@ def test_candidate_card_structure_hygiene():
         assert debug in meta, debug
         assert debug not in head, debug
     # the old flat body patterns are gone
-    assert "c-info-block" not in text
-    assert "c-key-tag" not in text
+    assert "c-info-block" not in text and "c-info-block" not in css
+    assert "c-key-tag" not in text and "c-key-tag" not in css
     assert "'= ' + cand.synonyms" not in text
     assert "'◈ ' + cand.example" not in text
     # gloss box never uses the fragile -webkit-box clamp (it collapses
     # to a ~9px blank in headless Chromium); gloss, synonyms, and the
     # example quote flow free (no rigid height cap, no hidden overflow
     # — mid-word clipping of synonyms/quotes is the proven bug)
-    assert "-webkit-box" not in text
-    assert "-webkit-line-clamp" not in text
-    gloss_css = text[text.index(".c-gloss-text {"):
-                    text.index(".c-gloss-text {") + 400]
+    assert "-webkit-box" not in text and "-webkit-box" not in css
+    assert "-webkit-line-clamp" not in text and "-webkit-line-clamp" not in css
+    gloss_css = css[css.index(".c-gloss-text {"):
+                    css.index(".c-gloss-text {") + 400]
     assert "flex: none" in gloss_css
     assert "max-height" not in gloss_css
     assert "overflow: hidden" not in gloss_css
     assert "padding:" in gloss_css
-    card_css = text[text.index(".candidate-row-card {"):
-                   text.index(".candidate-row-card {") + 400]
+    card_css = css[css.index(".candidate-row-card {"):
+                   css.index(".candidate-row-card {") + 400]
     assert "overflow: hidden" not in card_css
-    syn_css = text[text.index(".c-synonyms-line {"):
-                  text.index(".c-synonyms-line {") + 300]
+    syn_css = css[css.index(".c-synonyms-line {"):
+                  css.index(".c-synonyms-line {") + 300]
     assert "max-height" not in syn_css
     assert "overflow: hidden" not in syn_css
-    quote_css = text[text.index(".c-example {"):
-                    text.index(".c-example {") + 400]
+    quote_css = css[css.index(".c-example {"):
+                    css.index(".c-example {") + 400]
     assert "max-height" not in quote_css
     assert "overflow: hidden" not in quote_css
     assert "blockquote" in quote_css or "border-inline-start" in quote_css

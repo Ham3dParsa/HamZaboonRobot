@@ -41,13 +41,25 @@ def test_new_console_secret_paths_ignored():
         assert required in lines, required
 
 
+def test_shared_operator_paths_live_outside_git():
+    """Shared operator data (presets/keys/labels) resolves under the
+    single-source data root — outside the repo, hence uncommittable
+    without any gitignore line (run history stays per-console below)."""
+    from factory.webui import server as webui
+
+    repo = os.path.abspath(PROJECT_ROOT)
+    for path in (webui.PRESETS_DIR, webui.OPERATOR_KEYS_PATH,
+                 webui.LABELS_PATH):
+        assert not os.path.abspath(path).startswith(repo), path
+
+
 def test_server_secret_constants_live_under_ignored_home():
-    """The server's secret-bearing paths resolve under factory/webui,
-    i.e. inside the ignored home pinned above (no second registry)."""
+    """Run history + profiles stay per-console under the gitignored
+    factory/webui home pinned above (no second registry)."""
     from factory.webui import server as webui
 
     home = os.path.join(PROJECT_ROOT, "factory", "webui")
-    for path in (webui.OPERATOR_KEYS_PATH, webui.KEY_VAR_MAP_PATH,
-                 webui.LABELS_PATH, webui.REGISTRY_PATH, webui.RUNS_DIR,
-                 webui.PRESETS_DIR, webui.PROFILES_DIR):
+    for path in (webui.KEY_VAR_MAP_PATH,
+                 webui.REGISTRY_PATH, webui.RUNS_DIR,
+                 webui.PROFILES_DIR):
         assert os.path.abspath(path).startswith(home), path

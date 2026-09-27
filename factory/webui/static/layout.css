@@ -1,0 +1,208 @@
+
+
+  /* نوار لغزشی هم‌تم: باریک و گرد، هماهنگ با تم شب/روز (فقط استایل) */
+  /* ریشه (پنجره): متغیرهای تم از [data-theme] به ارث می‌رسند */
+  html, body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-base); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 8px;
+    border: 2px solid var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  /* کلاس عمومی نوار لغزشی هم‌تم برای ناحیه‌های لغزشی درونی:
+     تم را از ریشه به ارث می‌برد (شب/روز خودکار)؛ هر ناحیه لغزشی
+     (صف، جدول، نامزدها) با افزودن همین کلاس هم‌تم می‌شود. */
+  .themed-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .themed-scroll::-webkit-scrollbar-track {
+    background: var(--bg-base);
+    border-radius: 6px;
+  }
+  .themed-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 6px;
+    border: 2px solid var(--bg-base);
+  }
+  .themed-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* نوار وضعیت سراسری در بالای صفحه */
+  header.top-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+  .app-branding { display: flex; align-items: center; gap: 8px; }
+  .btn-menu-toggle {
+    display: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .app-logo {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--c-primary); color: #fff;
+    display: grid; place-items: center; font-weight: 700; font-size: 0.9rem;
+  }
+  .app-title { font-size: 0.95rem; font-weight: 700; }
+  .system-badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .badge {
+    font-size: 0.72rem; padding: 3px 8px; border-radius: 6px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px;
+  }
+  .badge.live-disk { border-color: var(--c-success); color: var(--c-success); }
+  .badge.rate-cap { border-color: var(--c-warning); color: var(--c-warning); }
+  .badge.network { border-color: var(--c-secondary); color: var(--c-secondary); }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* چیدمان کلی پوسته کنسول */
+  .console-shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    min-height: calc(100vh - 46px);
+  }
+
+  /* سایدبار ناوبری ثابت دسکتاپ و واکنش‌گرا در تبلت */
+  aside.main-nav {
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border-color);
+    padding: 14px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .nav-section-title {
+    font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+    padding-inline: 6px; margin-bottom: 2px;
+  }
+  .nav-btn {
+    width: 100%; min-height: 38px; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid transparent; background: transparent; color: var(--text-secondary);
+    font: inherit; font-size: 0.82rem; cursor: pointer; text-align: right;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .nav-btn.active {
+    background: var(--bg-elevated); border-color: var(--border-color);
+    color: var(--c-secondary); font-weight: 700;
+  }
+  .status-tag {
+    font-size: 0.68rem; padding: 1px 5px; border-radius: 4px;
+    background: var(--border-subtle); color: var(--text-muted);
+  }
+
+  /* پرده تاریک‌کننده برای حالت منوی موبایل/تبلت */
+  .nav-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 45;
+  }
+
+  /* فضای اصلی کارخانه با سقف استاندارد ۱۲۰۰ پیکسل وسط‌چین (§1.2) */
+  main.workspace-area {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 1200px;
+    margin-inline: auto;
+    width: 100%;
+  }
+
+  /* بنر هوشمند جریان داده (حذف خط ضخیم نئونی) */
+  .handoff-strip {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 8px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .strip-details { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+  .strip-details b { color: var(--c-secondary); }
+
+  /* زبانه‌های فرعی کابین */
+  .cockpit-tabs {
+    display: flex; gap: 6px; border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px; flex-wrap: wrap;
+  }
+  .tab-link {
+    background: transparent; border: 1px solid transparent; border-radius: 6px;
+    padding: 6px 12px; font: inherit; font-size: 0.82rem; color: var(--text-secondary);
+    cursor: pointer; min-height: 34px;
+  }
+  .tab-link:hover { color: var(--text-primary); }
+  .tab-link.active {
+    background: var(--bg-surface); border-color: var(--border-color);
+    color: var(--text-primary); font-weight: 700;
+  }
+
+  /* چیدمان ۲ ستونه بهینه‌ساز فضا */
+  .dense-workspace-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7.5fr) minmax(320px, 4.5fr);
+    gap: 16px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  /* ستون داوری سنس */
+  .arbitration-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* ستون ناظر صف و آمار — چسبان به قاب‌نما با سقف ارتفاع، ستون فلکس */
+  .inspector-column {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 14px;
+    position: sticky; top: 58px; max-height: calc(100vh - 74px); overflow: hidden;
+  }
+  .inspector-column > .panel-heading,
+  .inspector-column > .metrics-mini-grid { flex-shrink: 0; }
+  .panel-heading {
+    font-size: 0.82rem; font-weight: 700; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .metrics-mini-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    padding-top: 10px; border-top: 1px solid var(--border-color);
+  }
+  .mini-metric-card {
+    background: var(--bg-elevated); border-radius: 6px; padding: 8px; text-align: center;
+  }
+  .mini-val { font-size: 1.1rem; font-weight: 700; font-family: var(--mono); color: var(--c-secondary); }
+  .mini-label { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* نماهای اختصاصی دیگر (غیر از داوری) */
+  .workspace-view { display: none; }
+  .workspace-view.active { display: flex; flex-direction: column; gap: 14px; }
+
+  /* واکنش‌گرایی برای تبلت و موبایل */
+  @media (max-width: 1024px) {
+    .console-shell { grid-template-columns: 1fr; }
+    .btn-menu-toggle { display: inline-flex; }
+    .dense-workspace-grid { grid-template-columns: 1fr; }
+    aside.main-nav {
+      position: fixed; top: 0; right: -280px; bottom: 0; width: 260px;
+      z-index: 50; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+    }
+    aside.main-nav.open { right: 0; }
+    .nav-backdrop.open { display: block; }
+  }

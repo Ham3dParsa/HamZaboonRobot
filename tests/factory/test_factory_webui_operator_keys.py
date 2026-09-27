@@ -138,9 +138,17 @@ def test_surfaces_names_only(tmp_path, monkeypatch):
     assert 'id="supervisor-card"' in text
     assert 'id="supervisor-token-input"' in text
     assert 'id="btn-supervisor-save"' in text
-    assert "/api/supervisor/token" in text
-    assert "/api/supervisor/status" in text
-    assert "supervisorTokenSave" in text
+    # Phase 2: endpoint paths + save handler live in the shipped ES module
+    # (provider_registry_controller.js), not inline — assert on markup +
+    # module together; no string returns to index.html.
+    js = open(os.path.join(PROJECT_ROOT, "factory", "webui", "static",
+                           "js", "providers",
+                           "provider_registry_controller.js"),
+              encoding="utf-8").read()
+    shipped = text + "\n" + js
+    assert "/api/supervisor/token" in shipped
+    assert "/api/supervisor/status" in shipped
+    assert "supervisorTokenSave" in shipped
     # Fail-closed: with no master key nothing resolves and nothing stores.
     import config as _cfg
     monkeypatch.delenv(MASTER_VAR, raising=False)
