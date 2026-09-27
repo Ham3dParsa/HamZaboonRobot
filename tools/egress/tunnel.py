@@ -24,6 +24,51 @@ BIN_DIR = pathlib.Path(__file__).resolve().parent / "bin"
 XRAY = BIN_DIR / "xray.exe"
 
 
+def _primary_bin_dir():
+    """Primary checkout's tools/egress/bin (read-only xray fallback).
+
+    A worktree console ships no 35 MB binary copy: when this
+    checkout's own bin lacks xray.exe, the operator's primary bin is
+    used in place (executed, never copied, never written). "" when
+    unresolvable (current behavior, never a guess).
+    """
+    try:
+        from .supervisor import _primary_root
+    except ImportError:
+        try:
+            from supervisor import _primary_root
+        except ImportError:
+            return ""
+    try:
+        root = _primary_root()
+    except Exception:
+        return ""
+    if not root:
+        return ""
+    cand = pathlib.Path(root) / "tools" / "egress" / "bin"
+    try:
+        if cand.is_dir():
+            return str(cand)
+    except OSError:
+        pass
+    return ""
+
+
+def xray_path():
+    """Usable xray.exe: own bin first, primary bin fallback (read-only)."""
+    if XRAY.exists():
+        return XRAY
+    primary = _primary_bin_dir()
+    if primary:
+        cand = pathlib.Path(primary) / "xray.exe"
+        try:
+            if cand.exists():
+                return cand
+        except OSError:
+            pass
+    return None
+
+
 def free_port():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -33,7 +78,7 @@ def free_port():
 
 
 def xray_available():
-    return XRAY.exists()
+    return xray_path() is not None
 
 
 def check_port(port, timeout=1.0):
@@ -87,7 +132,8 @@ class Tunnel:
         # Parse first (pure, hermetic): bad links fail here, never as a
         # half-spawned child.
         node = xrayconf.parse_link(self.link)
-        if not xray_available():
+        exe = xray_path()
+        if exe is None:
             raise RuntimeError("xray.exe missing in tools/egress/bin")
         self.port = free_port()
         cfg = xrayconf.xray_config(node, self.port)
@@ -101,10 +147,19 @@ class Tunnel:
             creation = 0
             if sys.platform == "win32":
                 creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            child_env = dict(os.environ)
+            # Geo assets ride beside the fallback binary: point xray
+            # at the binary's own dir so geosite/geoip rules resolve
+            # no matter which checkout's binary runs.
+            try:
+                child_env.setdefault("XRAY_LOCATION_ASSET",
+                                     str(exe.parent))
+            except Exception:
+                pass
             self.proc = subprocess.Popen(
-                [str(XRAY), "-c", self.cfg_path],
+                [str(exe), "-c", self.cfg_path],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=creation)
+                creationflags=creation, env=child_env)
             deadline = time.time() + timeout
             while time.time() < deadline:
                 if self.proc.poll() is not None:

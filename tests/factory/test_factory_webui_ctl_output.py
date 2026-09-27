@@ -44,12 +44,15 @@ def _code(text):
 def test_ctl_status_line_shape():
     text = _text(CTL_PATH)
     status_body = _body(text, "Show-Status")
-    # One status literal per branch (RUNNING / STALE / STOPPED); only
-    # one branch ever executes, so every Show-Status call prints
-    # exactly one status line.
-    for state in ("status: RUNNING", "status: STALE", "status: STOPPED"):
+    # One status literal per branch (RUNNING / STALE / STOPPED /
+    # FOREIGN-PORT-HELD); only one branch ever executes, so every
+    # Show-Status call prints exactly one status line. STOPPED must
+    # never print alongside an open port — the no-pidfile branch
+    # splits into STOPPED (port closed) vs FOREIGN-PORT-HELD (open).
+    for state in ("status: RUNNING", "status: STALE", "status: STOPPED",
+                  "status: FOREIGN-PORT-HELD"):
         assert text.count('"%s' % state) == 1, state
-    assert status_body.count('"status:') == 3
+    assert status_body.count('"status:') == 4
     # Stop paths each print exactly one status line (port_open probe).
     stop_body = _body(text, "Stop-Server")
     assert stop_body.count('"status:') == 3

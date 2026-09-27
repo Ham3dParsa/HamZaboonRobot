@@ -25,6 +25,15 @@
     --text-muted: #6e7681;
     --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
     --sans: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+    /* مقیاس فاصله استاندارد سامانه طراحی (§1.4): تنها منبع اعداد فاصله */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --c-info: #8b949e;         /* خاکستری خنثی / ستون‌های ثبت‌نشده (خالی صادقانه) */
   }
 
   [data-theme="light"] {
@@ -196,14 +205,14 @@
     z-index: 45;
   }
 
-  /* فضای اصلی کارخانه با محدودکننده استاندارد عرض عریض */
+  /* فضای اصلی کارخانه با سقف استاندارد ۱۲۰۰ پیکسل وسط‌چین (§1.2) */
   main.workspace-area {
     padding: 16px 20px;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    max-width: 1600px;
-    margin: 0 auto;
+    max-width: 1200px;
+    margin-inline: auto;
     width: 100%;
   }
 
@@ -281,21 +290,45 @@
     border-radius: 6px; padding: 10px 14px;
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     transition: border-color 0.15s;
-    overflow: hidden; min-width: 0;
+    min-width: 0;
   }
   .candidate-row-card:hover { border-color: var(--c-secondary); }
   .candidate-row-card.selected { border-color: var(--c-success); }
-  .c-info-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
-  .c-key-tag { font-size: 0.75rem; color: var(--c-accent); font-weight: 600; }
-  /* مهار سرریز معنی نامزد: جعبه حداکثر ۳ خط با بیضی، شکست امن واژه‌های
-     بلند لاتین، ایزوله BiDi (کلاس ltr-text)؛ متن کامل روی title (hover) */
+  /* معنی نامزد آزاد جاری می‌شود (بدون سقف ارتفاع و بدون برش پنهان):
+     شکست امن واژه‌های بلند لاتین، ایزوله BiDi (کلاس ltr-text)؛
+     متن کامل روی title (hover).
+     flex:none الزامی است: فرزند ستون فلکس با shrink پیش‌فرض در
+     چیدمان ستونی فرومی‌ریزد. */
   .c-gloss-text {
-    font-size: 0.86rem; color: var(--text-primary);
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-    overflow: hidden; text-overflow: ellipsis;
+    flex: none;
+    font-size: 0.92rem; font-weight: 600; color: var(--text-primary);
+    line-height: 1.4; padding: var(--space-2) 0;
+    display: block;
     overflow-wrap: anywhere; word-break: break-word; min-width: 0;
   }
   .c-synonyms-text { font-size: 0.75rem; color: var(--text-muted); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+  /* بهداشت کارت نامزد: سطر بالایی شناسه + دکمه، معنی برجسته،
+     مترادف‌ها در سطر برچسب‌دار، مثال در بلوک نقل‌قول، متادیتای
+     فنی (شناسه‌های داخلی و پرچم‌ها) فقط در details تاشو */
+  .candidate-row-card { flex-direction: column; align-items: stretch; gap: 8px; }
+  .c-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+  .c-sensekey { font-size: 0.78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .c-gloss-text { font-size: 0.92rem; font-weight: 600; }
+  .c-synonyms-line { font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+  .c-syn-label { color: var(--text-muted); font-size: 0.72rem; font-weight: 600; }
+  .c-example {
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: 0.8rem; color: var(--text-secondary);
+    border-inline-start: 3px solid var(--c-secondary); background: var(--bg-elevated);
+    border-radius: 4px; overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }
+  .candidate-meta { font-size: 0.72rem; color: var(--text-muted); }
+  .candidate-meta summary { cursor: pointer; min-height: 36px; display: inline-flex; align-items: center; }
+  .candidate-meta .meta-line { overflow-wrap: anywhere; word-break: break-word; }
+  /* فهرست پریست‌های ذخیره‌شده داوری: سقف تراکم (§1.5) + سطر محدوده نرخ */
+  .preset-catalog-wrap { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+  .scope-group { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; min-height: 36px; }
+  .scope-group label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; min-height: 36px; cursor: pointer; }
+  .scope-group input[type="radio"] { width: 18px; height: 18px; accent-color: var(--c-primary); }
 
   .btn-select-candidate {
     flex-shrink: 0;
@@ -375,9 +408,12 @@
   .workspace-view { display: none; }
   .workspace-view.active { display: flex; flex-direction: column; gap: 14px; }
 
-  /* کارت‌ها و فرم‌های تنظیمات ارائه‌دهنده و پریست‌ها */
-  .cards-grid-3 {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+  /* کارت‌ها و فرم‌های تنظیمات ارائه‌دهنده و پریست‌ها —
+     گرید استاندارد خودتطبیق سامانه طراحی (§1.3): بدون ستون ثابت */
+  .cards-grid-auto {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: var(--space-3);
   }
   .provider-cfg-card {
     background: var(--bg-surface); border: 1px solid var(--border-color);
@@ -402,6 +438,8 @@
 
   /* جدول آمار تله‌متری و توکن‌های کش‌شده */
   .table-responsive { overflow-x: auto; border: 1px solid var(--border-color); border-radius: 6px; }
+  /* جدول‌های پویا سقف ارتفاع دارند و درون خود می‌لغزند (§1.5) */
+  .table-responsive.bounded { max-height: 320px; overflow-y: auto; }
   table.data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: right; }
   table.data-table th, table.data-table td {
     padding: 8px 12px; border-bottom: 1px solid var(--border-color);
@@ -430,6 +468,174 @@
   }
   .inline-input::placeholder { color: var(--text-muted); }
 
+  /* کاوشگر مدل پریست: ردیف‌های فشرده ۴۰ تا ۴۴ پیکسل، شناسه لاتین چپ‌چین */
+  [hidden] { display: none !important; }
+  .field-group.span-all { grid-column: 1 / -1; }
+  .model-explorer { display: flex; flex-direction: column; gap: 8px; }
+  .model-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .model-filter-input { flex: 1 1 180px; }
+  .free-chip {
+    min-height: 36px; padding: 6px 12px; border-radius: 999px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    color: var(--text-secondary); font: inherit; font-size: 0.78rem; cursor: pointer;
+  }
+  .free-chip.active {
+    border-color: var(--c-success); color: var(--c-success); font-weight: 700;
+    background: transparent;
+  }
+  .free-badge {
+    font-size: 0.68rem; padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--c-success); color: var(--c-success);
+    flex-shrink: 0;
+  }
+  .model-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+  .model-row {
+    min-height: 40px; max-height: 44px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 4px 10px; overflow: hidden;
+  }
+  .model-id {
+    font-family: var(--mono); direction: ltr; text-align: left; unicode-bidi: isolate;
+    font-size: 0.78rem; color: var(--text-primary); flex: 1 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .model-adopt { flex-shrink: 0; min-height: 36px; padding: 6px 12px; }
+  .model-count { font-size: 0.75rem; color: var(--text-secondary); }
+  .locked-note { opacity: 0.75; }
+  /* بلوک جمع‌شونده کلید مادر + توکن سرپرست (پیش‌فرض بسته) */
+  .operator-secrets { padding: 0; }
+  .operator-secrets > summary {
+    cursor: pointer; font-size: 0.85rem; font-weight: 700;
+    color: var(--text-secondary); padding: 16px;
+    min-height: 44px; display: flex; align-items: center;
+  }
+  .operator-secrets > summary:hover { color: var(--text-primary); }
+  .operator-secrets .secrets-body {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 0 16px 16px;
+  }
+  .operator-secrets .secrets-body .cfg-form-card {
+    border: none; padding: 0; background: transparent;
+  }
+
+  /* بلوک‌های جمع‌شونده تنظیمات (اتصال‌ها + اسرار اپراتور): نشان چرخان،
+     حاشیه نرم، پد استاندارد، پس‌زمینه متمایز — کلیک‌پذیری آنی */
+  details.collapsible-block {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0;
+  }
+  details.collapsible-block > summary {
+    cursor: pointer; list-style: none;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.9rem; font-weight: 700;
+    color: var(--text-secondary);
+    padding: 16px; min-height: 44px;
+    border-radius: 8px;
+  }
+  details.collapsible-block > summary::-webkit-details-marker { display: none; }
+  details.collapsible-block > summary::marker { content: ""; }
+  details.collapsible-block > summary:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
+  details.collapsible-block > summary .chev {
+    display: inline-block;
+    transition: transform 0.15s ease;
+    color: var(--c-secondary);
+    font-size: 0.8rem;
+  }
+  details.collapsible-block[open] > summary .chev { transform: rotate(-90deg); }
+  details.collapsible-block .collapsible-body {
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 0 16px 16px;
+  }
+
+  /* فرم فشرده پریست: ارائه‌دهنده + شناسه مدل + دو سقف در یک خط جمع‌وجور */
+  .preset-compact {
+    display: grid;
+    grid-template-columns: 1.1fr 1.7fr 0.7fr 0.7fr;
+    gap: 12px;
+  }
+  .preset-model-picker-row { display: flex; gap: 8px; align-items: center; }
+  .preset-model-picker-row input { flex: 1 1 auto; min-width: 0; }
+  .preset-model-picker-row button { flex-shrink: 0; }
+
+  /* دیالوگ مرکزی انتخاب مدل: متمرکز، سقف‌دار، لغزش درونی */
+  dialog.model-dialog {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    padding: 0;
+    width: min(560px, calc(100vw - 48px));
+    max-height: min(560px, calc(100vh - 96px));
+  }
+  dialog.model-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  .model-dialog-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .model-dialog-title { font-weight: 700; font-size: 0.9rem; }
+  .model-dialog-body {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px 16px;
+    overflow-y: auto;
+    max-height: calc(min(560px, calc(100vh - 96px)) - 60px);
+  }
+
+  /* ── سامانه طراحی منجمد (نمای ارائه‌دهندگان + حلقه کلید) ──
+     عرض محدود و مرکزچین فرم‌ها؛ جعبه خطای سه‌بخشی ایزوله؛
+     حداقل لمسی دکمه‌های خطا */
+  .form-cap { width: 100%; max-width: 960px; margin-inline: auto; }
+  .form-error-slot:empty { display: none; }
+  .form-error {
+    border: 1px solid var(--c-danger); border-radius: 6px;
+    background: var(--bg-elevated); padding: 8px 12px;
+    display: flex; flex-direction: column; gap: var(--space-2);
+  }
+  /* نشان کد خطا: پیشوند استاندارد (§5.1) — NET-xxx / AUTH-* / QUOTA-429 / VALIDATION-* */
+  .error-code {
+    border-color: var(--c-danger); color: var(--c-danger);
+    font-family: var(--mono); direction: ltr; unicode-bidi: isolate;
+    align-self: flex-start;
+  }
+  .form-error-msg { font-size: 0.8rem; color: var(--text-primary); }
+  .form-error-detail {
+    font-family: var(--mono); direction: ltr; text-align: left;
+    unicode-bidi: isolate; font-size: 0.75rem; color: var(--text-secondary);
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .form-error-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .form-error-actions button {
+    min-height: 38px; padding: 6px 12px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--border-color);
+    color: var(--text-secondary); font: inherit; font-size: 0.78rem; cursor: pointer;
+  }
+  .form-error-actions button:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  /* ── کارت ارائه‌دهنده: ردیف نشان‌های فشرده + جزئیات اشکال‌زدایی جمع‌شونده ──
+     نثر بلند انگلیسی هرگز در بدنه کارت نیست؛ در <details> هر کارت با کپی */
+  .provider-badges { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+  .provider-debug { border: 1px solid var(--border-color); border-radius: 6px; }
+  .provider-debug > summary {
+    cursor: pointer; font-size: 0.75rem; color: var(--text-secondary);
+    padding: 6px 10px; min-height: 36px; display: flex; align-items: center;
+  }
+  .provider-debug > summary:hover { color: var(--text-primary); }
+  .provider-debug-body {
+    display: flex; flex-direction: column; gap: var(--space-2);
+    padding: 0 10px 10px;
+  }
+  .provider-debug-copy { align-self: flex-start; }
+  /* خانه خالی صادقانه: خط‌چین خنثی با برچسب «سرور ثبت نمی‌کند» (§4.4) */
+  .honest-empty { color: var(--c-info); }
+  /* ستون نامزدهای داوری: فهرست پویا با سقف استاندارد و لغزش هم‌تم (§1.5) */
+  .candidates-stack { max-height: 320px; overflow-y: auto; }
+
   /* واکنش‌گرایی برای تبلت و موبایل */
   @media (max-width: 1024px) {
     .console-shell { grid-template-columns: 1fr; }
@@ -442,9 +648,11 @@
     aside.main-nav.open { right: 0; }
     .nav-backdrop.open { display: block; }
     .candidate-row-card { flex-direction: column; align-items: stretch; }
-    .c-info-block { width: 100%; }
+    .c-top-row { flex-wrap: wrap; }
     .btn-select-candidate { width: 100%; min-height: 44px; }
     .btn-reject-all, .btn-skip-next { min-height: 44px; }
+    .preset-compact { grid-template-columns: 1fr; }
+    .preset-model-picker-row button { min-height: 44px; }
   }
 </style>
 </head>
@@ -457,8 +665,8 @@
     <div class="app-title">کنسول عملیات کارخانه داده هم‌زبان</div>
   </div>
   <div class="system-badges">
-    <span class="badge live-disk"><span class="badge-dot"></span>ریشه: <span class="code-token" id="badge-root">…</span></span>
-    <span class="badge rate-cap"><span class="badge-dot"></span>کلیدها: <span class="code-token" id="badge-keys">…</span></span>
+    <span class="badge live-disk"><span class="badge-dot"></span>ریشه: <bdi dir="ltr" class="code-token" id="badge-root">…</bdi></span>
+    <span class="badge rate-cap"><span class="badge-dot"></span>کلیدها: <bdi dir="ltr" class="code-token" id="badge-keys">…</bdi></span>
     <span class="badge network"><span class="badge-dot"></span><span id="badge-egress">خروج: …</span></span>
     <button id="theme-btn" class="badge" style="cursor: pointer;">🌙 / ☀️ تم شب/روز</button>
   </div>
@@ -513,7 +721,7 @@
       <div class="handoff-strip">
         <div class="strip-details">
           <span style="font-size: 1.1rem;">⚡</span>
-          <span><b>ورودی آماده از گام غربالگری:</b> <span class="code-token" style="color: var(--text-primary);" id="handoff-path">…</span> <span id="handoff-total">…</span></span>
+          <span><b>ورودی آماده از گام غربالگری:</b> <bdi dir="ltr" class="code-token" style="color: var(--text-primary);" id="handoff-path">…</bdi> <span id="handoff-total">…</span></span>
         </div>
         <button class="badge" id="btn-refresh-screened" style="cursor: pointer; background: transparent;">تازه‌سازی ورودی غربالگری</button>
       </div>
@@ -533,14 +741,14 @@
             <div class="panel-heading"><span>جزئیات سنس</span></div>
           <article class="source-sense-card">
             <div class="sense-header-line">
-              <span class="sense-id-label code-token" id="sense-id">…</span>
+              <span class="sense-id-label code-token" dir="ltr" id="sense-id">…</span>
               <span class="badge" style="border-color: var(--c-primary); color: var(--c-primary);" id="sense-meta">…</span>
             </div>
             <div class="sense-def-text ltr-text" id="sense-def">…</div>
             <div class="sense-example-box ltr-text" id="sense-example">…</div>
           </article>
 
-          <div class="candidates-stack" id="candidates-stack">
+          <div class="candidates-stack themed-scroll" id="candidates-stack">
           </div>
           <div class="p-meta" id="candidates-status">…</div>
           </section>
@@ -601,13 +809,110 @@
 
     <!-- نمای ۱: ارائه‌دهندگان و پریست‌های هوش مصنوعی -->
     <section class="workspace-view" id="view-providers">
-      <div class="panel-heading">
-        <h2 style="font-size: 1.1rem;">اتصال‌های ارائه‌دهنده (Infrastructure Providers)</h2>
-        <span class="badge" id="providers-count">…</span>
+      <div class="cfg-form-card form-cap" id="preset-card">
+        <div class="p-header">
+          <span class="p-title">پیکربندی پریست مدل و سقف‌های نرخ داوری</span>
+          <span class="badge" id="preset-temp-note">…</span>
+        </div>
+        <div class="form-row-grid preset-compact">
+          <div class="field-group">
+            <label for="preset-label">نام پریست (اختیاری)</label>
+            <input type="text" class="code-token" id="preset-label" dir="ltr" placeholder="خالی = console-judge" autocomplete="off">
+          </div>
+          <div class="field-group">
+            <label>ارائه‌دهنده مبدأ</label>
+            <select id="preset-provider"></select>
+          </div>
+          <div class="field-group">
+            <label>شناسه دقیق مدل</label>
+            <div class="preset-model-picker-row">
+              <input type="text" class="code-token" id="preset-model" dir="ltr" placeholder="شناسه دقیق مدل…">
+              <button class="btn-skip-next" id="btn-open-model-picker" type="button">انتخاب از فهرست…</button>
+            </div>
+          </div>
+          <div class="field-group">
+            <label>سقف درخواست در دقیقه</label>
+            <input type="text" id="preset-rpm" inputmode="numeric" placeholder="خالی = بدون سقف (نامحدود)">
+          </div>
+          <div class="field-group">
+            <label>سقف ساعتی</label>
+            <input type="text" id="preset-rph" inputmode="numeric" placeholder="خالی = بدون سقف (نامحدود)">
+          </div>
+          <div class="field-group">
+            <label>سقف روزانه</label>
+            <input type="text" id="preset-rpd" inputmode="numeric" placeholder="خالی = بدون سقف (نامحدود)">
+          </div>
+          <div class="field-group">
+            <label>محدوده نرخ</label>
+            <div class="scope-group" id="preset-scope" role="radiogroup" aria-label="محدوده نرخ">
+              <label><input type="radio" name="preset-scope" value="model" checked> مدل</label>
+              <label><input type="radio" name="preset-scope" value="address"> نشانی</label>
+              <label><input type="radio" name="preset-scope" value="account"> حساب</label>
+            </div>
+          </div>
+          <div class="field-group">
+            <label>دمای خروجی <span class="locked-note">قفل: ۰٫۰ ثابت</span></label>
+            <input type="text" id="preset-temp" disabled>
+          </div>
+        </div>
+        <div class="p-meta" id="preset-caps-note"></div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-select-candidate" id="btn-save-judge-preset" type="button">ذخیره پریست داوری</button>
+          <span class="p-meta" id="preset-save-note" aria-live="polite"></span>
+        </div>
+        <div class="p-meta form-error-slot" id="preset-err"></div>
+        <div class="p-header" style="margin-top: 12px;">
+          <span class="p-title">پریست‌های ذخیره‌شده داوری</span>
+          <span class="badge" id="preset-catalog-count">…</span>
+        </div>
+        <div class="table-responsive themed-scroll preset-catalog-wrap">
+          <table class="data-table" id="preset-catalog-table">
+            <thead><tr><th>نام پریست</th><th>ارائه‌دهنده</th><th>شناسه مدل</th><th>سقف دقیقه‌ای</th><th>سقف ساعتی</th><th>سقف روزانه</th><th>محدوده نرخ</th><th>اقدام</th></tr></thead>
+            <tbody id="preset-catalog-tbody"></tbody>
+          </table>
+        </div>
+        <div class="p-meta" id="preset-catalog-note" aria-live="polite"></div>
       </div>
 
-      <div class="cards-grid-3" id="provider-cards">
-      </div>
+      <details class="cfg-form-card collapsible-block form-cap" id="provider-connections">
+        <summary><span class="chev" aria-hidden="true">◀</span><span>اتصال‌های ارائه‌دهنده (تنظیمات — پیش‌فرض بسته)</span><span class="badge" id="providers-count">…</span></summary>
+        <div class="collapsible-body">
+          <div class="cards-grid-auto" id="provider-cards">
+          </div>
+          <div class="cfg-form-card" style="margin-top: 10px;" id="provider-add-card">
+            <div class="p-header">
+              <span class="p-title">افزودن ارائه‌دهنده</span>
+              <span class="badge" id="provider-add-state">نام‌ها فقط</span>
+            </div>
+            <div class="p-meta">سطر داده ارائه‌دهنده در رجیستری موتور ساخته می‌شود (اعتبارسنجی سمت سرور)؛ مقدار کلید جدا ذخیره می‌شود.</div>
+            <div class="form-row-grid">
+              <div class="field-group">
+                <label>نام ارائه‌دهنده</label>
+                <input type="text" class="code-token" id="provider-add-name" dir="ltr" placeholder="my-provider" autocomplete="off">
+              </div>
+              <div class="field-group">
+                <label>نام متغیر کلید</label>
+                <input type="text" class="code-token" id="provider-add-keyvar" dir="ltr" placeholder="MY_PROVIDER_API_KEY" autocomplete="off">
+              </div>
+              <div class="field-group">
+                <label>مسیر</label>
+                <select id="provider-add-route">
+                  <option value="direct">مستقیم</option>
+                  <option value="leased">تونل استیجاری</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <button class="btn-select-candidate" id="btn-add-provider" type="button">افزودن ارائه‌دهنده</button>
+              <span class="p-meta" id="provider-add-note" aria-live="polite"></span>
+            </div>
+            <div class="p-meta form-error-slot" id="provider-add-err"></div>
+          </div>
+        </div>
+      </details>
+      <details class="cfg-form-card operator-secrets collapsible-block form-cap" id="operator-secrets">
+        <summary><span class="chev" aria-hidden="true">◀</span><span>کلید مادر و توکن سرپرست (پیشرفته — نام‌ها فقط)</span></summary>
+        <div class="secrets-body collapsible-body">
       <div class="cfg-form-card" style="margin-top: 10px;" id="master-card">
         <div class="p-header">
           <span class="p-title">ذخیره امن کلید (نام‌ها فقط؛ مقدارها هرگز نمایش داده نمی‌شود)</span>
@@ -615,12 +920,12 @@
         </div>
         <div class="p-meta" id="master-note">…</div>
         <div><button class="btn-select-candidate" id="btn-master-ensure">فعال‌سازی ذخیره امن کلید</button></div>
-        <div class="p-meta" id="provider-err" style="color: var(--c-danger);"></div>
+        <div class="p-meta form-error-slot" id="provider-err"></div>
       </div>
 
       <div class="cfg-form-card" style="margin-top: 10px;" id="supervisor-card">
         <div class="p-header">
-          <span class="p-title">توکن سرپرست (یک‌بار چسباندن؛ مقدار هرگز نمایش داده نمی‌شود)</span>
+          <span class="p-title">توکن سرپرست (EGRESS_SUP_TOKEN — یک‌بار چسباندن؛ مقدار هرگز نمایش داده نمی‌شود)</span>
           <span class="badge" id="supervisor-state">…</span>
         </div>
         <div class="p-meta" id="supervisor-note">…</div>
@@ -632,49 +937,37 @@
         <div class="p-meta" id="supervisor-lifecycle-note">…</div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <input class="inline-input code-token" id="supervisor-token-input" dir="ltr" type="password"
-                 placeholder="supervisor bearer (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست">
+                  placeholder="EGRESS_SUP_TOKEN (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست EGRESS_SUP_TOKEN">
           <button class="btn-select-candidate" id="btn-supervisor-save">ذخیره توکن</button>
           <button class="btn-skip-next" id="btn-supervisor-delete">حذف توکن</button>
         </div>
-        <div class="p-meta" id="supervisor-err" style="color: var(--c-danger);"></div>
+        <div class="p-meta form-error-slot" id="supervisor-err"></div>
       </div>
+        </div>
+      </details>
 
-      <div class="cfg-form-card" style="margin-top: 10px;">
-        <div class="p-header">
-          <span class="p-title">پیکربندی پریست مدل و سقف‌های نرخ داوری (Model Preset)</span>
-          <span class="badge" id="preset-temp-note">…</span>
+      <dialog class="model-dialog" id="model-picker" aria-label="کاوشگر مدل">
+        <div class="model-dialog-head">
+          <span class="model-dialog-title">کاوشگر مدل (فهرست سرور — کلید لازم دارد)</span>
+          <button class="btn-skip-next" id="btn-close-model-picker" type="button">بستن ✕</button>
         </div>
-        <div class="form-row-grid">
-          <div class="field-group">
-            <label>ارائه‌دهنده مبدأ</label>
-            <select id="preset-provider"></select>
+        <div class="model-dialog-body">
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-skip-next" id="btn-fetch-models" type="button">دریافت فهرست</button>
           </div>
-          <div class="field-group">
-            <label>شناسه دقیق مدل</label>
-            <input type="text" class="code-token" id="preset-model" dir="ltr">
-          </div>
-          <div class="field-group">
-            <label>فهرست مدل‌های سرور (کلید لازم دارد)</label>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn-skip-next" id="btn-fetch-models" type="button">دریافت فهرست</button>
+          <div class="model-explorer">
+            <div class="model-toolbar">
+              <input class="inline-input model-filter-input code-token" id="preset-model-filter" dir="ltr" type="search"
+                      placeholder="زیررشته‌ای از شناسه مدل…" aria-label="پالایش مدل‌ها">
+              <button class="free-chip" id="preset-free-chip" type="button" aria-pressed="false">فقط رایگان</button>
             </div>
-            <div class="p-meta code-token" id="preset-models" dir="ltr">…</div>
-          </div>
-          <div class="field-group">
-            <label>سقف درخواست در دقیقه (RPM)</label>
-            <input type="text" id="preset-rpm" disabled>
-          </div>
-          <div class="field-group">
-            <label>سقف ساعتی (RPH)</label>
-            <input type="text" id="preset-rph" disabled>
-          </div>
-          <div class="field-group">
-            <label>دمای خروجی (Temperature)</label>
-            <input type="text" id="preset-temp" disabled>
+            <div class="p-meta model-count" id="preset-models-count" aria-live="polite" role="status">…</div>
+            <div class="model-list themed-scroll" id="preset-model-list"></div>
+            <div class="p-meta code-token" id="preset-models" dir="ltr" hidden>…</div>
+            <div class="p-meta form-error-slot" id="preset-models-err"></div>
           </div>
         </div>
-        <div class="p-meta" id="preset-err" style="color: var(--c-danger);"></div>
-      </div>
+      </dialog>
     </section>
 
     <!-- نمای ۳: تله‌متری و تحلیل هزینه توکن -->
@@ -703,7 +996,7 @@
         </div>
       </div>
 
-      <div class="table-responsive" style="margin-top: 10px;">
+      <div class="table-responsive bounded themed-scroll" style="margin-top: 10px;">
         <table class="data-table">
           <thead>
             <tr>
@@ -720,6 +1013,7 @@
           </tbody>
         </table>
       </div>
+      <div class="p-meta">ستون‌های توکن/هزینه با «—» می‌آیند: سرور ثبت نمی‌کند (خالی صادقانه، نه عدد ساختگی).</div>
     </section>
 
     <!-- نمای ۴: مخازن داده و نگاشت مسیرها -->
@@ -731,7 +1025,7 @@
 
       <div class="cfg-form-card">
         <div class="p-meta">ریشه‌های زنده سرور محلی در جدول زیر می‌آیند؛ پوشه جابه‌جاشده/حذف‌شده خودبه‌خود کنار می‌رود.</div>
-        <div class="table-responsive">
+        <div class="table-responsive bounded themed-scroll">
           <table class="data-table">
             <thead>
               <tr><th>مخزن دامنه‌ای</th><th>مسیر قراردادی</th><th>آخرین فایل معتبر</th><th>تعداد سطرها / حجم</th></tr>
@@ -740,6 +1034,7 @@
             </tbody>
           </table>
         </div>
+        <div class="p-meta">خانه‌های «—» یعنی سرور این ستون را ثبت نمی‌کند (خالی صادقانه).</div>
       </div>
     </section>
 
@@ -872,17 +1167,139 @@
   function faNum(v) {
     return String(v === null || v === undefined ? '—' : v).replace(/[0-9]/g, d => FA_DIGITS[d]);
   }
+  /* شناسه ماشینی همیشه در عنصر لاتین ایزوله (§2.2): bdi + dir + کلاس */
   function ltrCode(text) {
-    const s = document.createElement('span');
+    const s = document.createElement('bdi');
     s.className = 'code-token';
+    s.setAttribute('dir', 'ltr');
     s.textContent = text;
     return s;
+  }
+
+  /* ── سامانه طراحی منجمد: جعبه خطای سه‌بخشی + حالت مشغولی ──
+     هر شکاف خطای فرم سه بخش دارد: (۱) نشان کد استاندارد + پیام ساده
+     فارسی، (۲) جزئیات سرور در عنصر لاتین ایزوله، (۳) دکمه تلاش دوباره
+     + دکمه کپی گزارش (نام‌ها فقط؛ هیچ مقداری هرگز کپی نمی‌شود).
+     پیشوندهای استاندارد (§5.1): NET-xxx / AUTH-* / QUOTA-429 / VALIDATION-* */
+  const formErrorRetry = {};
+  function errCodeFor(err) {
+    const status = err && err.status;
+    if (status === 429) return 'QUOTA-429';
+    if (status) return 'NET-' + status;
+    const d = String((err && err.message) || err || '');
+    if (/429|سهمیه|quota|rate/i.test(d)) return 'QUOTA-429';
+    if (/401|403|missing key|کلید|توکن|token|auth/i.test(d)) return 'AUTH-missing-key';
+    if (/400|empty|خالی|invalid|نامعتبر|bad/i.test(d)) return 'VALIDATION-input';
+    return 'NET-unknown';
+  }
+  function buildFormError(faMessage, detail, retryFn, slotId, code) {
+    const box = document.createElement('div');
+    box.className = 'form-error';
+    box.setAttribute('role', 'alert');
+    const errCode = code || errCodeFor(detail);
+    box.setAttribute('data-code', errCode);
+    const badge = document.createElement('span');
+    badge.className = 'badge error-code';
+    badge.textContent = String(errCode).replace('-', ' · ');
+    box.append(badge);
+    const msg = document.createElement('div');
+    msg.className = 'form-error-msg';
+    msg.textContent = faMessage;
+    box.append(msg);
+    if (detail) {
+      const det = document.createElement('div');
+      det.className = 'form-error-detail';
+      det.textContent = String(detail);
+      box.append(det);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'form-error-actions';
+    if (typeof retryFn === 'function') {
+      if (slotId) formErrorRetry[slotId] = retryFn;
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = 'تلاش دوباره';
+      retry.addEventListener('click', () => {
+        const fn = slotId ? formErrorRetry[slotId] : retryFn;
+        if (typeof fn === 'function') fn();
+      });
+      actions.append(retry);
+    }
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'کپی گزارش';
+    copy.addEventListener('click', async () => {
+      const errCode = box.getAttribute('data-code') || '';
+      const report = (errCode ? errCode + ' — ' : '') + faMessage + (detail ? ' — ' + detail : '');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(report);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = report;
+          document.body.append(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        copy.textContent = 'گزارش کپی شد';
+      } catch(e) {
+        copy.textContent = 'کپی ناموفق بود';
+      }
+    });
+    actions.append(copy);
+    box.append(actions);
+    return box;
+  }
+  function clearFormError(slotId) {
+    const slot = document.getElementById(slotId);
+    if (slot) slot.replaceChildren();
+    delete formErrorRetry[slotId];
+  }
+  function showFormError(slotId, faMessage, detail, retryFn, code) {
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+    slot.replaceChildren();
+    slot.append(buildFormError(faMessage, detail, retryFn, slotId, code));
+  }
+  /* حالت مشغولی دکمه‌های متصل به سرور: غیرفعال + متن «در حال…»
+     با بازیابی در finally. (دو تابع supervisorWake و
+     fetchPresetModels حالت مشغولی درونی قفل‌شده خود را نگه
+     می‌دارند و از این کمک‌گیر استفاده نمی‌کنند.) */
+  async function withBusy(btn, busyText, fn) {
+    const idle = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = busyText; }
+    try { return await fn(); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = idle; } }
+  }
+  /* کپی گزارش عیب‌یابی: نام‌ها فقط، هیچ مقدار رازی هرگز کپی نمی‌شود */
+  async function copyReport(text, btn, doneText) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.append(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      if (btn) btn.textContent = doneText || 'کپی شد';
+    } catch(e) {
+      if (btn) btn.textContent = 'کپی ناموفق بود';
+    }
   }
   async function getJSON(url, opts) {
     const r = await fetch(url, opts);
     let j = null;
     try { j = await r.json(); } catch(e){}
-    if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
+    if (!r.ok) {
+      const err = new Error((j && j.error) || ('خطای ' + r.status));
+      err.status = r.status;
+      err.body = j;
+      throw err;
+    }
     return j;
   }
 
@@ -904,7 +1321,11 @@
         : 'ذخیره امن کلید فعال نیست — با تأیید شما یک‌بار ساخته و در فایل محیط کارخانه ذخیره می‌شود؛ مقدار هرگز نمایش داده نمی‌شود.';
       const btn = document.getElementById('btn-master-ensure');
       if (btn) btn.hidden = !!m.configured;
+      masterConfigured = !!m.configured;
+      syncSecretsBlock();
     } catch(e) {
+      masterConfigured = false;
+      syncSecretsBlock();
       document.getElementById('master-state').textContent = 'نامشخص';
       document.getElementById('master-note').textContent = 'خواندن وضعیت ناموفق بود.';
     }
@@ -965,10 +1386,12 @@
         const rate = rateRows.find(x => x.name === row.name) || {};
         const card = document.createElement('div');
         card.className = 'provider-cfg-card';
+        card.dataset.provider = row.name;
         const head = document.createElement('div');
         head.className = 'p-header';
         const title = document.createElement('span');
         title.className = 'p-title code-token';
+        title.setAttribute('dir', 'ltr');
         title.textContent = row.name;
         const pill = document.createElement('span');
         pill.className = 'badge ' + (row.has_key ? 'live-disk' : 'rate-cap');
@@ -980,52 +1403,119 @@
         kv.append(document.createTextNode('متغیر کلید: '));
         kv.append(ltrCode(row.key_var || '—'));
         card.append(kv);
-        const route = document.createElement('div');
-        route.className = 'p-meta';
-        route.textContent = 'مسیر: ' + (row.route === 'leased' ? 'تونل استیجاری' : 'مستقیم')
-          + (row.route_reason ? ' — ' + row.route_reason : '')
-          + (row.clean_exit ? ' (خروجی تمیز: ' + row.clean_exit + ')' : '');
-        card.append(route);
+        /* ردیف نشان‌های فشرده: مسیر + شمار کلید فعال + آهنگ — بدون نثر بلند */
+        const badges = document.createElement('div');
+        badges.className = 'provider-badges';
+        const routeBadge = document.createElement('span');
+        routeBadge.className = 'badge';
+        routeBadge.textContent = row.route === 'leased' ? 'تونل استیجاری' : 'مستقیم';
+        badges.append(routeBadge);
+        const keysBadge = document.createElement('span');
+        keysBadge.className = 'badge';
+        const activeKeys = (row.active_keys === null || row.active_keys === undefined)
+          ? (row.key_count || 0) : row.active_keys;
+        keysBadge.textContent = faNum(activeKeys) + ' کلید فعال';
+        badges.append(keysBadge);
+        const pace = rate.pacing || {};
+        const paceBadge = document.createElement('span');
+        paceBadge.className = 'badge';
+        paceBadge.textContent = 'مکث ' + faNum(
+          (pace.sleep_secs_default === null || pace.sleep_secs_default === undefined)
+            ? '—' : pace.sleep_secs_default) + ' ثانیه';
+        badges.append(paceBadge);
+        card.append(badges);
+        /* جزئیات اشکال‌زدایی هر کارت: نثر بلند انگلیسی بیرون از بدنه + کپی */
+        const debug = document.createElement('details');
+        debug.className = 'provider-debug';
+        const debugSum = document.createElement('summary');
+        debugSum.textContent = 'جزئیات مسیر و نرخ';
+        debug.append(debugSum);
+        const debugBody = document.createElement('div');
+        debugBody.className = 'provider-debug-body';
+        const routeLine = document.createElement('div');
+        routeLine.className = 'p-meta';
+        routeLine.textContent = 'مسیر: ' + (row.route === 'leased' ? 'تونل استیجاری' : 'مستقیم');
+        debugBody.append(routeLine);
+        if (row.route_reason) {
+          const rr = document.createElement('div');
+          rr.className = 'p-meta';
+          rr.append(document.createTextNode('دلیل مسیر: '));
+          rr.append(ltrCode(row.route_reason));
+          debugBody.append(rr);
+        }
+        if (row.clean_exit) {
+          const ce = document.createElement('div');
+          ce.className = 'p-meta';
+          ce.append(document.createTextNode('خروجی تمیز: '));
+          ce.append(ltrCode(row.clean_exit));
+          debugBody.append(ce);
+        }
         const rl = document.createElement('div');
         rl.className = 'p-meta';
         rl.textContent = rateLineFor(row.name);
-        card.append(rl);
+        debugBody.append(rl);
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn-skip-next provider-debug-copy';
+        copyBtn.textContent = 'کپی جزئیات';
+        copyBtn.addEventListener('click', async () => {
+          const lines = [
+            'provider: ' + row.name,
+            'route: ' + (row.route || ''),
+            'route_reason: ' + (row.route_reason || ''),
+            'clean_exit: ' + (row.clean_exit || ''),
+            'rate: ' + rateLineFor(row.name),
+          ];
+          await copyReport(lines.join('\n'), copyBtn, 'جزئیات کپی شد');
+        });
+        debugBody.append(copyBtn);
+        debug.append(debugBody);
+        card.append(debug);
         const keyRow = document.createElement('div');
         keyRow.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
         const keyInp = document.createElement('input');
         keyInp.className = 'inline-input code-token';
         keyInp.id = 'pk-' + row.name;
         keyInp.dir = 'ltr';
-        keyInp.placeholder = 'key value (stored encrypted)';
+        keyInp.placeholder = 'مقدار کلید (رمزشده ذخیره می‌شود)';
         keyInp.autocomplete = 'off';
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn-select-candidate';
         saveBtn.textContent = 'ذخیره کلید';
-        saveBtn.addEventListener('click', () => providerKeySave(row.name));
+        saveBtn.addEventListener('click', (ev) => providerKeySave(row.name, ev.currentTarget));
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-skip-next';
         delBtn.textContent = 'حذف کلید';
-        delBtn.addEventListener('click', () => providerKeyDelete(row.name));
-        const modelsBtn = document.createElement('button');
-        modelsBtn.className = 'btn-skip-next';
-        modelsBtn.textContent = 'فهرست مدل‌ها';
-        modelsBtn.addEventListener('click', () => providerModels(row.name, modelsBox));
-        keyRow.append(keyInp, saveBtn, delBtn, modelsBtn);
+        delBtn.addEventListener('click', (ev) => providerKeyDelete(row.name, ev.currentTarget));
+        const addKeyBtn = document.createElement('button');
+        addKeyBtn.className = 'btn-select-candidate';
+        addKeyBtn.type = 'button';
+        addKeyBtn.textContent = 'افزودن کلید';
+        addKeyBtn.setAttribute('aria-label', 'افزودن شکاف کلید برای ' + row.name);
+        addKeyBtn.addEventListener('click', (ev) => providerKeyAdd(row.name, ev.currentTarget));
+        /* تنها میان‌بر کارت: پرش به کاوشگر مدل پریست (بدون دکمه/جعبه
+           فهرست خام در کارت) — ارائه‌دهنده را در فرم پریست می‌نشاند،
+           سقف‌ها را پیش‌فرض می‌گذارد، مدل‌ها را می‌گیرد و به جست‌وجو می‌لغزد */
+        const jumpBtn = document.createElement('button');
+        jumpBtn.className = 'btn-skip-next';
+        jumpBtn.type = 'button';
+        jumpBtn.textContent = 'مدل‌ها ←';
+        jumpBtn.setAttribute('aria-label', 'پرش به کاوشگر مدل برای ' + row.name);
+        jumpBtn.addEventListener('click', () => jumpProviderToExplorer(row.name));
+        const delProvBtn = document.createElement('button');
+        delProvBtn.className = 'btn-skip-next';
+        delProvBtn.type = 'button';
+        delProvBtn.textContent = 'حذف ارائه‌دهنده';
+        delProvBtn.setAttribute('aria-label', 'حذف ارائه‌دهنده ' + row.name);
+        delProvBtn.addEventListener('click', (ev) => providerDelete(row.name, ev.currentTarget));
+        keyRow.append(keyInp, saveBtn, delBtn, addKeyBtn, jumpBtn, delProvBtn);
         card.append(keyRow);
-        const modelsBox = document.createElement('div');
-        modelsBox.className = 'p-meta code-token';
-        modelsBox.dir = 'ltr';
-        card.append(modelsBox);
         box.append(card);
       }
       renderTelemetry(rows, rateRows, info);
     } catch(e) {
       box.replaceChildren();
-      const err = document.createElement('div');
-      err.className = 'p-meta';
-      err.style.color = 'var(--c-danger)';
-      err.textContent = 'خواندن ارائه‌دهندگان ناموفق بود: ' + (e.message || e);
-      box.append(err);
+      box.append(buildFormError('خواندن ارائه‌دهندگان ناموفق بود.', (e && e.message) || e, refreshProviderCards, undefined, errCodeFor(e)));
     }
   }
   function rateLineFor(name) {
@@ -1039,93 +1529,186 @@
       + '؛ آهنگ موتور: مکث ' + faNum(pace.sleep_secs_default) + ' ثانیه، مکث چرخش ' + faNum(pace.rotate_pause_secs) + ' ثانیه'
       + (pace.rpm_limiter ? '' : '، بدون سقف دوربردکیقه‌ای') + '.';
   }
-  async function providerKeySave(name) {
-    const errEl = document.getElementById('provider-err');
-    errEl.textContent = '';
+  async function providerKeySave(name, btn) {
+    clearFormError('provider-err');
     const inp = document.getElementById('pk-' + name);
     const value = inp ? inp.value : '';
-    if (!value) { errEl.textContent = 'کلید خالی است (چیزی ذخیره نشد).'; return; }
-    try {
-      await getJSON('/api/providers/' + encodeURIComponent(name) + '/key',
-        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
-      if (inp) inp.value = '';
-      await refreshProviderCards();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+    if (!value) { showFormError('provider-err', 'کلید خالی است (چیزی ذخیره نشد).', '', null); return; }
+    await withBusy(btn, 'در حال ذخیره…', async () => {
+      try {
+        await getJSON('/api/providers/' + encodeURIComponent(name) + '/key',
+          {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
+        if (inp) inp.value = '';
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-err', 'ذخیره کلید ناموفق بود.', (e && e.message) || e, () => providerKeySave(name), errCodeFor(e)); }
+    });
   }
-  async function providerKeyDelete(name) {
-    const errEl = document.getElementById('provider-err');
-    errEl.textContent = '';
-    try {
-      await getJSON('/api/providers/' + encodeURIComponent(name) + '/key', {method: 'DELETE'});
-      await refreshProviderCards();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+  async function providerKeyDelete(name, btn) {
+    clearFormError('provider-err');
+    if (!confirm('کلید رمزشده حذف می‌شود و برگشت‌ناپذیر است؛ ادامه می‌دهید؟ (' + name + ')')) return;
+    await withBusy(btn, 'در حال حذف…', async () => {
+      try {
+        await getJSON('/api/providers/' + encodeURIComponent(name) + '/key', {method: 'DELETE'});
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-err', 'حذف کلید ناموفق بود.', (e && e.message) || e, () => providerKeyDelete(name), errCodeFor(e)); }
+    });
   }
-  async function providerModels(name, box) {
-    box.textContent = '…';
-    try {
-      const j = await getJSON('/api/providers/' + encodeURIComponent(name) + '/models');
-      const models = j.models || [];
-      box.replaceChildren();
-      box.append(document.createTextNode(models.length ? (faNum(j.count) + ' مدل: ' + models.join(', ')) : 'فهرستی برنگشت'));
-    } catch(e) { box.textContent = e.message || e; }
+  /* مدیریت ارائه‌دهنده: افزودن سطر، افزودن شکاف کلید، حذف سطر —
+     هر سه به مسیرهای مدیریتی موجود سرور می‌روند، با حالت مشغولی؛
+     حذف پشت گفت‌وگوی تأیید با واژه‌های «رمزشده» و «برگشت‌ناپذیر» است. */
+  async function providerAdd(btn) {
+    const noteEl = document.getElementById('provider-add-note');
+    clearFormError('provider-add-err');
+    if (noteEl) noteEl.textContent = '';
+    const name = ((document.getElementById('provider-add-name') || {}).value || '').trim();
+    const keyVar = ((document.getElementById('provider-add-keyvar') || {}).value || '').trim();
+    const route = (document.getElementById('provider-add-route') || {}).value || 'direct';
+    if (!name) { showFormError('provider-add-err', 'نام ارائه‌دهنده خالی است (چیزی ساخته نشد).', '', null); return; }
+    await withBusy(btn || document.getElementById('btn-add-provider'), 'در حال افزودن…', async () => {
+      try {
+        const j = await getJSON('/api/managed_providers',
+          {method: 'POST', headers: {'Content-Type': 'application/json'},
+           body: JSON.stringify({name: name, protocol: 'openai_compat', base_url: '',
+                                 route: route, key_vars: keyVar ? [keyVar] : []})});
+        if (noteEl) noteEl.textContent = 'ارائه‌دهنده ' + (j.provider || name)
+          + ' ساخته شد (' + faNum(((j.row || {}).key_count) || 0) + ' شکاف کلید).';
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-add-err', 'افزودن ارائه‌دهنده ناموفق بود.', (e && e.message) || e, () => providerAdd(), errCodeFor(e)); }
+    });
   }
-  async function masterEnsure() {
-    const errEl = document.getElementById('provider-err');
-    errEl.textContent = '';
+  async function providerKeyAdd(name, btn) {
+    clearFormError('provider-err');
+    await withBusy(btn, 'در حال افزودن…', async () => {
+      try {
+        await getJSON('/api/managed_providers/' + encodeURIComponent(name) + '/keys',
+          {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})});
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-err', 'افزودن شکاف کلید ناموفق بود.', (e && e.message) || e, () => providerKeyAdd(name), errCodeFor(e)); }
+    });
+  }
+  async function providerDelete(name, btn) {
+    clearFormError('provider-err');
+    if (!confirm('ارائه‌دهنده ' + name + ' با شکاف‌های کلید رمزشده‌اش حذف می‌شود و برگشت‌ناپذیر است؛ ادامه می‌دهید؟')) return;
+    await withBusy(btn, 'در حال حذف…', async () => {
+      try {
+        await getJSON('/api/managed_providers/' + encodeURIComponent(name), {method: 'DELETE'});
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-err', 'حذف ارائه‌دهنده ناموفق بود.', (e && e.message) || e, () => providerDelete(name), errCodeFor(e)); }
+    });
+  }
+  /* پرش کارت → کاوشگر: ارائه‌دهنده در فرم پریست، سقف‌های پیش‌فرض،
+     دریافت مدل‌ها، باز شدن دیالوگ مرکزی کاوشگر */
+  function openModelPicker() {
+    const dlg = document.getElementById('model-picker');
+    if (!dlg) return;
+    if (typeof dlg.showModal === 'function') {
+      if (!dlg.open) {
+        try { dlg.showModal(); } catch(e) {
+          try { dlg.show(); } catch(_){}
+        }
+      }
+    } else {
+      dlg.setAttribute('open', '');
+    }
+    const target = document.getElementById('preset-model-filter');
+    if (target) {
+      try { target.focus({preventScroll: true}); } catch(e) {
+        try { target.focus(); } catch(_){}
+      }
+    }
+  }
+  function closeModelPicker() {
+    const dlg = document.getElementById('model-picker');
+    if (!dlg || !dlg.open) return;
     try {
-      await getJSON('/api/master/ensure',
-        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm: true})});
-      await refreshProviderCards();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+      if (typeof dlg.close === 'function') dlg.close();
+      else dlg.removeAttribute('open');
+    } catch(e){}
+  }
+  async function jumpProviderToExplorer(name) {
+    const sel = document.getElementById('preset-provider');
+    if (sel) sel.value = name;
+    applyPresetCapsDefaults(name);
+    openView('view-providers');
+    try { await fetchPresetModels(); } catch(e){}
+    openModelPicker();
+  }
+  async function masterEnsure(btn) {
+    clearFormError('provider-err');
+    await withBusy(btn, 'در حال فعال‌سازی…', async () => {
+      try {
+        await getJSON('/api/master/ensure',
+          {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm: true})});
+        await refreshProviderCards();
+        await refreshBadges();
+      } catch(e) { showFormError('provider-err', 'فعال‌سازی ذخیره امن ناموفق بود.', (e && e.message) || e, () => masterEnsure(), errCodeFor(e)); }
+    });
   }
 
   /* توکن سرپرست: یک‌بار چسباندن در پنل ارائه‌دهندگان — ورودی بلافاصله
      پس از ارسال پاک می‌شود (نمایش یک‌باره) و مقدار هرگز بازخوانده
      نمی‌شود؛ وضعیت فقط نام + بولی است. */
+  let masterConfigured = false;
+  let supervisorConfigured = false;
+  function syncSecretsBlock() {
+    const block = document.getElementById('operator-secrets');
+    if (!block) return;
+    block.open = !(masterConfigured && supervisorConfigured);
+  }
   async function refreshSupervisorToken() {
     try {
       const s = await getJSON('/api/supervisor/status');
+      supervisorConfigured = !!s.configured;
+      syncSecretsBlock();
       document.getElementById('supervisor-state').textContent =
         s.configured ? ('پیکربندی شده (' + (s.var || '') + ')') : 'پیکربندی نشده';
       document.getElementById('supervisor-note').textContent = s.configured
         ? 'توکن سرپرست ذخیره شده است؛ فقط نام متغیر (' + (s.var || '') + ') نمایش داده می‌شود.'
         : 'توکن سرپرست را یک‌بار بچسبانید؛ رمزشده ذخیره می‌شود و مقدار هرگز نمایش داده نمی‌شود.';
     } catch(e) {
+      supervisorConfigured = false;
+      syncSecretsBlock();
       document.getElementById('supervisor-state').textContent = 'نامشخص';
       document.getElementById('supervisor-note').textContent = 'خواندن وضعیت ناموفق بود.';
     }
   }
-  async function supervisorTokenSave() {
-    const errEl = document.getElementById('supervisor-err');
-    errEl.textContent = '';
+  async function supervisorTokenSave(btn) {
+    clearFormError('supervisor-err');
     const inp = document.getElementById('supervisor-token-input');
     const value = inp ? inp.value : '';
     if (inp) inp.value = '';
-    if (!value) { errEl.textContent = 'توکن خالی است (چیزی ذخیره نشد).'; return; }
-    try {
-      await getJSON('/api/supervisor/token',
-        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
-      await refreshSupervisorToken();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+    if (!value) { showFormError('supervisor-err', 'توکن خالی است (چیزی ذخیره نشد).', '', null); return; }
+    await withBusy(btn, 'در حال ذخیره…', async () => {
+      try {
+        await getJSON('/api/supervisor/token',
+          {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key_value: value})});
+        await refreshSupervisorToken();
+        await refreshBadges();
+      } catch(e) { showFormError('supervisor-err', 'ذخیره توکن ناموفق بود.', (e && e.message) || e, () => supervisorTokenSave(), errCodeFor(e)); }
+    });
   }
-  async function supervisorTokenDelete() {
-    const errEl = document.getElementById('supervisor-err');
-    errEl.textContent = '';
+  async function supervisorTokenDelete(btn) {
+    clearFormError('supervisor-err');
+    if (!confirm('توکن رمزشده حذف می‌شود و برگشت‌ناپذیر است؛ ادامه می‌دهید؟ (EGRESS_SUP_TOKEN)')) return;
     const inp = document.getElementById('supervisor-token-input');
     if (inp) inp.value = '';
-    try {
-      await getJSON('/api/supervisor/token', {method: 'DELETE'});
-      await refreshSupervisorToken();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+    await withBusy(btn, 'در حال حذف…', async () => {
+      try {
+        await getJSON('/api/supervisor/token', {method: 'DELETE'});
+        await refreshSupervisorToken();
+        await refreshBadges();
+      } catch(e) { showFormError('supervisor-err', 'حذف توکن ناموفق بود.', (e && e.message) || e, () => supervisorTokenDelete(), errCodeFor(e)); }
+    });
   }
 
-  /* سطح وضعیت سرپرست: بیدار/خواب + نشان زنده، متصل به
-     /api/supervisor/wake + /api/supervisor/sleep (نام‌ها فقط) */
+  /* سطح وضعیت سرپرست: گزارش زنده بیدار/خواب + شمار سرور و لیز، متصل به
+     /api/egress/health (پروب واقعی، هرگز برچسب کهنه)؛ نام حامل همیشه
+     EGRESS_SUP_TOKEN است و مقدار هرگز نمایش داده نمی‌شود. */
   async function refreshSupervisorLifecycle() {
     const badge = document.getElementById('supervisor-lifecycle-state');
     const note = document.getElementById('supervisor-lifecycle-note');
@@ -1135,35 +1718,121 @@
       let j = null;
       try { j = await r.json(); } catch(e){}
       if (!r.ok) throw new Error((j && j.error) || ('خطای ' + r.status));
-      badge.textContent = j.healthy ? 'سرپرست: بیدار' : 'سرپرست: خواب';
+      const servers = (j.servers === null || j.servers === undefined) ? '—' : faNum(j.servers);
+      const leases = (j.leases === null || j.leases === undefined) ? '—' : faNum(j.leases);
+      const counts = ' (' + servers + ' سرور، ' + leases + ' لیز)';
+      badge.textContent = (j.healthy ? 'سرپرست: بیدار' : 'سرپرست: خواب') + counts;
       if (note) note.textContent = j.healthy
-        ? 'سرپرست سالم است (بیدارسازی دوباره انجام نمی‌شود).'
-        : 'سرپرست پایین است؛ دکمه بیدار، بیدارسازی در پس‌زمینه می‌کند.';
+        ? 'سرپرست سالم است' + counts + ' (EGRESS_SUP_TOKEN)؛ بیدارسازی دوباره انجام نمی‌شود.'
+        : 'سرپرست پایین است' + counts + ' (EGRESS_SUP_TOKEN)؛ دکمه بیدار، تازه‌سازی اشتراک و بیدارسازی در پس‌زمینه می‌کند.';
     } catch(e) {
       badge.textContent = 'سرپرست: نامشخص';
-      if (note) note.textContent = 'خواندن وضعیت ناموفق بود.';
+      if (note) note.textContent = 'خواندن وضعیت ناموفق بود (EGRESS_SUP_TOKEN).';
     }
   }
   async function supervisorWake() {
-    const errEl = document.getElementById('supervisor-err');
-    errEl.textContent = '';
+    clearFormError('supervisor-err');
+    const btn = document.getElementById('btn-supervisor-wake');
+    const idleText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'در حال بیدارسازی…'; }
     try {
-      await getJSON('/api/supervisor/wake', {method: 'POST'});
+      const j = await getJSON('/api/supervisor/wake', {method: 'POST'});
       await refreshSupervisorLifecycle();
       await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+      const h = (j && j.health) || {};
+      const note = document.getElementById('supervisor-lifecycle-note');
+      if (note && (h.servers !== undefined || j.refreshed)) {
+        note.textContent += ' (پاسخ بیدار: ' + faNum(h.servers || 0) + ' سرور، ' + faNum(h.leases || 0) + ' لیز — ' + (j.var || 'EGRESS_SUP_TOKEN') + ')';
+      }
+    } catch(e) { showFormError('supervisor-err', 'بیدارسازی ناموفق بود.', (e && e.message) || e, supervisorWake, errCodeFor(e)); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = idleText; } }
   }
-  async function supervisorSleep() {
-    const errEl = document.getElementById('supervisor-err');
-    errEl.textContent = '';
-    try {
-      await getJSON('/api/supervisor/sleep', {method: 'POST'});
-      await refreshSupervisorLifecycle();
-      await refreshBadges();
-    } catch(e) { errEl.textContent = e.message || e; }
+  async function supervisorSleep(btn) {
+    clearFormError('supervisor-err');
+    await withBusy(btn || document.getElementById('btn-supervisor-sleep'), 'در حال خواب…', async () => {
+      try {
+        const j = await getJSON('/api/supervisor/sleep', {method: 'POST'});
+        await refreshSupervisorLifecycle();
+        await refreshBadges();
+        if (j && j.reason) showFormError('supervisor-err', 'سرپرست خوابانده نشد.', j.reason, () => supervisorSleep());
+      } catch(e) { showFormError('supervisor-err', 'خواباندن سرپرست ناموفق بود.', (e && e.message) || e, () => supervisorSleep(), errCodeFor(e)); }
+    });
   }
 
-  /* فرم پریست مدل: گزینه‌ها و قفل‌ها از engine_info */
+  /* فرم پریست مدل: گزینه‌ها و قفل‌ها از engine_info + سقف‌های قابل ویرایش */
+  let presetModels = [];
+  let presetModelQuery = '';
+  let presetFreeOnly = false;
+  function presetModelIsFree(id) {
+    return /free/i.test(id || '');
+  }
+  function presetModelMatches(id, q) {
+    const needle = (q !== undefined && q !== null ? q : presetModelQuery || '').trim().toLowerCase();
+    if (presetFreeOnly && !presetModelIsFree(id)) return false;
+    if (!needle) return true;
+    return (id || '').toLowerCase().includes(needle);
+  }
+  function applyPresetCapsDefaults(name) {
+    const rpmEl = document.getElementById('preset-rpm');
+    const rphEl = document.getElementById('preset-rph');
+    const rpdEl = document.getElementById('preset-rpd');
+    const noteEl = document.getElementById('preset-caps-note');
+    /* هر سه ورودی سقف همیشه جای‌نما (placeholder) صریح دارند:
+       خالی یعنی نامحدود — مقدارهای هوشمند زیر فقط پیشنهادند و هرگز
+       مقدار تایپ‌شده اپراتور را بازنویسی نمی‌کنند (پرشدن تنها در
+       فیلد خالی، تا سقف‌های واردشده پیش از ذخیره گم نشوند) */
+    if (rpmEl) rpmEl.placeholder = 'خالی = بدون سقف (نامحدود)';
+    if (rphEl) rphEl.placeholder = 'خالی = بدون سقف (نامحدود)';
+    if (rpdEl) rpdEl.placeholder = 'خالی = بدون سقف (نامحدود)';
+    const rpmPristine = rpmEl && !(rpmEl.value || '').trim();
+    const rphPristine = rphEl && !(rphEl.value || '').trim();
+    if ((name || '').toLowerCase() === 'kilo') {
+      if (rpmPristine) rpmEl.value = '';
+      if (rphPristine) rphEl.value = '200';
+      if (noteEl) noteEl.textContent = 'در پاسخ‌های سهمیه: چرخه خطا با جابه‌جایی تونل یا نشانی ادامه می‌دهد.';
+    } else {
+      if (rpmPristine) rpmEl.value = '15';
+      if (rphPristine) rphEl.value = '';
+      if (noteEl) noteEl.textContent = 'در پاسخ‌های سهمیه: چرخه خطا با چرخش کلید ادامه می‌دهد.';
+    }
+  }
+  function renderPresetModels() {
+    const list = document.getElementById('preset-model-list');
+    const count = document.getElementById('preset-models-count');
+    list.replaceChildren();
+    const visible = (presetModels || []).filter((id) => presetModelMatches(id));
+    if (count) count.textContent = faNum(visible.length) + ' از ' + faNum(presetModels.length) + ' مدل فعال';
+    visible.forEach((id) => {
+      const row = document.createElement('div');
+      row.className = 'model-row';
+      row.dataset.modelId = id;
+      const span = document.createElement('span');
+      span.className = 'model-id code-token';
+      span.dir = 'ltr';
+      span.textContent = id;
+      span.title = id;
+      row.append(span);
+      if (presetModelIsFree(id)) {
+        const badge = document.createElement('span');
+        badge.className = 'free-badge';
+        badge.textContent = 'رایگان';
+        row.append(badge);
+      }
+      const adopt = document.createElement('button');
+      adopt.className = 'btn-select-candidate model-adopt';
+      adopt.type = 'button';
+      adopt.textContent = 'نشاندن در مدل';
+      adopt.addEventListener('click', () => {
+        document.getElementById('preset-model').value = id;
+        closeModelPicker();
+      });
+      row.append(adopt);
+      list.append(row);
+    });
+  }
+  /* نمونه‌سازی دوم کاوشگر مدل: ورودی preset-model-filter + ظرف preset-model-list
+     (ساخته‌شدن پس از تعریف کلاس، کنار نمونه صف داوری) */
+  let presetModelFilterCtl = null;
   function renderPresetForm(info, rates) {
     const sel = document.getElementById('preset-provider');
     sel.replaceChildren();
@@ -1172,33 +1841,210 @@
       o.value = name; o.textContent = name;
       sel.append(o);
     }
+    sel.onchange = () => applyPresetCapsDefaults(sel.value);
+    applyPresetCapsDefaults(sel.value || ((info.providers || [])[0] || ''));
     const temp = (info.temperature || {});
     document.getElementById('preset-temp').value =
       faNum(temp.fixed) + (temp.supported ? '' : ' (قفل قطعی داوری)');
     document.getElementById('preset-temp-note').textContent =
       temp.supported ? 'دما پشتیبانی می‌شود' : 'دما قفل روی ' + faNum(temp.fixed);
-    document.getElementById('preset-rpm').value = '—';
-    document.getElementById('preset-rpm').placeholder = 'محدودکننده RPM در موتور نیست';
-    document.getElementById('preset-rph').value = '—';
-    document.getElementById('preset-rph').placeholder = 'سقف ساعتی جداگانه منتشر نمی‌شود';
+    const chip = document.getElementById('preset-free-chip');
+    if (chip && !chip.dataset.wired) {
+      chip.dataset.wired = '1';
+      chip.addEventListener('click', () => {
+        presetFreeOnly = !presetFreeOnly;
+        chip.classList.toggle('active', presetFreeOnly);
+        chip.setAttribute('aria-pressed', presetFreeOnly ? 'true' : 'false');
+        renderPresetModels();
+      });
+    }
+    renderPresetModels();
   }
   async function fetchPresetModels() {
-    const errEl = document.getElementById('preset-err');
-    errEl.textContent = '';
-    const box = document.getElementById('preset-models');
+    const errEl = document.getElementById('preset-models-err');
+    const legacyBox = document.getElementById('preset-models');
+    const btn = document.getElementById('btn-fetch-models');
+    const idleText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'در حال دریافت…'; }
+    clearFormError('preset-models-err');
     const name = document.getElementById('preset-provider').value;
-    box.textContent = '…';
+    presetModels = [];
+    renderPresetModels();
+    if (legacyBox) legacyBox.textContent = '…';
     try {
       const j = await getJSON('/api/providers/' + encodeURIComponent(name) + '/models');
-      const models = j.models || [];
-      box.textContent = models.length ? models.join(', ') : 'فهرستی برنگشت';
+      presetModels = j.models || [];
+      if (legacyBox) legacyBox.textContent = presetModels.length ? presetModels.join(', ') : 'فهرستی برنگشت';
+      if (presetModelFilterCtl) presetModelFilterCtl.apply();
+      else renderPresetModels();
     } catch(e) {
-      box.textContent = '';
-      errEl.textContent = e.message || e;
+      presetModels = [];
+      renderPresetModels();
+      if (legacyBox) legacyBox.textContent = '';
+      showFormError('preset-models-err', 'دریافت فهرست مدل‌ها ناموفق بود.', (e && e.message) || e, fetchPresetModels, errCodeFor(e));
+      clearFormError('preset-err');
+    }
+    finally { if (btn) { btn.disabled = false; btn.textContent = idleText; } }
+  }
+  /* ذخیره پریست داوری: مقادیر فرم به مسیر سرور (مسیر موجود، بدون تکثیر) */
+  /* هویت ویرایش: پس از «نشاندن در فرم»، نام واقعی رکورد در
+     judgeEditName می‌ماند تا ذخیره بعدی همان رکورد را به‌روزرسانی کند؛
+     تغییر برچسب یعنی تغییرنام (سرور مهاجرت می‌دهد)، نه رکورد دوم. */
+  let judgeEditName = '';
+  function presetScopeValue() {
+    const checked = document.querySelector('input[name="preset-scope"]:checked');
+    return (checked && checked.value) || 'model';
+  }
+  function setPresetScopeValue(scope) {
+    const want = (scope || 'model').toLowerCase();
+    document.querySelectorAll('input[name="preset-scope"]').forEach((el) => {
+      el.checked = (el.value === want);
+    });
+  }
+  async function saveJudgePreset(btn) {
+    const noteEl = document.getElementById('preset-save-note');
+    clearFormError('preset-err');
+    if (noteEl) noteEl.textContent = '';
+    const label = ((document.getElementById('preset-label') || {}).value || '').trim();
+    const fields = {
+      name: label || 'console-judge',
+      label: label,
+      provider: (document.getElementById('preset-provider') || {}).value || '',
+      model: ((document.getElementById('preset-model') || {}).value || '').trim(),
+      max_rpm: ((document.getElementById('preset-rpm') || {}).value || '').trim(),
+      max_rph: ((document.getElementById('preset-rph') || {}).value || '').trim(),
+      max_daily: ((document.getElementById('preset-rpd') || {}).value || '').trim(),
+      rate_scope: presetScopeValue(),
+      temperature: ((document.getElementById('preset-temp') || {}).value || '').trim(),
+    };
+    /* هویت ویرایش rides همین ذخیره: فرمِ نشانده‌شده همان رکورد را
+       به‌روزرسانی می‌کند (تغییر برچسب = تغییرنامِ بدون تکثیر) */
+    if (judgeEditName) fields.previous_name = judgeEditName;
+    await withBusy(btn || document.getElementById('btn-save-judge-preset'), 'در حال ذخیره…', async () => {
+    try {
+      const j = await getJSON('/api/judge_presets',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(fields)});
+      const rec = (j && (j.judge_preset || j.preset)) || {};
+      judgeEditName = rec.name || fields.name;
+      if (noteEl) noteEl.textContent = 'پریست داوری ذخیره شد (نسخه ' + faNum(rec.version || 1) + ').';
+      await refreshJudgeCatalog();
+    } catch(e) { showFormError('preset-err', 'ذخیره پریست داوری ناموفق بود.', (e && e.message) || e, () => saveJudgePreset(), errCodeFor(e)); }
+    });
+  }
+  /* فهرست پریست‌های ذخیره‌شده: خواندن از مسیر موجود judge-presets،
+     حذف + نشاندن در فرم — بدون مسیر تازه سمت سرور */
+  function capCell(value) {
+    const td = document.createElement('td');
+    const n = parseInt(value || '0', 10);
+    td.textContent = (n > 0) ? faNum(n) : 'نامحدود';
+    return td;
+  }
+  const RATE_SCOPE_FA = {model: 'مدل', address: 'نشانی', account: 'حساب'};
+  async function refreshJudgeCatalog() {
+    const tb = document.getElementById('preset-catalog-tbody');
+    const count = document.getElementById('preset-catalog-count');
+    const noteEl = document.getElementById('preset-catalog-note');
+    if (!tb) return;
+    tb.replaceChildren();
+    if (noteEl) noteEl.textContent = '';
+    try {
+      const j = await getJSON('/api/judge_presets');
+      const rows = (j && (j.judge_presets || j.presets)) || [];
+      if (count) count.textContent = faNum(rows.length) + ' پریست';
+      if (!rows.length) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 8;
+        td.textContent = 'پریستی ذخیره نشده است — فرم بالا را پر کنید و ذخیره کنید.';
+        tr.append(td);
+        tb.append(tr);
+        return;
+      }
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td');
+        tdName.append(ltrCode(r.name || '—'));
+        if (r.label && r.label !== r.name) {
+          const sub = document.createElement('div');
+          sub.className = 'p-meta';
+          sub.textContent = r.label;
+          tdName.append(sub);
+        }
+        const tdProv = document.createElement('td');
+        tdProv.append(ltrCode(r.provider || '—'));
+        const tdModel = document.createElement('td');
+        tdModel.append(ltrCode(r.model || '—'));
+        tr.append(tdName, tdProv, tdModel,
+          capCell(r.max_rpm), capCell(r.max_rph), capCell(r.max_daily));
+        const tdScope = document.createElement('td');
+        tdScope.textContent = RATE_SCOPE_FA[r.rate_scope] || RATE_SCOPE_FA.model;
+        tr.append(tdScope);
+        const tdAct = document.createElement('td');
+        const loadBtn = document.createElement('button');
+        loadBtn.className = 'btn-skip-next';
+        loadBtn.type = 'button';
+        loadBtn.textContent = 'نشاندن در فرم';
+        loadBtn.addEventListener('click', () => loadJudgePresetIntoForm(r.name || ''));
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-reject-all';
+        delBtn.type = 'button';
+        delBtn.textContent = 'حذف';
+        delBtn.addEventListener('click', (ev) => deleteJudgePreset(r.name || '', ev.currentTarget));
+        tdAct.append(loadBtn, document.createTextNode(' '), delBtn);
+        tr.append(tdAct);
+        tb.append(tr);
+      }
+    } catch(e) {
+      if (count) count.textContent = 'نامشخص';
+      if (noteEl) noteEl.textContent = 'خواندن فهرست پریست‌ها ناموفق بود: ' + ((e && e.message) || e);
     }
   }
+  function loadJudgePresetIntoForm(name) {
+    getJSON('/api/judge_presets').then((j) => {
+      const rows = (j && (j.judge_presets || j.presets)) || [];
+      const rec = rows.find((r) => (r.name || '') === name);
+      if (!rec) return;
+      /* هویت ویرایش از همین‌جا قفل می‌شود: ذخیره بعدی، حتی با برچسب
+         عوض‌شده، همان رکورد را جابه‌جا می‌کند — رکورد دوم ساخته نمی‌شود */
+      judgeEditName = rec.name || '';
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      setVal('preset-label', (rec.label && rec.label !== rec.name) ? rec.label : ((rec.name === 'console-judge') ? '' : (rec.name || '')));
+      const sel = document.getElementById('preset-provider');
+      if (sel && rec.provider) sel.value = rec.provider;
+      setVal('preset-model', rec.model);
+      setPresetScopeValue(rec.rate_scope);
+      applyPresetCapsDefaults(sel ? sel.value : '');
+      /* نشاندن، مقدارهای هوشمند را بازنویسی می‌کند — سقف‌های ذخیره‌شده
+         پس از اعمال پیش‌فرض بازگردانده می‌شوند تا فرم همان رکورد شود */
+      setVal('preset-rpm', (parseInt(rec.max_rpm || '0', 10) > 0) ? String(rec.max_rpm) : '');
+      setVal('preset-rph', (parseInt(rec.max_rph || '0', 10) > 0) ? String(rec.max_rph) : '');
+      setVal('preset-rpd', (parseInt(rec.max_daily || '0', 10) > 0) ? String(rec.max_daily) : '');
+      const noteEl = document.getElementById('preset-save-note');
+      if (noteEl) noteEl.textContent = 'پریست «' + (rec.name || '') + '» در فرم نشانده شد — ذخیره، نسخه تازه می‌سازد.';
+    }).catch(() => {});
+  }
+  async function deleteJudgePreset(name, btn) {
+    if (!name) return;
+    if (!confirm('پریست «' + name + '» حذف شود؟ این کار برگشت‌ناپذیر است — برای ساخت دوباره باید فرم را از نو پر کنید.')) return;
+    clearFormError('preset-err');
+    await withBusy(btn, 'در حال حذف…', async () => {
+      try {
+        await getJSON('/api/judge_presets/' + encodeURIComponent(name), {method: 'DELETE'});
+        if (judgeEditName === name) judgeEditName = '';
+        await refreshJudgeCatalog();
+      } catch(e) { showFormError('preset-err', 'حذف پریست ناموفق بود.', (e && e.message) || e, () => deleteJudgePreset(name), errCodeFor(e)); }
+    });
+  }
 
-  /* تله‌متری: فقط حقایق زنده نرخ/کلید/مسیر؛ ستون توکن صادقانه خالی */
+  /* تله‌متری: فقط حقایق زنده نرخ/کلید/مسیر؛ ستون توکن صادقانه خالی —
+     خانه ثبت‌نشده هرگز دیوار «—» بی‌برچسب نیست: برچسب «سرور ثبت نمی‌کند» */
+  function honestEmptyCell() {
+    const td = document.createElement('td');
+    td.className = 'honest-empty';
+    td.textContent = '—';
+    td.title = 'سرور ثبت نمی‌کند';
+    return td;
+  }
   function renderTelemetry(providers, rates, info) {
     const ready = providers.filter(p => p.has_key).length;
     const groups = rates.reduce((n, r) => n + (r.groups_count || 0), 0);
@@ -1212,6 +2058,15 @@
     const tb = document.getElementById('telemetry-tbody');
     tb.replaceChildren();
     const defaults = (info.default_models || {});
+    if (!providers.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.textContent = 'بدون ارائه‌دهنده زنده — رجیستری موتور خالی است.';
+      tr.append(td);
+      tb.append(tr);
+      return;
+    }
     for (const p of providers) {
       const tr = document.createElement('tr');
       const tdName = document.createElement('td');
@@ -1220,9 +2075,7 @@
       tdModel.append(ltrCode(defaults[p.name] || '—'));
       tr.append(tdName, tdModel);
       for (let i = 0; i < 5; i++) {
-        const td = document.createElement('td');
-        td.textContent = '—';
-        tr.append(td);
+        tr.append(honestEmptyCell());
       }
       tb.append(tr);
     }
@@ -1233,16 +2086,23 @@
     document.getElementById('paths-badge').textContent = faNum(roots.length) + ' ریشه زنده';
     const tb = document.getElementById('paths-tbody');
     tb.replaceChildren();
+    if (!roots.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 4;
+      td.textContent = 'بدون ریشه زنده — سرور محلی مسیری گزارش نکرد.';
+      tr.append(td);
+      tb.append(tr);
+      return;
+    }
     for (const r of roots) {
       const tr = document.createElement('tr');
       const tdLabel = document.createElement('td');
       tdLabel.textContent = r.label || '—';
       const tdPath = document.createElement('td');
       tdPath.append(ltrCode(r.path || '—'));
-      const tdLast = document.createElement('td');
-      tdLast.textContent = '—';
-      const tdRows = document.createElement('td');
-      tdRows.textContent = '—';
+      const tdLast = honestEmptyCell();
+      const tdRows = honestEmptyCell();
       tr.append(tdLabel, tdPath, tdLast, tdRows);
       tb.append(tr);
     }
@@ -1309,6 +2169,10 @@
     'queue-filter', 'queue-list',
     function(row, i, q) { return queueItemMatches(row, i, q); },
     function(q) { queueFilter = q || ''; renderQueue(); });
+  presetModelFilterCtl = new FilterableListController(
+    'preset-model-filter', 'preset-model-list',
+    function(row, i, q) { return presetModelMatches(typeof row === 'string' ? row : (row && row.id) || '', q); },
+    function(q) { presetModelQuery = q || ''; renderPresetModels(); });
   function renderQueue() {
     const box = document.getElementById('queue-list');
     box.replaceChildren();
@@ -1427,36 +2291,74 @@
       const card = document.createElement('div');
       card.className = 'candidate-row-card';
       card.dataset.sensekey = cand.sensekey || '';
-      const info = document.createElement('div');
-      info.className = 'c-info-block';
-      const keyTag = ltrLine((cand.synset || cand.sensekey || '—') +
-        (cand.synset_locator ? ' (' + cand.synset_locator + ')' : ''), 'c-key-tag code-token');
-      info.append(keyTag);
-      info.append(ltrLine(cand.gloss || '—', 'c-gloss-text', cand.gloss || ''));
-      if ((cand.synonyms || []).length) {
-        const synText = '= ' + cand.synonyms.join('; ');
-        info.append(ltrLine(synText, 'c-synonyms-text', synText));
-      }
-      if (cand.example) {
-        const exText = '◈ ' + cand.example;
-        info.append(ltrLine(exText, 'c-synonyms-text', exText));
-      }
-      if (cand.method || cand.evidence) {
-        info.append(ltrLine([cand.method, cand.evidence].filter(Boolean).join(' · '), 'c-synonyms-text code-token'));
-      }
-      /* human-review flags ride the card (read-only join, never typed) */
-      if (cand.in_review || cand.witness_pick) {
-        const bits = [];
-        if (cand.in_review) bits.push('review' + (cand.review_reason ? ': ' + cand.review_reason : ''));
-        if (cand.witness_pick) bits.push('witness pick' + (witness ? ': ' + witness : ''));
-        info.append(ltrLine(bits.join(' · '), 'c-synonyms-text code-token'));
-      }
+      /* سطر بالایی: شناسه لاتین ایزوله + دکمه انتخاب */
+      const top = document.createElement('div');
+      top.className = 'c-top-row';
+      const keyTag = document.createElement('bdi');
+      keyTag.setAttribute('dir', 'ltr');
+      keyTag.className = 'code-token c-sensekey';
+      keyTag.textContent = cand.sensekey || '—';
+      keyTag.title = cand.sensekey || '';
       const pick = document.createElement('button');
       pick.className = 'btn-select-candidate';
       pick.type = 'button';
       pick.textContent = 'انتخاب برای پیوند';
       pick.addEventListener('click', () => setSelectedTarget(cand.sensekey || '', card));
-      card.append(info, pick);
+      top.append(keyTag, pick);
+      card.append(top);
+      /* معنی برجسته */
+      const gloss = document.createElement('div');
+      gloss.className = 'c-gloss-text ltr-text';
+      gloss.setAttribute('dir', 'ltr');
+      gloss.textContent = cand.gloss || '—';
+      if (cand.gloss) gloss.title = cand.gloss;
+      card.append(gloss);
+      /* مترادف‌ها در سطر برچسب‌دار خودشان */
+      if ((cand.synonyms || []).length) {
+        const synLine = document.createElement('div');
+        synLine.className = 'c-synonyms-line ltr-text';
+        synLine.setAttribute('dir', 'ltr');
+        const synLabel = document.createElement('span');
+        synLabel.className = 'c-syn-label';
+        synLabel.textContent = 'مترادف‌ها: ';
+        synLine.append(synLabel, document.createTextNode(cand.synonyms.join('; ')));
+        synLine.title = cand.synonyms.join('; ');
+        card.append(synLine);
+      }
+      /* مثال در بلوک نقل‌قول متمایز */
+      if (cand.example) {
+        const quote = document.createElement('blockquote');
+        quote.className = 'c-example ltr-text';
+        quote.setAttribute('dir', 'ltr');
+        quote.textContent = cand.example;
+        quote.title = cand.example;
+        card.append(quote);
+      }
+      /* متادیتای فنی (شناسه‌های داخلی، روش، شواهد، پرچم‌ها) فقط در
+         بلوک تاشو — هرگز در بدنه کارت */
+      const metaBits = [];
+      if (cand.synset) metaBits.push(['synset', cand.synset]);
+      if (cand.synset_locator) metaBits.push(['locator', cand.synset_locator]);
+      if (cand.method) metaBits.push(['method', cand.method]);
+      if (cand.evidence) metaBits.push(['evidence', cand.evidence]);
+      if (cand.in_review) metaBits.push(['review', 'review' + (cand.review_reason ? ': ' + cand.review_reason : '')]);
+      if (cand.witness_pick) metaBits.push(['witness pick', 'witness pick' + (witness ? ': ' + witness : '')]);
+      if (metaBits.length) {
+        const metaBox = document.createElement('details');
+        metaBox.className = 'candidate-meta';
+        const metaSummary = document.createElement('summary');
+        metaSummary.textContent = 'فراداده فنی';
+        metaBox.append(metaSummary);
+        metaBits.forEach(([label, value]) => {
+          const line = document.createElement('div');
+          line.className = 'meta-line ltr-text';
+          line.setAttribute('dir', 'ltr');
+          line.textContent = label + ': ' + value;
+          line.title = label + ': ' + value;
+          metaBox.append(line);
+        });
+        card.append(metaBox);
+      }
       box.append(card);
     });
   }
@@ -1539,18 +2441,33 @@
     }
     postLabel('link', selectedTarget);
   });
-  document.getElementById('btn-master-ensure').addEventListener('click', masterEnsure);
-  document.getElementById('btn-supervisor-save').addEventListener('click', supervisorTokenSave);
-  document.getElementById('btn-supervisor-delete').addEventListener('click', supervisorTokenDelete);
+  document.getElementById('btn-master-ensure').addEventListener('click', (ev) => masterEnsure(ev.currentTarget));
+  document.getElementById('btn-supervisor-save').addEventListener('click', (ev) => supervisorTokenSave(ev.currentTarget));
+  document.getElementById('btn-supervisor-delete').addEventListener('click', (ev) => supervisorTokenDelete(ev.currentTarget));
   document.getElementById('btn-supervisor-wake').addEventListener('click', supervisorWake);
-  document.getElementById('btn-supervisor-sleep').addEventListener('click', supervisorSleep);
+  document.getElementById('btn-supervisor-sleep').addEventListener('click', (ev) => supervisorSleep(ev.currentTarget));
   document.getElementById('btn-fetch-models').addEventListener('click', fetchPresetModels);
+  document.getElementById('btn-open-model-picker').addEventListener('click', async () => {
+    openModelPicker();
+    try { await fetchPresetModels(); } catch(e){}
+  });
+  document.getElementById('btn-close-model-picker').addEventListener('click', closeModelPicker);
+  (function wireModelDialogBackdrop() {
+    const dlg = document.getElementById('model-picker');
+    if (!dlg) return;
+    dlg.addEventListener('click', (ev) => {
+      if (ev.target === dlg) closeModelPicker();
+    });
+  })();
+  document.getElementById('btn-save-judge-preset').addEventListener('click', (ev) => saveJudgePreset(ev.currentTarget));
+  document.getElementById('btn-add-provider').addEventListener('click', (ev) => providerAdd(ev.currentTarget));
 
   restoreViewMemory();
   refreshBadges();
   refreshSupervisorToken();
   refreshSupervisorLifecycle();
   refreshProviderCards();
+  refreshJudgeCatalog();
   loadScreened();
 </script>
 </body>

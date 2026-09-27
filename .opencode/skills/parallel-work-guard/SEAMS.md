@@ -86,5 +86,17 @@ scan-target update requirement.
   Same rationale as `services/plan_fields.py`; guarded by
   `tests/test_single_source_of_truth.py` (`THEMES`/`DEFAULT_THEME_ID`/
   `get_theme`/`validate_themes` -> `config/themes.py`).
+- `factory/net/provider_cycle.py` + `factory/precard/provider_manifest.py`
+  + `factory/precard/provider_benchmark.py` (feat/provider-cycle, added
+  2026-09-27): factory network tooling with injected I/O seams (no
+  Telegram handler/callback boundary, no shared flat-namespace
+  identifiers — provider rows are manifest DATA, never code symbols).
+  Same rationale as `services/plan_fields.py`: one owner per module,
+  no cross-session collision surface beyond the manifest JSON file
+  itself (owned by `provider_manifest.py`). Console HTTP wiring is
+  covered by `tests/factory/test_provider_manifest_cycle.py`
+  (`test_managed_routes_crud_and_exact_counts`); `tests/test_wiring.py`
+  stays Telegram-callback-scoped (InlineKeyboardButton scan) and
+  intentionally does not scan factory/.
 
 Copyright (c) Ham3dParsa. All rights reserved.

@@ -163,6 +163,80 @@ SUPERVISOR_TOKEN_VAR = "EGRESS_SUP_TOKEN"
 FACTORY_ENV_PATH = os.path.abspath(
     os.path.join(PROJECT_ROOT, "factory", ".env"))
 
+#: Owner-configured supervisor idle-minutes override (name only; value
+#: never logged). Declared early: primary-path helpers below do not
+#: depend on it, but the lifecycle surface does.
+SUPERVISOR_IDLE_MINUTES_ENV_VAR = "HAMZABAN_SUPERVISOR_IDLE_MINUTES"
+
+_PRIMARY_ROOT_CACHE = {"root": None}
+
+
+def _primary_root():
+    """Primary checkout root (read-only fallback for worktree runs).
+
+    The console may serve from an isolated worktree whose own env
+    files do not exist; the operator's secrets live in the primary
+    checkout. A worktree ``.git`` file points at
+    ``<primary>/.git/worktrees/<name>``; a plain checkout is its own
+    primary. "" when unresolvable (current behavior, never a guess).
+    Values are never read here — only the directory name.
+    """
+    if _PRIMARY_ROOT_CACHE["root"] is not None:
+        return _PRIMARY_ROOT_CACHE["root"]
+    root = ""
+    try:
+        checkout = os.path.abspath(PROJECT_ROOT)
+        dotgit = os.path.join(checkout, ".git")
+        if os.path.isdir(dotgit):
+            root = checkout
+        elif os.path.isfile(dotgit):
+            try:
+                with open(dotgit, encoding="utf-8") as handle:
+                    first = (handle.read().strip().splitlines() or [""])[0]
+            except (OSError, ValueError):
+                first = ""
+            if first.startswith("gitdir:"):
+                gitdir = first.split(":", 1)[1].strip()
+                if not os.path.isabs(gitdir):
+                    gitdir = os.path.abspath(
+                        os.path.join(checkout, gitdir))
+                # <primary>/.git/worktrees/<name> -> <primary>
+                primary = os.path.abspath(os.path.join(
+                    gitdir, "..", "..", ".."))
+                anchor = os.path.join(primary, ".git")
+                if os.path.isdir(anchor) or os.path.isfile(anchor):
+                    root = primary
+    except (OSError, ValueError):
+        root = ""
+    _PRIMARY_ROOT_CACHE["root"] = root
+    return root
+
+
+def _extra_key_paths():
+    """Key lookup files beyond the engine default (primary fallback).
+
+    The engine default (this checkout's ``factory/.env``) stays first;
+    the primary checkout's ``factory/.env`` + ``tools/egress/.env``
+    follow read-only (never written, never logged). A plain-checkout
+    run adds nothing (no duplicate reads). Always passed explicitly
+    to the lease-policy resolver seam (hermetic tests keep mocking
+    that seam — no direct file reads here).
+    """
+    try:
+        from factory.precard.provider_lease_policy import (
+            _default_factory_env as _default_env)
+        default = _default_env()
+    except Exception:
+        default = ""
+    paths = [default] if default else []
+    root = _primary_root()
+    if root and os.path.abspath(root) != os.path.abspath(PROJECT_ROOT):
+        for cand in (os.path.join(root, "factory", ".env"),
+                     os.path.join(root, "tools", "egress", ".env")):
+            if os.path.isfile(cand) and cand not in paths:
+                paths.append(cand)
+    return [p for p in paths if p]
+
 RESUME_MODES = ("on", "off", "plan")
 NON_COMPARABLE_WATERMARK = "CUSTOM — NON-COMPARABLE"
 
@@ -453,11 +527,15 @@ def _save_key_var_mapping(mapping):
     os.replace(tmp, KEY_VAR_MAP_PATH)
 
 
-def _resolve_any(vars_):
-    """True when any key var resolves via env or the factory file.
+def _resolve_any(vars_, file_paths=None):
+    """True when any key var resolves via env or the env files.
 
-    Unified loader order: process env first, then the gitignored
-    factory env file. Names in, boolean out — values never read here.
+    Unified loader order: process env first, then the dotenv files
+    (this checkout's ``factory/.env`` plus the primary checkout's
+    ``factory/.env`` + ``tools/egress/.env`` read-only fallback, so a
+    worktree console sees the operator's primary keys with zero manual
+    copies). Names in, boolean out — values never read here.
+    ``file_paths`` injects the list (tests pass fakes — never files).
     """
     try:
         from factory.precard.provider_lease_policy import (
@@ -465,6 +543,8 @@ def _resolve_any(vars_):
         )
     except Exception:
         _resolve = None
+    paths = list(file_paths) if file_paths is not None \
+        else _extra_key_paths()
     for var in vars_ or ():
         if not var:
             continue
@@ -472,7 +552,7 @@ def _resolve_any(vars_):
             return True
         if _resolve is not None:
             try:
-                if _resolve(var):
+                if _resolve(var, file_paths=paths):
                     return True
             except Exception:
                 continue
@@ -491,7 +571,7 @@ def _operator_key_values():
     except Exception:
         return {}
     try:
-        stored = json.load(open(OPERATOR_KEYS_PATH, encoding="utf-8"))
+        stored = _read_json_file(OPERATOR_KEYS_PATH)
     except (OSError, ValueError):
         return {}
     out = {}
@@ -504,6 +584,31 @@ def _operator_key_values():
             if plain:
                 out[str(var)] = plain
     return out
+
+
+def _read_json_file(path):
+    """JSON dict from a file with closed handles ({} when unreadable)."""
+    try:
+        with open(str(path), encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _request_manifest_manager():
+    """One manifest manager per request (single disk load, names only).
+
+    Built through the registry seam (``fresh_manager``) so the
+    registry test seam keeps working. The manager caches after its
+    first load, so every registry call in the request shares one
+    read. None when unconstructable (registry calls fall back to
+    single fresh reads, as before).
+    """
+    try:
+        return provider_registry.fresh_manager()
+    except Exception:
+        return None
 
 
 def key_presence(clean_fn=None):
@@ -529,25 +634,47 @@ def key_presence(clean_fn=None):
     except Exception:
         _clean_head = ""
     rows = []
-    for name in provider_registry.provider_names():
+    _mgr = _request_manifest_manager()
+    for name in provider_registry.provider_names(_manager=_mgr):
         try:
-            refs = list(provider_registry.key_ref_for(name, "G1")
-                        + provider_registry.key_ref_for(name, "G2"))
+            refs = provider_registry.ordered_key_vars(name, _manager=_mgr)
         except Exception:
             refs = []
-        effective = _provider_key_var(name)
+        try:
+            compat = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
+        except Exception:
+            compat = []
+        merged = list(refs)
+        for var in compat:
+            if var and var not in merged:
+                merged.append(var)
+        refs = merged
+        if not refs:
+            refs = list(compat)
+        effective = _provider_key_var(name, _manager=_mgr)
         ordered = []
         for var in ([effective] if effective else []) + refs:
             if var and var not in ordered:
                 ordered.append(var)
         ready = _resolve_any(ordered) or any(
             v in stored for v in ordered)
-        route, route_reason = route_for_provider(name)
+        try:
+            slot_count = int(provider_registry.key_count(name, _manager=_mgr))
+        except Exception:
+            slot_count = len(ordered)
+        route, route_reason = route_for_provider(
+            name,
+            registry_fn=lambda n: provider_registry.resolve_provider(
+                n, _manager=_mgr))
         rows.append({
             "name": name,
             "key_vars": ordered,
             "key_var": effective,
             "has_key": bool(ready),
+            "key_count": int(slot_count),
+            "active_keys": int(slot_count),
             "route": route,
             "route_reason": route_reason,
             "clean_exit": (_clean_head if route == "leased"
@@ -880,11 +1007,157 @@ def judge_preset_schema():
     return schema
 
 
+class _CycleFetchFailed(Exception):
+    """Parked model-list fetch (no exception reached the transport)."""
+
+
+def _http_code_of(exc):
+    """HTTP status of a fetch failure (None when not HTTP)."""
+    import urllib.error as _httperr
+    if isinstance(exc, _httperr.HTTPError):
+        try:
+            return int(exc.code)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _model_list_target(name, row, key_value):
+    """(endpoint, headers, ids_of, error_or_None) for one provider.
+
+    Pure composition over the provider row (data only — the key VALUE
+    stays in-memory inside the returned headers, never logged or
+    returned). Gemini-rest rows list via models:list; every other
+    row lists via its OpenAI-compatible {base}/models.
+    """
+    protocol = str((row or {}).get("protocol") or "")
+    if protocol == "gemini_rest" or str(name or "") == "google":
+        return ("https://generativelanguage.googleapis.com/"
+                "v1beta/models?pageSize=200",
+                {"x-goog-api-key": key_value},
+                _google_model_ids, None)
+    base = str((row or {}).get("base_url") or "")
+    endpoint = _openai_models_endpoint(base)
+    if not endpoint:
+        return None, None, None, ("%s has no listable base address "
+                                  "(no /models endpoint)" % name)
+    return endpoint, {"Authorization": "Bearer " + key_value}, \
+        _openai_model_ids, None
+
+
+def _cycle_store():
+    """Provider-namespaced cycle store (existing store, file-backed).
+
+    The existing ``ProviderCacheStore`` (one file keyed by provider —
+    namespaces never leak) beside the supervisor pool; None when the
+    pool home is unreadable (the cycle then runs store-less — cache
+    check reads miss, remember skips the write, never raises).
+    """
+    try:
+        from factory.net.tunnel_selection import ProviderCacheStore
+        from tools.egress.supervisor import POOL_PATH as _pool
+        path = str(_pool.parent / "provider_cycle_cache.json")
+    except Exception:
+        return None
+    try:
+        return ProviderCacheStore(path)
+    except Exception:
+        return None
+
+
+def _pool_file_servers():
+    """Server rows from the supervisor pool file (single definition).
+
+    Closed handles (``with open`` — never a bare ``open`` leaking fds
+    on this threaded server); [] when unreadable (callers treat an
+    absent pool as no candidates, never an error).
+    """
+    try:
+        from tools.egress.supervisor import POOL_PATH as _pool
+        with open(str(_pool), encoding="utf-8") as handle:
+            payload = json.load(handle)
+        servers = (payload.get("servers") if isinstance(payload, dict)
+                   else None) or []
+    except (OSError, ValueError):
+        return []
+    return [s for s in servers if isinstance(s, dict)]
+
+
+def _pool_snapshot_rows(lease_server_id="", clean_fn=None):
+    """Supervisor pool snapshot rows for the cycle refresh (data only).
+
+    OUR leased exit first (paid), then the pooled server ids in file
+    order (paid) — the driver dedupes + paid-firsts them through the
+    existing helpers. The fresh-whitelist leg arrives via ``clean_fn``
+    (tests pass fakes — never the real cache file); the default is
+    the T5 linker adapter, resolved at call time. File reads only
+    (pool + whitelist); no network, no new egress path. Capped at 20
+    (pool top-N scale).
+    """
+    rows = []
+    if lease_server_id:
+        rows.append({"id": str(lease_server_id), "source": "paid"})
+    servers = _pool_file_servers()
+    try:
+        from factory.linking import google_clean as _gc
+        clean_reader = (clean_fn if clean_fn is not None
+                        else _gc.fresh_clean_exits)
+        whitelist = list(clean_reader() or [])
+    except Exception:
+        whitelist = []
+    for sid in list(whitelist) + [
+            s.get("id") for s in servers if isinstance(s, dict)]:
+        if isinstance(sid, str) and sid and all(
+                r.get("id") != sid for r in rows):
+            rows.append({"id": sid, "source": "paid"})
+        if len(rows) >= 20:
+            break
+    return rows
+
+
+def _cycle_ping_fn(proxy_url=""):
+    """Ping closure over the snapshot (reachability only, never keys).
+
+    Pool exits ping their pooled host/port; OUR leased exit pings the
+    proxy loopback (supervisor reachability); unknown ids read
+    unreachable (honest fallback, never a guess). Never raises.
+    """
+    try:
+        from tools.egress.supervisor import tcp_ping as _ping
+    except Exception:
+        return lambda exit_id: None
+    try:
+        servers = _pool_file_servers()
+        addrs = {s.get("id"): (s.get("host"), s.get("port"))
+                 for s in servers if s.get("id")}
+    except (OSError, ValueError):
+        addrs = {}
+    try:
+        from urllib.parse import urlsplit as _split
+        parts = _split(proxy_url or "")
+        proxy_addr = ((parts.hostname or ""),
+                      (parts.port or 0)) if proxy_url else ("", 0)
+    except Exception:
+        proxy_addr = ("", 0)
+
+    def _ping_exit(exit_id):
+        host, port = addrs.get(exit_id, (None, None))
+        if host is None and proxy_addr[0]:
+            host, port = proxy_addr
+        try:
+            return _ping(host, port, 1.0)
+        except Exception:
+            return None
+
+    return _ping_exit
+
+
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
                          target_fn=None, clean_fn=None, verify_fn=None,
                          remember_fn=None, report_fn=None, tunneled=None,
                          env_map=None, file_paths=None,
-                         registry_fn=None, wake_fn=None, health_fn=None):
+                         registry_fn=None, wake_fn=None, health_fn=None,
+                         state_log=None, pool_fn=None, ping_fn=None):
     """Server-side per-provider model list (key-gated, never faked).
 
     Resolves the provider key server-side (env/file/operator store —
@@ -909,14 +1182,24 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     pass fakes, never the network or the real cache file); the
     key-gated list fetch itself stays here (composition fact for the
     model-picker screen, values in-memory only).
+
+    The fetch walks the generic provider cycle
+    (``factory.net.provider_cycle.run_cycle`` — cache check, refresh
+    from the supervisor pool snapshot, ping, batched keyed prove,
+    remember, done) thinly: the ordered state machine appends to
+    ``state_log`` (when a list is passed) and the Persian interface
+    lines ride the result. ``pool_fn``/``ping_fn`` inject the
+    refresh/ping legs (tests pass fakes — never files or sockets).
     """
     import urllib.request as _url
+    from factory.net.provider_cycle import run_cycle as _run_cycle
 
     name = str(provider or "").strip()
-    if name not in provider_registry.provider_names():
+    _mgr = _request_manifest_manager()
+    if name not in provider_registry.provider_names(_manager=_mgr):
         return None, "unknown provider: %s" % name
     try:
-        row = provider_registry.resolve_provider(name) or {}
+        row = provider_registry.resolve_provider(name, _manager=_mgr) or {}
     except Exception:
         row = {}
     # Key-gated: resolve server-side only (names out, values in-memory).
@@ -928,19 +1211,27 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     stored = _operator_key_values()
     var_order = []
     try:
-        eff = _provider_key_var(name)
-        refs = list(provider_registry.key_ref_for(name, "G1")
-                    + provider_registry.key_ref_for(name, "G2"))
+        eff = _provider_key_var(name, _manager=_mgr)
+        try:
+            refs = list(provider_registry.ordered_key_vars(
+                name, _manager=_mgr))
+        except Exception:
+            refs = []
+        if not refs:
+            refs = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
         for var in ([eff] if eff else []) + refs:
             if var and var not in var_order:
                 var_order.append(var)
     except Exception:
         var_order = []
     key_value = ""
+    key_paths = _extra_key_paths()
     for var in var_order:
         if _resolve is not None:
             try:
-                hit = _resolve(var)
+                hit = _resolve(var, file_paths=key_paths)
             except Exception:
                 hit = ""
             if hit:
@@ -953,75 +1244,161 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
         return None, ("no key resolves for %s (%s) — paste the key in "
                       "the providers panel first"
                       % (name, "+".join(var_order) or "no key refs"))
-    protocol = str(row.get("protocol") or "")
+    _reg_fn = registry_fn
+    if _reg_fn is None:
+        _reg_fn = lambda n: provider_registry.resolve_provider(
+            n, _manager=_mgr)
     route, _route_reason = route_for_provider(
-        name, registry_fn=registry_fn, tunneled=tunneled,
+        name, registry_fn=_reg_fn, tunneled=tunneled,
         env_map=env_map, file_paths=file_paths)
+    endpoint, headers, ids_of, endpoint_error = _model_list_target(
+        name, row, key_value)
     if route == "leased":
+        lease_states = [] if state_log is not None else None
         lease, lease_error = lease_tunnel_for_run(
             name, lease_fn=lease_fn, target_fn=target_fn,
             clean_fn=clean_fn, verify_fn=verify_fn, tunneled=tunneled,
             env_map=env_map, file_paths=file_paths,
-            wake_fn=wake_fn, health_fn=health_fn)
+            wake_fn=wake_fn, health_fn=health_fn,
+            state_log=lease_states)
+        if state_log is not None and lease_states is not None:
+            state_log.extend(lease_states)
         if lease_error:
             return None, ("%s models:list refused: %s"
                           % (name, lease_error))
+        if endpoint_error:
+            return None, endpoint_error
         proxy_url = str((lease or {}).get("proxy_url") or "")
         opener = _url.build_opener(_url.ProxyHandler(
             {"http": proxy_url, "https": proxy_url})) if proxy_url \
             else _url.build_opener()
-        if protocol == "gemini_rest" or name == "google":
-            endpoint = ("https://generativelanguage.googleapis.com/"
-                        "v1beta/models?pageSize=200")
-            headers = {"x-goog-api-key": key_value}
-            ids_of = _google_model_ids
-        else:
-            base = str(row.get("base_url") or "")
-            endpoint = _openai_models_endpoint(base)
-            if not endpoint:
-                return None, ("%s has no listable base address "
-                               "(no /models endpoint)" % name)
-            headers = {"Authorization": "Bearer " + key_value}
-            ids_of = _openai_model_ids
+        lease_sid = str((lease or {}).get("server_id") or "")
+        lease_id = str((lease or {}).get("lease_id") or "")
+        attempt = {}
+
+        def _check(exit_id):
+            # Single lease, single real fetch: only OUR leased exit is
+            # ever attempted (siblings read unknown-skipped, no
+            # network — the snapshot still orders honestly above).
+            if lease_sid and exit_id != lease_sid:
+                return "unknown", {"http": None, "skipped": True}
+            if attempt.get("done"):
+                prev = attempt.get("verdict", "unknown")
+                return prev, dict(attempt.get("info") or {"http": None})
+            req = _url.Request(endpoint, headers=headers)
+            try:
+                import time as _time
+                _start = _time.monotonic()
+                with opener.open(req, timeout=timeout) as resp:
+                    data = json.load(resp)
+                _latency_ms = int((_time.monotonic() - _start) * 1000)
+            except Exception as exc:
+                attempt["done"] = True
+                attempt["verdict"] = "unknown"
+                attempt["info"] = {"http": _http_code_of(exc)}
+                attempt["exc"] = exc
+                attempt["data"] = None
+                return "unknown", dict(attempt["info"])
+            attempt["done"] = True
+            attempt["verdict"] = "clean"
+            attempt["info"] = {"http": None,
+                               "latency_ms": float(_latency_ms),
+                               "payload": ids_of(data)}
+            attempt["data"] = data
+            return "clean", dict(attempt["info"])
+
+        def _cool(exit_id, prov, code):
+            # Quota-cool per exit: OUR server cools for the provider
+            # (provider-scoped, others' leases untouched).
+            if code != 429 or not lease_id or exit_id != lease_sid:
+                return
+            if report_fn is None and not _supervisor_token():
+                return
+            try:
+                from factory.linking import probe_providers as _pp
+                _pp.report_outcome(lease_id, "http429",
+                                   provider=name, report_fn=report_fn)
+                attempt["cooled"] = True
+            except Exception:
+                pass
+
+        def _remember(exit_id, prov, ms):
+            # Proven exit: a successful list through OUR lease is a
+            # clean signal — report ok and warm its own
+            # provider-scoped clean cache so the next lease prefers it
+            # (supervisor cache-first, no restart; namespaces never
+            # leak across providers). Best-effort, ours only.
+            _report_lease_outcome(lease, name, None,
+                                  report_fn=report_fn)
+            try:
+                from factory.linking import google_clean as _gc_m
+                remember = (remember_fn if remember_fn is not None
+                            else _gc_m.remember_success)
+                if exit_id:
+                    remember(exit_id, prov, ms)
+            except Exception:
+                pass
+
+        res = _run_cycle(
+            name, store=_cycle_store(),
+            pool_fn=(pool_fn if pool_fn is not None
+                     else lambda: _pool_snapshot_rows(
+                         lease_sid, clean_fn=clean_fn)),
+            ping_fn=(ping_fn if ping_fn is not None
+                     else _cycle_ping_fn(proxy_url)),
+            check_fn=_check, cool_fn=_cool, remember_fn=_remember,
+            key_name=(var_order[0] if var_order else ""),
+            tunneled=tunneled)
+        if state_log is not None:
+            state_log.extend(res.get("states") or [])
+        if res.get("winner") is not None:
+            return res.get("payload"), None
+        exc = attempt.get("exc")
+        if exc is not None and not (
+                _http_code_of(exc) == 429
+                and attempt.get("cooled")):
+            _report_lease_outcome(lease, name, exc,
+                                  report_fn=report_fn)
+        return None, (_attributed_error(name, exc)
+                      if exc is not None
+                      else "%s models fetch failed: %s" % (
+                          name, res.get("error") or "no clean exit"))
+    if endpoint_error:
+        return None, endpoint_error
+    req = _url.Request(endpoint, headers=headers)
+    attempt = {}
+
+    def _direct_check(exit_id):
         req = _url.Request(endpoint, headers=headers)
         try:
-            import time as _time
-            _start = _time.monotonic()
-            with opener.open(req, timeout=timeout) as resp:
+            with _url.urlopen(req, timeout=timeout) as resp:
                 data = json.load(resp)
-            _latency_ms = int((_time.monotonic() - _start) * 1000)
         except Exception as exc:
-            _report_lease_outcome(lease, name, exc, report_fn=report_fn)
-            return None, _attributed_error(name, exc)
-        _report_lease_outcome(lease, name, None, report_fn=report_fn)
-        # Proven exit: a successful list through OUR lease is a clean
-        # signal for ANY leased-route provider — warm its own
-        # provider-scoped clean cache so the next lease prefers it
-        # (supervisor cache-first, no restart; namespaces never leak
-        # across providers). Best-effort, ours only.
-        try:
-            from factory.linking import google_clean as _gc_m
-            remember = (remember_fn if remember_fn is not None
-                        else _gc_m.remember_success)
-            _sid = str((lease or {}).get("server_id") or "")
-            if _sid:
-                remember(_sid, name, _latency_ms)
-        except Exception:
-            pass
-        return ids_of(data), None
-    base = str(row.get("base_url") or "")
-    endpoint = _openai_models_endpoint(base)
-    if not endpoint:
-        return None, ("%s has no listable base address "
-                      "(no /models endpoint)" % name)
-    req = _url.Request(endpoint, headers={
-        "Authorization": "Bearer " + key_value})
-    try:
-        with _url.urlopen(req, timeout=timeout) as resp:
-            data = json.load(resp)
-    except Exception as exc:
+            # Single direct exit: keep the real failure for the
+            # attributed error below (provider + kind + http — the
+            # cycle states carry names + counts only, never values).
+            attempt["exc"] = exc
+            return "unknown", {"http": _http_code_of(exc),
+                               "exc": type(exc).__name__}
+        return "clean", {"http": None, "latency_ms": 0.0,
+                         "payload": ids_of(data)}
+
+    res = _run_cycle(
+        name, store=None,
+        pool_fn=lambda: [{"id": "direct", "source": "free"}],
+        ping_fn=lambda exit_id: None,
+        check_fn=_direct_check, cool_fn=lambda *a: None,
+        remember_fn=lambda *a: None,
+        key_name=(var_order[0] if var_order else ""))
+    if state_log is not None:
+        state_log.extend(res.get("states") or [])
+    if res.get("winner") is not None:
+        return res.get("payload"), None
+    exc = attempt.get("exc")
+    if exc is not None:
         return None, _attributed_error(name, exc)
-    return _openai_model_ids(data), None
+    return None, _attributed_error(
+        name, _CycleFetchFailed(res.get("error") or "no clean exit"))
 
 
 def _report_lease_outcome(lease, provider, exc, report_fn=None):
@@ -1732,6 +2109,10 @@ def _safe_filename(name):
 
 PRESET_KINDS = ("run", "judge")
 
+#: Rate-scope states for judge presets (single owner of the enum — the
+#: console selector posts one of these, the catalog renders it back).
+JUDGE_RATE_SCOPES = ("model", "address", "account")
+
 #: Ready whole-run preset (speed + accuracy): small limit for speed, the
 #: engine-default gold sample for accuracy. Seeded only when missing —
 #: an operator edit is never overwritten.
@@ -1820,8 +2201,19 @@ def save_preset(fields):
     """Save a versioned preset; returns the stored record (version bumped).
 
     Two kinds: "run" (the whole compose form) and "judge" (judge knobs
-    only: provider/model/concurrency — plugs into the compose form).
-    Old records without a kind read back as "run".
+    only: provider/model/rate caps/rate scope/optional label — plugs into
+    the compose form). Old records without a kind read back as "run".
+    Judge rate caps (max_rpm/max_rph/max_daily) store 0 for unlimited
+    (empty input means unlimited); rate_scope is one of
+    model/address/account (empty reads as model). Old judge records
+    without these keys read back with the same defaults.
+
+    Edit identity: an optional ``previous_name`` migrates a rename in
+    one call (version continues, ``ready`` carries over, the old file
+    is removed) so re-saving a loaded preset never leaves a duplicate
+    behind. Fail-closed: an unknown ``previous_name``, or a ``name``
+    that already belongs to another preset, raises ValueError and
+    nothing is written.
     """
     name = str((fields or {}).get("name") or "").strip()
     if not name or not _PRESET_NAME_RX.match(name):
@@ -1829,6 +2221,11 @@ def save_preset(fields):
     safe = _safe_filename(name)
     if not safe:
         raise ValueError("preset name must be 1..64 chars without / or \\")
+    previous_name = str((fields or {}).get("previous_name") or "").strip()
+    if previous_name and not _PRESET_NAME_RX.match(previous_name):
+        raise ValueError(
+            "previous preset name must be 1..64 chars without / or \\")
+    renamed = bool(previous_name) and previous_name != name
     kind = str((fields or {}).get("kind") or "run").strip()
     if kind not in PRESET_KINDS:
         raise ValueError("preset kind must be one of %s" % "/".join(
@@ -1851,8 +2248,34 @@ def save_preset(fields):
     resume = str((fields or {}).get("resume", "on") or "on").strip()
     if resume not in RESUME_MODES:
         raise ValueError("resume must be one of %s" % ("/".join(RESUME_MODES),))
+    judge_extra = {}
+    if kind == "judge":
+        label = str((fields or {}).get("label") or "").strip()
+        if len(label) > 64:
+            raise ValueError("label must be at most 64 chars")
+        judge_extra["label"] = label
+        for cap in ("max_rpm", "max_rph", "max_daily"):
+            try:
+                value = int((fields or {}).get(cap, 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("%s must be an integer >= 0 or empty" % cap)
+            if value < 0:
+                raise ValueError("%s must be >= 0 or empty" % cap)
+            judge_extra[cap] = value
+        scope = str((fields or {}).get("rate_scope") or "").strip() or "model"
+        if scope not in JUDGE_RATE_SCOPES:
+            raise ValueError("rate_scope must be one of %s" % "/".join(
+                JUDGE_RATE_SCOPES))
+        judge_extra["rate_scope"] = scope
     os.makedirs(PRESETS_DIR, exist_ok=True)
-    prev = get_preset(name)
+    prev = get_preset(previous_name) if renamed else get_preset(name)
+    if renamed and prev is None:
+        raise ValueError("preset not found: %s" % previous_name)
+    if renamed and get_preset(name) is not None:
+        raise ValueError(
+            "preset %r already exists "
+            "(delete it first or pick another name)" % name)
+    prev_safe = _safe_filename(previous_name) if renamed else safe
     version = int((prev or {}).get("version") or 0) + 1
     rec = {
         "name": name,
@@ -1870,6 +2293,7 @@ def save_preset(fields):
         "updated": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
     }
+    rec.update(judge_extra)
     if (fields or {}).get("ready") is True or (
             prev or {}).get("ready") is True:
         rec["ready"] = True
@@ -1877,6 +2301,27 @@ def save_preset(fields):
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(rec, handle, ensure_ascii=False, indent=1)
     os.replace(tmp, os.path.join(PRESETS_DIR, safe + ".json"))
+    if renamed:
+        # New record is durable before the old file goes: a failed
+        # remove surfaces as 500 (retryable) instead of a silent twin.
+        # Resolve the old file like delete_preset does (stale twins
+        # may live under a scanned name, not the canonical stem).
+        old_path = os.path.join(PRESETS_DIR, prev_safe + ".json")
+        if not os.path.isfile(old_path):
+            for cand in list_presets():
+                if cand.get("name") == previous_name:
+                    old_path = os.path.join(
+                        PRESETS_DIR,
+                        _safe_filename(cand["name"]) + ".json")
+                    break
+        new_path = os.path.join(PRESETS_DIR, safe + ".json")
+        if os.path.abspath(old_path) != os.path.abspath(new_path):
+            try:
+                os.remove(old_path)
+            except OSError as exc:
+                raise OSError(
+                    "renamed to %r but the old record could not be "
+                    "removed: %s" % (name, exc))
     return rec
 
 
@@ -1942,11 +2387,12 @@ def _key_var_for_custom_name(name):
     return stem[:64]
 
 
-def _provider_key_var(provider):
+def _provider_key_var(provider, _manager=None):
     """Effective key variable for a built-in provider (name only).
 
     The operator mapping (provider card) wins; otherwise the first
     registry ref (convention group slot, then legacy fallbacks).
+    ``_manager`` shares one manifest read across a request.
     """
     try:
         mapped = _key_var_mapping().get(str(provider or "").strip())
@@ -1955,7 +2401,7 @@ def _provider_key_var(provider):
     if mapped and _KEY_VAR_RX.match(str(mapped).strip().upper()):
         return str(mapped).strip().upper()
     try:
-        refs = provider_registry.key_ref_for(provider)
+        refs = provider_registry.key_ref_for(provider, _manager=_manager)
     except Exception:
         return ""
     return str(refs[0]) if refs else ""
@@ -2169,6 +2615,8 @@ def rate_state():
             "has_key": presence.get("has_key"),
             "groups": groups,
             "groups_count": sum(1 for v in groups.values() if v),
+            "key_count": int(presence.get("key_count") or 0),
+            "active_keys": int(presence.get("key_count") or 0),
             "route": route,
             "pacing": {
                 "sleep_secs_default": sleep_default,
@@ -2266,19 +2714,93 @@ def _factory_supervisor_port():
         return 18789
 
 
+def _supervisor_sub_env():
+    """Subscription env for a woken supervisor child (read-only).
+
+    Resolved through the shared egress loader (this checkout's files,
+    then the primary-checkout read-only fallback, then process env —
+    values in-memory only, never logged or returned beyond the child
+    env dict). Names only out.
+    """
+    out = {}
+    try:
+        from tools.egress import supervisor as _sup
+        data = _sup.load_env() or {}
+    except Exception:
+        data = {}
+    for var in ("EGRESS_SUB_URLS", "EGRESS_SUB_URL", "EGRESS_SUP_URL"):
+        try:
+            val = str(data.get(var, "") or "").strip()
+        except Exception:
+            val = ""
+        if val:
+            out[var] = val
+    return out
+
+
+def _supervisor_refresh(timeout=60):
+    """Bearer-authed live subscription refresh (counts only out).
+
+    POSTs the supervisor's own ``/v1/refresh`` (re-reads env +
+    subscriptions server-side: placeholder lines skipped, deduped,
+    pool saved only when non-empty), then returns
+    (ok, info): info is the counts dict
+    (servers/leases/healthy/before) or a plain operator line naming
+    the bearer variable (never its value). Never raises.
+    """
+    import urllib.request as _url
+
+    token = _supervisor_token()
+    if not token:
+        return False, ("no supervisor token resolves (%s) — paste it "
+                       "once in the providers panel, then retry "
+                       "(nothing spawned)" % SUPERVISOR_TOKEN_VAR)
+    _refresh_egress_client_auth()
+    try:
+        req = _url.Request(
+            _supervisor_url().rstrip("/") + "/v1/refresh",
+            data=b"{}",
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + token},
+            method="POST")
+        with _url.urlopen(req, timeout=timeout) as resp:
+            data = json.load(resp)
+    except Exception as exc:
+        return False, ("supervisor refresh failed (%s) (%s) — shared "
+                       "infrastructure untouched, nothing spawned"
+                       % (type(exc).__name__, SUPERVISOR_TOKEN_VAR))
+    if not isinstance(data, dict):
+        return False, ("supervisor refresh unreadable (bad shape) "
+                       "(%s)" % SUPERVISOR_TOKEN_VAR)
+    try:
+        info = {"servers": int(data.get("servers") or 0),
+                "leases": int(data.get("leases") or 0),
+                "healthy": bool(data.get("healthy")),
+                "before": int(data.get("before") or 0)}
+    except (TypeError, ValueError):
+        return False, ("supervisor refresh unreadable (bad counts) "
+                       "(%s)" % SUPERVISOR_TOKEN_VAR)
+    return True, info
+
+
 def _wake_supervisor_background(port=None, spawn_fn=None, health_fn=None,
-                                timeout=5.0):
+                                 timeout=5.0):
     """Background wake of the shared supervisor (best-effort, never raises).
 
     Health-first: a healthy supervisor is returned as-is (never
     restarted, never re-spawned). Otherwise the factory-domain entry
     (``factory.run.SUPERVISOR_SCRIPT``) is launched detached in the
-    background — bearer rides the child env only, never argv/logs —
-    and health is re-polled on a bounded budget. Others' leases are
-    never touched (no lease/report call exists on this path).
-    ``spawn_fn``/``health_fn`` inject the spawn + health legs (tests
-    pass fakes, never a real process). Returns True when a healthy
-    supervisor answers after the attempt.
+    background — bearer + subscription sources ride the child env
+    only (resolved read-only from this checkout plus the
+    primary-checkout fallback, never argv/logs) — and health is
+    re-polled on a bounded budget. Others' leases are never touched
+    (no lease/report call exists on this path). ``spawn_fn``/
+    ``health_fn`` inject the spawn + health legs (tests pass fakes,
+    never a real process). Returns True when a healthy supervisor
+    answers after the attempt OR the child was launched and is
+    starting (a cold boot with subscription refresh outlasts a short
+    budget — callers re-probe and report the fresh counts, never a
+    stale label); False only when nothing was launched.
     """
     health = health_fn or supervisor_health_snapshot
     try:
@@ -2291,18 +2813,24 @@ def _wake_supervisor_background(port=None, spawn_fn=None, health_fn=None,
     if not script or not os.path.isfile(script):
         return False
     target = int(port or _factory_supervisor_port())
+    launched = False
     try:
         if spawn_fn is not None:
             spawn_fn(target)
+            launched = True
         else:
             env = dict(os.environ)
             tok = _supervisor_token()
             if tok:
-                env["EGRESS_SUP_TOKEN"] = tok
+                env[SUPERVISOR_TOKEN_VAR] = tok
+            for var, val in _supervisor_sub_env().items():
+                if val and not env.get(var):
+                    env[var] = val
             subprocess.Popen(
                 [sys.executable, script, "--port", str(target)],
                 env=env, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, close_fds=True)
+            launched = True
     except Exception:
         return False
     import time as _time
@@ -2319,7 +2847,10 @@ def _wake_supervisor_background(port=None, spawn_fn=None, health_fn=None,
         if ok:
             return True
         _time.sleep(0.5)
-    return False
+    # Launched but still starting (a cold boot with subscription
+    # refresh outlasts a short budget): report the wake in flight —
+    # callers re-probe and state the fresh counts, never a stale down.
+    return bool(launched)
 
 
 def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
@@ -2359,11 +2890,13 @@ def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
         return True, None
     if woke:
         return False, ("supervisor is starting in the background "
-                       "(EGRESS_SUP_TOKEN) — retry this request in a few "
-                       "seconds; manual start: %s" % SUPERVISOR_START_CMD)
-    return False, ("no supervisor token resolves (EGRESS_SUP_TOKEN) "
+                       "(%s) — retry this request in a few "
+                       "seconds; manual start: %s"
+                       % (SUPERVISOR_TOKEN_VAR, SUPERVISOR_START_CMD))
+    return False, ("no supervisor token resolves (%s) "
                    "— the shared supervisor was woken in the background: "
-                   "%s (nothing else touched)" % SUPERVISOR_START_CMD)
+                   "%s (nothing else touched)"
+                   % (SUPERVISOR_TOKEN_VAR, SUPERVISOR_START_CMD))
 
 
 #: Idle-sleep minutes — PARKED (owner number pending, never invented).
@@ -2372,9 +2905,6 @@ def _ensure_supervisor_for_leased(provider, *, wake_fn=None, health_fn=None,
 #: literal). Tests assert this parked default and drive the idle verdict
 #: with injected minutes instead of any real duration.
 IDLE_SLEEP_MINUTES = None
-
-#: Owner-configured idle-minutes override (name only; value never logged).
-SUPERVISOR_IDLE_MINUTES_ENV_VAR = "HAMZABAN_SUPERVISOR_IDLE_MINUTES"
 
 #: Last supervisor activity (monotonic seconds, in-memory only). Touched
 #: by the wake/lease legs so the sleep endpoint can tell idle from busy.
@@ -2468,7 +2998,10 @@ def request_supervisor_sleep(*, stop_fn=None, last_seen_ts=None,
     if minutes is None:
         minutes = _configured_idle_minutes()
     if minutes is None:
-        return False, "idle minutes parked (owner number pending)"
+        return False, ("idle minutes parked (owner number pending — "
+                       "set %s) (%s)"
+                       % (SUPERVISOR_IDLE_MINUTES_ENV_VAR,
+                          SUPERVISOR_TOKEN_VAR))
     try:
         import time as _time
         now = float(now_ts) if now_ts is not None else _time.monotonic()
@@ -2498,17 +3031,22 @@ def request_supervisor_sleep(*, stop_fn=None, last_seen_ts=None,
 def _supervisor_token():
     """Supervisor bearer (in-memory only, never logged or returned).
 
-    Resolution order: process env, then the PRIMARY factory environment
-    file (``_factory_env_value``: ``factory/.env``), then the shared
-    supervisor-issued temp file (a woken child cannot change the parent
-    environment, so the parent re-reads the token the supervisor
-    workflow left on disk), then the shared egress loader
+    Resolution order: process env, then this checkout's factory
+    environment file (``_factory_env_value``: ``factory/.env``), then
+    the shared supervisor-issued temp file (a woken child cannot change
+    the parent environment, so the parent re-reads the token the
+    supervisor workflow leaves behind), then the shared egress loader
     (``tools.egress.supervisor.load_env``: the canonical
-    tools/egress/.env, then the factory/.env fallback), then the
-    file-anchored lease-policy resolver, then the encrypted operator
-    store (pasted once in the providers panel, decrypted fail-closed).
-    Branch location plays no role: every lookup path is anchored at
-    the module file (``__file__``) or the shared temp directory,
+    tools/egress/.env, then the factory/.env fallback, then the
+    primary-checkout read-only fallback), then the file-anchored
+    lease-policy resolver over this checkout plus the primary
+    checkout's ``factory/.env`` + ``tools/egress/.env`` (read-only,
+    so a worktree console sees the operator's primary bearer with
+    zero manual copies), then the encrypted operator store (pasted
+    once in the providers panel, decrypted fail-closed).
+    Branch location plays no role beyond the read-only primary
+    fallback: every lookup path is anchored at the module file
+    (``__file__``), the primary root, or the shared temp directory,
     never at the checkout directory or cwd.
     """
     hit = os.environ.get(SUPERVISOR_TOKEN_VAR, "")
@@ -2526,6 +3064,15 @@ def _supervisor_token():
         tok = str(data.get(SUPERVISOR_TOKEN_VAR, "") or "").strip()
         if tok:
             return tok
+    except Exception:
+        pass
+    try:
+        from factory.precard.provider_lease_policy import (
+            resolve_key as _resolve)
+        hit = _resolve(SUPERVISOR_TOKEN_VAR,
+                       file_paths=_extra_key_paths()) or ""
+        if hit:
+            return hit
     except Exception:
         pass
     try:
@@ -2661,9 +3208,9 @@ def supervisor_health_snapshot(timeout=10):
     token = _supervisor_token()
     if not token:
         return False, ("no supervisor token resolves "
-                       "(EGRESS_SUP_TOKEN) — start the shared "
+                       "(%s) — start the shared "
                        "supervisor first: %s (nothing spawned)"
-                       % SUPERVISOR_START_CMD)
+                       % (SUPERVISOR_TOKEN_VAR, SUPERVISOR_START_CMD))
     _refresh_egress_client_auth()
     try:
         req = _url.Request(
@@ -2672,11 +3219,11 @@ def supervisor_health_snapshot(timeout=10):
         with _url.urlopen(req, timeout=timeout) as resp:
             data = json.load(resp)
     except Exception as exc:
-        return False, ("supervisor unreachable at %s (%s) — "
+        return False, ("supervisor unreachable at %s (%s) (%s) — "
                        "shared infrastructure untouched, nothing "
                        "spawned; start it with: %s"
                        % (_supervisor_url(), type(exc).__name__,
-                          SUPERVISOR_START_CMD))
+                          SUPERVISOR_TOKEN_VAR, SUPERVISOR_START_CMD))
     if not isinstance(data, dict):
         return False, "supervisor health unreadable (bad shape)"
     return True, {"servers": data.get("servers"),
@@ -2684,10 +3231,17 @@ def supervisor_health_snapshot(timeout=10):
                   "healthy": bool(data.get("healthy"))}
 
 
+#: Supervisor refusal meaning "pool has no link-bearing server":
+#: never a dead end — the caller refreshes subscriptions and retries
+#: the lease once before reporting (refresh-plus-prove, automatic).
+NO_LINK_MARKER = "no link-bearing server"
+
+
 def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
                            clean_fn=None, verify_fn=None, tunneled=None,
                            env_map=None, file_paths=None, wake_fn=None,
-                           health_fn=None):
+                           health_fn=None, state_log=None,
+                           refresh_fn=None):
     """Lease a clean tunnel for one WebUI run (auto-wake, fail-closed).
 
     Thin composition over the probe lease seam: a tunnel-route provider
@@ -2700,7 +3254,13 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
     process) and the request retries without a raw error; a still-down
     supervisor is a friendly wait line (never a traceback, never an
     auto-spawn storm — one background wake, shared infrastructure and
-    others' leases undisturbed). Route-based, never Google-only.
+    others' leases undisturbed). Empty-pool auto-recover: a lease
+    refused for lack of a link-bearing server triggers one live
+    subscription refresh (``refresh_fn`` injects it — tests pass
+    fakes, never the network; default the bearer-authed
+    ``_supervisor_refresh``) and retries the lease once, so the
+    caller walks refresh-plus-prove instead of a dead-end message.
+    Route-based, never Google-only.
     Returns (lease_dict_or_None, error_or_None).
 
     Google leases additionally carry the whitelist verdict
@@ -2712,22 +3272,89 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
     no key sent) and remembered when clean so the next lease prefers
     it. Verification never blocks a launch and never touches others'
     leases.
+
+    The whitelist orders through the generic provider cycle's
+    ``refresh_candidates`` (dedupe + paid-first via the existing
+    helpers — same head as before, never a new order); when
+    ``state_log`` is a list, the ordered lease-cycle state machine
+    (cache check, refresh, ping note, prove, remember, done — data
+    plus Persian lines via ``build_fa_lines``) appends to it so the
+    run-launch path shows the same state walk as the model-list path.
     """
+    from factory.net.provider_cycle import (
+        refresh_candidates as _refresh_candidates,
+    )
+    from factory.precard.provider_lease_policy import (
+        norm_provider as _norm_lease)
+    _lease_states = []
+    _wlname = _norm_lease(provider)
+
+    def _emit(states):
+        _lease_states.extend(states)
+        if state_log is not None:
+            state_log.extend(states)
     route, _reason = route_for_provider(
         provider, tunneled=tunneled, env_map=env_map,
         file_paths=file_paths)
     if route != "leased":
+        _emit([{"state": "cache_check", "provider": _wlname,
+                "hit": False, "cached": 0},
+               {"state": "refresh", "provider": _wlname,
+                "raw": 0, "unique": 0, "candidates": []},
+               {"state": "ping", "provider": _wlname,
+                "pinged": 0, "reachable": 0,
+                "note": "direct route — no tunnel cycle"},
+               {"state": "prove", "provider": _wlname,
+                "batch": 5, "keep": 1, "order": [],
+                "clean": [], "blocked": [], "unknown": []},
+               {"state": "remember", "provider": _wlname,
+                "exit": "", "written": False},
+               {"state": "done", "provider": _wlname,
+                "winner": "direct", "count": 0,
+                "cache_hit": False, "error": None,
+                "route": "direct"}])
         return None, None
     ready, wake_error = _ensure_supervisor_for_leased(
         provider, wake_fn=wake_fn, health_fn=health_fn,
         tunneled=tunneled, env_map=env_map, file_paths=file_paths)
     if not ready:
+        _emit([{"state": "cache_check", "provider": _wlname,
+                "hit": False, "cached": 0},
+               {"state": "refresh", "provider": _wlname,
+                "raw": 0, "unique": 0, "candidates": []},
+               {"state": "ping", "provider": _wlname,
+                "pinged": 0, "reachable": 0,
+                "note": "supervisor wake refused"},
+               {"state": "prove", "provider": _wlname,
+                "batch": 5, "keep": 1, "order": [],
+                "clean": [], "blocked": [], "unknown": []},
+               {"state": "remember", "provider": _wlname,
+                "exit": "", "written": False},
+               {"state": "done", "provider": _wlname,
+                "winner": None, "count": 0, "cache_hit": False,
+                "error": wake_error}])
         return None, wake_error
     token = _supervisor_token()
     if not token:
-        return None, ("no supervisor token resolves (EGRESS_SUP_TOKEN) "
+        _emit([{"state": "cache_check", "provider": _wlname,
+                "hit": False, "cached": 0},
+               {"state": "refresh", "provider": _wlname,
+                "raw": 0, "unique": 0, "candidates": []},
+               {"state": "ping", "provider": _wlname,
+                "pinged": 0, "reachable": 0,
+                "note": "no supervisor token"},
+               {"state": "prove", "provider": _wlname,
+                "batch": 5, "keep": 1, "order": [],
+                "clean": [], "blocked": [], "unknown": []},
+               {"state": "remember", "provider": _wlname,
+                "exit": "", "written": False},
+               {"state": "done", "provider": _wlname,
+                "winner": None, "count": 0, "cache_hit": False,
+                "error": "no supervisor token"}])
+        return None, ("no supervisor token resolves (%s) "
                       "— start the shared supervisor first: %s "
-                      "(nothing spawned)" % SUPERVISOR_START_CMD)
+                      "(nothing spawned)"
+                      % (SUPERVISOR_TOKEN_VAR, SUPERVISOR_START_CMD))
     _refresh_egress_client_auth()
     try:
         from factory.linking import probe_providers as _pp
@@ -2743,9 +3370,98 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
             msg = str((lease or {}).get("message") or "")
         except Exception:
             msg = ""
-        return None, ("supervisor refused the lease%s — pick a direct "
-                      "provider or retry later"
-                      % (": %s" % msg if msg else ""))
+        if NO_LINK_MARKER in msg:
+            # Empty pool is recoverable: refresh subscriptions live
+            # (placeholder lines skipped server-side, deduped) and
+            # retry the lease once — the cycle states below record
+            # the refresh walk, never a dead end on first failure.
+            refresh = (refresh_fn if refresh_fn is not None
+                       else _supervisor_refresh)
+            try:
+                _rok, _rinfo = refresh()
+            except Exception:
+                _rok, _rinfo = False, "refresh failed"
+            _after = []
+            if _rok and isinstance(_rinfo, dict):
+                try:
+                    _after = _pool_snapshot_rows(
+                        "", clean_fn=clean_fn)
+                except Exception:
+                    _after = []
+            _emit([{"state": "cache_check", "provider": _wlname,
+                    "hit": False, "cached": 0},
+                   {"state": "refresh", "provider": _wlname,
+                    "raw": len(_after), "unique": len(_after),
+                    "candidates": list(_after),
+                    "note": ("auto refresh-plus-prove: %s"
+                             % (_rinfo if isinstance(_rinfo, str)
+                                else "refreshed"))},
+                   {"state": "ping", "provider": _wlname,
+                    "pinged": 0, "reachable": 0,
+                    "note": "retrying lease after refresh"},
+                   {"state": "prove", "provider": _wlname,
+                    "batch": 5, "keep": 1, "order": [],
+                    "clean": [], "blocked": [], "unknown": []},
+                   {"state": "remember", "provider": _wlname,
+                    "exit": "", "written": False},
+                   {"state": "done", "provider": _wlname,
+                    "winner": None, "count": 0, "cache_hit": False,
+                    "error": None}])
+            if _rok:
+                try:
+                    from factory.linking import probe_providers as _pp2
+                    lease = _pp2.lease_tunnel(
+                        provider, lease_fn=lease_fn, target_fn=target_fn)
+                except Exception as exc:
+                    lease = {"error": "lease",
+                             "message": type(exc).__name__}
+                if isinstance(lease, dict) and not lease.get("error"):
+                    pass  # recovered: fall through to whitelist/verify
+                else:
+                    try:
+                        msg = str((lease or {}).get("message") or msg)
+                    except Exception:
+                        pass
+                    _emit([{"state": "done", "provider": _wlname,
+                            "winner": None, "count": 0,
+                            "cache_hit": False, "error": msg}])
+                    return None, (
+                        "supervisor refused the lease after a live "
+                        "refresh%s (%s) — shared infrastructure "
+                        "untouched; retry later"
+                        % (": %s" % msg if msg else "",
+                           SUPERVISOR_TOKEN_VAR))
+            else:
+                _rtext = (_rinfo if isinstance(_rinfo, str)
+                          else "refresh refused")
+                _emit([{"state": "done", "provider": _wlname,
+                        "winner": None, "count": 0, "cache_hit": False,
+                        "error": _rtext}])
+                return None, ("supervisor has no link-bearing server "
+                              "and the live refresh refused (%s) (%s) — "
+                              "shared infrastructure untouched; retry "
+                              "later" % (_rtext, SUPERVISOR_TOKEN_VAR))
+        else:
+            _emit([{"state": "cache_check", "provider": _wlname,
+                    "hit": False, "cached": 0},
+                   {"state": "refresh", "provider": _wlname,
+                    "raw": 0, "unique": 0, "candidates": []},
+                   {"state": "ping", "provider": _wlname,
+                    "pinged": 0, "reachable": 0,
+                    "note": "supervisor lease refused"},
+                   {"state": "prove", "provider": _wlname,
+                    "batch": 5, "keep": 1, "order": [],
+                    "clean": [], "blocked": [], "unknown": []},
+                   {"state": "remember", "provider": _wlname,
+                    "exit": "", "written": False},
+                   {"state": "done", "provider": _wlname,
+                    "winner": None, "count": 0, "cache_hit": False,
+                    "error": msg or "lease refused"}])
+            return None, ("supervisor refused the lease%s (%s) — pick a "
+                          "direct provider or retry later"
+                          % (": %s" % msg if msg else "",
+                             SUPERVISOR_TOKEN_VAR))
+    _wl_raw, _wl_ordered, _verify_rec = [], [], {}
     try:
         from factory.linking import google_clean as _gc
         from factory.precard.provider_lease_policy import (
@@ -2753,7 +3469,10 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
         if _norm_p(provider) == "google":
             clean = (clean_fn if clean_fn is not None
                      else _gc.fresh_clean_exits)
-            head = (clean() or [""])[0] or ""
+            _wl_raw = list(clean() or [])
+            _wl_ordered = _refresh_candidates(
+                [{"id": sid, "source": "paid"} for sid in _wl_raw])
+            head = (_wl_ordered or [""])[0] or ""
             sid = str((lease or {}).get("server_id") or "")
             lease["clean_exit"] = head
             lease["clean"] = bool(sid and head and sid == head)
@@ -2761,11 +3480,34 @@ def lease_tunnel_for_run(provider, *, lease_fn=None, target_fn=None,
                 sid, [head] if head else [])
             verify = (verify_fn if verify_fn is not None
                       else _gc.verify_and_remember)
-            verify(
+            _verify_rec = verify(
                 str((lease or {}).get("proxy_url") or ""), sid,
-                provider="google", timeout=10)
+                provider="google", timeout=10) or {}
     except Exception:
         pass
+    _sid = str((lease or {}).get("server_id") or "")
+    _proved = bool((_verify_rec or {}).get("ok")) or _wlname != "google"
+    _remembered = bool((_verify_rec or {}).get("remembered"))
+    _emit([{"state": "cache_check", "provider": _wlname,
+            "hit": bool(_wl_ordered and _sid and _sid in _wl_ordered),
+            "cached": len(_wl_ordered)},
+           {"state": "refresh", "provider": _wlname,
+            "raw": len(_wl_raw), "unique": len(_wl_ordered),
+            "candidates": list(_wl_ordered)},
+           {"state": "ping", "provider": _wlname,
+            "pinged": 0, "reachable": 0,
+            "note": "supervisor lease — no per-exit ping"},
+           {"state": "prove", "provider": _wlname,
+            "batch": 5, "keep": 1, "order": [_sid] if _sid else [],
+            "clean": [_sid] if (_sid and _proved) else [],
+            "blocked": [],
+            "unknown": [] if (_sid and _proved) else (
+                [_sid] if _sid else [])},
+           {"state": "remember", "provider": _wlname,
+            "exit": _sid if _remembered else "", "written": _remembered},
+           {"state": "done", "provider": _wlname,
+            "winner": _sid or None, "count": 0, "cache_hit": False,
+            "error": None}])
     return lease, None
 
 
@@ -2880,15 +3622,23 @@ def api_provider_models(name):
     manual entry stays available client-side as fallback.
     """
     provider = str(name or "").strip()
-    models, error = provider_model_list(provider)
+    states = []
+    models, error = provider_model_list(provider, state_log=states)
+    try:
+        from factory.net.provider_cycle import (
+            build_fa_lines as _cycle_lines)
+        lines = _cycle_lines(provider, states)
+    except Exception:
+        lines = []
+    cycle = {"states": states, "lines_fa": lines}
     if error is not None:
         status = 400 if error.startswith("no key resolves") else 502
         if error.startswith("unknown provider"):
             status = 404
         return jsonify({"provider": provider, "models": [],
-                        "error": error}), status
+                        "error": error, "cycle": cycle}), status
     return jsonify({"provider": provider, "models": models or [],
-                    "count": len(models or [])})
+                    "count": len(models or []), "cycle": cycle})
 
 
 @app.route("/api/master/status", methods=["GET"])
@@ -2958,35 +3708,87 @@ def api_supervisor_token_delete():
 
 @app.route("/api/supervisor/wake", methods=["POST"])
 def api_supervisor_wake():
-    """Wake-on-demand: background wake, never a restart of healthy.
+    """Wake-on-demand: true probed state, never a stale label.
 
-    Health-first (read-only): a healthy supervisor returns woken True
-    without spawning. Otherwise one background wake from the factory
-    domain path; bearer rides the child env only. Names + booleans
-    only — values never leave. Never touches others' leases.
+    Health-first (read-only): a supervisor that probes healthy
+    (healthy flag plus live server/lease counts) returns woken True
+    without spawning. A reachable-but-empty supervisor refreshes its
+    subscriptions live first (placeholder lines skipped server-side)
+    and re-probes; only an unreachable supervisor gets one
+    background wake from the factory domain path (bearer +
+    subscriptions ride the child env only). Every response carries
+    the freshly probed counts, and every message names the bearer
+    variable (never its value). Never touches others' leases.
     """
+    def _counts(payload):
+        if not isinstance(payload, dict):
+            return {"servers": 0, "leases": 0, "healthy": False}
+        try:
+            return {"servers": int(payload.get("servers") or 0),
+                    "leases": int(payload.get("leases") or 0),
+                    "healthy": bool(payload.get("healthy"))}
+        except (TypeError, ValueError):
+            return {"servers": 0, "leases": 0, "healthy": False}
+
     try:
         ok, payload = supervisor_health_snapshot()
     except Exception:
         ok, payload = False, "health check failed"
-    if ok:
+    if ok and _counts(payload)["healthy"]:
         _touch_supervisor_active()
         return jsonify({"woken": True, "already_healthy": True,
                         "var": SUPERVISOR_TOKEN_VAR,
-                        "health": payload if isinstance(payload, dict)
-                        else {}})
-    woke = _wake_supervisor_background()
+                        "health": _counts(payload)})
+    refreshed = None
+    if ok:
+        # Reachable but not healthy (empty pool): refresh live, then
+        # re-probe — a spawn would only collide on the same port.
+        try:
+            _rok, _rinfo = _supervisor_refresh()
+        except Exception:
+            _rok, _rinfo = False, "refresh failed"
+        refreshed = _rinfo if isinstance(_rinfo, str) else dict(_rinfo)
+        try:
+            ok, payload = supervisor_health_snapshot()
+        except Exception:
+            ok, payload = False, "health check failed"
+        if ok and _counts(payload)["healthy"]:
+            _touch_supervisor_active()
+            return jsonify({"woken": True, "already_healthy": False,
+                            "var": SUPERVISOR_TOKEN_VAR,
+                            "health": _counts(payload),
+                            "refreshed": refreshed})
+    # Explicit tap: a longer poll budget (a cold boot with live
+    # subscription refresh takes seconds; the dev server is threaded
+    # so other endpoints stay live meanwhile).
+    woke = _wake_supervisor_background(timeout=45)
     if woke:
         _touch_supervisor_active()
-        return jsonify({"woken": True, "already_healthy": False,
-                        "var": SUPERVISOR_TOKEN_VAR,
-                        "note": ("supervisor is starting in the background "
-                                 "(EGRESS_SUP_TOKEN) — retry in a few "
-                                 "seconds")})
+        try:
+            _ok2, _payload2 = supervisor_health_snapshot()
+        except Exception:
+            _ok2, _payload2 = False, "health check failed"
+        _fresh = _counts(_payload2) if _ok2 else _counts({})
+        if _fresh["healthy"]:
+            _note = ("supervisor ready (%s servers, %s leases) (%s)"
+                     % (_fresh["servers"], _fresh["leases"],
+                        SUPERVISOR_TOKEN_VAR))
+        else:
+            _note = ("supervisor is starting in the background "
+                     "(%s) — retry in a few seconds"
+                     % SUPERVISOR_TOKEN_VAR)
+        body = {"woken": True, "already_healthy": False,
+                "var": SUPERVISOR_TOKEN_VAR,
+                "health": _fresh,
+                "note": _note}
+        if refreshed is not None:
+            body["refreshed"] = refreshed
+        return jsonify(body)
     return jsonify({"woken": False, "already_healthy": False,
                     "var": SUPERVISOR_TOKEN_VAR,
+                    "health": _counts(payload) if ok else _counts({}),
                     "error": payload if isinstance(payload, str)
-                    else "wake refused"}), 503
+                    else "wake refused (%s)" % SUPERVISOR_TOKEN_VAR}), 503
 
 
 @app.route("/api/supervisor/sleep", methods=["POST"])
@@ -3000,8 +3802,10 @@ def api_supervisor_sleep():
     minutes = _configured_idle_minutes()
     if minutes is None:
         return jsonify({"slept": False, "var": SUPERVISOR_TOKEN_VAR,
-                        "reason": "idle minutes parked "
-                        "(owner number pending)"})
+                        "reason": ("idle minutes parked (owner number "
+                                   "pending — set %s) (%s)"
+                                   % (SUPERVISOR_IDLE_MINUTES_ENV_VAR,
+                                      SUPERVISOR_TOKEN_VAR))})
     try:
         ok, payload = supervisor_health_snapshot()
     except Exception:
@@ -3023,7 +3827,10 @@ def api_supervisor_sleep():
     body = {"slept": bool(slept), "var": SUPERVISOR_TOKEN_VAR,
             "idle_minutes": minutes, "active_leases": leases}
     if reason:
+        # Both keys: the console reads `reason`, error-first API
+        # clients read `error` — same line, bearer named, never valued.
         body["reason"] = reason
+        body["error"] = reason
     return jsonify(body), status
 
 
@@ -3187,8 +3994,11 @@ def api_create_run():
     run_egress_clean = None
     if flow == "linking":
         _lease, run_egress = None, "direct"
+        _lease_states = []
     elif run_route == "leased" and not is_custom:
-        _lease, _lease_error = lease_tunnel_for_run(provider)
+        _lease_states = []
+        _lease, _lease_error = lease_tunnel_for_run(
+            provider, state_log=_lease_states)
         if _lease_error:
             return jsonify({"error": _lease_error}), 502
         run_lease_id = str((_lease or {}).get("lease_id") or "")
@@ -3199,6 +4009,7 @@ def api_create_run():
                             else bool((_lease or {}).get("clean")))
     else:
         _lease, run_egress = None, "direct"
+        _lease_states = []
     out = str(fields.get("out") or "").strip() or os.path.join(
         rundir, "precard.jsonl")
     progress_dir = str(fields.get("progress_dir") or "").strip() or os.path.join(
@@ -3359,7 +4170,15 @@ def api_create_run():
         records.append(record)
         _sort_records(records)
         _save_registry(records)
-    return jsonify({"run": record}), 201
+    try:
+        from factory.net.provider_cycle import (
+            build_fa_lines as _run_cycle_lines)
+        _run_lines = _run_cycle_lines(provider, _lease_states)
+    except Exception:
+        _run_lines = []
+    return jsonify({"run": record,
+                    "lease_cycle": {"states": _lease_states,
+                                    "lines_fa": _run_lines}}), 201
 
 
 @app.route("/api/runs/<run_id>", methods=["GET"])
@@ -3723,6 +4542,109 @@ def api_key_delete(var):
     if not _remove_operator_key(var):
         return jsonify({"error": "key not found: %s" % var}), 404
     return jsonify({"deleted": var})
+
+
+# ─── Managed provider registry API (dynamic manifest, names+counts only) ──
+# Four routes over the manifest file (no Python edit ever adds a provider):
+# create provider, delete provider (even defaults), add key at index or
+# appended, delete key at index (higher indexes shift). Every response
+# carries names + counts only — key VALUES never appear.
+
+def _managed_create_provider(name, row):
+    try:
+        rec = provider_registry.create_provider(name, row or {})
+    except ValueError as exc:
+        return None, str(exc)
+    return rec, ""
+
+
+def _managed_delete_provider(name):
+    try:
+        ok = provider_registry.delete_provider(name)
+    except Exception as exc:
+        return False, str(exc)
+    if not ok:
+        return False, "unknown provider: %s" % (str(name or "").strip(),)
+    return True, ""
+
+
+@app.route("/api/managed_providers", methods=["POST"])
+def api_managed_provider_create():
+    """Create a provider data row (protocol/route/base_url validated)."""
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    name = str((fields or {}).get("name") or "").strip()
+    key_vars = (fields or {}).get("key_vars") or []
+    if isinstance(key_vars, str) or not isinstance(
+            key_vars, (list, tuple)):
+        return jsonify({"error": "key_vars must be a list of names"}), 400
+    extras = (fields or {}).get("request_extras") or {}
+    if not isinstance(extras, dict):
+        return jsonify({"error": "request_extras must be an object"}), 400
+    row = {
+        "protocol": str((fields or {}).get("protocol") or "").strip(),
+        "base_url": (fields or {}).get("base_url"),
+        "route": str((fields or {}).get("route") or "direct").strip(),
+        "key_vars": list(key_vars),
+        "request_extras": dict(extras),
+    }
+    rec, error = _managed_create_provider(name, row)
+    if rec is None:
+        status = 409 if "exists" in (error or "") else 400
+        return jsonify({"error": error}), status
+    return jsonify({"provider": str(name or "").strip().lower(),
+                    "row": {"name": str(name or "").strip().lower(),
+                            "key_count": len(rec.get("key_vars") or [])}})
+
+
+@app.route("/api/managed_providers/<name>", methods=["DELETE"])
+def api_managed_provider_delete(name):
+    """Delete a provider, even defaults (removed stay gone)."""
+    ok, error = _managed_delete_provider(name)
+    if not ok:
+        return jsonify({"error": error}), 404
+    return jsonify({"deleted": str(name or "").strip().lower()})
+
+
+@app.route("/api/managed_providers/<name>/keys", methods=["POST"])
+def api_managed_provider_key_add(name):
+    """Add a key slot at 1-based index (append when index absent)."""
+    fields = request.get_json(force=True, silent=True) or {}
+    index = (fields or {}).get("index", None)
+    key_var = str((fields or {}).get("key_var") or "").strip().upper()
+    try:
+        slots = provider_registry.add_provider_key(name, index=index,
+                                                   key_var=key_var)
+    except KeyError:
+        return jsonify(
+            {"error": "unknown provider: %s" % str(name or "").strip()}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"provider": str(name or "").strip().lower(),
+                    "key_count": len(slots)})
+
+
+@app.route("/api/managed_providers/<name>/keys/<index>", methods=["DELETE"])
+def api_managed_provider_key_delete(name, index):
+    """Delete the key at 1-based index (higher indexes shift down)."""
+    try:
+        idx = int(str(index or "").strip())
+    except (TypeError, ValueError):
+        return jsonify({"error": "index must be a 1-based integer"}), 400
+    try:
+        provider_registry.delete_provider_key(name, idx)
+    except KeyError:
+        return jsonify(
+            {"error": "unknown provider: %s" % str(name or "").strip()}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        count = int(provider_registry.key_count(name))
+    except Exception:
+        count = 0
+    return jsonify({"provider": str(name or "").strip().lower(),
+                    "deleted_index": idx, "key_count": count})
 
 
 # ─── Screened browser + human labels (Steps 4-6, thin readers) ──────

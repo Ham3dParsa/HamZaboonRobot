@@ -13,6 +13,9 @@ Endpoints (127.0.0.1 only):
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
                                               egress_ip, provider, target}
   POST /v1/report {lease_id, outcome, provider?} -> {action}
+  POST /v1/refresh {}                      -> {refreshed, servers, leases,
+                                              healthy, before} (re-reads
+                                              env + subscriptions, bearer)
 Targets (TARGETS table, owned by factory/precard/provider_lease_policy.py
 and imported
 here — this module only attaches its live zen/google probe functions):
@@ -36,12 +39,13 @@ import hmac
 import json
 import os
 import pathlib
+import re
 import secrets
 import threading
 import time
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 try:
     from factory.core.llm_json import cooldown_for
@@ -279,6 +283,82 @@ def note_clean_success(server_id, provider, latency_ms, now=None,
         pass
 
 
+_PRIMARY_ROOT_CACHE = {"root": None}
+
+
+def _primary_root():
+    """Primary checkout root (read-only fallback for worktree runs).
+
+    The console and its managed supervisor may run from an isolated
+    worktree whose own env files do not exist; the operator's secrets
+    live in the primary checkout. Resolved read-only (never written):
+    a worktree ``.git`` file points at
+    ``<primary>/.git/worktrees/<name>``; a plain checkout is its own
+    primary. "" when unresolvable (current behavior, never a guess).
+    """
+    if _PRIMARY_ROOT_CACHE["root"] is not None:
+        return _PRIMARY_ROOT_CACHE["root"]
+    root = ""
+    try:
+        here = pathlib.Path(__file__).resolve()
+        checkout = here.parent.parent.parent  # <root>/tools/egress/this
+        dotgit = checkout / ".git"
+        if dotgit.is_dir():
+            root = str(checkout)
+        elif dotgit.is_file():
+            try:
+                first = dotgit.read_text(
+                    encoding="utf-8").strip().splitlines()
+            except (OSError, ValueError):
+                first = []
+            line = first[0] if first else ""
+            if line.startswith("gitdir:"):
+                gitdir = pathlib.Path(
+                    line.split(":", 1)[1].strip())
+                if not gitdir.is_absolute():
+                    gitdir = checkout / gitdir
+                # .../<primary>/.git/worktrees/<name> -> <primary>
+                primary = gitdir.parent.parent.parent
+                if (primary / ".git").is_dir() or (
+                        primary / ".git").is_file():
+                    root = str(primary)
+    except (OSError, ValueError):
+        root = ""
+    _PRIMARY_ROOT_CACHE["root"] = root
+    return root
+
+
+def _read_dotenv_file(path):
+    """{KEY: value} from one dotenv file with sub continuation lines.
+
+    Same layout rule as load_env (a bare URL line joins the previous
+    subscription var; a stray line after the token never corrupts it).
+    Read-only; values stay in-memory only, never logged. {} when
+    unreadable."""
+    data = {}
+    last_key = None
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return data
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            k, v = stripped.split("=", 1)
+            k = k.strip()
+            if not k.isidentifier():
+                if last_key in (SUB_VAR, SUBS_VAR):
+                    data[last_key] += "\n" + stripped
+                continue
+            data[k] = v.strip().strip("'\"")
+            last_key = k
+        elif last_key in (SUB_VAR, SUBS_VAR):
+            data[last_key] += "\n" + stripped
+    return data
+
+
 def load_env():
     data = {}
     last_key = None
@@ -304,6 +384,24 @@ def load_env():
                 # Continuation line: a bare URL on its own line belongs
                 # to the previous value (multi-line EGRESS_SUB_URLS).
                 data[last_key] += "\n" + stripped
+    # Primary-checkout fallback (read-only): a worktree run without
+    # its own env files inherits the operator's primary files for keys
+    # still missing (never overrides what this checkout already has).
+    try:
+        _primary = _primary_root()
+    except Exception:
+        _primary = ""
+    if _primary:
+        for _extra in (pathlib.Path(_primary) / "tools" / "egress"
+                       / ".env",
+                       pathlib.Path(_primary) / "factory" / ".env"):
+            try:
+                _extra_data = _read_dotenv_file(str(_extra))
+            except Exception:
+                _extra_data = {}
+            for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
+                if not data.get(k) and _extra_data.get(k):
+                    data[k] = _extra_data[k]
     for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
         if k in os.environ and os.environ[k]:
             data[k] = os.environ[k]
@@ -330,9 +428,26 @@ def load_env():
     return data
 
 
+#: Template-placeholder guard: a subscription chunk carrying one of
+#: these markers is operator scaffolding (paste-your-link style), never
+#: a live source — skipped before any fetch, so a template line can
+#: never poison the pool or cost a request. Names/shapes only in logs.
+PLACEHOLDER_SOURCE_RX = re.compile(
+    r"(?i)(template|placeholder|paste-your|your-(link|url|sub)|"
+    r"replace-(me|this|with)|changeme|xxx|paste-here|"
+    r"sample-url|demo-url)")
+
+
+def is_placeholder_source(src):
+    """True when a subscription chunk is template scaffolding (never live)."""
+    return bool(PLACEHOLDER_SOURCE_RX.search(str(src or "")))
+
+
 def sub_sources(env):
     """All subscription sources: plural var (commas AND newlines split)
-    plus the legacy singular var. Order preserved, empties dropped.
+    plus the legacy singular var. Order preserved, empties dropped,
+    template-placeholder chunks skipped (never fetched), exact
+    duplicates collapsed to first occurrence.
 
     Limitation: a link containing a literal comma is unsupported (it
     is treated as a split point)."""
@@ -340,10 +455,13 @@ def sub_sources(env):
     raw = (env.get(SUBS_VAR, "") or "").replace(",", " ")
     for chunk in raw.split():
         chunk = chunk.strip()
-        if chunk and chunk not in out:
-            out.append(chunk)
+        if not chunk or chunk in out:
+            continue
+        if is_placeholder_source(chunk):
+            continue
+        out.append(chunk)
     single = (env.get(SUB_VAR, "") or "").strip()
-    if single and single not in out:
+    if single and single not in out and not is_placeholder_source(single):
         out.append(single)
     return out
 
@@ -367,7 +485,15 @@ def probe_key(var, explicit="", env_map=None, extra_files=()):
                                  .parent.parent))
         from factory.precard.provider_lease_policy import resolve_key as _resolve
     files = [str(FACTORY_DOTENV)] + [str(p) for p in (extra_files or ())
-                                     if p]
+                                      if p]
+    try:
+        _primary = _primary_root()
+    except Exception:
+        _primary = ""
+    if _primary:
+        _primary_factory = str(pathlib.Path(_primary) / "factory" / ".env")
+        if _primary_factory not in files:
+            files.append(_primary_factory)
     return _resolve(var, explicit=explicit or "",
                     env_map=os.environ if env_map is None else env_map,
                     file_paths=files)
@@ -950,6 +1076,8 @@ class Handler(BaseHTTPRequestHandler):
                 data["proxy_url"] = proxy
                 data["egress_ip"] = ip
             return self._send(200, data)
+        if self.path == "/v1/refresh":
+            return self._send(200, refresh_now())
         if self.path == "/v1/report":
             res = POOL.report(data.get("lease_id", ""),
                               data.get("outcome", ""),
@@ -1022,6 +1150,38 @@ def refresh_subscription(env):
             continue
         POOL.load(servers)
         print("sub %s: ok %d servers" % (label, len(servers)))
+
+
+def refresh_now(env=None):
+    """Re-read env + subscriptions into the live pool (bearer-authed path).
+
+    Reloads the env (primary-checkout fallback included), refreshes
+    every non-placeholder subscription source (dedupe inside
+    ``sub_sources``/``parse_subscription``/``Pool.load``), and saves
+    the pool only when servers exist (an empty refresh never
+    overwrites a good whitelist — same rule as serve startup).
+    Returns a counts-only dict (no URLs, no values, never the bearer).
+    """
+    live = dict(env) if isinstance(env, dict) else load_env()
+    try:
+        before = int((POOL.health() or {}).get("servers") or 0)
+    except (TypeError, ValueError):
+        before = 0
+    refresh_subscription(live)
+    try:
+        health = POOL.health() or {}
+        servers = int(health.get("servers") or 0)
+        leases = int(health.get("leases") or 0)
+        healthy = bool(health.get("healthy"))
+    except (TypeError, ValueError):
+        servers, leases, healthy = 0, 0, False
+    if servers:
+        try:
+            POOL.save_pool()
+        except (OSError, ValueError):
+            pass
+    return {"refreshed": True, "servers": servers, "leases": leases,
+            "healthy": healthy, "before": before}
 
 
 def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
@@ -1354,7 +1514,9 @@ def main(argv=None):
     n_saved = POOL.load_pool()
     if n_saved:
         print("pool loaded: %d servers from whitelist" % n_saved)
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server.daemon_threads = True  # /v1/refresh fetches live: never block
+    # /v1/lease behind it on this loopback supervisor
     print("egress supervisor on 127.0.0.1:%d (%d servers)" % (
         args.port, POOL.health()["servers"]))
     try:

@@ -112,6 +112,9 @@ not in prose.
 - `factory/linking/human_queue.py`: human escalation queue sink + reader; owner of ESCALATE:HUMAN_QUEUE records.
 - `factory/linking/arbitration.py`: raw arbitration provider port + service + local-Gemma adapter; no tally/vote/gate (verdicts assembled by gate layer).
 - `factory/precard/prune.py`: sense-screening pruner (R2 hard drops → R4 niche guard → R3 twin dedup); single owner of the sense-screening prune chain.
+- `factory/net/provider_cycle.py`: generic provider cycle driver (cache check, refresh, ping, prove in fives, remember, done) over injected adapters; single owner of the cycle state machine (no network/pool/secret I/O itself).
+- `factory/precard/provider_manifest.py`: dynamic provider manifest store (seed-once rows + removed set + N-wide key-slot names); single owner of persisted provider rows.
+- `factory/precard/provider_benchmark.py`: provider benchmark + gold evaluator over injected invoke_fn; single owner of benchmark scoring.
 - `tests/test_integration/`: handler-level integration tests.
 
 **Module change guard:** if module structure changes (add/rename/split/remove),
