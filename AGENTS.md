@@ -255,6 +255,11 @@ branches).
 | `tdd-enforcement` | Writing new logic or modifying behavior during implementation. |
 | `detached-run` | Long job expected to exceed ~2 minutes, factory run over network, egress probe/sweep, or explicit background order. |
 | `history-search` | Asked about past talks/decisions, or agent hits unknown context (recall sweep before repeating settled work). |
+| `ui-ux-pro-max` | Designing/building/reviewing any UI (pages, components, color, typography, layout, animation, data viz) — run its `search.py` before deciding. |
+| `impeccable` | Shaping/critiquing/auditing/polishing a frontend interface — run its `context` launcher once per session, then the command playbook. |
+| `codebase-design` | Designing a WUI module interface, seam placement, or architecture. |
+| `domain-modeling` | Naming UI concepts (components, routes, states) — pin DDD ubiquitous language first. |
+| `testing-webapps` | Verifying buttons/tabs/menus interactively — Playwright run with screenshots before calling UI done. |
 
 Subagents in `.opencode/agents/` — `hamzaban-reviewer`: read-only gate for
 §6.3; `hamzaban-db`/`-ai`/`-handler`: domain helpers.
