@@ -101,6 +101,42 @@ def _google_payload(user_text):
     }
 
 
+def _google_usage_number(value):
+    """One tolerant token count (None when missing/non-numeric).
+
+    Mirrors the telemetry ``extract_usage`` number rule: bools never
+    count, numeric strings/floats truncate to int, anything else is
+    None (tolerated, never raises, never a silent zero).
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _google_usage(data):
+    """Standard usage dict from a Gemini REST payload (None-tolerated).
+
+    ``usageMetadata.promptTokenCount`` -> ``input_tokens``,
+    ``usageMetadata.candidatesTokenCount`` -> ``output_tokens``.
+    Returns None when neither surfaces (telemetry flags the call
+    cost-unknown, never a silent zero) so metadata-less fakes keep
+    the old ``(text, None)`` shape.
+    """
+    meta = data.get("usageMetadata") if isinstance(data, dict) else None
+    if not isinstance(meta, dict):
+        return None
+    prompt_tokens = _google_usage_number(meta.get("promptTokenCount"))
+    completion_tokens = _google_usage_number(
+        meta.get("candidatesTokenCount"))
+    if prompt_tokens is None and completion_tokens is None:
+        return None
+    return {"input_tokens": prompt_tokens,
+            "output_tokens": completion_tokens}
+
+
 def _google_remap_transport(default_model):
     """Adapter letting precard loops run unchanged on Google direct.
 
@@ -115,12 +151,15 @@ def _google_remap_transport(default_model):
 
 
 def _google_chat_transport(api_key, model, user_text):
-    """Google-direct transport (Gemini REST): (text, None).
+    """Google-direct transport (Gemini REST): (text, usage|None).
 
     thinkingLevel MINIMAL (closest to off on 3.x Lites) +
     responseMimeType JSON. HTTP errors propagate untouched (429 is
-    rotation fuel; the shared classify table owns meaning). No usage
-    counters on this API shape -> None (telemetry records latency).
+    rotation fuel; the shared classify table owns meaning).
+    ``usageMetadata`` surfaces as the standard
+    ``{"input_tokens", "output_tokens"}`` shape (None-tolerated:
+    metadata-less replies yield None and telemetry records latency
+    with cost-unknown, never a silent zero).
     """
     from factory.precard.provider_lease_policy import GOOGLE_MODELS_URL as _models_url
     payload = json.dumps(_google_payload(user_text)).encode("utf-8")
@@ -134,10 +173,11 @@ def _google_chat_transport(api_key, model, user_text):
         text = data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError):
         text = ""
-    return text or "", None
+    return text or "", _google_usage(data)
 
 
-def openai_compat_transport(api_key, model, user_text, *, base_url,
+def openai_compat_transport(api_key="", model="", user_text="", *,
+                            base_url,
                             extra=None):
     """Generic OpenAI-compatible chat transport: (text, usage|None).
 
@@ -145,17 +185,24 @@ def openai_compat_transport(api_key, model, user_text, *, base_url,
     base_url (registry row) and optional extra body fields merged in
     (registry row request_extras, e.g. AvalAI reasoning knobs — Groq/
     OpenRouter rows pass none, since unknown fields risk HTTP 400).
-    HTTP errors propagate untouched (shared classify owns meaning).
+    The key is optional: keyless gateways (e.g. a Kilo row with no
+    key) omit the ``Authorization`` header instead of sending an
+    empty ``Bearer`` (no auth failure); keyed callers send
+    ``Bearer <key>`` exactly as before. HTTP errors propagate
+    untouched (shared classify owns meaning).
     """
+    key = str(api_key or "")
     payload = {"model": model,
                "messages": [{"role": "user", "content": user_text}],
                "temperature": 0}
     if extra:
         payload.update(dict(extra))
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = "Bearer " + key
     req = urllib.request.Request(
         base_url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json",
-                 "Authorization": "Bearer " + api_key})
+        headers=headers)
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.load(resp)
     msg = ((data.get("choices") or [{}])[0].get("message", {})

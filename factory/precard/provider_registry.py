@@ -15,6 +15,10 @@ from factory.precard import provider_transport as transports
 
 PROTOCOLS = ("openai_compat", "gemini_rest")
 
+#: Seed rows only (first-run seed for the dynamic manifest). The FILE
+#: owned by factory.precard.provider_manifest is authoritative after
+#: seeding: adding/removing a provider is a data write, never a Python
+#: edit here.
 PROVIDERS = {
     "avalai": {
         "protocol": "openai_compat",
@@ -52,15 +56,48 @@ PROVIDERS = {
 }
 
 
+def _manifest():
+    """Shared manifest manager (fresh instance per call: no stale reads)."""
+    from factory.precard import provider_manifest as _manifest_mod
+    return _manifest_mod.ProviderManifestManager()
+
+
 def provider_names():
-    """Canonical provider names (drives CLI choices — never hardcoded)."""
-    return list(PROVIDERS)
+    """Canonical provider names: merged active manifest (removed stay gone).
+
+    The manifest file is authoritative; the in-code PROVIDERS seed only
+    fills a fresh store. A provider deleted via the manifest never
+    reappears here, and manifest-added rows (kilo, local-studio, ...)
+    appear with no code change.
+    """
+    try:
+        return _manifest().provider_names()
+    except Exception:
+        return list(PROVIDERS)
 
 
 def resolve_provider(name):
-    """Copy of the provider row, or None (fail-closed on unknown)."""
+    """Copy of the provider row, or None (fail-closed on unknown).
+
+    Removed providers stay gone: an explicit manifest deletion pins the
+    name even though the in-code seed still carries the default row.
+    """
     if not isinstance(name, str):
         return None
+    try:
+        mgr = _manifest()
+        if mgr.is_removed(name):
+            return None
+        hit = mgr.get(name)
+    except Exception:
+        hit = None
+    if isinstance(hit, dict):
+        return dict(hit, key_vars=tuple(hit.get("key_vars", ())))
+    try:
+        if _manifest().is_removed(name):
+            return None
+    except Exception:
+        pass
     row = PROVIDERS.get(lease_policy.norm_provider(name))
     if not isinstance(row, dict):
         return None
@@ -69,18 +106,88 @@ def resolve_provider(name):
 
 def key_ref_for(provider, group="G1"):
     """Key variable NAMES for (provider, group): convention first, legacy
-    explicit vars as fallback. Names only — values never resolved here."""
+    explicit vars as fallback. Names only — values never resolved here.
+
+    Indexed pattern: ``{PROVIDER}_API_KEY_{N}`` (1-based); legacy group
+    labels map G1 -> 1, G2 -> 2. The manifest's full ordered slot list
+    always leads, so N-key providers resolve beyond the old pair.
+    """
+    from factory.precard import provider_manifest as _manifest_mod
     row = resolve_provider(provider)
     if row is None:
         return []
-    convention = "%s_API_KEY_%s" % (
-        str(provider).strip().upper(),
-        str(group or "G1").strip().upper() or "G1")
-    refs = [convention]
+    try:
+        index = _manifest_mod.legacy_group_to_index(group)
+    except Exception:
+        index = 1
+    convention = _manifest_mod.indexed_key_var(provider, index)
+    # Legacy G-style alias for the same slot (G1 <-> _1 compatibility).
+    stem = str(provider or "").strip().upper()
+    legacy_alias = ""
+    if stem and index in (1, 2):
+        legacy_alias = "%s_API_KEY_G%d" % (
+            __import__("re").sub(r"[^A-Z0-9]+", "_", stem).strip("_"), index)
+    refs = []
+    try:
+        for var in _manifest().key_vars(provider):
+            if var and var not in refs:
+                refs.append(var)
+    except Exception:
+        pass
+    # Manifest slots lead (keeps the seeded G-style default first for
+    # backward compatibility); the numeric convention + G alias follow
+    # so old and new spellings both resolve for the same slot.
+    ordered = []
+    for var in refs + ([convention] if convention else []) + (
+            [legacy_alias] if legacy_alias else []):
+        if var and var not in ordered:
+            ordered.append(var)
     for var in row.get("key_vars", ()):
-        if var and var not in refs:
-            refs.append(var)
-    return refs
+        if var and var not in ordered:
+            ordered.append(var)
+    return ordered
+
+
+def ordered_key_vars(provider):
+    """Full ordered key-var NAME list for a provider (names only)."""
+    try:
+        names = _manifest().key_vars(provider)
+    except Exception:
+        names = []
+    if names:
+        return list(names)
+    row = resolve_provider(provider)
+    if isinstance(row, dict):
+        return [str(v) for v in (row.get("key_vars") or []) if str(v or "")]
+    return []
+
+
+def key_count(provider):
+    """Exact active key-slot count for a provider (data row length)."""
+    try:
+        return int(_manifest().key_count(provider))
+    except Exception:
+        return len(ordered_key_vars(provider))
+
+
+def create_provider(name, row):
+    """Create a provider data row (validation only — no code edit)."""
+    return _manifest().create(name, row)
+
+
+def delete_provider(name):
+    """Delete a provider, even defaults (removed stay gone)."""
+    return _manifest().delete(name)
+
+
+def add_provider_key(name, index=None, key_var=""):
+    """Add a key slot at 1-based index (append when None)."""
+    return _manifest().add_key(name, index=index, key_var=key_var)
+
+
+def delete_provider_key(name, index):
+    """Delete the key at 1-based index (higher indexes shift down)."""
+    return _manifest().delete_key(name, index)
 
 
 def transport_for(protocol):

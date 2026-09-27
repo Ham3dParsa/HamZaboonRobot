@@ -7,7 +7,8 @@ leg module (judge/topics/pipeline) imports them from here.
 Every record carries ``key_idx`` (the keyring index, an int) — never the
 key VALUE — plus ``run_id`` (``start-ts + pid``, joining provider_map,
 run.log, and every record of one run). Token counts come from the
-``usage`` block when the transport surfaces it (see ``extract_usage``);
+``usage`` / ``usageMetadata`` block when the transport surfaces it
+(see ``extract_usage``);
 missing usage is tolerated as ``None`` and NEVER a silent zero: paid
 legs with no surfaced usage carry ``cost="unknown"`` (e.g. Google
 direct), legs that made no call carry ``cost="none"`` (deterministic /
@@ -72,12 +73,16 @@ def resolve_cost(*, prompt_tokens=None, completion_tokens=None,
 def extract_usage(data) -> tuple:
     """Probe a Zen responses payload for token usage.
 
-    Accepts the full response JSON (``{"usage": {...}}``) or a bare
-    usage dict. Probes ``input_tokens``/``output_tokens`` first, then
-    ``prompt_tokens``/``completion_tokens``. Anything missing or
+    Accepts the full response JSON (``{"usage": {...}}``), a Gemini
+    REST payload (``{"usageMetadata": {...}}``), or a bare usage
+    dict. Probes ``input_tokens``/``output_tokens`` first, then
+    ``prompt_tokens``/``completion_tokens``, then the Gemini native
+    ``promptTokenCount``/``candidatesTokenCount``. Anything missing or
     non-numeric -> ``None`` (tolerated, never raises).
     """
     usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict) and isinstance(data, dict):
+        usage = data.get("usageMetadata")
     if not isinstance(usage, dict) and isinstance(data, dict):
         usage = data
     if not isinstance(usage, dict):
@@ -98,8 +103,9 @@ def extract_usage(data) -> tuple:
             return int(number)
         return None
 
-    return (_num("input_tokens", "prompt_tokens"),
-            _num("output_tokens", "completion_tokens"))
+    return (_num("input_tokens", "prompt_tokens", "promptTokenCount"),
+            _num("output_tokens", "completion_tokens",
+                 "candidatesTokenCount"))
 
 
 def record_call(store, *, stage, batch_id, key_idx, model,
