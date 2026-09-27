@@ -571,7 +571,7 @@ def _operator_key_values():
     except Exception:
         return {}
     try:
-        stored = json.load(open(OPERATOR_KEYS_PATH, encoding="utf-8"))
+        stored = _read_json_file(OPERATOR_KEYS_PATH)
     except (OSError, ValueError):
         return {}
     out = {}
@@ -584,6 +584,31 @@ def _operator_key_values():
             if plain:
                 out[str(var)] = plain
     return out
+
+
+def _read_json_file(path):
+    """JSON dict from a file with closed handles ({} when unreadable)."""
+    try:
+        with open(str(path), encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _request_manifest_manager():
+    """One manifest manager per request (single disk load, names only).
+
+    Built through the registry seam (``fresh_manager``) so the
+    registry test seam keeps working. The manager caches after its
+    first load, so every registry call in the request shares one
+    read. None when unconstructable (registry calls fall back to
+    single fresh reads, as before).
+    """
+    try:
+        return provider_registry.fresh_manager()
+    except Exception:
+        return None
 
 
 def key_presence(clean_fn=None):
@@ -609,14 +634,16 @@ def key_presence(clean_fn=None):
     except Exception:
         _clean_head = ""
     rows = []
-    for name in provider_registry.provider_names():
+    _mgr = _request_manifest_manager()
+    for name in provider_registry.provider_names(_manager=_mgr):
         try:
-            refs = provider_registry.ordered_key_vars(name)
+            refs = provider_registry.ordered_key_vars(name, _manager=_mgr)
         except Exception:
             refs = []
         try:
-            compat = list(provider_registry.key_ref_for(name, "G1")
-                          + provider_registry.key_ref_for(name, "G2"))
+            compat = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
         except Exception:
             compat = []
         merged = list(refs)
@@ -626,7 +653,7 @@ def key_presence(clean_fn=None):
         refs = merged
         if not refs:
             refs = list(compat)
-        effective = _provider_key_var(name)
+        effective = _provider_key_var(name, _manager=_mgr)
         ordered = []
         for var in ([effective] if effective else []) + refs:
             if var and var not in ordered:
@@ -634,10 +661,13 @@ def key_presence(clean_fn=None):
         ready = _resolve_any(ordered) or any(
             v in stored for v in ordered)
         try:
-            slot_count = int(provider_registry.key_count(name))
+            slot_count = int(provider_registry.key_count(name, _manager=_mgr))
         except Exception:
             slot_count = len(ordered)
-        route, route_reason = route_for_provider(name)
+        route, route_reason = route_for_provider(
+            name,
+            registry_fn=lambda n: provider_registry.resolve_provider(
+                n, _manager=_mgr))
         rows.append({
             "name": name,
             "key_vars": ordered,
@@ -1035,6 +1065,24 @@ def _cycle_store():
         return None
 
 
+def _pool_file_servers():
+    """Server rows from the supervisor pool file (single definition).
+
+    Closed handles (``with open`` — never a bare ``open`` leaking fds
+    on this threaded server); [] when unreadable (callers treat an
+    absent pool as no candidates, never an error).
+    """
+    try:
+        from tools.egress.supervisor import POOL_PATH as _pool
+        with open(str(_pool), encoding="utf-8") as handle:
+            payload = json.load(handle)
+        servers = (payload.get("servers") if isinstance(payload, dict)
+                   else None) or []
+    except (OSError, ValueError):
+        return []
+    return [s for s in servers if isinstance(s, dict)]
+
+
 def _pool_snapshot_rows(lease_server_id="", clean_fn=None):
     """Supervisor pool snapshot rows for the cycle refresh (data only).
 
@@ -1049,13 +1097,7 @@ def _pool_snapshot_rows(lease_server_id="", clean_fn=None):
     rows = []
     if lease_server_id:
         rows.append({"id": str(lease_server_id), "source": "paid"})
-    try:
-        from tools.egress.supervisor import POOL_PATH as _pool
-        payload = json.load(open(str(_pool), encoding="utf-8"))
-        servers = (payload.get("servers") if isinstance(payload, dict)
-                   else None) or []
-    except (OSError, ValueError):
-        servers = []
+    servers = _pool_file_servers()
     try:
         from factory.linking import google_clean as _gc
         clean_reader = (clean_fn if clean_fn is not None
@@ -1085,12 +1127,9 @@ def _cycle_ping_fn(proxy_url=""):
     except Exception:
         return lambda exit_id: None
     try:
-        from tools.egress.supervisor import POOL_PATH as _pool
-        payload = json.load(open(str(_pool), encoding="utf-8"))
-        servers = (payload.get("servers") if isinstance(payload, dict)
-                   else None) or []
+        servers = _pool_file_servers()
         addrs = {s.get("id"): (s.get("host"), s.get("port"))
-                 for s in servers if isinstance(s, dict) and s.get("id")}
+                 for s in servers if s.get("id")}
     except (OSError, ValueError):
         addrs = {}
     try:
@@ -1156,10 +1195,11 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     from factory.net.provider_cycle import run_cycle as _run_cycle
 
     name = str(provider or "").strip()
-    if name not in provider_registry.provider_names():
+    _mgr = _request_manifest_manager()
+    if name not in provider_registry.provider_names(_manager=_mgr):
         return None, "unknown provider: %s" % name
     try:
-        row = provider_registry.resolve_provider(name) or {}
+        row = provider_registry.resolve_provider(name, _manager=_mgr) or {}
     except Exception:
         row = {}
     # Key-gated: resolve server-side only (names out, values in-memory).
@@ -1171,14 +1211,16 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     stored = _operator_key_values()
     var_order = []
     try:
-        eff = _provider_key_var(name)
+        eff = _provider_key_var(name, _manager=_mgr)
         try:
-            refs = list(provider_registry.ordered_key_vars(name))
+            refs = list(provider_registry.ordered_key_vars(
+                name, _manager=_mgr))
         except Exception:
             refs = []
         if not refs:
-            refs = list(provider_registry.key_ref_for(name, "G1")
-                        + provider_registry.key_ref_for(name, "G2"))
+            refs = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
         for var in ([eff] if eff else []) + refs:
             if var and var not in var_order:
                 var_order.append(var)
@@ -1202,8 +1244,12 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
         return None, ("no key resolves for %s (%s) — paste the key in "
                       "the providers panel first"
                       % (name, "+".join(var_order) or "no key refs"))
+    _reg_fn = registry_fn
+    if _reg_fn is None:
+        _reg_fn = lambda n: provider_registry.resolve_provider(
+            n, _manager=_mgr)
     route, _route_reason = route_for_provider(
-        name, registry_fn=registry_fn, tunneled=tunneled,
+        name, registry_fn=_reg_fn, tunneled=tunneled,
         env_map=env_map, file_paths=file_paths)
     endpoint, headers, ids_of, endpoint_error = _model_list_target(
         name, row, key_value)
@@ -2341,11 +2387,12 @@ def _key_var_for_custom_name(name):
     return stem[:64]
 
 
-def _provider_key_var(provider):
+def _provider_key_var(provider, _manager=None):
     """Effective key variable for a built-in provider (name only).
 
     The operator mapping (provider card) wins; otherwise the first
     registry ref (convention group slot, then legacy fallbacks).
+    ``_manager`` shares one manifest read across a request.
     """
     try:
         mapped = _key_var_mapping().get(str(provider or "").strip())
@@ -2354,7 +2401,7 @@ def _provider_key_var(provider):
     if mapped and _KEY_VAR_RX.match(str(mapped).strip().upper()):
         return str(mapped).strip().upper()
     try:
-        refs = provider_registry.key_ref_for(provider)
+        refs = provider_registry.key_ref_for(provider, _manager=_manager)
     except Exception:
         return ""
     return str(refs[0]) if refs else ""

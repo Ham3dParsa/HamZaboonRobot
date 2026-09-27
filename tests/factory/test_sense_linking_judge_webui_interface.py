@@ -695,7 +695,7 @@ def test_model_list_endpoint_key_gated_and_attributed(monkeypatch):
     assert client.get("/api/providers/ghost/models").status_code == 404
     # key-gated: no resolvable key -> plain 400 naming the vars
     monkeypatch.setattr(webui, "_provider_key_var",
-                        lambda p: "GOOGLE_AI_API_KEY")
+                        lambda p, _manager=None: "GOOGLE_AI_API_KEY")
     monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
     import factory.precard.provider_lease_policy as _net
     monkeypatch.setattr(_net, "resolve_key", lambda *a, **k: "")
@@ -963,7 +963,7 @@ def test_supervisor_down_names_exact_start_command(monkeypatch):
 def test_model_list_supervisor_down_shows_start_command(monkeypatch):
     """Leased model list with failed wake: command, not dead end."""
     monkeypatch.setattr(webui, "_provider_key_var",
-                        lambda p: "GOOGLE_AI_API_KEY")
+                        lambda p, _manager=None: "GOOGLE_AI_API_KEY")
     monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
     import factory.precard.provider_lease_policy as _net
     monkeypatch.setattr(_net, "resolve_key",

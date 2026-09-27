@@ -288,6 +288,35 @@ def test_telemetry_math_and_missing_usage():
         {"usage": {"prompt_tokens": 3, "completion_tokens": 4}}) == (3, 4)
 
 
+def test_extract_usage_rejects_nonfinite_and_negative():
+    inf = float("inf")
+    assert telemetry.extract_usage(
+        {"usage": {"input_tokens": inf, "output_tokens": 5}}) == (None, 5)
+    assert telemetry.extract_usage(
+        {"usageMetadata": {"promptTokenCount": -3,
+                           "candidatesTokenCount": 4}}) == (None, 4)
+    assert telemetry.extract_usage(
+        {"usage": {"input_tokens": float("nan")}}) == (None, None)
+    # Valid floats still truncate; numeric strings still coerce.
+    assert telemetry.extract_usage(
+        {"usage": {"input_tokens": 7.9}}) == (7, None)
+    assert telemetry.extract_usage(
+        {"usage": {"output_tokens": "12"}}) == (None, 12)
+
+
+def test_google_usage_number_rejects_nonfinite_and_negative():
+    from factory.precard.provider_transport import (
+        _google_usage, _google_usage_number)
+    assert _google_usage_number(float("inf")) is None
+    assert _google_usage_number(float("-inf")) is None
+    assert _google_usage_number(float("nan")) is None
+    assert _google_usage_number(-2) is None
+    assert _google_usage_number("9") == 9
+    assert _google_usage({"usageMetadata": {
+        "promptTokenCount": float("inf"),
+        "candidatesTokenCount": -1}}) is None
+
+
 def test_telemetry_key_value_never_persisted(tmp_path):
     store = telemetry.new_store()
     with pytest.raises(TypeError):

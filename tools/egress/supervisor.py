@@ -45,7 +45,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 try:
     from factory.core.llm_json import cooldown_for
@@ -1514,7 +1514,9 @@ def main(argv=None):
     n_saved = POOL.load_pool()
     if n_saved:
         print("pool loaded: %d servers from whitelist" % n_saved)
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server.daemon_threads = True  # /v1/refresh fetches live: never block
+    # /v1/lease behind it on this loopback supervisor
     print("egress supervisor on 127.0.0.1:%d (%d servers)" % (
         args.port, POOL.health()["servers"]))
     try:

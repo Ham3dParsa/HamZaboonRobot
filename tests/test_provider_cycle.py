@@ -244,6 +244,26 @@ def test_zero_ping_counts_reachable():
     assert ping["latencies"] == {"s1": 0.0, "s2": 0.0}
 
 
+def test_pool_file_helper_reads_tmp_pool(monkeypatch, tmp_path):
+    import json as _json
+    from tools.egress import supervisor as _sup
+    from factory.webui import server as _srv
+    pool = tmp_path / "pool.json"
+    pool.write_text(_json.dumps({"servers": [
+        {"id": "srv-t", "host": "127.0.0.1", "port": 9},
+        {"id": "srv-w", "host": "127.0.0.1", "port": 9},
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(_sup, "POOL_PATH", pool)
+    monkeypatch.setattr(_sup, "tcp_ping",
+                        lambda host, port, timeout=1.0: (
+                            3 if host and port else None))
+    rows = _srv._pool_snapshot_rows(clean_fn=lambda: [])
+    assert [r["id"] for r in rows] == ["srv-t", "srv-w"]
+    ping = _srv._cycle_ping_fn()
+    assert ping("srv-t") == 3
+    assert ping("unknown-exit") is None
+
+
 # ─── Console thin-call paths (fakes only: no network/files/keys) ───
 
 def test_model_list_unknown_provider_parks():

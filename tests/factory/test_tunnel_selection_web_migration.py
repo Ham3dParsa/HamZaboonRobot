@@ -172,7 +172,7 @@ def test_webui_report_and_remember_cross_seam(monkeypatch):
     monkeypatch.setattr("urllib.request.build_opener",
                         lambda *a, **k: _FakeOpener())
     monkeypatch.setattr(webui, "_provider_key_var",
-                        lambda p: "GOOGLE_AI_API_KEY")
+                        lambda p, _manager=None: "GOOGLE_AI_API_KEY")
     monkeypatch.setattr(webui, "_operator_key_values",
                         lambda: {"GOOGLE_AI_API_KEY": "k-fake"})
     monkeypatch.setattr(webui, "route_for_provider",

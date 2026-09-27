@@ -1654,3 +1654,65 @@ def test_client_report_location_blocked_vocab(monkeypatch):
     assert seen["/v1/report"] == {"lease_id": "L1",
                                   "outcome": "location-blocked",
                                   "provider": "google"}
+
+
+def test_supervisor_serves_threaded():
+    """Production construction never blocks /v1/lease behind /v1/refresh."""
+    import pathlib
+    import supervisor as sup
+    src = pathlib.Path(sup.__file__).read_text(encoding="utf-8")
+    assert "ThreadingHTTPServer((\"127.0.0.1\", args.port), Handler)" in src
+
+
+def test_refresh_does_not_block_other_endpoints(monkeypatch):
+    """A slow subscription fetch on /v1/refresh never stalls /v1/report."""
+    import supervisor as sup
+    from supervisor import Handler
+    release = threading.Event()
+    started = threading.Event()
+
+    def _slow_fetch(url, attempts=2):
+        started.set()
+        assert release.wait(timeout=30)
+        return ("vless://u@slow.example:443?security=tls&sni=slow.example"
+                "#s\n")
+
+    monkeypatch.setattr(sup, "fetch_sub", _slow_fetch)
+    monkeypatch.setattr(
+        sup, "load_env",
+        lambda: {"EGRESS_SUB_URLS": "https://fake-slow.example/sub"})
+    monkeypatch.setattr(sup.POOL, "save_pool", lambda path=None: None)
+    sup.POOL.servers.clear()
+    sup.TOKEN = "test-thread-token"
+    server = sup.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+
+        def _post(path):
+            req = _url.Request(
+                "http://127.0.0.1:%d%s" % (port, path), data=b"{}",
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer test-thread-token"})
+            with _url.urlopen(req, timeout=30) as resp:
+                return json.load(resp)
+
+        refresh_out = {}
+        rthread = threading.Thread(
+            target=lambda: refresh_out.update(_post("/v1/refresh")),
+            daemon=True)
+        rthread.start()
+        assert started.wait(timeout=30)  # refresh fetch in flight
+        report = _post("/v1/report")  # answers while refresh is blocked
+        assert report.get("action") == "unknown-lease"
+        assert refresh_out == {}
+        release.set()
+        rthread.join(timeout=30)
+        assert refresh_out.get("refreshed") is True
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TOKEN = ""
+        sup.POOL.servers.clear()

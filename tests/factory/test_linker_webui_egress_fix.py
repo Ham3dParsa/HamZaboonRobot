@@ -32,7 +32,8 @@ FAKE_LEASE = {"lease_id": "aa11bb22cc33", "mode": "tunnel",
 
 def _keyed(monkeypatch, var):
     """One resolvable key NAME server-side (value stays in-memory)."""
-    monkeypatch.setattr(webui, "_provider_key_var", lambda p: var)
+    monkeypatch.setattr(webui, "_provider_key_var",
+                          lambda p, _manager=None: var)
     monkeypatch.setattr(webui, "_operator_key_values", lambda: {})
     import factory.precard.provider_lease_policy as _net
     monkeypatch.setattr(_net, "resolve_key",

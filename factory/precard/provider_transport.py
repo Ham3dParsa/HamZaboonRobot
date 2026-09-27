@@ -105,15 +105,22 @@ def _google_usage_number(value):
     """One tolerant token count (None when missing/non-numeric).
 
     Mirrors the telemetry ``extract_usage`` number rule: bools never
-    count, numeric strings/floats truncate to int, anything else is
-    None (tolerated, never raises, never a silent zero).
+    count, numeric strings/floats truncate to int, non-finite
+    (inf/nan) and negatives are not token counts -> None.
+    Anything else is None (tolerated, never raises, never a silent
+    zero).
     """
     if isinstance(value, bool):
         return None
     try:
-        return int(float(value))
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    if number < 0:
+        return None
+    return int(number)
 
 
 def _google_usage(data):

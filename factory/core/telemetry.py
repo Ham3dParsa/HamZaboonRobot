@@ -77,8 +77,9 @@ def extract_usage(data) -> tuple:
     REST payload (``{"usageMetadata": {...}}``), or a bare usage
     dict. Probes ``input_tokens``/``output_tokens`` first, then
     ``prompt_tokens``/``completion_tokens``, then the Gemini native
-    ``promptTokenCount``/``candidatesTokenCount``. Anything missing or
-    non-numeric -> ``None`` (tolerated, never raises).
+    ``promptTokenCount``/``candidatesTokenCount``. Anything missing,
+    non-numeric, non-finite (inf/nan), or negative -> ``None``
+    (tolerated, never raises, never a silent zero).
     """
     usage = data.get("usage") if isinstance(data, dict) else None
     if not isinstance(usage, dict) and isinstance(data, dict):
@@ -100,6 +101,11 @@ def extract_usage(data) -> tuple:
                 number = float(value)
             except (TypeError, ValueError):
                 continue
+            if number != number or number in (
+                    float("inf"), float("-inf")):
+                continue  # non-finite is not a token count
+            if number < 0:
+                continue  # negative is not a token count
             return int(number)
         return None
 

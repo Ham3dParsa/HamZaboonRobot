@@ -238,3 +238,39 @@ def test_managed_create_route_normalizes_casing_without_protocol(
     })
     assert resp.status_code == 200
     assert resp.get_json()["provider"] == "kilo"
+
+
+def test_seed_fallback_uses_single_manifest_owner(monkeypatch, tmp_path):
+    _patched_manifest(monkeypatch, tmp_path)
+
+    def _boom():
+        raise OSError("manifest unreachable")
+
+    monkeypatch.setattr(_registry, "_manifest", _boom)
+    seed = _manifest_mod.SEED_PROVIDERS
+    assert _registry.provider_names() == list(seed)
+    row = _registry.resolve_provider("google")
+    assert row is not None
+    assert row["key_vars"] == tuple(seed["google"]["key_vars"])
+    assert row["protocol"] == seed["google"]["protocol"]
+    assert _registry.resolve_provider("nope") is None
+
+
+def test_request_paths_share_one_manifest_manager(monkeypatch, tmp_path):
+    from factory.webui import server as _srv
+
+    mgr = _patched_manifest(monkeypatch, tmp_path)
+    calls = {"n": 0}
+
+    def _counted():
+        calls["n"] += 1
+        return mgr
+
+    monkeypatch.setattr(_registry, "_manifest", _counted)
+    monkeypatch.setattr(_srv, "_operator_key_values", lambda: {})
+    rows = _srv.key_presence(clean_fn=lambda: [])
+    assert calls["n"] == 1  # one manager per request, not per call
+    assert {r["name"] for r in rows} >= {"google", "groq"}
+    models, error = _srv.provider_model_list("nope")
+    assert models is None and error.startswith("unknown provider")
+    assert calls["n"] == 2  # second request, second single manager
