@@ -30,7 +30,7 @@ def _fake_store(initial=None):
 
 def _run(check=None, pool=None, ping=None, store=None, provider="synthx",
          key_name="SYNTHX_API_KEY_G1", cool_log=None, remember_log=None,
-         writes=None):
+         writes=None, batch=None, keep=None):
     store = store or _fake_store()[0]
     pool_rows = pool if pool is not None else [
         {"id": "s1", "source": "paid"},
@@ -64,12 +64,17 @@ def _run(check=None, pool=None, ping=None, store=None, provider="synthx",
         return orig_write(provider, rows)
 
     _store.write = _write
+    extra = {}
+    if batch is not None:
+        extra["batch"] = batch
+    if keep is not None:
+        extra["keep"] = keep
     return cycle.run_cycle(
         provider, store=_store,
         pool_fn=lambda: [dict(r) for r in pool_rows],
         ping_fn=ping_fn, check_fn=_check,
         cool_fn=_cool, remember_fn=_remember,
-        key_name=key_name)
+        key_name=key_name, **extra)
 
 
 def test_states_ordered_and_data_only():
@@ -218,6 +223,25 @@ def test_refresh_candidates_pure_helper():
     rows = [{"id": "x"}, {"id": "x", "source": "paid"},
             {"id": "y", "source": "free"}, {"source": "paid"}]
     assert cycle.refresh_candidates(rows) == ["x", "y"]
+
+
+def test_non_numeric_batch_falls_back_without_raising():
+    res = _run(batch="junk")
+    prove = next(s for s in res["states"] if s["state"] == "prove")
+    assert prove["batch"] == cycle.DEFAULT_BATCH
+    assert res["winner"] == "s2"
+    parked = _run(pool=[], batch="junk")
+    prove_parked = next(
+        s for s in parked["states"] if s["state"] == "prove")
+    assert prove_parked["batch"] == cycle.DEFAULT_BATCH
+
+
+def test_zero_ping_counts_reachable():
+    res = _run(ping=lambda exit_id: 0.0)
+    ping = next(s for s in res["states"] if s["state"] == "ping")
+    assert ping["pinged"] == 2
+    assert ping["reachable"] == 2
+    assert ping["latencies"] == {"s1": 0.0, "s2": 0.0}
 
 
 # ─── Console thin-call paths (fakes only: no network/files/keys) ───

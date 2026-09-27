@@ -209,8 +209,7 @@ def test_missing_invoke_fn_parks_without_live_call(tmp_path):
                for r in rows)
 
 
-def test_kilo_never_a_code_row():
-    # A provider ROW is quoted data (protocol literal, endpoint key,
+def test_kilo_never_a_code_row():    # A provider ROW is quoted data (protocol literal, endpoint key,
     # key-var NAME literal); prose mentions in comments/docstrings are
     # not rows. Kilo's row arrives via manager.create() in tmp DATA.
     src = pathlib.Path(bench.__file__).read_text(encoding="utf-8")
@@ -220,3 +219,36 @@ def test_kilo_never_a_code_row():
         assert literal not in src
     assert "api.kilo" not in src.lower()
     assert "KILO_API_KEY" not in src  # key NAMES live in manifest DATA
+
+
+def test_single_string_provider_means_one(tmp_path):
+    mgr = _patched_manager(tmp_path)
+    senses = bench.load_gold(
+        _write_witness(tmp_path, _gold_rows()[:1]))["entries"]
+    invoke = _mock_invoke(_script_all_match(senses))
+    runner = bench.ProviderBenchmark(manager=mgr, invoke_fn=invoke)
+    rows = runner.run_sense(senses[0], "google")
+    assert len(rows) == 1  # never split into chars
+    assert rows[0]["provider"] == "google"
+    assert rows[0]["error"] is None
+    report = runner.run_all(senses=senses, providers="kilo")
+    assert report["providers"] == ["kilo"]
+    assert {r["provider"] for r in report["results"]} == {"kilo"}
+
+
+def test_manager_built_once_per_runner(monkeypatch, tmp_path):
+    builds = {"n": 0}
+    real = manifest_mod.ProviderManifestManager
+
+    def _counted(path=None, **kwargs):
+        builds["n"] += 1
+        return real(path=str(tmp_path / "provider_manifest.json"))
+
+    monkeypatch.setattr(
+        manifest_mod, "ProviderManifestManager", _counted)
+    runner = bench.ProviderBenchmark()
+    assert runner.active_providers() != []
+    assert runner.active_providers() != []
+    runner.run_sense({"kid": "k", "expected_verdict": "LINK",
+                      "expected_winner": ""}, ["google"])
+    assert builds["n"] == 1  # one cached manager, not per-call loads

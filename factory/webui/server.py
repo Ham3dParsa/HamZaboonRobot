@@ -4537,7 +4537,7 @@ def api_managed_provider_create():
     if rec is None:
         status = 409 if "exists" in (error or "") else 400
         return jsonify({"error": error}), status
-    return jsonify({"provider": rec.get("protocol") and name.lower() or name,
+    return jsonify({"provider": str(name or "").strip().lower(),
                     "row": {"name": str(name or "").strip().lower(),
                             "key_count": len(rec.get("key_vars") or [])}})
 

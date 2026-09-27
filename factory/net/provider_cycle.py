@@ -99,6 +99,18 @@ def _latency_number(value):
     return ms if finite else 0.0
 
 
+def _safe_batch(batch):
+    """Prove width with safe fallback (never raises).
+
+    Non-numeric input (e.g. a stray string) falls back to
+    ``DEFAULT_BATCH`` instead of raising out of the cycle.
+    """
+    try:
+        return int(batch or DEFAULT_BATCH)
+    except (TypeError, ValueError):
+        return DEFAULT_BATCH
+
+
 def build_fa_lines(provider, states):
     """Persian interface lines, one per state (names + numbers only).
 
@@ -245,8 +257,8 @@ def run_cycle(provider, *, store, pool_fn, ping_fn, check_fn, cool_fn,
         states.append({"state": "ping", "provider": want,
                        "pinged": 0, "reachable": 0, "latencies": {}})
         states.append({"state": "prove", "provider": want,
-                       "batch": int(batch or DEFAULT_BATCH),
-                       "order": [], "clean": [], "blocked": [],
+                        "batch": _safe_batch(batch),
+                        "order": [], "clean": [], "blocked": [],
                        "unknown": []})
         states.append({"state": "remember", "provider": want,
                        "exit": "", "written": False})
@@ -265,8 +277,8 @@ def run_cycle(provider, *, store, pool_fn, ping_fn, check_fn, cool_fn,
             ms = ping_fn(exit_id) if callable(ping_fn) else None
         except Exception:
             ms = None
-        num = _latency_number(ms) if ms else 0.0
-        if ms:
+        num = _latency_number(ms) if ms is not None else 0.0
+        if ms is not None:
             latencies[exit_id] = num
     reachable = [e for e in candidates if e in latencies]
     reachable.sort(key=lambda e: latencies[e])
@@ -293,7 +305,7 @@ def run_cycle(provider, *, store, pool_fn, ping_fn, check_fn, cool_fn,
             return "blocked"
         return "unknown"
 
-    width = int(batch or DEFAULT_BATCH)
+    width = _safe_batch(batch)
     if width <= 0:
         width = len(order)
     depth = int(keep if isinstance(keep, int) and not isinstance(

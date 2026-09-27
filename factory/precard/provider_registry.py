@@ -86,15 +86,20 @@ def resolve_provider(name):
         return None
     try:
         mgr = _manifest()
-        if mgr.is_removed(name):
-            return None
-        hit = mgr.get(name)
     except Exception:
-        hit = None
+        mgr = None
+    hit = None
+    if mgr is not None:
+        try:
+            if mgr.is_removed(name):
+                return None
+            hit = mgr.get(name)
+        except Exception:
+            hit = None
     if isinstance(hit, dict):
         return dict(hit, key_vars=tuple(hit.get("key_vars", ())))
     try:
-        if _manifest().is_removed(name):
+        if mgr is not None and mgr.is_removed(name):
             return None
     except Exception:
         pass

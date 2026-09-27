@@ -203,3 +203,38 @@ def test_managed_routes_crud_and_exact_counts(monkeypatch, tmp_path):
         "state": state["local-studio"],
     }, ensure_ascii=False)
     assert "FAKE" not in blob
+
+
+def test_resolve_provider_uses_single_manifest_instance(
+        monkeypatch, tmp_path):
+    mgr = _patched_manifest(monkeypatch, tmp_path)
+    calls = {"n": 0}
+
+    def _counted():
+        calls["n"] += 1
+        return mgr
+
+    monkeypatch.setattr(_registry, "_manifest", _counted)
+    assert _registry.resolve_provider("google") is not None
+    assert calls["n"] == 1  # one fresh read, never a double disk load
+    assert _registry.resolve_provider("nope") is None
+    assert calls["n"] == 2
+
+
+def test_managed_create_route_normalizes_casing_without_protocol(
+        monkeypatch, tmp_path):
+    """Falsy-protocol rec still returns a normalized provider name."""
+    from factory.webui import server as _srv
+
+    _patched_manifest(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        _srv, "_managed_create_provider",
+        lambda name, row: ({"protocol": "", "key_vars": []}, ""))
+    client = _srv.app.test_client()
+    resp = client.post("/api/managed_providers", json={
+        "name": "Kilo", "protocol": "openai_compat",
+        "base_url": "http://127.0.0.1:9/v1/chat/completions",
+        "route": "direct", "key_vars": [], "request_extras": {},
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["provider"] == "kilo"

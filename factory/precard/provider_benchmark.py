@@ -54,6 +54,21 @@ DEFAULT_PROVIDERS = ("google", "kilo")
 WITNESS_LABELS_ENV_VAR = "HAMZABAN_WITNESS_LABELS"
 
 
+def _normalize_providers(providers):
+    """Provider name list from the caller's arg (never raises).
+
+    A single string means one provider (``list("google")`` would
+    split into chars — bogus unknown-provider entries); None means
+    the defaults; anything else is listed as given (each entry is
+    stripped + lowered at the call site).
+    """
+    if providers is None:
+        return list(DEFAULT_PROVIDERS)
+    if isinstance(providers, str):
+        return [providers]
+    return list(providers)
+
+
 def default_witness_path(explicit=None):
     """Resolve the calibration witness path: explicit, else env, else default.
 
@@ -186,14 +201,17 @@ class ProviderBenchmark:
 
     def __init__(self, *, manager=None, invoke_fn=None, clock=None):
         self._manager = manager
+        self._cached_manager = None
         self._invoke = invoke_fn
         self._clock = clock if callable(clock) else time.perf_counter
 
     def _active_manager(self):
         if self._manager is not None:
             return self._manager
-        from factory.precard import provider_manifest as _manifest_mod
-        return _manifest_mod.ProviderManifestManager()
+        if self._cached_manager is None:
+            from factory.precard import provider_manifest as _manifest_mod
+            self._cached_manager = _manifest_mod.ProviderManifestManager()
+        return self._cached_manager
 
     def active_providers(self):
         """Active preset names from the manifest (removed stay gone)."""
@@ -231,8 +249,7 @@ class ProviderBenchmark:
         expected_winner = sense.get("expected_winner", "")
         expected_winner = (expected_winner.strip()
                            if isinstance(expected_winner, str) else "")
-        names = list(providers) if providers is not None \
-            else list(DEFAULT_PROVIDERS)
+        names = _normalize_providers(providers)
         results = []
         for name in names:
             want = str(name or "").strip().lower()
@@ -305,8 +322,7 @@ class ProviderBenchmark:
         values. Raises FileNotFoundError/ValueError only when the
         witness file itself cannot load.
         """
-        names = list(providers) if providers is not None \
-            else list(DEFAULT_PROVIDERS)
+        names = _normalize_providers(providers)
         names = [str(n or "").strip().lower() for n in names]
         if senses is None:
             gold = load_gold(gold_path)
