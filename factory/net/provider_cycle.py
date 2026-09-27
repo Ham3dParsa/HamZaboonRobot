@@ -107,7 +107,7 @@ def _safe_batch(batch):
     """
     try:
         return int(batch or DEFAULT_BATCH)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return DEFAULT_BATCH
 
 

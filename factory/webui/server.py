@@ -2257,7 +2257,7 @@ def save_preset(fields):
         for cap in ("max_rpm", "max_rph", "max_daily"):
             try:
                 value = int((fields or {}).get(cap, 0) or 0)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 raise ValueError("%s must be an integer >= 0 or empty" % cap)
             if value < 0:
                 raise ValueError("%s must be >= 0 or empty" % cap)

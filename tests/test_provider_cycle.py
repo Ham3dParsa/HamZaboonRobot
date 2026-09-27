@@ -248,6 +248,9 @@ def test_huge_latency_never_raises():
     assert cycle._latency_number(10 ** 1000) == 0.0
     assert cycle._latency_number(float("inf")) == 0.0
     assert cycle._latency_number("12") == 12.0
+    res = _run(batch=float("inf"))
+    prove = next(s for s in res["states"] if s["state"] == "prove")
+    assert prove["batch"] == cycle.DEFAULT_BATCH
 
 
 def test_pool_file_helper_reads_tmp_pool(monkeypatch, tmp_path):

@@ -338,3 +338,28 @@ def test_corrupt_manifest_quarantined_before_reseed(tmp_path):
         "provider_manifest.json.corrupt.*"))
     assert len(kept) == 1
     assert kept[0].read_bytes() == raw  # original bytes preserved
+
+
+def test_infinite_index_fails_closed_without_500(monkeypatch, tmp_path):
+    from factory.webui import server as _srv
+
+    _patched_manifest(monkeypatch, tmp_path)
+    assert _manifest_mod.indexed_key_var("kilo", float("inf")).endswith(
+        "_1")
+    client = _srv.app.test_client()
+    created = client.post("/api/managed_providers", json={
+        "name": "local-studio",
+        "protocol": "openai_compat",
+        "base_url": "http://127.0.0.1:9/v1/chat/completions",
+        "route": "direct",
+        "key_vars": ["LOCAL_STUDIO_API_KEY_1"],
+        "request_extras": {},
+    })
+    assert created.status_code == 200
+    # JSON Infinity parses to inf: fail-closed 400, never a Flask 500.
+    resp = client.post("/api/managed_providers/local-studio/keys",
+                       json={"index": float("inf"),
+                             "key_var": "LOCAL_STUDIO_API_KEY_9"})
+    assert resp.status_code == 400
+    assert "index" in resp.get_json()["error"]
+    assert _registry.key_count("local-studio") == 1

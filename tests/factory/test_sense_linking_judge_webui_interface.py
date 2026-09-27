@@ -1894,6 +1894,19 @@ def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
     assert client.delete("/api/judge_presets/hub-empty").status_code == 200
 
 
+def test_judge_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))
+    client = webui.app.test_client()
+    # JSON Infinity parses to float("inf"): fail-closed 400, never 500.
+    resp = client.post("/api/judge_presets", json={
+        "name": "hub-inf", "provider": "avalai", "model": "m",
+        "max_rpm": float("inf")})
+    assert resp.status_code == 400
+    names = [r["name"] for r in client.get(
+        "/api/judge_presets").get_json()["judge_presets"]]
+    assert "hub-inf" not in names
+
+
 def test_judge_preset_edit_rename_migrates_without_duplicates(
         tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "PRESETS_DIR", str(tmp_path))

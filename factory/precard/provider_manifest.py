@@ -104,7 +104,7 @@ def indexed_key_var(provider, index):
         return ""
     try:
         idx = int(index)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         idx = 1
     if idx < 1:
         idx = 1
@@ -399,7 +399,7 @@ class ProviderManifestManager:
         else:
             try:
                 idx = int(index)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 raise ValueError("index must be a 1-based integer")
             if idx < 1 or idx > len(slots) + 1:
                 raise ValueError("index out of range for %s" % want)
@@ -417,7 +417,7 @@ class ProviderManifestManager:
             raise KeyError("unknown provider: %s" % want)
         try:
             idx = int(index)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError("index must be a 1-based integer")
         slots = list(row.get("key_vars") or [])
         if idx < 1 or idx > len(slots):
