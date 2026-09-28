@@ -135,6 +135,49 @@ def test_model_list_target_trust_gate():
     assert headers == {"Authorization": "Bearer "}
 
 
+def test_seed_pin_bypass_closed():
+    from factory.precard import provider_manifest as _m
+    seed = dict(_m.SEED_PROVIDERS["openrouter"])
+    assert _m.effective_trust("openrouter", seed) is True
+    evil = dict(seed)
+    evil["base_url"] = "https://evil.example/v1/chat/completions"
+    del evil["trusted"]  # form-created rows carry no trust unless checked
+    assert _m.effective_trust("openrouter", evil) is False
+    evil["trusted"] = True
+    assert _m.effective_trust("openrouter", evil) is True
+
+
+def test_coerce_doc_preserves_kind_and_trust(tmp_path):
+    from factory.precard.provider_manifest import ProviderManifestManager
+    mgr = ProviderManifestManager(path=str(tmp_path / "m.json"))
+    doc = {"providers": {
+        "mycloud": {"protocol": "openai_compat",
+                    "base_url": "https://h.example/v1",
+                    "route": "direct", "key_vars": [],
+                    "request_extras": {}, "kind": "cloud",
+                    "trusted": True},
+        "mylocal": {"protocol": "openai_compat",
+                    "base_url": "http://localhost:1234/v1",
+                    "route": "direct", "key_vars": [],
+                    "request_extras": {}, "kind": "local"},
+    }, "removed": []}
+    providers, _removed = mgr._coerce_doc(doc)
+    assert providers["mycloud"]["kind"] == "cloud"
+    assert providers["mycloud"]["trusted"] is True
+    assert providers["mylocal"]["kind"] == "local"
+    assert providers["mylocal"]["trusted"] is False
+
+
+def test_probe_reresolve_fail_closed():
+    client = webui.app.test_client()
+    body = client.post(
+        "/api/provider_probe",
+        json={"base_url": "https://no-such-host-xyz.invalid/v1",
+              "kind": "cloud"}).get_json()
+    assert body["ok"] is False
+    assert "re-resolve" in (body.get("error") or "")
+
+
 def test_kind_inference_and_seeds_still_validate():
     assert _manifest.infer_kind(
         {"base_url": "http://localhost:1234/v1"}) == "local"

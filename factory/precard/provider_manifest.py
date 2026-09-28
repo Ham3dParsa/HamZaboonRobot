@@ -300,7 +300,9 @@ def effective_trust(name, row):
 
     Trust sources (any one suffices): the ``local`` kind (loopback-only
     by construction), an explicit ``trusted: true`` on the row (the
-    operator's checkbox), or a shipped seed name (code defaults).
+    operator's checkbox), or a PRISTINE shipped seed (name matches AND
+    base_url/protocol match the code seed — a deleted-then-recreated
+    seed name with an attacker base is NOT trusted).
     Everything else is untrusted: key attachment is refused with a
     message pointing at the trust control — never silently sent.
     """
@@ -310,7 +312,14 @@ def effective_trust(name, row):
         return True
     if row.get("trusted") is True:
         return True
-    return norm_name(name) in SEED_PROVIDERS
+    seed = SEED_PROVIDERS.get(norm_name(name))
+    if isinstance(seed, dict):
+        if str(row.get("protocol") or "") == str(seed.get("protocol") or "") \
+                and (row.get("base_url") is None and seed.get("base_url") is None
+                     or str(row.get("base_url") or "")
+                     == str(seed.get("base_url") or "")):
+            return True
+    return False
 
 
 def validate_row(name, row):
@@ -464,6 +473,9 @@ class ProviderManifestManager:
                                      for v in (row.get("key_vars") or [])
                                      if str(v or "").strip()],
                         "request_extras": dict(row.get("request_extras") or {}),
+                        "kind": str(row.get("kind") or "").strip().lower()
+                        or infer_kind(row),
+                        "trusted": row.get("trusted") is True,
                     }
             raw_removed = doc.get("removed") or []
             if isinstance(raw_removed, (list, tuple)):

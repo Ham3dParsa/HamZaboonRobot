@@ -5398,6 +5398,17 @@ def api_provider_probe():
     if not endpoint:
         return jsonify({"ok": False,
                         "error": "no /models endpoint for this base"}), 200
+    try:
+        from factory.precard.provider_manifest import (
+            base_host_allowed as _host_ok)
+        host_ok = _host_ok(base)
+    except Exception:
+        host_ok = False
+    if not host_ok:
+        return jsonify({"ok": False,
+                        "error": "base host refused on re-resolve "
+                                 "(loopback/localhost/public only; "
+                                 "unresolvable names fail closed)"}), 200
     key_value = str((fields or {}).get("key_value") or "")
     trust_probe = bool((fields or {}).get("trust") is True)
     try:
