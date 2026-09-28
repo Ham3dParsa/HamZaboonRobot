@@ -1223,8 +1223,10 @@ def test_cabin_tabs_match_five_linker_stages():
     assert text.count('class="tab-link') == 7
     assert text.count('id="screening-tabbtn-') == 2
     for label in ("کوتاه‌فهرست نامزدها", "پیوند مکانیکی",
-                  "داوری هوش مصنوعی", "بازبینی انسانی",
+                  "داوری هوش مصنوعی", "داوری تحت نظارت اپراتور",
                   "خروجی جدول پیوند"):
+        # R5 rename kept («بازبینی انسانی» obsolete); "(TSV)"-suffix dropped:
+        # tab 4 carries TSV in its own LTR span (OQ-4, asserted below).
         assert label in text, label
     # OQ-4: TSV stays Latin, isolated in its own LTR span
     assert "خروجی جدول پیوند (<span" in text

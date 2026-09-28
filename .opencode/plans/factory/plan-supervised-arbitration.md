@@ -7,7 +7,7 @@ branch: feat/supervised-arbitration
 status: in-progress
 ---
 
-STATE: phase 3/6 — status: in-progress — focus: W3 tickets (P07/P08/P09); W2 committed (reviewer PASS after F1 fix, 60 tests green)
+STATE: phase 6/6 — status: complete — focus: W3 committed (reviewer PASS, full suite 4099 green); evidence: commits 5bd76d0 (W1) + cffc906 (W2) + W3 below; follow-ups: mechanical-sheet model-field + annotator provenance option (P07 report, untouched per logic-lock)
 
 ## Locked rules (owner-confirmed 2026-09-28)
 
