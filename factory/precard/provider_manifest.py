@@ -571,6 +571,9 @@ class ProviderManifestManager:
                          for v in ((row or {}).get("key_vars") or [])
                          if str(v or "").strip()],
             "request_extras": dict((row or {}).get("request_extras") or {}),
+            "kind": str((row or {}).get("kind") or "").strip().lower()
+            or infer_kind(row or {}),
+            "trusted": (row or {}).get("trusted") is True,
         }
         if not clean["key_vars"]:
             clean["key_vars"] = [indexed_key_var(want, 1)]

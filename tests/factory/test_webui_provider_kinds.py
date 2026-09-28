@@ -239,3 +239,16 @@ def test_probe_refuses_and_never_stores():
               "kind": "local"}).get_json()["ok"] is False
     from factory.precard import provider_registry
     assert "probe" not in provider_registry.provider_names()
+
+
+def test_create_persists_kind_and_trust(tmp_path):
+    from factory.precard.provider_manifest import ProviderManifestManager
+    mgr = ProviderManifestManager(path=str(tmp_path / "m.json"))
+    row = mgr.create("mycloud", _row(base_url="https://h.example/v1",
+                                     kind="cloud", trusted=True))
+    assert row["kind"] == "cloud"
+    assert row["trusted"] is True
+    assert mgr.get("mycloud")["trusted"] is True
+    local = mgr.create("mylocal", _row(base_url="http://localhost:1/v1"))
+    assert local["kind"] == "local"
+    assert local["trusted"] is False
