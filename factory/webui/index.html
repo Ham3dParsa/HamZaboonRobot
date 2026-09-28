@@ -323,26 +323,33 @@
               <span class="p-title">افزودن ارائه‌دهنده</span>
               <span class="badge" id="provider-add-state">نام‌ها فقط</span>
             </div>
-            <div class="p-meta">سطر داده ارائه‌دهنده در رجیستری موتور ساخته می‌شود (اعتبارسنجی سمت سرور)؛ مقدار کلید جدا ذخیره می‌شود.</div>
-            <div class="p-meta">یادداشت صادقانه: ارائه‌دهنده بدون کلید ساخته می‌شود، ولی «دریافت فهرست مدل» سمت سرور رد می‌شود؛ مسیر اجرا به فهرست نیازی ندارد.</div>
+            <div class="p-meta">دو مسیر جدا: «محلی» فقط همین دستگاه و بدون کلید (LM Studio / Ollama)؛ «ابری» فقط https با کلید. سطر داده در رجیستری موتور ساخته می‌شود؛ مقدار کلید جدا و رمزشده ذخیره می‌شود.</div>
             <div class="form-row-grid">
+              <div class="field-group">
+                <label>نوع ارائه‌دهنده</label>
+                <div class="scope-group" id="provider-add-kind" role="radiogroup" aria-label="نوع ارائه‌دهنده">
+                  <label><input type="radio" name="provider-add-kind" value="local" checked> محلی (همین دستگاه)</label>
+                  <label><input type="radio" name="provider-add-kind" value="cloud"> ابری (اینترنت + کلید)</label>
+                </div>
+              </div>
               <div class="field-group">
                 <label>نام ارائه‌دهنده</label>
                 <input type="text" class="code-token" id="provider-add-name" dir="ltr" placeholder="my-provider" autocomplete="off">
               </div>
-              <div class="field-group">
-                <label>نام متغیر کلید (اختیاری برای محلی — خالی یعنی بدون کلید)</label>
-                <input type="text" class="code-token" id="provider-add-keyvar" dir="ltr" placeholder="MY_PROVIDER_API_KEY" autocomplete="off">
-              </div>
-              <div class="field-group">
-                <label>پروتکل</label>
-                <select id="provider-add-protocol">
-                  <option value="openai_compat">openai_compat (محلی)</option>
-                </select>
+              <div class="field-group" id="provider-add-presets-group">
+                <label>پیش‌تنظیم محلی</label>
+                <div class="screening-words-row">
+                  <button class="btn-skip-next" id="provider-preset-lmstudio" type="button">LM Studio ‏(1234)</button>
+                  <button class="btn-skip-next" id="provider-preset-ollama" type="button">Ollama ‏(11434)</button>
+                </div>
               </div>
               <div class="field-group">
                 <label>نشانی نقطه پایانی (base_url)</label>
                 <input type="text" class="code-token" id="provider-add-base-url" dir="ltr" placeholder="http://localhost:1234/v1" autocomplete="off">
+              </div>
+              <div class="field-group" id="provider-add-key-group" hidden>
+                <label>مقدار کلید (یک‌بار چسباندن؛ هرگز نمایش داده نمی‌شود)</label>
+                <input type="password" class="code-token" id="provider-add-keyvalue" dir="ltr" placeholder="sk-..." autocomplete="off">
               </div>
               <div class="field-group">
                 <label>مسیر</label>
@@ -354,6 +361,7 @@
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
               <button class="btn-select-candidate" id="btn-add-provider" type="button">افزودن ارائه‌دهنده</button>
+              <button class="btn-skip-next" id="btn-probe-provider" type="button">بررسی اتصال (بدون ذخیره)</button>
               <span class="p-meta" id="provider-add-note" aria-live="polite"></span>
             </div>
             <div class="p-meta form-error-slot" id="provider-add-err"></div>

@@ -34,6 +34,12 @@ MANIFEST_FILENAME = "provider_manifest.json"
 PROTOCOLS = ("openai_compat", "gemini_rest")
 ROUTES = ("direct", "tunnel")
 
+#: Provider kinds (form-level concept, stored on the row): ``local``
+#: (this machine only, keyless) vs ``cloud`` (internet service, keyed).
+#: Kind decides which base_url hosts are acceptable — security by
+#: construction for local rows (loopback-only ⇒ no SSRF surface).
+KINDS = ("local", "cloud")
+
 _NAME_RX = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _KEY_VAR_RX = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY(_[A-Z0-9]+)?$")
 
@@ -140,6 +146,40 @@ def manifest_paths(explicit=None):
     return [primary, fallback]
 
 
+def _base_host(base_url):
+    """Lowercased hostname of a base_url ("" when unparsable)."""
+    try:
+        return (urllib.parse.urlsplit(str(base_url or "").strip())
+                .hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def is_loopback_host(host):
+    """True for localhost names + loopback IPs (local-model scope)."""
+    text = str(host or "").strip().lower()
+    if not text:
+        return False
+    if text == "localhost" or text.endswith(".localhost"):
+        return True
+    try:
+        return bool(ipaddress.ip_address(text).is_loopback)
+    except ValueError:
+        return False
+
+
+def infer_kind(row):
+    """Kind from the row's base_url (loopback → local, else cloud).
+
+    Keyless service rows without a base (``gemini_rest`` style) infer
+    ``cloud`` — they are keyed internet services, never local models.
+    """
+    host = _base_host((row or {}).get("base_url"))
+    if host and is_loopback_host(host):
+        return "local"
+    return "cloud"
+
+
 def base_host_allowed(base_url):
     """True when a provider base_url host is acceptable (SSRF guard).
 
@@ -190,6 +230,32 @@ def validate_row(name, row):
             return False, ("provider %s: base_url host is not allowed "
                            "(loopback, localhost, or public IP/hostname "
                            "only)" % want)
+    kind = str(row.get("kind") or "").strip().lower() or infer_kind(row)
+    if kind not in KINDS:
+        return False, "provider %s: kind must be local|cloud" % want
+    host = _base_host(base_url)
+    if kind == "local":
+        if protocol != "openai_compat":
+            return False, ("provider %s: local kind needs the "
+                           "openai_compat protocol" % want)
+        if not host or not is_loopback_host(host):
+            return False, ("provider %s: local kind accepts loopback/ "
+                           "localhost endpoints only" % want)
+        if str(row.get("route") or "") != "direct":
+            return False, ("provider %s: local kind needs the direct "
+                           "route" % want)
+        # NOTE: key_vars stay ALLOWED on local rows (backward compatible):
+        # loopback-only addressing already kills the SSRF class, and a
+        # key reference is legitimately needed for key-gated listing.
+        # The form simply sends none.
+    else:
+        if protocol == "openai_compat" and host:
+            if not str(base_url).strip().startswith("https://"):
+                return False, ("provider %s: cloud kind needs an https "
+                               "base_url" % want)
+            if is_loopback_host(host):
+                return False, ("provider %s: cloud kind cannot point at "
+                               "loopback (use kind local)" % want)
     key_vars = row.get("key_vars", [])
     if not isinstance(key_vars, (list, tuple)):
         return False, "provider %s: key_vars must be a list" % want

@@ -267,35 +267,100 @@ async function providerKeyDelete(name, btn) {
 /* مدیریت ارائه‌دهنده: افزودن سطر، افزودن شکاف کلید، حذف سطر —
    هر سه به مسیرهای مدیریتی موجود سرور می‌روند، با حالت مشغولی؛
    حذف پشت گفت‌وگوی تأیید با واژه‌های «رمزشده» و «برگشت‌ناپذیر» است. */
+/* مدیریت ارائه‌دهنده: فرم دو-نوعی (محلی/ابری) + بررسی اتصال.
+   محلی: loopback-only، بدون کلید، مسیر direct (اعمال سمت سرور هم هست).
+   ابری: https + کلید (ذخیره رمزشده جدا)؛ بررسی اتصال کلید را فقط
+   در حافظه همان یک درخواست نگه می‌دارد. */
+function providerAddKind() {
+  const checked = document.querySelector('input[name="provider-add-kind"]:checked');
+  return ((checked && checked.value) || 'local').toLowerCase() === 'cloud' ? 'cloud' : 'local';
+}
+function applyProviderAddKind() {
+  const kind = providerAddKind();
+  const keyGroup = document.getElementById('provider-add-key-group');
+  const presetsGroup = document.getElementById('provider-add-presets-group');
+  const baseInput = document.getElementById('provider-add-base-url');
+  const routeSel = document.getElementById('provider-add-route');
+  if (keyGroup) keyGroup.hidden = (kind !== 'cloud');
+  if (presetsGroup) presetsGroup.hidden = (kind !== 'local');
+  if (baseInput) baseInput.placeholder = (kind === 'cloud')
+    ? 'https://...' : 'http://localhost:1234/v1';
+  if (routeSel) routeSel.disabled = (kind === 'local');
+}
+function providerKeyVarFor(name) {
+  const stem = String(name || '').trim().toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return stem ? stem + '_API_KEY_1' : '';
+}
 async function providerAdd(btn) {
   const noteEl = document.getElementById('provider-add-note');
   clearFormError('provider-add-err');
   if (noteEl) noteEl.textContent = '';
+  const kind = providerAddKind();
   const name = ((document.getElementById('provider-add-name') || {}).value || '').trim();
-  const keyVar = ((document.getElementById('provider-add-keyvar') || {}).value || '').trim();
-  const protocol = ((document.getElementById('provider-add-protocol') || {}).value || 'openai_compat').trim() || 'openai_compat';
   const baseUrl = ((document.getElementById('provider-add-base-url') || {}).value || '').trim();
-  const route = (document.getElementById('provider-add-route') || {}).value || 'direct';
+  const keyValue = ((document.getElementById('provider-add-keyvalue') || {}).value || '');
+  const route = (kind === 'local') ? 'direct'
+    : ((document.getElementById('provider-add-route') || {}).value || 'direct');
   if (!name) { showFormError('provider-add-err', 'نام ارائه‌دهنده خالی است (چیزی ساخته نشد).', '', null); return; }
+  if (!baseUrl) { showFormError('provider-add-err', 'نشانی نقطه پایانی خالی است (چیزی ساخته نشد).', '', null); return; }
+  if (kind === 'cloud' && !keyValue) { showFormError('provider-add-err', 'مسیر ابری کلید می‌خواهد (مقدار کلید خالی است).', '', null); return; }
   await withBusy(btn || document.getElementById('btn-add-provider'), 'در حال افزودن…', async () => {
     try {
+      const keyVar = (kind === 'cloud') ? providerKeyVarFor(name) : '';
       const j = await getJSON('/api/managed_providers',
         {method: 'POST', headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({name: name, protocol: protocol, base_url: baseUrl,
-                               route: route, key_vars: keyVar ? [keyVar] : []})});
+         body: JSON.stringify({name: name, protocol: 'openai_compat', base_url: baseUrl,
+                               route: route, kind: kind,
+                               key_vars: keyVar ? [keyVar] : []})});
+      let keyNote = '';
+      if (kind === 'cloud' && keyVar) {
+        try {
+          await getJSON('/api/keys',
+            {method: 'POST', headers: {'Content-Type': 'application/json'},
+             body: JSON.stringify({key_var: keyVar, key_value: keyValue})});
+          keyNote = ' کلید رمزشده ذخیره شد.';
+        } catch(ke) {
+          keyNote = ' سطر ساخته شد ولی ذخیره کلید ناموفق بود: ' + ((ke && ke.message) || ke);
+        }
+        const kv = document.getElementById('provider-add-keyvalue');
+        if (kv) kv.value = '';
+      }
       if (noteEl) {
         noteEl.replaceChildren();
         noteEl.append(document.createTextNode('ارائه‌دهنده ' + (j.provider || name)
-          + ' ساخته شد (' + faNum(((j.row || {}).key_count) || 0) + ' شکاف کلید).'));
-        if (baseUrl) {
-          noteEl.append(document.createTextNode(' نقطه پایانی: '));
-          noteEl.append(ltrCode(baseUrl));
-        }
-        if (!keyVar) noteEl.append(document.createTextNode(' بدون کلید: «دریافت فهرست» سمت سرور رد می‌شود؛ مسیر اجرا به فهرست نیازی ندارد.'));
+          + ' ساخته شد (' + (kind === 'local' ? 'محلی، بدون کلید' : 'ابری') + ').' + keyNote));
+        noteEl.append(document.createTextNode(' نقطه پایانی: '));
+        noteEl.append(ltrCode(baseUrl));
       }
       await refreshProviderCards();
       await refreshBadges();
     } catch(e) { showFormError('provider-add-err', 'افزودن ارائه‌دهنده ناموفق بود.', (e && e.message) || e, () => providerAdd(), errCodeFor(e)); }
+  });
+}
+async function providerProbe(btn) {
+  const noteEl = document.getElementById('provider-add-note');
+  clearFormError('provider-add-err');
+  const kind = providerAddKind();
+  const baseUrl = ((document.getElementById('provider-add-base-url') || {}).value || '').trim();
+  const keyValue = ((document.getElementById('provider-add-keyvalue') || {}).value || '');
+  if (!baseUrl) { showFormError('provider-add-err', 'برای بررسی اتصال، نشانی را بنویسید (چیزی ذخیره نشد).', '', null); return; }
+  await withBusy(btn || document.getElementById('btn-probe-provider'), 'در حال بررسی…', async () => {
+    try {
+      const j = await getJSON('/api/provider_probe',
+        {method: 'POST', headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({base_url: baseUrl, kind: kind,
+                               key_value: (kind === 'cloud') ? keyValue : ''})});
+      if (noteEl) {
+        if (j && j.ok) {
+          noteEl.replaceChildren();
+          noteEl.append(document.createTextNode('اتصال برقرار است (' + faNum(j.count || 0) + ' مدل). چیزی ذخیره نشد.'));
+        } else {
+          showFormError('provider-add-err', 'اتصال برقرار نشد (چیزی ذخیره نشد).',
+            ((j && j.error) || 'unknown'), () => providerProbe(), 'NET-probe');
+        }
+      }
+    } catch(e) { showFormError('provider-add-err', 'بررسی اتصال ناموفق بود (چیزی ذخیره نشد).', (e && e.message) || e, () => providerProbe(), errCodeFor(e)); }
   });
 }
 async function providerKeyAdd(name, btn) {
@@ -446,3 +511,16 @@ document.getElementById('btn-supervisor-delete').addEventListener('click', (ev) 
 document.getElementById('btn-supervisor-wake').addEventListener('click', supervisorWake);
 document.getElementById('btn-supervisor-sleep').addEventListener('click', (ev) => supervisorSleep(ev.currentTarget));
 document.getElementById('btn-add-provider').addEventListener('click', (ev) => providerAdd(ev.currentTarget));
+document.getElementById('btn-probe-provider').addEventListener('click', (ev) => providerProbe(ev.currentTarget));
+document.querySelectorAll('input[name="provider-add-kind"]').forEach((el) => {
+  el.addEventListener('change', applyProviderAddKind);
+});
+document.getElementById('provider-preset-lmstudio').addEventListener('click', () => {
+  const base = document.getElementById('provider-add-base-url');
+  if (base) base.value = 'http://localhost:1234/v1';
+});
+document.getElementById('provider-preset-ollama').addEventListener('click', () => {
+  const base = document.getElementById('provider-add-base-url');
+  if (base) base.value = 'http://localhost:11434/v1';
+});
+applyProviderAddKind();

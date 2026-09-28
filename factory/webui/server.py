@@ -5325,7 +5325,10 @@ def api_managed_provider_create():
         "route": str((fields or {}).get("route") or "direct").strip(),
         "key_vars": list(key_vars),
         "request_extras": dict(extras),
+        "kind": str((fields or {}).get("kind") or "").strip().lower(),
     }
+    if not row["kind"]:
+        del row["kind"]
     rec, error = _managed_create_provider(name, row)
     if rec is None:
         status = 409 if "exists" in (error or "") else 400
@@ -5333,6 +5336,58 @@ def api_managed_provider_create():
     return jsonify({"provider": str(name or "").strip().lower(),
                     "row": {"name": str(name or "").strip().lower(),
                             "key_count": len(rec.get("key_vars") or [])}})
+
+
+@app.route("/api/provider_probe", methods=["POST"])
+def api_provider_probe():
+    """Test an endpoint WITHOUT saving anything (pre-registration check).
+
+    Body: {base_url, kind: local|cloud (default inferred), key_value?}.
+    The key VALUE (cloud only) lives in-memory for this one fetch —
+    never stored, logged, or returned. Answers {ok, count, models[]} or
+    {ok: false, error} with the same kind rules as registration.
+    """
+    import urllib.request as _url
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    base = str((fields or {}).get("base_url") or "").strip()
+    kind = str((fields or {}).get("kind") or "").strip().lower()
+    if not base:
+        return jsonify({"ok": False,
+                        "error": "VALIDATION-base_url: endpoint is "
+                                 "required"}), 200
+    probe_row = {"protocol": "openai_compat", "base_url": base,
+                 "route": "direct", "key_vars": []}
+    if kind:
+        probe_row["kind"] = kind
+    try:
+        from factory.precard.provider_manifest import (
+            validate_row as _validate_row)
+        ok, error = _validate_row("probe", probe_row)
+    except Exception:
+        ok, error = False, "validation unavailable"
+    if not ok:
+        return jsonify({"ok": False, "error": str(error)}), 200
+    endpoint = _openai_models_endpoint(base)
+    if not endpoint:
+        return jsonify({"ok": False,
+                        "error": "no /models endpoint for this base"}), 200
+    key_value = str((fields or {}).get("key_value") or "")
+    headers = {"Accept": "application/json"}
+    if key_value:
+        headers["Authorization"] = "Bearer " + key_value
+    try:
+        req = _url.Request(endpoint, headers=headers)
+        with _url.urlopen(req, timeout=10) as resp:
+            payload = json.load(resp)
+        ids = _openai_model_ids(payload)
+    except Exception as exc:
+        return jsonify({"ok": False,
+                        "error": "unreachable (%s)" % type(exc).__name__}), 200
+    return jsonify({"ok": True, "count": len(ids),
+                    "models": ids[:20]}), 200
 
 
 @app.route("/api/managed_providers/<name>", methods=["DELETE"])
