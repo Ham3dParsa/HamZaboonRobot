@@ -57,6 +57,7 @@ SEED_PROVIDERS = {
             "reasoning_effort": "low",
             "extra_body": {"reasoning_effort": "low"},
         },
+        "trusted": True,
     },
     "google": {
         "protocol": "gemini_rest",
@@ -65,6 +66,7 @@ SEED_PROVIDERS = {
         "key_vars": ["GOOGLE_API_KEY_G1", "GOOGLE_API_KEY_G2",
                      "GOOGLE_AI_API_KEY"],
         "request_extras": {},
+        "trusted": True,
     },
     "openrouter": {
         "protocol": "openai_compat",
@@ -73,6 +75,7 @@ SEED_PROVIDERS = {
         "key_vars": ["OPENROUTER_API_KEY_G1", "OPENROUTER_API_KEY_G2",
                      "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2"],
         "request_extras": {},
+        "trusted": True,
     },
     "groq": {
         "protocol": "openai_compat",
@@ -80,6 +83,7 @@ SEED_PROVIDERS = {
         "route": "direct",
         "key_vars": ["GROQ_API_KEY_G1", "GROQ_API_KEY_G2", "GROQ_API_KEY"],
         "request_extras": {},
+        "trusted": True,
     },
 }
 
@@ -291,6 +295,24 @@ def base_host_allowed(base_url, _resolver=None):
     return allowed
 
 
+def effective_trust(name, row):
+    """True when stored keys may be attached to this provider's base.
+
+    Trust sources (any one suffices): the ``local`` kind (loopback-only
+    by construction), an explicit ``trusted: true`` on the row (the
+    operator's checkbox), or a shipped seed name (code defaults).
+    Everything else is untrusted: key attachment is refused with a
+    message pointing at the trust control — never silently sent.
+    """
+    row = row or {}
+    kind = str(row.get("kind") or "").strip().lower() or infer_kind(row)
+    if kind == "local":
+        return True
+    if row.get("trusted") is True:
+        return True
+    return norm_name(name) in SEED_PROVIDERS
+
+
 def validate_row(name, row):
     """Validate a provider data row; (ok, error). Names only in errors.
 
@@ -316,9 +338,6 @@ def validate_row(name, row):
         if not (text.startswith("https://") or text.startswith("http://")):
             return False, "provider %s: base_url must be http(s) or empty" % want
         if not _literal_host_ok(_base_host(text)):
-            return False, ("provider %s: base_url host is not allowed "
-                           "(loopback, localhost, or public IP/hostname "
-                           "only)" % want)
             return False, ("provider %s: base_url host is not allowed "
                            "(loopback, localhost, or public IP/hostname "
                            "only)" % want)
@@ -357,6 +376,8 @@ def validate_row(name, row):
     extras = row.get("request_extras", {})
     if not isinstance(extras, dict):
         return False, "provider %s: request_extras must be an object" % want
+    if "trusted" in row and not isinstance(row.get("trusted"), bool):
+        return False, "provider %s: trusted must be true/false" % want
     return True, ""
 
 

@@ -97,6 +97,44 @@ def test_host_resolution_gate():
                                        _resolver=_GLOBAL) is True
 
 
+def test_effective_trust_matrix():
+    from factory.precard import provider_manifest as _m
+    assert _m.effective_trust("mylocal", {"base_url": "http://localhost:1234/v1",
+                                          "kind": "local"}) is True
+    assert _m.effective_trust("x", {"base_url": "https://h.example/v1",
+                                    "kind": "cloud",
+                                    "trusted": True}) is True
+    assert _m.effective_trust("x", {"base_url": "https://h.example/v1",
+                                    "kind": "cloud"}) is False
+    for seed in _m.SEED_PROVIDERS:
+        assert _m.effective_trust(seed, _m.SEED_PROVIDERS[seed]) is True
+    ok, _ = _m.validate_row("x", _row(base_url="https://h.example/v1",
+                                      kind="cloud", trusted="yes"))
+    assert not ok
+
+
+def test_model_list_target_trust_gate():
+    from factory.webui import server as _srv
+    # Literal global IP: host gate passes (no DNS), trust gate refuses.
+    endpoint, _h, _ids, error = _srv._model_list_target(
+        "evil", {"protocol": "openai_compat",
+                 "base_url": "https://93.184.216.34/v1", "kind": "cloud"},
+        "REALKEY")
+    assert endpoint is None and "trust" in (error or "")
+    endpoint, _h, _ids, error = _srv._model_list_target(
+        "pal", {"protocol": "openai_compat",
+                "base_url": "https://93.184.216.34/v1", "kind": "cloud",
+                "trusted": True},
+        "REALKEY")
+    assert error is None and endpoint.endswith("/models")
+    endpoint, headers, _ids, error = _srv._model_list_target(
+        "mylocal", {"protocol": "openai_compat",
+                    "base_url": "http://localhost:1234/v1", "kind": "local"},
+        "")
+    assert error is None and endpoint.endswith("/models")
+    assert headers == {"Authorization": "Bearer "}
+
+
 def test_kind_inference_and_seeds_still_validate():
     assert _manifest.infer_kind(
         {"base_url": "http://localhost:1234/v1"}) == "local"

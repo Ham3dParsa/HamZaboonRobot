@@ -278,10 +278,12 @@ function providerAddKind() {
 function applyProviderAddKind() {
   const kind = providerAddKind();
   const keyGroup = document.getElementById('provider-add-key-group');
+  const trustGroup = document.getElementById('provider-add-trust-group');
   const presetsGroup = document.getElementById('provider-add-presets-group');
   const baseInput = document.getElementById('provider-add-base-url');
   const routeSel = document.getElementById('provider-add-route');
   if (keyGroup) keyGroup.hidden = (kind !== 'cloud');
+  if (trustGroup) trustGroup.hidden = (kind !== 'cloud');
   if (presetsGroup) presetsGroup.hidden = (kind !== 'local');
   if (baseInput) baseInput.placeholder = (kind === 'cloud')
     ? 'https://...' : 'http://localhost:1234/v1';
@@ -300,6 +302,8 @@ async function providerAdd(btn) {
   const name = ((document.getElementById('provider-add-name') || {}).value || '').trim();
   const baseUrl = ((document.getElementById('provider-add-base-url') || {}).value || '').trim();
   const keyValue = ((document.getElementById('provider-add-keyvalue') || {}).value || '');
+  const trustEl = document.getElementById('provider-add-trust');
+  const trusted = !!(trustEl && trustEl.checked);
   const route = (kind === 'local') ? 'direct'
     : ((document.getElementById('provider-add-route') || {}).value || 'direct');
   if (!name) { showFormError('provider-add-err', 'نام ارائه‌دهنده خالی است (چیزی ساخته نشد).', '', null); return; }
@@ -311,7 +315,7 @@ async function providerAdd(btn) {
       const j = await getJSON('/api/managed_providers',
         {method: 'POST', headers: {'Content-Type': 'application/json'},
          body: JSON.stringify({name: name, protocol: 'openai_compat', base_url: baseUrl,
-                               route: route, kind: kind,
+                               route: route, kind: kind, trusted: trusted,
                                key_vars: keyVar ? [keyVar] : []})});
       let keyNote = '';
       if (kind === 'cloud' && keyVar) {
@@ -344,12 +348,14 @@ async function providerProbe(btn) {
   const kind = providerAddKind();
   const baseUrl = ((document.getElementById('provider-add-base-url') || {}).value || '').trim();
   const keyValue = ((document.getElementById('provider-add-keyvalue') || {}).value || '');
+  const trustEl = document.getElementById('provider-add-trust');
+  const trusted = !!(trustEl && trustEl.checked);
   if (!baseUrl) { showFormError('provider-add-err', 'برای بررسی اتصال، نشانی را بنویسید (چیزی ذخیره نشد).', '', null); return; }
   await withBusy(btn || document.getElementById('btn-probe-provider'), 'در حال بررسی…', async () => {
     try {
       const j = await getJSON('/api/provider_probe',
         {method: 'POST', headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({base_url: baseUrl, kind: kind,
+         body: JSON.stringify({base_url: baseUrl, kind: kind, trust: trusted,
                                key_value: (kind === 'cloud') ? keyValue : ''})});
       if (noteEl) {
         if (j && j.ok) {

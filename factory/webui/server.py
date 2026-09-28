@@ -1051,7 +1051,17 @@ def _model_list_target(name, row, key_value):
     row lists via its OpenAI-compatible {base}/models.
     """
     protocol = str((row or {}).get("protocol") or "")
+    try:
+        from factory.precard.provider_manifest import (
+            effective_trust as _trust)
+        trusted = _trust(name, row)
+    except Exception:
+        trusted = False
     if protocol == "gemini_rest" or str(name or "") == "google":
+        if not trusted:
+            return None, None, None, (
+                "%s is not trusted: stored keys are never sent until "
+                "trust is confirmed in the providers panel" % name)
         return ("https://generativelanguage.googleapis.com/"
                 "v1beta/models?pageSize=200",
                 {"x-goog-api-key": key_value},
@@ -1071,6 +1081,10 @@ def _model_list_target(name, row, key_value):
         return None, None, None, ("%s base host is not allowed "
                                   "(loopback, localhost, or public "
                                   "IP/hostname only)" % name)
+    if key_value and not trusted:
+        return None, None, None, (
+            "%s is not trusted: stored keys are never sent until "
+            "trust is confirmed in the providers panel" % name)
     return endpoint, {"Authorization": "Bearer " + key_value}, \
         _openai_model_ids, None
 
@@ -5333,9 +5347,12 @@ def api_managed_provider_create():
         "key_vars": list(key_vars),
         "request_extras": dict(extras),
         "kind": str((fields or {}).get("kind") or "").strip().lower(),
+        "trusted": bool((fields or {}).get("trusted") is True),
     }
     if not row["kind"]:
         del row["kind"]
+    if not row["trusted"]:
+        del row["trusted"]
     rec, error = _managed_create_provider(name, row)
     if rec is None:
         status = 409 if "exists" in (error or "") else 400
@@ -5382,6 +5399,18 @@ def api_provider_probe():
         return jsonify({"ok": False,
                         "error": "no /models endpoint for this base"}), 200
     key_value = str((fields or {}).get("key_value") or "")
+    trust_probe = bool((fields or {}).get("trust") is True)
+    try:
+        from factory.precard.provider_manifest import (
+            is_loopback_host as _loop, _base_host as _bhost)
+        loopback = _loop(_bhost(base))
+    except Exception:
+        loopback = False
+    if key_value and not (loopback or trust_probe):
+        return jsonify({"ok": False,
+                        "error": "key is only sent to loopback or an "
+                                 "explicitly trusted host (tick trust to "
+                                 "probe with a key)"}), 200
     headers = {"Accept": "application/json"}
     if key_value:
         headers["Authorization"] = "Bearer " + key_value
