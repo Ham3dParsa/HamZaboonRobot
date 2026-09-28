@@ -49,11 +49,15 @@ import threading
 import time
 import uuid
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from factory.precard import provider_registry
 from factory.precard.accounting import source_item_key
 from factory.core.env_loader import data_root
+from factory.webui import batches as _batches
+from factory.webui import batch_import as _batch_import
+from factory.webui import batch_repair as _batch_repair
+from factory.webui import gallery as _gallery
 
 app = Flask(__name__, static_folder=None)
 
@@ -1047,7 +1051,17 @@ def _model_list_target(name, row, key_value):
     row lists via its OpenAI-compatible {base}/models.
     """
     protocol = str((row or {}).get("protocol") or "")
+    try:
+        from factory.precard.provider_manifest import (
+            effective_trust as _trust)
+        trusted = _trust(name, row)
+    except Exception:
+        trusted = False
     if protocol == "gemini_rest" or str(name or "") == "google":
+        if not trusted:
+            return None, None, None, (
+                "%s is not trusted: stored keys are never sent until "
+                "trust is confirmed in the providers panel" % name)
         return ("https://generativelanguage.googleapis.com/"
                 "v1beta/models?pageSize=200",
                 {"x-goog-api-key": key_value},
@@ -1057,6 +1071,20 @@ def _model_list_target(name, row, key_value):
     if not endpoint:
         return None, None, None, ("%s has no listable base address "
                                   "(no /models endpoint)" % name)
+    try:
+        from factory.precard.provider_manifest import (
+            base_host_allowed as _host_ok)
+        host_ok = _host_ok(base)
+    except Exception:
+        host_ok = False
+    if not host_ok:
+        return None, None, None, ("%s base host is not allowed "
+                                  "(loopback, localhost, or public "
+                                  "IP/hostname only)" % name)
+    if key_value and not trusted:
+        return None, None, None, (
+            "%s is not trusted: stored keys are never sent until "
+            "trust is confirmed in the providers panel" % name)
     return endpoint, {"Authorization": "Bearer " + key_value}, \
         _openai_model_ids, None
 
@@ -1987,13 +2015,21 @@ def _proc_pid(proc):
 
 
 def _pid_alive(pid):
-    """True when a pid still names a live process (best-effort)."""
+    """True when a pid still names a live process (best-effort).
+
+    Windows note: ``os.kill(pid, 0)`` raises generic ``OSError``
+    (WinError 87) — not ``ProcessLookupError`` — for dead pids, so it
+    must map to False explicitly (a bare ``except Exception → True``
+    reports every dead pid alive and restart-settle never fires).
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    except OSError:
+        return False
     except Exception:
         return True
     return True
@@ -4913,6 +4949,256 @@ def api_judge_preset_delete(name):
     return jsonify({"deleted": name})
 
 
+# ─── Supervised arbitration batches (P01; import/approve land in W2) ───
+# Thin routes over factory/webui/batches.py (single owner of batch logic).
+# Import/approve/cancel staging routes arrive with P04 — only build, list,
+# fetch-one, and cancel exist in this wave.
+
+#: Serializes batch creation (the threaded server can run two creates
+#: concurrently): build+save check-then-act runs under one lock so two
+#: overlapping batches can never be born. Mirrors _APPROVE_LOCK.
+_BATCH_CREATE_LOCK = threading.Lock()
+
+
+def _batch_summary(rec):
+    """Plan-shaped batch summary for dict rows AND BatchRecord dataclasses.
+
+    (F1/F2: the first mount called ``rec.get`` on the dataclass → 500,
+    and dropped ``answered``/``approved`` + ``md``/``json`` carriers.)
+    """
+    def _get(key, default=None):
+        if isinstance(rec, dict):
+            return rec.get(key, default)
+        return getattr(rec, key, default)
+    out = {"id": _get("id"), "size": _get("size"),
+           "status": _get("status"),
+           "answered": _get("answered", 0),
+           "approved": _get("approved", 0),
+           "created_at": _get("created_at")}
+    for key in ("prompt_version", "prompt_hash"):
+        val = _get(key)
+        if val is not None:
+            out[key] = val
+    if out.get("id"):
+        directory = _batches.batch_dir(str(out["id"]))
+        out["md"] = os.path.join(directory, "batch.md")
+        out["json"] = os.path.join(directory, "batch.json-data")
+    return out
+
+
+_BATCH_ID_RX = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _clean_batch_id(raw):
+    """Strict batch id (restricted charset); rejects ``..``/separators."""
+    name = str(raw or "").strip()
+    if not _BATCH_ID_RX.match(name):
+        return ""
+    return name
+
+
+@app.route("/api/batches", methods=["POST"])
+def api_batch_create():
+    fields = request.get_json(force=True, silent=True) or {}
+    raw_size = (fields or {}).get("size")
+    if raw_size is None or (isinstance(raw_size, str)
+                            and not raw_size.strip()):
+        size = _batches.DEFAULT_SIZE
+    elif isinstance(raw_size, float) and not raw_size.is_integer():
+        return jsonify({"error": "VALIDATION-size: size must be an "
+                                 "integer 10..50"}), 400
+    else:
+        try:
+            size = int(raw_size)
+        except (TypeError, ValueError):
+            return jsonify({"error": "VALIDATION-size: size must be an "
+                                     "integer 10..50"}), 400
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    try:
+        with _BATCH_CREATE_LOCK:
+            batch = _batches.build_batch(screened, size=size)
+            saved = _batches.save_batch(batch)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": "save failed: %s" % exc}), 500
+    return jsonify({"batch": _batch_summary(saved)}), 200
+
+
+@app.route("/api/batches", methods=["GET"])
+def api_batches():
+    return jsonify({"batches": [_batch_summary(b)
+                                for b in _batches.list_batches()]})
+
+
+@app.route("/api/batches/<batch_id>", methods=["GET"])
+def api_batch_fetch(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    directory = _batches.batch_dir(name)
+    meta = _read_batch_meta(name)
+    if meta is None:
+        return jsonify({"error": "batch not found: %s" % name}), 404
+    md_path = os.path.join(directory, "batch.md")
+    data_path = os.path.join(directory, "batch.json-data")
+    try:
+        md_text = ""
+        if os.path.isfile(md_path):
+            with open(md_path, encoding="utf-8") as handle:
+                md_text = handle.read()
+        items = []
+        if os.path.isfile(data_path):
+            with open(data_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, list):
+                items = payload
+            elif isinstance(payload, dict):
+                items = payload.get("items", [])
+            else:
+                return jsonify({"error": "unreadable batch %s: bad "
+                                         "items shape" % name}), 500
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": "unreadable batch %s: %s"
+                                 % (name, exc)}), 500
+    return jsonify({"batch": meta, "md": md_text, "items": items,
+                    "staged": _batch_import.load_staged(name)})
+
+
+@app.route("/api/batches/<batch_id>/cancel", methods=["POST"])
+def api_batch_cancel(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    try:
+        _batches.cancel_batch(name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"cancelled": name})
+
+
+def _read_batch_meta(name):
+    """Batch meta dict or None (single loader — fetch + repair share it)."""
+    try:
+        with open(os.path.join(_batches.batch_dir(name), "batch.json"),
+                  encoding="utf-8") as handle:
+            meta = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict) or not meta.get("id"):
+        return None
+    return meta
+
+
+def _repair_bundle(name, exc):
+    """Copy-ready repair text for a rejected sheet (P06 composer)."""
+    meta = _read_batch_meta(name) or {"id": name}
+    try:
+        return _batch_repair.compose_repair_request(meta, exc)
+    except Exception:
+        return ""
+
+
+@app.route("/api/batches/<batch_id>/import", methods=["POST"])
+def api_batch_import(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name or not os.path.isfile(
+            os.path.join(_batches.batch_dir(name), "batch.json")):
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    fields = request.get_json(force=True, silent=True) or {}
+    sheet = (fields or {}).get("answer_sheet")
+    if not isinstance(sheet, str) or not sheet.strip():
+        return jsonify({"error": "VALIDATION-input: answer_sheet "
+                                 "is required"}), 400
+    try:
+        result = _batch_import.stage_import(name, sheet)
+    except _batch_import.BatchImportError as exc:
+        return jsonify({"error": str(exc),
+                        "failing_ids": list(exc.failing_ids or []),
+                        "repair_request": _repair_bundle(name, exc)}), 422
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    result["status"] = "in_review"
+    return jsonify(result), 200
+
+
+@app.route("/api/batches/<batch_id>/approve", methods=["POST"])
+def api_batch_approve(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    fields = request.get_json(force=True, silent=True) or {}
+    ids = (fields or {}).get("ids") or []
+    reviewer = str((fields or {}).get("reviewer") or "operator").strip() \
+        or "operator"
+    try:
+        result = _batch_import.approve(name, ids, reviewer)
+    except _batch_import.BatchImportError as exc:
+        return jsonify({"error": str(exc),
+                        "failing_ids": list(exc.failing_ids or [])}), 422
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    result["status"] = "imported"
+    return jsonify(result), 200
+
+
+# ─── Linker gallery viewing (P02) ──────────────────────────────────────
+# Thin route over factory/webui/gallery.py (viewer.py core untouched).
+
+def _gallery_ref_allowed(ref):
+    """True when a gallery ``run`` ref stays inside known runs areas.
+
+    Bare run ids (no separators/drive) always pass — they resolve
+    internally. Anything path-shaped must realpath-resolve under the
+    shared data root or this console's own dir; absolute strays get an
+    honest 404 (LAN-visible console, no auth).
+    """
+    text = str(ref or "").strip()
+    if not text:
+        return False
+    if ("/" not in text and "\\" not in text and ":" not in text
+            and os.path.basename(text) == text):
+        return True
+    try:
+        real = os.path.realpath(text)
+    except OSError:
+        return False
+    try:
+        roots = [os.path.realpath(data_root()),
+                 os.path.realpath(SCRIPT_DIR)]
+    except OSError:
+        return False
+    return any(real == root or real.startswith(root + os.sep)
+               for root in roots)
+
+
+@app.route("/api/gallery", methods=["GET"])
+def api_gallery():
+    ref = (request.args.get("run") or "").strip()
+    if not ref:
+        return jsonify({"error": "VALIDATION-run: ?run=<run-id-or-path> "
+                                 "is required"}), 400
+    if not _gallery_ref_allowed(ref):
+        return jsonify({"error": "run not found: %s" % ref}), 404
+    try:
+        out = _gallery.build_gallery(ref)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": "gallery build failed: %s" % exc}), 500
+    try:
+        with open(out, encoding="utf-8") as handle:
+            html = handle.read()
+    except OSError as exc:
+        return jsonify({"error": "gallery unreadable: %s" % exc}), 500
+    return Response(html, mimetype="text/html")
+
+
 # ─── Custom provider profiles API (operator data) ────────────────────
 
 @app.route("/api/custom_providers", methods=["GET"])
@@ -5060,7 +5346,13 @@ def api_managed_provider_create():
         "route": str((fields or {}).get("route") or "direct").strip(),
         "key_vars": list(key_vars),
         "request_extras": dict(extras),
+        "kind": str((fields or {}).get("kind") or "").strip().lower(),
+        "trusted": bool((fields or {}).get("trusted") is True),
     }
+    if not row["kind"]:
+        del row["kind"]
+    if not row["trusted"]:
+        del row["trusted"]
     rec, error = _managed_create_provider(name, row)
     if rec is None:
         status = 409 if "exists" in (error or "") else 400
@@ -5068,6 +5360,81 @@ def api_managed_provider_create():
     return jsonify({"provider": str(name or "").strip().lower(),
                     "row": {"name": str(name or "").strip().lower(),
                             "key_count": len(rec.get("key_vars") or [])}})
+
+
+@app.route("/api/provider_probe", methods=["POST"])
+def api_provider_probe():
+    """Test an endpoint WITHOUT saving anything (pre-registration check).
+
+    Body: {base_url, kind: local|cloud (default inferred), key_value?}.
+    The key VALUE (cloud only) lives in-memory for this one fetch —
+    never stored, logged, or returned. Answers {ok, count, models[]} or
+    {ok: false, error} with the same kind rules as registration.
+    """
+    import urllib.request as _url
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    base = str((fields or {}).get("base_url") or "").strip()
+    kind = str((fields or {}).get("kind") or "").strip().lower()
+    if not base:
+        return jsonify({"ok": False,
+                        "error": "VALIDATION-base_url: endpoint is "
+                                 "required"}), 200
+    probe_row = {"protocol": "openai_compat", "base_url": base,
+                 "route": "direct", "key_vars": []}
+    if kind:
+        probe_row["kind"] = kind
+    try:
+        from factory.precard.provider_manifest import (
+            validate_row as _validate_row)
+        ok, error = _validate_row("probe", probe_row)
+    except Exception:
+        ok, error = False, "validation unavailable"
+    if not ok:
+        return jsonify({"ok": False, "error": str(error)}), 200
+    endpoint = _openai_models_endpoint(base)
+    if not endpoint:
+        return jsonify({"ok": False,
+                        "error": "no /models endpoint for this base"}), 200
+    try:
+        from factory.precard.provider_manifest import (
+            base_host_allowed as _host_ok)
+        host_ok = _host_ok(base)
+    except Exception:
+        host_ok = False
+    if not host_ok:
+        return jsonify({"ok": False,
+                        "error": "base host refused on re-resolve "
+                                 "(loopback/localhost/public only; "
+                                 "unresolvable names fail closed)"}), 200
+    key_value = str((fields or {}).get("key_value") or "")
+    trust_probe = bool((fields or {}).get("trust") is True)
+    try:
+        from factory.precard.provider_manifest import (
+            is_loopback_host as _loop, _base_host as _bhost)
+        loopback = _loop(_bhost(base))
+    except Exception:
+        loopback = False
+    if key_value and not (loopback or trust_probe):
+        return jsonify({"ok": False,
+                        "error": "key is only sent to loopback or an "
+                                 "explicitly trusted host (tick trust to "
+                                 "probe with a key)"}), 200
+    headers = {"Accept": "application/json"}
+    if key_value:
+        headers["Authorization"] = "Bearer " + key_value
+    try:
+        req = _url.Request(endpoint, headers=headers)
+        with _url.urlopen(req, timeout=10) as resp:
+            payload = json.load(resp)
+        ids = _openai_model_ids(payload)
+    except Exception as exc:
+        return jsonify({"ok": False,
+                        "error": "unreachable (%s)" % type(exc).__name__}), 200
+    return jsonify({"ok": True, "count": len(ids),
+                    "models": ids[:20]}), 200
 
 
 @app.route("/api/managed_providers/<name>", methods=["DELETE"])

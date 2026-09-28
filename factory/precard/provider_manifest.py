@@ -21,16 +21,24 @@ never persisted, never embedded in errors).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import pathlib
 import re
 import time
+import urllib.parse
 
 MANIFEST_FILENAME = "provider_manifest.json"
 
 PROTOCOLS = ("openai_compat", "gemini_rest")
 ROUTES = ("direct", "tunnel")
+
+#: Provider kinds (form-level concept, stored on the row): ``local``
+#: (this machine only, keyless) vs ``cloud`` (internet service, keyed).
+#: Kind decides which base_url hosts are acceptable — security by
+#: construction for local rows (loopback-only ⇒ no SSRF surface).
+KINDS = ("local", "cloud")
 
 _NAME_RX = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _KEY_VAR_RX = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY(_[A-Z0-9]+)?$")
@@ -49,6 +57,7 @@ SEED_PROVIDERS = {
             "reasoning_effort": "low",
             "extra_body": {"reasoning_effort": "low"},
         },
+        "trusted": True,
     },
     "google": {
         "protocol": "gemini_rest",
@@ -57,6 +66,7 @@ SEED_PROVIDERS = {
         "key_vars": ["GOOGLE_API_KEY_G1", "GOOGLE_API_KEY_G2",
                      "GOOGLE_AI_API_KEY"],
         "request_extras": {},
+        "trusted": True,
     },
     "openrouter": {
         "protocol": "openai_compat",
@@ -65,6 +75,7 @@ SEED_PROVIDERS = {
         "key_vars": ["OPENROUTER_API_KEY_G1", "OPENROUTER_API_KEY_G2",
                      "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2"],
         "request_extras": {},
+        "trusted": True,
     },
     "groq": {
         "protocol": "openai_compat",
@@ -72,6 +83,7 @@ SEED_PROVIDERS = {
         "route": "direct",
         "key_vars": ["GROQ_API_KEY_G1", "GROQ_API_KEY_G2", "GROQ_API_KEY"],
         "request_extras": {},
+        "trusted": True,
     },
 }
 
@@ -138,8 +150,185 @@ def manifest_paths(explicit=None):
     return [primary, fallback]
 
 
+def _base_host(base_url):
+    """Lowercased hostname of a base_url ("" when unparsable)."""
+    try:
+        return (urllib.parse.urlsplit(str(base_url or "").strip())
+                .hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def resolve_host_ips(host, timeout=3.0, _resolver=None):
+    """IP strings for a DNS hostname ("" list on failure, never raises).
+
+    ``localhost`` names and literals never touch DNS. ``_resolver``
+    injects ``host -> [ip, ...]`` (tests pass fakes — never the network);
+    the default resolves in a worker thread so a dead DNS cannot stall
+    the request path past ``timeout`` seconds.
+    """
+    import concurrent.futures
+    import socket
+
+    text = str(host or "").strip().lower()
+    if not text:
+        return []
+    if text == "localhost" or text.endswith(".localhost"):
+        return ["127.0.0.1"]
+    try:
+        ipaddress.ip_address(text)
+        return [text]
+    except ValueError:
+        pass
+    resolve = _resolver
+    if resolve is None:
+        def resolve(name):
+            infos = socket.getaddrinfo(name, None, socket.AF_UNSPEC,
+                                       socket.SOCK_STREAM)
+            out = []
+            for info in infos:
+                addr = (info[4] or [None])[0] if len(info) > 4 else None
+                if addr and addr not in out:
+                    out.append(str(addr))
+            return out
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return list(pool.submit(resolve, text).result(timeout=timeout)
+                        or [])
+    except Exception:
+        return []
+
+
+def host_addrs_allowed(host, timeout=3.0, _resolver=None):
+    """(allowed, reason): every resolved IP must be loopback or global.
+
+    Unresolvable names fail closed (refuse with a clear reason) — a
+    name that cannot be checked cannot be trusted with stored keys.
+    """
+    text = str(host or "").strip()
+    if not text:
+        return False, "empty host"
+    ips = resolve_host_ips(text, timeout=timeout, _resolver=_resolver)
+    if not ips:
+        return False, ("could not resolve %r — check the name/DNS and "
+                       "retry" % text)
+    for ip in ips:
+        try:
+            addr = ipaddress.ip_address(str(ip))
+        except ValueError:
+            return False, "unparsable address for %r" % text
+        if not (addr.is_loopback or addr.is_global):
+            return False, ("resolves to non-public address %s "
+                           "(refused)" % ip)
+    return True, ""
+
+
+def is_loopback_host(host):
+    """True for localhost names + loopback IPs (local-model scope)."""
+    text = str(host or "").strip().lower()
+    if not text:
+        return False
+    if text == "localhost" or text.endswith(".localhost"):
+        return True
+    try:
+        return bool(ipaddress.ip_address(text).is_loopback)
+    except ValueError:
+        return False
+
+
+def infer_kind(row):
+    """Kind from the row's base_url (loopback → local, else cloud).
+
+    Keyless service rows without a base (``gemini_rest`` style) infer
+    ``cloud`` — they are keyed internet services, never local models.
+    """
+    host = _base_host((row or {}).get("base_url"))
+    if host and is_loopback_host(host):
+        return "local"
+    return "cloud"
+
+
+def _literal_host_ok(host):
+    """Literal-only host check (no DNS touch — registration path).
+
+    localhost names and loopback/global literal IPs pass here; DNS
+    names always pass HERE (they are resolved + refused-or-allowed at
+    every fetch in ``base_host_allowed``). Registration stores inert
+    data; the dangerous moment is egress, which never skips resolution.
+    This keeps validation deterministic offline (tests, air-gapped
+    operators) while fetch stays fail-closed.
+    """
+    text = str(host or "").strip().lower()
+    if not text:
+        return False
+    if text == "localhost" or text.endswith(".localhost"):
+        return True
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return True
+    return bool(addr.is_loopback or addr.is_global)
+
+
+def base_host_allowed(base_url, _resolver=None):
+    """True when a provider base_url host is acceptable (SSRF guard).
+
+    Literal IPs must be loopback (local models: LM Studio/Ollama) or
+    globally routable; private/link-local/reserved literals are refused
+    (no metadata/internal targets from this LAN-visible console).
+    ``localhost`` names bypass DNS. Other DNS names resolve (bounded
+    timeout) and EVERY resolved IP must be loopback or global;
+    unresolvable names fail closed. Resolution-time rebinding past this
+    check stays a documented trusted-LAN-operator risk (RUN_GUIDE §7).
+    """
+    host = _base_host(base_url)
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+        return bool(addr.is_loopback or addr.is_global)
+    except ValueError:
+        pass
+    allowed, _reason = host_addrs_allowed(host, _resolver=_resolver)
+    return allowed
+
+
+def effective_trust(name, row):
+    """True when stored keys may be attached to this provider's base.
+
+    Trust sources (any one suffices): the ``local`` kind (loopback-only
+    by construction), an explicit ``trusted: true`` on the row (the
+    operator's checkbox), or a PRISTINE shipped seed (name matches AND
+    base_url/protocol match the code seed — a deleted-then-recreated
+    seed name with an attacker base is NOT trusted).
+    Everything else is untrusted: key attachment is refused with a
+    message pointing at the trust control — never silently sent.
+    """
+    row = row or {}
+    kind = str(row.get("kind") or "").strip().lower() or infer_kind(row)
+    if kind == "local":
+        return True
+    if row.get("trusted") is True:
+        return True
+    seed = SEED_PROVIDERS.get(norm_name(name))
+    if isinstance(seed, dict):
+        if str(row.get("protocol") or "") == str(seed.get("protocol") or "") \
+                and (row.get("base_url") is None and seed.get("base_url") is None
+                     or str(row.get("base_url") or "")
+                     == str(seed.get("base_url") or "")):
+            return True
+    return False
+
+
 def validate_row(name, row):
-    """Validate a provider data row; (ok, error). Names only in errors."""
+    """Validate a provider data row; (ok, error). Names only in errors.
+
+    Hostname checks here are literal-only (no DNS touch — see
+    ``_literal_host_ok``): registration stays deterministic offline.
+    Every fetch/probe re-resolves via ``base_host_allowed`` fail-closed.
+    """
     want = norm_name(name)
     if not want or not _NAME_RX.match(want):
         return False, "provider name must be [a-z0-9_-] (got %r)" % (name,)
@@ -157,6 +346,36 @@ def validate_row(name, row):
         text = str(base_url).strip()
         if not (text.startswith("https://") or text.startswith("http://")):
             return False, "provider %s: base_url must be http(s) or empty" % want
+        if not _literal_host_ok(_base_host(text)):
+            return False, ("provider %s: base_url host is not allowed "
+                           "(loopback, localhost, or public IP/hostname "
+                           "only)" % want)
+    kind = str(row.get("kind") or "").strip().lower() or infer_kind(row)
+    if kind not in KINDS:
+        return False, "provider %s: kind must be local|cloud" % want
+    host = _base_host(base_url)
+    if kind == "local":
+        if protocol != "openai_compat":
+            return False, ("provider %s: local kind needs the "
+                           "openai_compat protocol" % want)
+        if not host or not is_loopback_host(host):
+            return False, ("provider %s: local kind accepts loopback/ "
+                           "localhost endpoints only" % want)
+        if str(row.get("route") or "") != "direct":
+            return False, ("provider %s: local kind needs the direct "
+                           "route" % want)
+        # NOTE: key_vars stay ALLOWED on local rows (backward compatible):
+        # loopback-only addressing already kills the SSRF class, and a
+        # key reference is legitimately needed for key-gated listing.
+        # The form simply sends none.
+    else:
+        if protocol == "openai_compat" and host:
+            if not str(base_url).strip().startswith("https://"):
+                return False, ("provider %s: cloud kind needs an https "
+                               "base_url" % want)
+            if is_loopback_host(host):
+                return False, ("provider %s: cloud kind cannot point at "
+                               "loopback (use kind local)" % want)
     key_vars = row.get("key_vars", [])
     if not isinstance(key_vars, (list, tuple)):
         return False, "provider %s: key_vars must be a list" % want
@@ -166,6 +385,8 @@ def validate_row(name, row):
     extras = row.get("request_extras", {})
     if not isinstance(extras, dict):
         return False, "provider %s: request_extras must be an object" % want
+    if "trusted" in row and not isinstance(row.get("trusted"), bool):
+        return False, "provider %s: trusted must be true/false" % want
     return True, ""
 
 
@@ -252,6 +473,9 @@ class ProviderManifestManager:
                                      for v in (row.get("key_vars") or [])
                                      if str(v or "").strip()],
                         "request_extras": dict(row.get("request_extras") or {}),
+                        "kind": str(row.get("kind") or "").strip().lower()
+                        or infer_kind(row),
+                        "trusted": row.get("trusted") is True,
                     }
             raw_removed = doc.get("removed") or []
             if isinstance(raw_removed, (list, tuple)):
@@ -347,6 +571,9 @@ class ProviderManifestManager:
                          for v in ((row or {}).get("key_vars") or [])
                          if str(v or "").strip()],
             "request_extras": dict((row or {}).get("request_extras") or {}),
+            "kind": str((row or {}).get("kind") or "").strip().lower()
+            or infer_kind(row or {}),
+            "trusted": (row or {}).get("trusted") is True,
         }
         if not clean["key_vars"]:
             clean["key_vars"] = [indexed_key_var(want, 1)]

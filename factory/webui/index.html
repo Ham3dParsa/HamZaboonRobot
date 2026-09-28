@@ -86,7 +86,7 @@
         <button class="tab-link" data-tab-index="0" title="کوتاه‌فهرست نامزدها (linker.py)">۱. کوتاه‌فهرست نامزدها</button>
         <button class="tab-link" data-tab-index="1" title="پیوند مکانیکی (cli.py)">۲. پیوند مکانیکی</button>
         <button class="tab-link" data-tab-index="2" title="داوری هوش مصنوعی (arbitration.py)">۳. داوری هوش مصنوعی</button>
-        <button class="tab-link active" data-tab-index="3" title="بازبینی انسانی (human_queue.py)">۴. بازبینی انسانی (اختلافی)</button>
+        <button class="tab-link active" data-tab-index="3" title="داوری تحت نظارت اپراتور (human_queue.py)">۴. داوری تحت نظارت اپراتور</button>
         <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
       </div>
 
@@ -167,6 +167,83 @@
           </div>
         </div>
       </div>
+
+      <!-- P05: داوری تحت نظارت اپراتور — پنل بسته‌ها + بازبینی + گالری (افزایشی؛ شناسه‌های موجود دست‌نخورده) -->
+      <div class="cfg-form-card form-cap" id="supervised-batch-card">
+        <div class="p-header">
+          <span class="p-title">بسته‌های داوری</span>
+          <span class="badge" id="batch-count" aria-live="polite">…</span>
+        </div>
+        <div class="p-meta">بسته از ورودی آماده گام غربالگری (بنر بالای همین نما) ساخته می‌شود؛ کهنه‌ترین داوری‌نشده‌ها اول. اندازه ۱۰ تا ۵۰، پیش‌فرض ۲۵. تا بسته فعال لغو نشود، صدور تازه رد می‌شود (جلوگیری از دوباره‌کاری).</div>
+        <div class="form-row-grid">
+          <div class="field-group">
+            <label for="batch-size">اندازه بسته (۱۰ تا ۵۰)</label>
+            <input type="text" class="inline-input code-token" id="batch-size" dir="ltr" inputmode="numeric" value="25" autocomplete="off">
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-select-candidate" id="btn-issue-batch" type="button">صدور بسته</button>
+          <button class="btn-skip-next" id="btn-refresh-batches" type="button">تازه‌سازی فهرست</button>
+          <span class="p-meta" id="batch-issue-note" aria-live="polite"></span>
+        </div>
+        <div class="p-meta form-error-slot" id="batch-err"></div>
+        <div class="p-header" style="margin-top: 12px;">
+          <span class="p-title">بسته‌های صادرشده</span>
+        </div>
+        <input class="inline-input queue-filter" id="batch-filter" type="search"
+               placeholder="پالایش بسته‌ها: شناسه یا وضعیت…" aria-label="پالایش بسته‌ها">
+        <div class="cards-grid-auto" id="batch-list">
+        </div>
+        <div class="p-meta" id="batch-list-note" aria-live="polite" role="status">هنوز فهرستی خوانده نشده است.</div>
+      </div>
+
+      <div class="cfg-form-card form-cap" id="batch-review-card">
+        <div class="p-header">
+          <span class="p-title" id="batch-review-title" tabindex="-1">بازبینی بسته</span>
+          <span class="badge" id="batch-review-batch" aria-live="polite">بسته‌ای انتخاب نشده است</span>
+        </div>
+        <div class="p-meta">فقط موارد تأییدشده نهایی می‌شوند (نقش بازبین: اپراتور)؛ ردشده‌ها دست‌نخورده به صف برمی‌گردند.</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <label style="display: flex; gap: 6px; align-items: center;"><input type="checkbox" id="batch-select-all"> انتخاب همه</label>
+          <button class="btn-select-candidate" id="btn-batch-approve" type="button">تأیید موارد انتخاب‌شده</button>
+          <span class="p-meta" id="batch-review-note" aria-live="polite" role="status"></span>
+        </div>
+        <div class="p-meta form-error-slot" id="batch-review-err"></div>
+        <div class="queue-list themed-scroll" id="batch-review-list">
+        </div>
+      </div>
+
+      <div class="cfg-form-card form-cap" id="linking-gallery-card">
+        <div class="p-header">
+          <span class="p-title">گالری پیوند (خروجی TSV)</span>
+          <span class="badge" id="gallery-state">…</span>
+        </div>
+        <div class="p-meta">گالری از جدول ذخیره‌شده همان اجرا + رأی‌ها ساخته می‌شود (اگر نباشد، از نو ساخته می‌شود)؛ اجرای قدیمی هم از تاریخچه همین‌جا باز می‌شود.</div>
+        <div class="form-row-grid">
+          <div class="field-group">
+            <label for="gallery-run">شناسه یا مسیر اجرا</label>
+            <input type="text" class="code-token" id="gallery-run" dir="ltr" placeholder="run-id…" autocomplete="off">
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-select-candidate" id="btn-build-gallery" type="button">ساخت و بازکردن گالری</button>
+          <span class="p-meta" id="gallery-note" aria-live="polite"></span>
+        </div>
+        <div class="p-meta form-error-slot" id="gallery-err"></div>
+        <div class="p-header" style="margin-top: 12px;">
+          <span class="p-title">تاریخچه اجراها</span>
+          <span class="badge" id="gallery-history-count" aria-live="polite">…</span>
+        </div>
+        <div class="table-responsive themed-scroll">
+          <table class="data-table">
+            <thead><tr><th>اجرا</th><th>وضعیت</th><th>ایجاد</th><th>اقدام</th></tr></thead>
+            <tbody id="gallery-history-tbody">
+              <tr><td colspan="4">هنوز تاریخچه‌ای خوانده نشده است.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="p-meta" id="gallery-history-note" aria-live="polite"></div>
+      </div>
     </section>
 
     <!-- نمای ۱: ارائه‌دهندگان و پریست‌های هوش مصنوعی -->
@@ -246,15 +323,39 @@
               <span class="p-title">افزودن ارائه‌دهنده</span>
               <span class="badge" id="provider-add-state">نام‌ها فقط</span>
             </div>
-            <div class="p-meta">سطر داده ارائه‌دهنده در رجیستری موتور ساخته می‌شود (اعتبارسنجی سمت سرور)؛ مقدار کلید جدا ذخیره می‌شود.</div>
+            <div class="p-meta">دو مسیر جدا: «محلی» فقط همین دستگاه و بدون کلید (LM Studio / Ollama)؛ «ابری» فقط https با کلید. سطر داده در رجیستری موتور ساخته می‌شود؛ مقدار کلید جدا و رمزشده ذخیره می‌شود.</div>
             <div class="form-row-grid">
+              <div class="field-group">
+                <label>نوع ارائه‌دهنده</label>
+                <div class="scope-group" id="provider-add-kind" role="radiogroup" aria-label="نوع ارائه‌دهنده">
+                  <label><input type="radio" name="provider-add-kind" value="local" checked> محلی (همین دستگاه)</label>
+                  <label><input type="radio" name="provider-add-kind" value="cloud"> ابری (اینترنت + کلید)</label>
+                </div>
+              </div>
               <div class="field-group">
                 <label>نام ارائه‌دهنده</label>
                 <input type="text" class="code-token" id="provider-add-name" dir="ltr" placeholder="my-provider" autocomplete="off">
               </div>
+              <div class="field-group" id="provider-add-presets-group">
+                <label>پیش‌تنظیم محلی</label>
+                <div class="screening-words-row">
+                  <button class="btn-skip-next" id="provider-preset-lmstudio" type="button">LM Studio ‏(1234)</button>
+                  <button class="btn-skip-next" id="provider-preset-ollama" type="button">Ollama ‏(11434)</button>
+                </div>
+              </div>
               <div class="field-group">
-                <label>نام متغیر کلید</label>
-                <input type="text" class="code-token" id="provider-add-keyvar" dir="ltr" placeholder="MY_PROVIDER_API_KEY" autocomplete="off">
+                <label>نشانی نقطه پایانی (base_url)</label>
+                <input type="text" class="code-token" id="provider-add-base-url" dir="ltr" placeholder="http://localhost:1234/v1" autocomplete="off">
+              </div>
+              <div class="field-group" id="provider-add-key-group" hidden>
+                <label>مقدار کلید (یک‌بار چسباندن؛ هرگز نمایش داده نمی‌شود)</label>
+                <input type="password" class="code-token" id="provider-add-keyvalue" dir="ltr" placeholder="sk-..." autocomplete="off">
+              </div>
+              <div class="field-group" id="provider-add-trust-group" hidden>
+                <label class="screening-check" for="provider-add-trust">
+                  <input type="checkbox" id="provider-add-trust">
+                  به این میزبان اعتماد دارم و کلید می‌دهم (بدون این تیک، کلید هرگز فرستاده نمی‌شود)
+                </label>
               </div>
               <div class="field-group">
                 <label>مسیر</label>
@@ -266,6 +367,7 @@
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
               <button class="btn-select-candidate" id="btn-add-provider" type="button">افزودن ارائه‌دهنده</button>
+              <button class="btn-skip-next" id="btn-probe-provider" type="button">بررسی اتصال (بدون ذخیره)</button>
               <span class="p-meta" id="provider-add-note" aria-live="polite"></span>
             </div>
             <div class="p-meta form-error-slot" id="provider-add-err"></div>

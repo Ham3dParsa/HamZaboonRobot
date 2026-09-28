@@ -12,6 +12,9 @@ import {CabinHistoryController} from './shell/cabin_history_controller.js';
    listeners + init fetches never ran and the tables froze on "…" —
    side-effect import loads it (no names needed). */
 import './telemetry/telemetry_dashboard_controller.js';
+/* Supervised batches: same side-effect pattern — the controller wires
+   its own listeners on import (single module script tag rule). */
+import './sense_linking/supervised_batch_controller.js';
 // سیستم سوئیچ تم شب و روز
 const themeBtn = document.getElementById('theme-btn');
 try {

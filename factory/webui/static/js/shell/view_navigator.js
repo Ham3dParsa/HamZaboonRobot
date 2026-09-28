@@ -68,6 +68,18 @@ export function selectLinkingTab(index, persist) {
   if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
   tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
   if (persist !== false) saveViewMemory(null, idx);
+  /* P07 clean-wiring: tabs previously toggled highlight only (silent dead
+     buttons). Each tab now scrolls to its section on user click (no new
+     Persian strings); restore path (persist === false) never scrolls. */
+  if (persist === false) return;
+  const targets = ['queue-list', 'candidates-stack', 'sense-detail',
+    'supervised-batch-card', 'linking-gallery-card'];
+  try {
+    const node = document.getElementById(targets[idx]);
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+  } catch(e){}
 }
 export function restoreViewMemory() {
   try {

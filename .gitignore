@@ -81,6 +81,7 @@ tools/egress/bin/
 tools/egress/egress_pool.json
 tools/egress/leases.jsonl
 tools/egress/clean_cache.json
+tools/egress/provider_cycle_cache.json
 # Linker-judge WebUI operator secrets (Fernet ciphertext — never commit)
 factory/linking/webui/operator_keys.json
 # Factory home console operator secrets (same rule at the new home —
