@@ -33,7 +33,7 @@
     <div class="nav-section-title">۱. مرکز پیکربندی و نظارت</div>
     <button class="nav-btn" data-view-target="view-providers">
       <span>ارائه‌دهندگان و مدل‌های هوش مصنوعی</span>
-      <span class="status-tag">AI</span>
+      <span class="status-tag code-token" dir="ltr">AI</span>
     </button>
     <button class="nav-btn" data-view-target="view-telemetry">
       <span>میز تله‌متری و تحلیل هزینه</span>
@@ -62,7 +62,7 @@
     <div class="nav-section-title" style="margin-top: 10px;">۳. انتقال و ربات</div>
     <button class="nav-btn" data-view-target="view-transfer">
       <span>تزریق به پایگاه داده ربات</span>
-      <span class="status-tag">SQLite</span>
+      <span class="status-tag code-token" dir="ltr">SQLite</span>
     </button>
   </aside>
 
@@ -83,11 +83,11 @@
       </div>
 
       <div class="cockpit-tabs">
-        <button class="tab-link" data-tab-index="0" title="shortlisting — factory/linking/linker.py shortlist">۱. کوتاه‌فهرست نامزدها</button>
-        <button class="tab-link" data-tab-index="1" title="mechanical linking — factory/linking build_link_index/lookup_link + cli.py link over table.tsv">۲. پیوند مکانیکی</button>
-        <button class="tab-link" data-tab-index="2" title="AI arbitration — factory/linking/arbitration.py ArbitrationService">۳. داوری هوش مصنوعی</button>
-        <button class="tab-link active" data-tab-index="3" title="human review — factory/linking/human_queue.py + witness labels">۴. بازبینی انسانی (اختلافی)</button>
-        <button class="tab-link" data-tab-index="4" title="TSV export — factory/linking/cli.py read_table + viewer.py export">۵. خروجی جدول پیوند (TSV)</button>
+        <button class="tab-link" data-tab-index="0" title="کوتاه‌فهرست نامزدها (linker.py)">۱. کوتاه‌فهرست نامزدها</button>
+        <button class="tab-link" data-tab-index="1" title="پیوند مکانیکی (cli.py)">۲. پیوند مکانیکی</button>
+        <button class="tab-link" data-tab-index="2" title="داوری هوش مصنوعی (arbitration.py)">۳. داوری هوش مصنوعی</button>
+        <button class="tab-link active" data-tab-index="3" title="بازبینی انسانی (human_queue.py)">۴. بازبینی انسانی (اختلافی)</button>
+        <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
       </div>
 
       <div class="dense-workspace-grid">
@@ -110,7 +110,7 @@
           </section>
 
           <div class="action-bar-footer">
-            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر / NONE)</button>
+            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر)</button>
             <button class="btn-skip-next" id="btn-skip-next">پرش به سنس بعد ⏭</button>
             <span class="inline-input code-token" id="label-target-name" dir="ltr">نامزدی انتخاب نشده است</span>
             <button class="btn-select-candidate" id="btn-record-link">ثبت رأی پیوند</button>
@@ -122,12 +122,16 @@
             <span id="label-receipt" style="font-size: 0.72rem; color: var(--text-secondary);" hidden></span>
             <!-- T12 OQ-10: every form error lives in the shared 3-part box. -->
             <div class="p-meta form-error-slot" id="linking-err"></div>
-            <!-- راهنمای آدرس کنسول (بوت روی همه رابط‌ها): از تبلت با آدرس LAN، از همین دستگاه با لوپ‌بک -->
-            <span id="boot-addr-note" style="font-size: 0.72rem; color: var(--text-muted);"
-                  title="plain start binds all interfaces (LAN-visible)">پیش‌فرض روی همه رابط‌ها باز است:
-              از تبلت با آدرس LAN سرور، از همین دستگاه با <span class="code-token">127.0.0.1</span> باز کنید.</span>
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;">
-              * رأی‌ها در labels.jsonl افزوده می‌شوند؛ غیرشاهد watermark می‌خورد (قابل امتیاز نیست).
+            <!-- راهنمای اتصال کنسول: نمای پیش‌فرض فقط فارسی دوستانه؛
+                 جزئیات فنی فقط در title فرار دیباگ. -->
+            <details class="console-guide" id="boot-addr-note">
+              <summary>راهنمای اتصال کنسول</summary>
+              <span style="font-size: 0.72rem; color: var(--text-muted);"
+                    title="plain start binds all interfaces (LAN-visible)">از تبلت با نشانی همین سرور، از همین دستگاه با <span class="code-token" dir="ltr">127.0.0.1</span> باز کنید.</span>
+            </details>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;"
+                  title="store: labels.jsonl; non-witness verdicts carry the scoring watermark">
+              * رأی‌ها در دفتر رأی‌ها افزوده می‌شوند؛ گزینه غیرشاهد امتیاز ندارد.
             </span>
           </div>
         </div>
@@ -154,7 +158,7 @@
             </div>
             <div class="mini-metric-card">
               <div class="mini-val" style="color: var(--c-warning);" id="m-none">…</div>
-              <div class="mini-label">موارد NONE</div>
+              <div class="mini-label">موارد <span class="code-token" dir="ltr">NONE</span></div>
             </div>
             <div class="mini-metric-card">
               <div class="mini-val" id="m-saved" title="سرور این سنج را ثبت نکرد">—</div>
@@ -175,7 +179,7 @@
         <div class="form-row-grid preset-compact">
           <div class="field-group">
             <label for="preset-label">نام پریست (اختیاری)</label>
-            <input type="text" class="code-token" id="preset-label" dir="ltr" placeholder="خالی = console-judge" autocomplete="off">
+            <input type="text" class="code-token" id="preset-label" dir="ltr" placeholder="خالی یعنی پیش‌فرض" autocomplete="off">
           </div>
           <div class="field-group">
             <label>ارائه‌دهنده مبدأ</label>
@@ -295,7 +299,7 @@
         <div class="p-meta" id="supervisor-lifecycle-note">…</div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <input class="inline-input code-token" id="supervisor-token-input" dir="ltr" type="password"
-                  placeholder="EGRESS_SUP_TOKEN (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست EGRESS_SUP_TOKEN">
+                   placeholder="EGRESS_SUP_TOKEN" autocomplete="off" aria-label="توکن سرپرست EGRESS_SUP_TOKEN">
           <button class="btn-select-candidate" id="btn-supervisor-save">ذخیره توکن</button>
           <button class="btn-skip-next" id="btn-supervisor-delete">حذف توکن</button>
         </div>
@@ -342,7 +346,7 @@
         </div>
         <div class="mini-metric-card" style="padding: 14px;">
           <div class="mini-val" style="color: var(--c-warning);" id="t-groups">…</div>
-          <div class="mini-label">گروه‌های کلیدی پرشده (G1/G2)</div>
+          <div class="mini-label">گروه‌های کلیدی پرشده (<span class="code-token" dir="ltr">G1</span>/<span class="code-token" dir="ltr">G2</span>)</div>
         </div>
         <div class="mini-metric-card" style="padding: 14px;">
           <div class="mini-val" style="color: var(--c-success);" id="t-routes">…</div>
@@ -404,7 +408,7 @@
           <summary class="screening-controls-title">پنل کنترل غربالگری</summary>
           <div class="cfg-form-card form-cap" id="screening-card">
             <div class="p-header">
-              <span class="p-title">ایستگاه غربالگری کایکی (Kaikki Screening)</span>
+              <span class="p-title">ایستگاه غربالگری کایکی</span>
               <span class="badge" id="screening-state" aria-live="polite">بیکار</span>
             </div>
             <p class="p-meta">فیلتر اسامی خاص، دوقلوهای تکراری و صدور شناسه پایدار سنس‌ها.</p>
@@ -508,11 +512,11 @@
                 </div>
                 <div class="mini-metric-card">
                   <div class="mini-val" id="screening-m-twins">—</div>
-                  <div class="mini-label">حذف دوقلو (R3)</div>
+                  <div class="mini-label">حذف دوقلو (<span class="code-token" dir="ltr">R3</span>)</div>
                 </div>
                 <div class="mini-metric-card">
                   <div class="mini-val" id="screening-m-proper">—</div>
-                  <div class="mini-label">حذف اسم خاص (R2)</div>
+                  <div class="mini-label">حذف اسم خاص (<span class="code-token" dir="ltr">R2</span>)</div>
                 </div>
                 <div class="mini-metric-card">
                   <div class="mini-val" id="screening-m-other">—</div>
@@ -567,7 +571,7 @@
            tickets, never silent fixes. -->
       <div class="cfg-form-card form-cap" id="precard-card">
         <div class="p-header">
-          <span class="p-title">ایستگاه گزینش پیش‌کارت (Precard Extraction)</span>
+          <span class="p-title">ایستگاه گزینش پیش‌کارت</span>
           <span class="badge" id="precard-state" aria-live="polite" title="پشتوانه سرور این کابین هنوز وصل نیست">بیکار</span>
         </div>
         <p class="p-meta">فرآیند ۷ مرحله‌ای استخراج مثال‌های آموزشی و بردارهای موضوعی.</p>
@@ -670,7 +674,7 @@
          هم‌نام → ۴۰۹ بدون بازنویسی؛ پس از موفقیت از همین فهرست
          دوباره قابل انتخاب است). -->
     <div class="data-dialog-ops">
-      <input type="file" id="data-dialog-upload-file" aria-label="فایل برای بارگذاری">
+      <input type="file" class="file-input" id="data-dialog-upload-file" aria-label="فایل برای بارگذاری">
       <button class="btn-skip-next" id="data-dialog-upload" type="button">بارگذاری در پوشه جاری</button>
     </div>
     <div class="table-responsive themed-scroll">
@@ -705,7 +709,7 @@
       از پیش در «<bdi dir="ltr" class="code-token" id="collision-path">—</bdi>» هست.
       بدون انتخاب شما هیچ بازنویسی انجام نمی‌شود — یک گزینه را برگزینید:</div>
     <div class="collision-opts">
-      <button class="btn-select-candidate" id="collision-auto" type="button">نام خودکار تازه (…_v2)</button>
+      <button class="btn-select-candidate" id="collision-auto" type="button">نام خودکار تازه (<bdi dir="ltr" class="code-token">_v2</bdi>)</button>
       <label class="screening-check" for="collision-overwrite-confirm">
         <input type="checkbox" id="collision-overwrite-confirm">
         بازنویسی خروجی پیشین را تأیید می‌کنم

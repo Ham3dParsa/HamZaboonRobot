@@ -1,5 +1,8 @@
 
   :root {
+    /* PUX-5: کنترل‌های بومی (select/file/checkbox/radio/dialog) از تم
+       پیروی می‌کنند — با data-theme همگام. */
+    color-scheme: dark;
     /* پالت رنگی اختصاصی تأییدشده مالک */
     --c-primary: #D87B47;       /* تراکوتا / اقدامات اصلی و اجرای فعال */
     --c-secondary: #00AFB5;     /* فیروزه‌ای متالیک / تله‌متری و پایش */
@@ -31,6 +34,7 @@
   }
 
   [data-theme="light"] {
+    color-scheme: light;
     /* تم روز با کنتراست پایدار و تفکیک‌شده */
     --bg-base: #f6f8fa;
     --bg-surface: #ffffff;

@@ -68,6 +68,9 @@ function renderQueue() {
   visible.forEach(({row, i}) => {
     const item = document.createElement('div');
     item.className = 'queue-item' + (i === queueIndex ? ' active' : '');
+    /* PUX-22: ردیف صف با صفحه‌کلید کار می‌کند (tabIndex + Enter/Space
+       مثل ردیف‌های هر-لم غربالگری). */
+    item.tabIndex = 0;
     const wrap = document.createElement('div');
     const b = document.createElement('b');
     b.className = 'code-token';
@@ -92,6 +95,12 @@ function renderQueue() {
     tag.textContent = i === queueIndex ? 'داوری جاری' : 'در انتظار';
     item.append(wrap, tag);
     item.addEventListener('click', () => selectSense(i));
+    item.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        selectSense(i);
+      }
+    });
     box.append(item);
   });
 }
@@ -151,15 +160,6 @@ async function loadCandidates() {
     statusEl.textContent = 'بارگذاری نامزدها ناموفق بود: ' + (e.message || e);
   }
 }
-function ltrLine(text, cls, tip) {
-  const el = document.createElement('div');
-  el.className = cls + ' ltr-text';
-  el.setAttribute('dir', 'ltr');
-  el.textContent = text;
-  /* متن کامل روی hover: جعبه بیضی می‌شود اما title همیشه کامل است */
-  if (tip) el.title = tip;
-  return el;
-}
 function renderCandidates(cands, feed) {
   const box = document.getElementById('candidates-stack');
   const statusEl = document.getElementById('candidates-status');
@@ -167,20 +167,28 @@ function renderCandidates(cands, feed) {
   const cause = (feed && feed.cause) || '';
   if (!cands.length) {
     if (cause === 'no-join') {
-      /* حالت خالی پیوندنخورده: شناسه در نگاشت غربالگری و هیچ اجرایی
-         پیدا نشد — جعبه لاتین ایزوله، بدون شکست چیدمان */
-      statusEl.replaceChildren(
-        ltrLine('No join for this sense: identifier not found in the screened map or any run.', 'p-meta'));
+      /* حالت خالی پیوندنخورده: نثر فارسی (واژه‌نامه §۳)؛ بدون جعبه لاتین. */
+      statusEl.textContent =
+        'پیوندی برای این سنس نیست: شناسه در نگاشت غربالگری و هیچ اجرایی پیدا نشد.';
     } else {
-      /* حالت خالی خنثی: جعبه لاتین ایزوله، بدون شکست چیدمان */
-      statusEl.replaceChildren(
-        ltrLine('No candidates in the link table for this sense.', 'p-meta'));
+      /* حالت خالی خنثی: نثر فارسی (واژه‌نامه §۳)؛ بدون جعبه لاتین. */
+      statusEl.textContent =
+        'نامزدی در جدول پیوند برای این سنس نیست.';
     }
     return;
   }
   const witness = (feed && feed.witness) || '';
-  statusEl.textContent = faNum(cands.length) + ' نامزد از اجرای واقعی'
-    + (witness ? ' · شاهد: ' + witness : '');
+  /* خط وضعیت: شمار فارسی + برچسب فارسی «شاهد»؛ مقدار انگلیسی سرور
+     (witness_verdict آزاد) خامِ برچسب‌دار در ایزوله LTR می‌ماند. */
+  statusEl.replaceChildren();
+  statusEl.append(document.createTextNode(
+    faNum(cands.length) + ' نامزد از اجرای واقعی'));
+  if (witness) {
+    statusEl.append(document.createTextNode(' · شاهد: '));
+    const w = ltrCode(witness);
+    w.title = 'مقدار سرور (witness_verdict)';
+    statusEl.append(w);
+  }
   cands.forEach((cand) => {
     const card = document.createElement('div');
     card.className = 'candidate-row-card';
@@ -317,8 +325,22 @@ async function postLabel(verdict, target) {
     statusEl.textContent = 'ذخیره شد.';
     receiptEl.hidden = false;
     receiptEl.replaceChildren();
+    /* رسید فارسی (واژه‌نامه §۳): شناسه بازپخش ماشینی ایزوله + «دفتر
+       رأی‌ها» + نشان غیرشاهد؛ مقادیر خام سرور فقط در title فرار دیباگ. */
     receiptEl.append(ltrCode(j.replay || '—'));
-    receiptEl.append(document.createTextNode(' — ' + (j.store || '') + (j.watermark ? ' — ' + j.watermark : '')));
+    receiptEl.append(document.createTextNode(' — ثبت شد در دفتر رأی‌ها'));
+    if (j.store) {
+      receiptEl.append(document.createTextNode(' '));
+      const path = ltrCode(j.store);
+      path.title = String(j.store);
+      receiptEl.append(path);
+    }
+    if (j.watermark) {
+      const wm = document.createElement('span');
+      wm.textContent = ' — نشان غیرشاهد (غیرقابل امتیاز)';
+      wm.title = String(j.watermark);
+      receiptEl.append(wm);
+    }
     await refreshLabelStats();
   } catch(e) {
     statusEl.textContent = 'ذخیره ناموفق بود: ' + (e.message || e);

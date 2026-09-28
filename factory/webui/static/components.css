@@ -59,6 +59,19 @@
     border-radius: 6px; padding: 6px 10px; min-height: 40px; max-width: 190px;
   }
   .inline-input::placeholder { color: var(--text-muted); }
+  /* PUX-6: ورودی file گفت‌وگو هم‌خانواده ورودی‌های فرم (تم‌دار) —
+     دکمه بومی از color-scheme + همین قاعده پیروی می‌کند. */
+  .file-input {
+    font: inherit; font-size: 0.8rem; color: var(--text-primary);
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 6px 10px; min-height: 40px; max-width: 100%;
+  }
+  .file-input::file-selector-button {
+    font: inherit; font-size: 0.8rem; color: var(--text-primary);
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 6px 10px; margin-inline-end: 8px;
+    cursor: pointer;
+  }
   .field-group.span-all { grid-column: 1 / -1; }
   /* بلوک جمع‌شونده کلید مادر + توکن سرپرست (پیش‌فرض بسته) */
   .operator-secrets { padding: 0; }

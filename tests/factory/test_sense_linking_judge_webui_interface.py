@@ -985,11 +985,14 @@ def test_queue_filter_input_and_wiring():
     assert "'queue-filter'" in text and "'queue-list'" in text
 
 
-def test_empty_candidates_neutral_latin_isolated():
-    """Empty state: neutral tone in an isolated Latin box, layout kept."""
+def test_empty_candidates_neutral_persian():
+    """Empty state: neutral Persian prose (Group A glossary), layout kept."""
     text = _html()
-    assert "No candidates in the link table for this sense." in text
-    assert "ltrLine('No candidates" in text
+    assert "نامزدی در جدول پیوند برای این سنس نیست." in text
+    assert ("پیوندی برای این سنس نیست: شناسه در نگاشت غربالگری و "
+            "هیچ اجرایی پیدا نشد.") in text
+    assert "No candidates in the link table for this sense." not in text
+    assert "No join for this sense" not in text
 
 
 def test_supervisor_down_names_exact_start_command(monkeypatch):
@@ -1214,11 +1217,17 @@ def test_egress_client_auth_refresh_places_token(monkeypatch):
 def test_cabin_tabs_match_five_linker_stages():
     """Five cockpit tabs mirror the five real linking-folder stages."""
     text = _html()
-    assert text.count('class="tab-link') == 5
+    # locked T07: the linking cabin owns 5 tabs and the screening cabin
+    # owns its own scoped 2-tab pair (navigator queries are
+    # #view-linking-scoped, so no collision) → 7 total.
+    assert text.count('class="tab-link') == 7
+    assert text.count('id="screening-tabbtn-') == 2
     for label in ("کوتاه‌فهرست نامزدها", "پیوند مکانیکی",
                   "داوری هوش مصنوعی", "بازبینی انسانی",
-                  "خروجی جدول پیوند (TSV)"):
+                  "خروجی جدول پیوند"):
         assert label in text, label
+    # OQ-4: TSV stays Latin, isolated in its own LTR span
+    assert "خروجی جدول پیوند (<span" in text
     # each tab names its repo-folder code owner (never the data drive)
     for owner in ("linker.py", "arbitration.py", "human_queue.py",
                   "cli.py", "table.tsv"):
@@ -1300,7 +1309,10 @@ def test_queue_row_three_fields_only():
     # nothing else rides the row: no lemma, no candidates, no
     # examples, no full text beyond the slice
     assert "row.lemma" not in row
-    assert "sub.title = glossSlice;" in row
+    # locked T12: the row title is the slice when the server sent a
+    # gloss, else the titled honest-empty cause (never a bare dash).
+    assert "sub.title = glossFlat ? glossSlice" in row
+    assert "سرور معنایی برای این سنس ثبت نکرد" in row
 
 
 def test_detail_section_owns_candidates_examples_fulltext():
@@ -1333,12 +1345,25 @@ def test_view_memory_restores_cabin_and_tab():
     assert "openView" in text
 
 
+def test_linking_tab_queries_scoped_to_view_linking():
+    """Regression (cabin-C review): no global tab query may observe the
+    screening cabin's own tab pair — every cockpit-tabs query in the
+    shipped navigator is #view-linking-scoped, so clicking a screening
+    sub-tab never fires selectLinkingTab nor persists a wrong index."""
+    text = _html()
+    scoped = text.count("#view-linking .cockpit-tabs .tab-link")
+    assert scoped >= 2  # selectLinkingTab + click wiring
+    assert text.count(".cockpit-tabs .tab-link") == scoped
+    assert "saveViewMemory(null, idx)" in text
+
+
 def test_view_memory_first_run_default():
     """T6: no stored value keeps the existing default, no crash."""
     text = _html()
     # existing default unchanged: linking cabin + 4th tab active
     assert 'class="workspace-view active" id="view-linking"' in text
-    assert text.count('class="tab-link') == 5
+    # locked T07: 5 linking tabs + the screening cabin's own 2-tab pair
+    assert text.count('class="tab-link') == 7
     assert "restoreViewMemory" in text
     # restore guards: try/catch + element-exists check, view ids only
     start = text.index("restoreViewMemory")
@@ -1515,7 +1540,10 @@ def test_console_names_bearer_in_static_surfaces():
     """Every supervisor surface names EGRESS_SUP_TOKEN (never a value)."""
     text = _html()
     assert "EGRESS_SUP_TOKEN" in text
-    assert 'placeholder="EGRESS_SUP_TOKEN (stored encrypted)"' in text
+    # Group A polish: the placeholder names the variable only (Latin
+    # isolated); the Persian guidance lives in the label/aria-label.
+    assert 'placeholder="EGRESS_SUP_TOKEN"' in text
+    assert "(stored encrypted)" not in text
     # lifecycle badge renders live counts, never a stale bare label
     assert "refreshSupervisorLifecycle" in text
     assert "سرور" in text and "لیز" in text
@@ -1647,8 +1675,8 @@ def test_design_bounded_lists_with_themed_scroll():
     assert 'class="candidates-stack themed-scroll"' in text
     assert ".candidates-stack { max-height: 320px; overflow-y: auto; }" in css
     # dynamic data tables: capped + themed scroll (telemetry, paths,
-    # screening per-lemma)
-    assert text.count('class="table-responsive bounded themed-scroll"') == 3
+    # screening per-lemma, screening history)
+    assert text.count('class="table-responsive bounded themed-scroll"') == 4
     assert ".table-responsive.bounded" in css
     # model + queue lists keep their ceilings
     assert ".model-list" in css and "max-height: 260px" in css

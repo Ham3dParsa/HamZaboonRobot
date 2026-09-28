@@ -97,7 +97,10 @@ export function renderPaths(roots, files) {
   }
   const picked = pickFacts(files);
   const facts = picked.facts;
-  const srcName = picked.name ? (' (' + picked.name + ')') : '';
+  /* پسوند منبع فارسی (واژه‌نامه §۳)؛ نام ناشناخته خامِ برچسب‌دار. */
+  const SRC_FA = {screened: 'غربال‌شده', kaikki_raw: 'خام کایکی'};
+  const srcName = picked.name
+    ? (' (' + (SRC_FA[picked.name] || picked.name) + ')') : '';
   for (const r of list) {
     const tr = document.createElement('tr');
     const tdLabel = document.createElement('td');

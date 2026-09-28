@@ -5434,6 +5434,20 @@ class _ScreeningOverCap(ValueError):
         self.limit = _SCREENING_WORDS_MAX
 
 
+def _screening_split_tokens(raw):
+    """Raw words -> lowercase non-empty tokens (shared splitter).
+
+    Single owner of the ``[Latin/Persian comma + newline]+`` split:
+    both the run path (``_screening_parse_words``) and the read-only
+    ledger preview consume it, so preview fresh/duplicate counts can
+    never disagree with what the run actually processes over
+    Persian-comma / multiline input.
+    """
+    return [w.strip().lower()
+            for w in re.split(r"[,،\n\r]+", str(raw or ""))
+            if w.strip()]
+
+
 def _screening_parse_words(raw):
     """Multiline+comma words -> validated lemma list (default when empty).
 
@@ -5444,9 +5458,8 @@ def _screening_parse_words(raw):
     ``_ScreeningOverCap`` (fail-fast with excess count — never a silent
     trim, OQ-2).
     """
-    words = [w.strip().lower()
-             for w in re.split(r"[,،\n\r]+", str(raw or ""))]
-    words = [w for w in words if _SCREENING_WORD_RE.match(w)]
+    words = [w for w in _screening_split_tokens(raw)
+             if _SCREENING_WORD_RE.match(w)]
     if not words:
         words = [w.strip().lower()
                  for w in _default_screening_words().split(",")]
@@ -6047,12 +6060,15 @@ def api_screening_ledger_preview():
 
     Query ``?words=a,b,c`` → ``{fresh, duplicate, fresh_count,
     dup_count}`` partitioned against ``screened_registry.jsonl`` (exact
-    lowercase lemma match). Never mutates; a missing registry means
-    all-fresh. This is the A3 ledger-preview pane source.
+    lowercase lemma match). Tokenizes through the shared
+    ``_screening_split_tokens`` splitter so Persian-comma / multiline
+    input previews exactly what the run parses. Never mutates; a
+    missing registry means all-fresh. This is the A3 ledger-preview
+    pane source.
     """
     raw = request.args.get("words") or ""
-    words = [w.strip().lower() for w in str(raw).split(",")]
-    words = [w for w in words if _SCREENING_WORD_RE.match(w)]
+    words = [w for w in _screening_split_tokens(raw)
+             if _SCREENING_WORD_RE.match(w)]
     try:
         from factory.linking import export_screened as _export
 

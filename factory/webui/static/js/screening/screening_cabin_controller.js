@@ -210,6 +210,33 @@ function renderMetrics(manifest) {
   renderPerLemma();
   renderDetail();
 }
+/* علت حذف لم (PUX-24): نگاشت واژه‌نامه فارسی روی رده‌بندی سرور
+   (twin_r3/proper_r2/other — همان classify_drop_reason بک‌اند)؛
+   R3/R2 لاتین می‌ماند (OQ-4) در ایزوله LTR. */
+function dropReasonNodes(raw) {
+  const text = String(raw || '');
+  let label = '';
+  let code = '';
+  if (/twin|dedup|dup/i.test(text)) {
+    label = 'حذف دوقلو ('; code = 'R3';
+  } else if (/proper|propn/i.test(text)
+    || /(^|[^a-z])name([^a-z]|$)/i.test(text)) {
+    label = 'حذف اسم خاص ('; code = 'R2';
+  }
+  if (label) {
+    const bits = [document.createTextNode(label)];
+    bits.push(ltrCode(code));
+    bits.push(document.createTextNode(')'));
+    return bits;
+  }
+  /* خامِ نگاشت‌نشده با برچسب فارسی + مقدار سرور ایزوله. */
+  const bits = [document.createTextNode('علت سرور: ')];
+  const rawCode = ltrCode(text || '—');
+  rawCode.title = 'مقدار ثبت‌شده سرور (reason)';
+  bits.push(rawCode);
+  return bits;
+}
+
 function lemmaMatches(row, q) {
   const needle = String(q || '').trim().toLowerCase();
   if (!needle) return true;
@@ -339,7 +366,8 @@ function renderDetail() {
     line.className = 'screening-drop-line';
     line.append(ltrCode((d && (d.sense_id || d.id)) || '—'));
     const reason = document.createElement('span');
-    reason.textContent = String((d && (d.reason || d.kind || d.rule)) || '—');
+    dropReasonNodes((d && (d.reason || d.kind || d.rule)) || '')
+      .forEach((node) => reason.append(node));
     line.append(reason);
     list.append(line);
   });
@@ -429,7 +457,7 @@ async function pollOnce() {
       setRunning(false);
       if (state !== 'completed' && wasActive) {
         showFormError('screening-err', 'اجرای غربالگری ناموفق بود.',
-          'exit_code=' + ((st.exit_code !== undefined && st.exit_code !== null) ? st.exit_code : '?'),
+          'کد خروج ' + ((st.exit_code !== undefined && st.exit_code !== null) ? faNum(st.exit_code) : '؟'),
           pollOnce, undefined);
       }
     }
@@ -500,7 +528,7 @@ async function postRun(body) {
         ? e.body.excess : '?';
       showFormError('screening-err',
         'فهرست واژه‌ها از سقف ' + faNum(WORDS_MAX) + ' گذشت.',
-        'extra=' + faNum(excess) + ' — فهرست را کوتاه کنید.',
+        faNum(excess) + ' مورد بیشتر از سقف — فهرست را کوتاه کنید.',
         startRun, 'VALIDATION-input');
     } else {
       showFormError('screening-err', 'شروع غربالگری ناموفق بود.',
@@ -515,7 +543,7 @@ async function startRun() {
   const tokens = parseWords(wordsEl && wordsEl.value);
   if (!tokens.length) {
     showFormError('screening-err', 'واژه‌ای وارد نشده است.',
-      'words is empty', startRun, 'VALIDATION-input');
+      undefined, startRun, 'VALIDATION-input');
     return;
   }
   /* OQ-2: سقف ۲۵۰۰ fail-fast با شمارش اضافه — هرگز کوتاه‌سازی خاموش. */
@@ -523,7 +551,7 @@ async function startRun() {
     const excess = tokens.length - WORDS_MAX;
     showFormError('screening-err',
       'فهرست واژه‌ها از سقف ' + faNum(WORDS_MAX) + ' گذشت.',
-      'extra=' + faNum(excess) + ' — فهرست را کوتاه کنید.',
+      faNum(excess) + ' مورد بیشتر از سقف — فهرست را کوتاه کنید.',
       startRun, 'VALIDATION-input');
     return;
   }
@@ -532,7 +560,7 @@ async function startRun() {
   if (badIdx >= 0) {
     showFormError('screening-err',
       'ردیف ' + faNum(badIdx + 1) + ' نامعتبر است.',
-      'row=' + (badIdx + 1) + ' — فقط حرف لاتین کوچک و خط‌تیره.',
+      'ردیف ' + faNum(badIdx + 1) + ' — فقط حرف لاتین کوچک و خط‌تیره.',
       startRun, 'VALIDATION-input');
     return;
   }
@@ -569,7 +597,7 @@ async function startRun() {
         const fresh = sanitizeName(decision.name);
         if (!fresh) {
           showFormError('screening-err', 'نام تازه خالی است.',
-            'rename needs a name', startRun, 'VALIDATION-input');
+            undefined, startRun, 'VALIDATION-input');
           return;
         }
         body.out_name = fresh;
@@ -589,7 +617,7 @@ async function startRun() {
         const fresh = sanitizeName(decision.name);
         if (!fresh) {
           showFormError('screening-err', 'نام تازه خالی است.',
-            'rename needs a name', startRun, 'VALIDATION-input');
+            undefined, startRun, 'VALIDATION-input');
           return false;
         }
         body.out_name = fresh;

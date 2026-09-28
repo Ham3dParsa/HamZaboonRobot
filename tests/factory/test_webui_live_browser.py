@@ -529,7 +529,11 @@ def test_t07_03_row_click_detail_live_browser(live_console):
             timeout=5000)
         detail = page.inner_text("#screening-detail")
         assert "run#1" in detail and "run#2" in detail, detail
-        assert "twin_r3" in detail and "proper_r2" in detail, detail
+        # Group A glossary: server reason classes render Persian —
+        # twin_r3 → حذف دوقلو (R3), proper_r2 → حذف اسم خاص (R2).
+        assert "حذف دوقلو" in detail and "R3" in detail, detail
+        assert "حذف اسم خاص" in detail and "R2" in detail, detail
+        assert "twin_r3" not in detail and "proper_r2" not in detail, detail
         assert "gloss" not in detail.lower(), detail
         marked = page.eval_on_selector(
             "#screening-per-lemma-tbody tr.sel", "el => el.dataset.lemma")
@@ -1322,7 +1326,9 @@ def test_t10_01_paths_row_shows_live_facts_live_browser(live_console):
         assert "۵۰۰۰۰+" in body, body
         assert "۱۲۳۴۵" in body, body  # fa size from live facts
         assert "۵ دقیقه پیش" in body, body  # fa mtime from live facts
-        assert "screened" in body, body  # source dataset named
+        # Group A glossary: source dataset renders Persian.
+        assert "غربال‌شده" in body, body  # source dataset named
+        assert "(screened)" not in body, body
         _t07_assert_clean(errors, crashes)
         page.screenshot(path=os.path.join(
             _t10_shots_dir(live_console), "shot-t10-paths-desktop.png"))

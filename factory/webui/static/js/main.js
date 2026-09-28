@@ -70,7 +70,7 @@ function startConformance(prefix) {
   withBusy(start, 'در حال شروع…', async () => {
     await new Promise((r) => setTimeout(r, 600));
     showFormError(prefix + '-err', 'اجرای این کابین هنوز به سرور وصل نیست.',
-      'followup: backend wiring pending — no endpoint called',
+      'پشتوانه سرور این کابین هنوز وصل نیست — پیگیری: اتصال بک‌اند.',
       () => startConformance(prefix), undefined);
   });
 }

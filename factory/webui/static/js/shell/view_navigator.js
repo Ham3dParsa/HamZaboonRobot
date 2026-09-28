@@ -57,8 +57,12 @@ export function saveViewMemory(viewId, tabIndex) {
     localStorage.setItem('hz-view-memory', JSON.stringify(mem));
   } catch(e){}
 }
+/* زبانه‌های کابین پیوندزنی — همواره محدود به نمای پیوندزنی:
+   کابین غربالگری جفت زبانه خودش را دارد (index.html)؛ پرس‌وجوی
+   سراسری روی کلاس زبانه‌ها، کلیک زبانه غربالگری را به اشتباه به
+   selectLinkingTab می‌رساند و active و حافظه را خراب می‌کرد. */
 export function selectLinkingTab(index, persist) {
-  const tabs = document.querySelectorAll('.cockpit-tabs .tab-link');
+  const tabs = document.querySelectorAll('#view-linking .cockpit-tabs .tab-link');
   if (!tabs.length) return;
   const idx = Number(index);
   if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
@@ -77,6 +81,6 @@ export function restoreViewMemory() {
     }
   } catch(e){}
 }
-document.querySelectorAll('.cockpit-tabs .tab-link').forEach((t, i) => {
+document.querySelectorAll('#view-linking .cockpit-tabs .tab-link').forEach((t, i) => {
   t.addEventListener('click', () => selectLinkingTab(i));
 });

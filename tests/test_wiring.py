@@ -12,11 +12,15 @@ SCAN_DIRS = [Path("."), Path("handlers"), Path("config")]
 # Production modules whose imported symbols must resolve to real definitions.
 # Used by the reverse-direction checks: a leftover import/route to a deleted
 # handler must fail CI instead of surfacing at runtime.
+# factory/webui rides along: the operator console has no Telegram callbacks,
+# but its modules must still satisfy the import-resolution / .answer() /
+# slot-ownership guards (screening cabin-C follow-through).
 PRODUCTION_SOURCES = [
     Path("bot.py"),
     Path("handlers"),
     Path("services"),
     Path("config"),
+    Path("factory/webui"),
 ]
 
 # The notification module is the sole production location allowed to call
@@ -25,7 +29,7 @@ CALLBACK_NOTIFICATION_MODULE = Path("services/utils/callback_notifications.py")
 
 
 def _production_py_files():
-    """Yield every production .py file (bot.py + handlers/services/config)."""
+    """Yield every production .py file (bot.py + handlers/services/config + factory/webui)."""
     for target in PRODUCTION_SOURCES:
         if target.is_file():
             yield target
@@ -999,6 +1003,14 @@ class TestCallbackWiring(unittest.TestCase):
                 for s in sorted(symbols):
                     msg += f"  from {module} import {s}\n"
             self.fail(msg)
+
+    def test_factory_webui_covered_by_production_sources(self):
+        """Screening cabin-C follow-through: the console modules ride the
+        production guards (no silent drift outside the scan targets)."""
+        files = {p.name for p in _production_py_files()}
+        for module in ("server.py", "labels.py", "duration_fmt.py",
+                       "pinned_paths.py", "run_status.py"):
+            self.assertIn(module, files, f"{module} not scan-covered")
 
     def test_callback_answers_only_exist_in_notification_module(self):
         """Callback presentation must not leak Telegram flags into callers."""

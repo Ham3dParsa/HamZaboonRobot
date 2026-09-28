@@ -95,7 +95,7 @@ async function boot() {
       listDir(roots[0].path);
     } else {
       renderEntries({dir: '', parent: null, entries: []});
-      fail('ریشه‌ای برای مرور نیست.', 'no browse roots', boot, undefined);
+      fail('ریشه‌ای برای مرور نیست.', undefined, boot, undefined);
     }
     refreshPins();
   } catch(e) {
@@ -242,7 +242,7 @@ function renderEntries(payload) {
 async function pickAsInput(full) {
   const target = callerId && el(callerId);
   if (!target) {
-    fail('فیلد فراخوان پیدا نشد.', callerId || 'no caller', null);
+    fail('فیلد فراخوان پیدا نشد.', callerId || undefined, null);
     return;
   }
   try {
@@ -265,7 +265,7 @@ async function pickAsInput(full) {
 function pickAsDest(full) {
   const target = callerId && el(callerId);
   if (!target) {
-    fail('فیلد فراخوان پیدا نشد.', callerId || 'no caller', null);
+    fail('فیلد فراخوان پیدا نشد.', callerId || undefined, null);
     return;
   }
   target.value = full;
@@ -278,7 +278,7 @@ async function mkdirCurrent() {
   const input = el('data-dialog-mkdir-name');
   const name = String((input && input.value) || '').trim();
   if (!name || !curDir) {
-    fail('نام پوشه و مسیر جاری لازم است.', 'mkdir needs name+dir', null);
+    fail('نام پوشه و مسیر جاری لازم است.', undefined, null);
     return;
   }
   try {
@@ -299,7 +299,7 @@ async function uploadCurrent() {
   const btn = el('data-dialog-upload');
   const file = picker && picker.files && picker.files[0];
   if (!file || !curDir) {
-    fail('فایل و پوشه جاری لازم است.', 'upload needs file+dir', null);
+    fail('فایل و پوشه جاری لازم است.', undefined, null);
     return;
   }
   if (btn) btn.disabled = true;
@@ -407,7 +407,7 @@ function initCollisionDialog() {
       const fresh = String((input && input.value) || '').trim();
       if (!fresh) {
         showFormError('collision-err', 'نام تازه خالی است.',
-          'rename needs a name', null, 'VALIDATION-input');
+          undefined, null, 'VALIDATION-input');
         return;
       }
       endCollision({choice: 'rename', name: fresh});
@@ -537,7 +537,7 @@ async function pinCurrent() {
   const input = el('data-dialog-pin-name');
   const name = String((input && input.value) || '').trim();
   if (!name || !curDir) {
-    fail('نام سنجاق و مسیر جاری لازم است.', 'pin needs name+dir', null);
+    fail('نام سنجاق و مسیر جاری لازم است.', undefined, null);
     return;
   }
   try {

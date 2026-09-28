@@ -130,6 +130,36 @@ def test_preview_partitions_and_run_filters(tmp_path, monkeypatch,
     assert argv[argv.index("--words") + 1] == "run,take"
 
 
+def test_preview_tokenizer_matches_run_parse(tmp_path, monkeypatch,
+                                              _idle_screening):
+    """Regression (cabin-C review): preview and run share one splitter.
+
+    Persian-comma / multiline input must preview exactly what the run
+    parses — ``_screening_split_tokens`` is the single owner, so the two
+    can never disagree on fresh/duplicate counts.
+    """
+    import subprocess as _sub
+
+    monkeypatch.setattr(webui, "data_root", lambda: str(tmp_path))
+    monkeypatch.setenv("HAMZABAN_DATA_ROOT", str(tmp_path))
+    out = str(tmp_path / "screened")
+    export.export_words(["run", "take"], out, index={},
+                        raw_path=str(tmp_path), screen_fn=_fake_screen_fn)
+    monkeypatch.setattr(_sub, "Popen", lambda argv, **kw: _FakeProc())
+    client = webui.app.test_client()
+
+    mixed = "run،take\nget,make"
+    preview = client.get("/api/screening/ledger_preview",
+                         query_string={"words": mixed}).get_json()
+    assert preview["fresh"] == ["get", "make"]
+    assert preview["duplicate"] == ["run", "take"]
+
+    # The run path parses the identical token stream (validated +
+    # registry-filtered the same way).
+    assert webui._screening_parse_words(mixed) == [
+        "run", "take", "get", "make"]
+
+
 def test_missing_registry_means_all_fresh(tmp_path, monkeypatch,
                                           _idle_screening):
     """Missing registry → preview all fresh; run proceeds unfiltered."""
