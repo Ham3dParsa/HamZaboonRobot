@@ -1991,13 +1991,21 @@ def _proc_pid(proc):
 
 
 def _pid_alive(pid):
-    """True when a pid still names a live process (best-effort)."""
+    """True when a pid still names a live process (best-effort).
+
+    Windows note: ``os.kill(pid, 0)`` raises generic ``OSError``
+    (WinError 87) — not ``ProcessLookupError`` — for dead pids, so it
+    must map to False explicitly (a bare ``except Exception → True``
+    reports every dead pid alive and restart-settle never fires).
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    except OSError:
+        return False
     except Exception:
         return True
     return True

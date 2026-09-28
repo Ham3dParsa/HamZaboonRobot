@@ -47,13 +47,18 @@ def _no_titles(html):
     return re.sub(r'title="[^"]*"', '', no_comments)
 
 
+def _visible_text(html):
+    """Text nodes only (attributes like tabindex must not trip word checks)."""
+    return re.sub(r'<[^>]*>', '', _no_titles(html))
+
+
 # ─── PUX-10: boot/LAN note → friendly guide, tech in title escape ───
 
 def test_boot_note_hides_lan_bind_behind_title():
     html = _html()
     assert 'id="boot-addr-note"' in html
     assert 'راهنمای اتصال کنسول' in html
-    visible = _no_titles(html)
+    visible = _visible_text(html)
     assert "LAN" not in visible
     assert "bind" not in visible
     assert "آدرس LAN" not in html
