@@ -25,6 +25,15 @@ def _row(**kw):
     return base
 
 
+#: Fake DNS: every name resolves globally (tests never touch the network).
+_GLOBAL = lambda host: ["93.184.216.34"]  # noqa: E731
+_PRIVATE = lambda host: ["10.0.0.9"]  # noqa: E731
+
+
+def _dead_resolver(host):
+    raise OSError("dns down")
+
+
 def test_local_loopback_ok():
     for base in ("http://localhost:1234/v1",
                  "http://127.0.0.1:11434/v1",
@@ -63,6 +72,29 @@ def test_cloud_rules():
         ok, _ = _manifest.validate_row(
             "x", _row(base_url=bad, kind="cloud"))
         assert not ok, bad
+
+
+def test_host_resolution_gate():
+    ok, _ = _manifest.host_addrs_allowed("svc.example",
+                                         _resolver=_GLOBAL)
+    assert ok
+    ok, reason = _manifest.host_addrs_allowed("svc.example",
+                                              _resolver=_PRIVATE)
+    assert not ok and "non-public" in reason
+    ok, reason = _manifest.host_addrs_allowed("svc.example",
+                                              _resolver=_dead_resolver)
+    assert not ok and "could not resolve" in reason
+    ok, _ = _manifest.host_addrs_allowed("localhost")
+    assert ok
+    # Split contract: registration stores the inert row (literal-only,
+    # offline-deterministic); the FETCH gate refuses private DNS.
+    ok, _ = _manifest.validate_row(
+        "x", _row(base_url="https://svc.example/v1", kind="cloud"))
+    assert ok
+    assert _manifest.base_host_allowed("https://svc.example/v1",
+                                       _resolver=_PRIVATE) is False
+    assert _manifest.base_host_allowed("https://svc.example/v1",
+                                       _resolver=_GLOBAL) is True
 
 
 def test_kind_inference_and_seeds_still_validate():

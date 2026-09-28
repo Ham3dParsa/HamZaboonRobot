@@ -155,6 +155,70 @@ def _base_host(base_url):
         return ""
 
 
+def resolve_host_ips(host, timeout=3.0, _resolver=None):
+    """IP strings for a DNS hostname ("" list on failure, never raises).
+
+    ``localhost`` names and literals never touch DNS. ``_resolver``
+    injects ``host -> [ip, ...]`` (tests pass fakes — never the network);
+    the default resolves in a worker thread so a dead DNS cannot stall
+    the request path past ``timeout`` seconds.
+    """
+    import concurrent.futures
+    import socket
+
+    text = str(host or "").strip().lower()
+    if not text:
+        return []
+    if text == "localhost" or text.endswith(".localhost"):
+        return ["127.0.0.1"]
+    try:
+        ipaddress.ip_address(text)
+        return [text]
+    except ValueError:
+        pass
+    resolve = _resolver
+    if resolve is None:
+        def resolve(name):
+            infos = socket.getaddrinfo(name, None, socket.AF_UNSPEC,
+                                       socket.SOCK_STREAM)
+            out = []
+            for info in infos:
+                addr = (info[4] or [None])[0] if len(info) > 4 else None
+                if addr and addr not in out:
+                    out.append(str(addr))
+            return out
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return list(pool.submit(resolve, text).result(timeout=timeout)
+                        or [])
+    except Exception:
+        return []
+
+
+def host_addrs_allowed(host, timeout=3.0, _resolver=None):
+    """(allowed, reason): every resolved IP must be loopback or global.
+
+    Unresolvable names fail closed (refuse with a clear reason) — a
+    name that cannot be checked cannot be trusted with stored keys.
+    """
+    text = str(host or "").strip()
+    if not text:
+        return False, "empty host"
+    ips = resolve_host_ips(text, timeout=timeout, _resolver=_resolver)
+    if not ips:
+        return False, ("could not resolve %r — check the name/DNS and "
+                       "retry" % text)
+    for ip in ips:
+        try:
+            addr = ipaddress.ip_address(str(ip))
+        except ValueError:
+            return False, "unparsable address for %r" % text
+        if not (addr.is_loopback or addr.is_global):
+            return False, ("resolves to non-public address %s "
+                           "(refused)" % ip)
+    return True, ""
+
+
 def is_loopback_host(host):
     """True for localhost names + loopback IPs (local-model scope)."""
     text = str(host or "").strip().lower()
@@ -180,35 +244,60 @@ def infer_kind(row):
     return "cloud"
 
 
-def base_host_allowed(base_url):
-    """True when a provider base_url host is acceptable (SSRF guard).
+def _literal_host_ok(host):
+    """Literal-only host check (no DNS touch — registration path).
 
-    Literal IPs must be loopback (local models: LM Studio/Ollama) or
-    globally routable; private/link-local/reserved literals are refused
-    (no metadata/internal targets from this LAN-visible console).
-    ``localhost`` names are always allowed; other DNS names pass here
-    (no blocking DNS lookup in the request path — resolution-time
-    rebinding stays a documented trusted-LAN-operator risk).
+    localhost names and loopback/global literal IPs pass here; DNS
+    names always pass HERE (they are resolved + refused-or-allowed at
+    every fetch in ``base_host_allowed``). Registration stores inert
+    data; the dangerous moment is egress, which never skips resolution.
+    This keeps validation deterministic offline (tests, air-gapped
+    operators) while fetch stays fail-closed.
     """
-    try:
-        host = (urllib.parse.urlsplit(str(base_url or "").strip())
-                .hostname or "")
-    except ValueError:
+    text = str(host or "").strip().lower()
+    if not text:
         return False
-    if not host:
-        return False
-    lowered = host.lower()
-    if lowered == "localhost" or lowered.endswith(".localhost"):
+    if text == "localhost" or text.endswith(".localhost"):
         return True
     try:
-        addr = ipaddress.ip_address(host)
+        addr = ipaddress.ip_address(text)
     except ValueError:
         return True
     return bool(addr.is_loopback or addr.is_global)
 
 
+def base_host_allowed(base_url, _resolver=None):
+    """True when a provider base_url host is acceptable (SSRF guard).
+
+    Literal IPs must be loopback (local models: LM Studio/Ollama) or
+    globally routable; private/link-local/reserved literals are refused
+    (no metadata/internal targets from this LAN-visible console).
+    ``localhost`` names bypass DNS. Other DNS names resolve (bounded
+    timeout) and EVERY resolved IP must be loopback or global;
+    unresolvable names fail closed. Resolution-time rebinding past this
+    check stays a documented trusted-LAN-operator risk (RUN_GUIDE §7).
+    """
+    host = _base_host(base_url)
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+        return bool(addr.is_loopback or addr.is_global)
+    except ValueError:
+        pass
+    allowed, _reason = host_addrs_allowed(host, _resolver=_resolver)
+    return allowed
+
+
 def validate_row(name, row):
-    """Validate a provider data row; (ok, error). Names only in errors."""
+    """Validate a provider data row; (ok, error). Names only in errors.
+
+    Hostname checks here are literal-only (no DNS touch — see
+    ``_literal_host_ok``): registration stays deterministic offline.
+    Every fetch/probe re-resolves via ``base_host_allowed`` fail-closed.
+    """
     want = norm_name(name)
     if not want or not _NAME_RX.match(want):
         return False, "provider name must be [a-z0-9_-] (got %r)" % (name,)
@@ -226,7 +315,10 @@ def validate_row(name, row):
         text = str(base_url).strip()
         if not (text.startswith("https://") or text.startswith("http://")):
             return False, "provider %s: base_url must be http(s) or empty" % want
-        if not base_host_allowed(text):
+        if not _literal_host_ok(_base_host(text)):
+            return False, ("provider %s: base_url host is not allowed "
+                           "(loopback, localhost, or public IP/hostname "
+                           "only)" % want)
             return False, ("provider %s: base_url host is not allowed "
                            "(loopback, localhost, or public IP/hostname "
                            "only)" % want)

@@ -4940,6 +4940,12 @@ def api_judge_preset_delete(name):
 # Import/approve/cancel staging routes arrive with P04 — only build, list,
 # fetch-one, and cancel exist in this wave.
 
+#: Serializes batch creation (the threaded server can run two creates
+#: concurrently): build+save check-then-act runs under one lock so two
+#: overlapping batches can never be born. Mirrors _APPROVE_LOCK.
+_BATCH_CREATE_LOCK = threading.Lock()
+
+
 def _batch_summary(rec):
     """Plan-shaped batch summary for dict rows AND BatchRecord dataclasses.
 
@@ -4996,8 +5002,9 @@ def api_batch_create():
     screened = _configured_path("", SCREENED_ENV_VAR,
                                 DEFAULT_SCREENED_PATH)
     try:
-        batch = _batches.build_batch(screened, size=size)
-        saved = _batches.save_batch(batch)
+        with _BATCH_CREATE_LOCK:
+            batch = _batches.build_batch(screened, size=size)
+            saved = _batches.save_batch(batch)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except OSError as exc:

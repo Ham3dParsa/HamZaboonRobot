@@ -83,6 +83,25 @@ def test_fetch_cancel_unknown_and_traversal(env):
     assert env["client"].post("/api/batches/../x/cancel").status_code == 404
 
 
+def test_concurrent_creates_serialize_to_one(env):
+    import threading
+    from factory.webui import server as _srv
+
+    codes = []
+
+    def _one():
+        client = _srv.app.test_client()
+        resp = client.post("/api/batches", json={"size": 10})
+        codes.append(resp.status_code)
+
+    threads = [threading.Thread(target=_one) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert sorted(codes) == [200, 400, 400, 400, 400]
+
+
 def test_fetch_single_and_cancel_roundtrip(env):
     created = env["client"].post(
         "/api/batches",
