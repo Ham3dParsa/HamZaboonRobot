@@ -4691,19 +4691,25 @@ def api_files_rename():
 
 
 #: Word-read budget for the T09 input fill (never a full dump per click).
+#: The word cap rides the screening run maximum (single source below):
+#: the fill hands A1 exactly what the run will process (fail-fast over
+#: the same count, never a larger truncated list).
 _WORDS_READ_SIZE_CAP = 2 * 1024 * 1024
-_WORDS_READ_WORD_CAP = 3000
 
 
 @app.route("/api/files/words", methods=["GET"])
 def api_files_words():
     """T09 — bounded word fill for A1 pick-as-input (no typed paths).
 
-    Reads one allowed-root file through the existing readers (JSON
-    word-list arrays via their ``text`` fields, everything else via
-    the linker's ``read_wordlist`` line rule) capped at
-    ``_WORDS_READ_WORD_CAP`` words with an honest ``truncated`` flag.
-    Upload stays T11-owned: this route never writes.
+    Reads one allowed-root file (size-capped, read whole: the old 1 MB
+    head sniff truncated large JSON and misparsed it). JSON shapes are
+    list-of-dicts via ``text`` fields, list-of-strings, or a single
+    string; everything else rides the linker's ``read_wordlist`` line
+    rule. Every candidate runs through the shared screening validators
+    (``_screening_split_tokens`` + ``_SCREENING_WORD_RE`` + lowercase),
+    so the fill agrees with what ``POST /api/screening/run`` parses —
+    no silent drops, and the cap is the run maximum with an honest
+    ``truncated`` flag. Upload stays T11-owned: this route never writes.
     """
     raw = str(request.args.get("path") or "").strip()
     if not raw:
@@ -4721,25 +4727,29 @@ def api_files_words():
     words = []
     try:
         with open(cand, encoding="utf-8") as handle:
-            head = handle.read(1 << 20)
+            body = handle.read()
         try:
-            doc = json.loads(head)
+            doc = json.loads(body)
         except ValueError:
             doc = None
-        if isinstance(doc, list) and all(
-                isinstance(r, dict) for r in doc):
-            for row in doc:
-                text = row.get("text")
-                if isinstance(text, str) and text.strip():
-                    words.append(text.strip())
-        else:
+        candidates: list = []
+        if isinstance(doc, list):
+            if all(isinstance(r, dict) for r in doc):
+                candidates = [r.get("text") for r in doc
+                              if isinstance(r.get("text"), str)]
+            elif all(isinstance(r, str) for r in doc):
+                candidates = list(doc)
+        elif isinstance(doc, str):
+            candidates = [doc]
+        if not candidates and doc is None:
             from factory.linking import cli as _link_cli
-            words = list(_link_cli.read_wordlist(cand) or [])
+            candidates = list(_link_cli.read_wordlist(cand) or [])
+        words = _screening_fill_words(candidates)
     except (OSError, ValueError):
         return jsonify({"error": "unreadable file"}), 400
     total = len(words)
-    if total > _WORDS_READ_WORD_CAP:
-        words = words[:_WORDS_READ_WORD_CAP]
+    if total > _SCREENING_WORDS_MAX:
+        words = words[:_SCREENING_WORDS_MAX]
     return jsonify({"path": cand, "words": words, "total": total,
                     "truncated": total > len(words)})
 
@@ -5446,6 +5456,21 @@ def _screening_split_tokens(raw):
     return [w.strip().lower()
             for w in re.split(r"[,،\n\r]+", str(raw or ""))
             if w.strip()]
+
+
+def _screening_fill_words(candidates):
+    """Candidate strings -> run-agreement word list (shared validators).
+
+    Agreement point between the data-dialog fill
+    (``GET /api/files/words``) and the run path
+    (``_screening_parse_words``): the shared ``_screening_split_tokens``
+    splitter + ``_SCREENING_WORD_RE`` filter + lowercase, so A1 shows
+    exactly what the run will process (no silent drops, no case
+    drift). Pure: never reads disk, never falls back to defaults.
+    """
+    text = "\n".join(str(w or "") for w in (candidates or []))
+    return [w for w in _screening_split_tokens(text)
+            if _SCREENING_WORD_RE.match(w)]
 
 
 def _screening_parse_words(raw):

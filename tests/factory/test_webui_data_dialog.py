@@ -154,7 +154,7 @@ def test_mkdir_rename_fail_closed(_roots):
 
 
 def test_words_endpoint_readers_and_bounds(_roots):
-    """TXT line rule + JSON array shape; outside/missing → 400."""
+    """TXT line rule + JSON shapes; fill agrees with the run validators."""
     plain = _roots / "plain.txt"
     plain.write_text("alpha\n# comment\n\nbeta\n", encoding="utf-8")
     body = _client().get(
@@ -168,7 +168,9 @@ def test_words_endpoint_readers_and_bounds(_roots):
                    encoding="utf-8")
     body = _client().get(
         "/api/files/words?path=" + str(arr)).get_json()
-    assert body["words"] == ["one", "two words"]
+    # run agreement: "two words" never survives the run's WORD_RE, so
+    # the fill drops it too (no silent divergence).
+    assert body["words"] == ["one"]
     client = _client()
     assert client.get("/api/files/words").status_code == 400
     assert client.get(
@@ -176,6 +178,31 @@ def test_words_endpoint_readers_and_bounds(_roots):
     ).status_code == 400
     assert client.get(
         "/api/files/words?path=C:\\Windows\\win.ini").status_code == 400
+
+
+def test_words_fill_agrees_with_run_parse(_roots):
+    """Fill/run agreement (review must-fix): JSON string lists parse,
+    candidates are lowercased + WORD_RE-filtered, and the cap is the
+    run maximum with an honest truncated flag."""
+    mixed = _roots / "mixed.json"
+    mixed.write_text(json.dumps(["Run", "take,GET", "bad word!", ""]),
+                     encoding="utf-8")
+    body = _client().get(
+        "/api/files/words?path=" + str(mixed)).get_json()
+    assert body["words"] == ["run", "take", "get"]
+    assert body["truncated"] is False
+    assert webui._screening_parse_words(
+        "\n".join(body["words"])) == body["words"]
+    big = _roots / "big.txt"
+    big.write_text(
+        "\n".join("ab" + chr(97 + i % 26) + chr(97 + (i // 26) % 26)
+                  + chr(97 + (i // 676) % 26) for i in range(2600)),
+        encoding="utf-8")
+    body = _client().get(
+        "/api/files/words?path=" + str(big)).get_json()
+    assert body["total"] == 2600
+    assert len(body["words"]) == webui._SCREENING_WORDS_MAX
+    assert body["truncated"] is True
 
 
 def test_delete_and_upload_routes_absent():
