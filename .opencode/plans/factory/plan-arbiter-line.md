@@ -31,6 +31,7 @@ rebuilding the cabin around a hollow tab-2 repeats the bolt-on failure.
 - `plan-arbiter-line-phase-04-endpoint.md` (P3: console endpoint + progress)
 - `plan-arbiter-line-phase-05-tab2.md` (P4: real tab-2 UI on the endpoint)
 - `plan-arbiter-line-phase-06-r2.md` (P5: R2 A2 overhaul on working tabs)
+- `plan-arbiter-line-phase-07-preset-migration.md` (P6: judge→AI-preset migration, D5/D6, independent)
 
 ## Blocked Questions
 

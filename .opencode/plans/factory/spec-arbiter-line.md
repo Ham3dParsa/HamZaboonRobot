@@ -23,10 +23,16 @@ Past gallery verdicts came from manual/probe runs, never a pipeline.
 
 ## Locked naming decisions (DDD, owner 2026-09-28)
 
-- D1: `arbiter` = LLM-based only; `judge` banned on linking line (precard-owned).
-- D2: `arbitrate_link` (mechanical) renamed → `resolve_link` (rule resolution).
+- D1: `arbiter` = LLM-based only; `judge` banned factory-wide (legacy
+  word for AI presets — the preset never knows the task).
+- D2: `arbitrate_link` (mechanical) renamed → `mechanical_review`.
 - D3: A2 = design language (standard); R2 = rebuild work package (depends on arbiter capability).
 - D4: Owner runs real models; builders test with stubs/mocks only (no live keys/calls in tests).
+- D5: `AI preset` (shared: provider/model/limits = WHO + HOW MUCH) vs
+  `step prompt` (cabin-owned task text = WHAT). Bot presets and factory
+  presets are unrelated stores — never merged, never mirrored.
+- D6: judge→AI-preset migration = full rename (store + routes + UI +
+  tests), no aliases (console API is young).
 
 ## Non-goals
 

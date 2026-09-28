@@ -15,8 +15,13 @@ Shortlisting link candidates plus applying deterministic rules; strong at reject
 _Avoid_: arbitration, judging, mechanical arbitration
 
 **Rule resolution**:
-The deterministic verdict inside mechanical linking (twin suppression, signal tallying). Code name pending rename from `arbitrate_link`.
-_Avoid_: arbitration, arbiter
+DELETED (2026-09-28) — vague invented jargon, replaced below.
+
+**Mechanical review**:
+The deterministic verdict step inside mechanical linking: rules review
+senses, some are approved on the spot, the rest move on. Code name:
+`mechanical_review` (renamed from `arbitrate_link`).
+_Avoid_: arbitration, arbiter, resolution
 
 **Arbiter**:
 The LLM-based judge that reads a prompt template and returns a verdict. The only judge on the linking line.
@@ -31,8 +36,26 @@ Operator-supervised final stage for rows the gates did not auto-link (batches, a
 _Avoid_: human review (legacy label), manual review
 
 **Judge**:
-AI-preset verdicts on the precard line. Never used for linking-line arbitration.
-_Avoid_: (do not use this word on the linking line at all)
+Legacy word for AI presets. Avoided everywhere in the factory —
+it falsely implies the preset knows the task.
+_Avoid_: judge preset, پریست داوری
+
+**AI preset**:
+Shared model configuration for every factory cabin (provider + model +
+rate limits). Says WHO runs and HOW MUCH — never what to do.
+_Avoid_: judge preset, داوری (as a preset name)
+
+**Step prompt**:
+The task text owned by each cabin step (linking arbiter prompt,
+precard prompts, future pilot prompts). Says WHAT to ask — never
+stored inside an AI preset.
+_Avoid_: preset prompt, shared prompt
+
+**Bot presets**:
+The Telegram bot's own AI presets (`services/ai`). Unrelated to
+factory AI presets — different consumers, different lifecycle.
+Never merged, never mirrored.
+_Avoid_: (do not mix the two stores)
 
 ### Console directions
 

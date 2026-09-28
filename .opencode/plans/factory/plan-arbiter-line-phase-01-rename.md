@@ -1,4 +1,4 @@
-# Phase 01 — P0 rename `arbitrate_link` → `resolve_link` (D2)
+# Phase 01 — P0 rename `arbitrate_link` → `mechanical_review` (D2)
 
 Gates: D2. Blocking: none.
 Scope: `factory/linking/linker.py:393` + every caller (grep
