@@ -247,14 +247,25 @@
               <span class="badge" id="provider-add-state">نام‌ها فقط</span>
             </div>
             <div class="p-meta">سطر داده ارائه‌دهنده در رجیستری موتور ساخته می‌شود (اعتبارسنجی سمت سرور)؛ مقدار کلید جدا ذخیره می‌شود.</div>
+            <div class="p-meta">یادداشت صادقانه: ارائه‌دهنده بدون کلید ساخته می‌شود، ولی «دریافت فهرست مدل» سمت سرور رد می‌شود؛ مسیر اجرا به فهرست نیازی ندارد.</div>
             <div class="form-row-grid">
               <div class="field-group">
                 <label>نام ارائه‌دهنده</label>
                 <input type="text" class="code-token" id="provider-add-name" dir="ltr" placeholder="my-provider" autocomplete="off">
               </div>
               <div class="field-group">
-                <label>نام متغیر کلید</label>
+                <label>نام متغیر کلید (اختیاری برای محلی — خالی یعنی بدون کلید)</label>
                 <input type="text" class="code-token" id="provider-add-keyvar" dir="ltr" placeholder="MY_PROVIDER_API_KEY" autocomplete="off">
+              </div>
+              <div class="field-group">
+                <label>پروتکل</label>
+                <select id="provider-add-protocol">
+                  <option value="openai_compat">openai_compat (محلی)</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label>نشانی نقطه پایانی (base_url)</label>
+                <input type="text" class="code-token" id="provider-add-base-url" dir="ltr" placeholder="http://localhost:1234/v1" autocomplete="off">
               </div>
               <div class="field-group">
                 <label>مسیر</label>

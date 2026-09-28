@@ -49,11 +49,13 @@ import threading
 import time
 import uuid
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from factory.precard import provider_registry
 from factory.precard.accounting import source_item_key
 from factory.core.env_loader import data_root
+from factory.webui import batches as _batches
+from factory.webui import gallery as _gallery
 
 app = Flask(__name__, static_folder=None)
 
@@ -4911,6 +4913,155 @@ def api_judge_preset_delete(name):
     if not delete_preset(name):
         return jsonify({"error": "judge preset not found: %s" % name}), 404
     return jsonify({"deleted": name})
+
+
+# ─── Supervised arbitration batches (P01; import/approve land in W2) ───
+# Thin routes over factory/webui/batches.py (single owner of batch logic).
+# Import/approve/cancel staging routes arrive with P04 — only build, list,
+# fetch-one, and cancel exist in this wave.
+
+def _batch_summary(rec):
+    """Plan-shaped batch summary for dict rows AND BatchRecord dataclasses.
+
+    (F1/F2: the first mount called ``rec.get`` on the dataclass → 500,
+    and dropped ``answered``/``approved`` + ``md``/``json`` carriers.)
+    """
+    def _get(key, default=None):
+        if isinstance(rec, dict):
+            return rec.get(key, default)
+        return getattr(rec, key, default)
+    out = {"id": _get("id"), "size": _get("size"),
+           "status": _get("status"),
+           "answered": _get("answered", 0),
+           "approved": _get("approved", 0),
+           "created_at": _get("created_at")}
+    for key in ("prompt_version", "prompt_hash"):
+        val = _get(key)
+        if val is not None:
+            out[key] = val
+    if out.get("id"):
+        directory = _batches.batch_dir(str(out["id"]))
+        out["md"] = os.path.join(directory, "batch.md")
+        out["json"] = os.path.join(directory, "batch.json-data")
+    return out
+
+
+_BATCH_ID_RX = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _clean_batch_id(raw):
+    """Strict batch id (restricted charset); rejects ``..``/separators."""
+    name = str(raw or "").strip()
+    if not _BATCH_ID_RX.match(name):
+        return ""
+    return name
+
+
+@app.route("/api/batches", methods=["POST"])
+def api_batch_create():
+    fields = request.get_json(force=True, silent=True) or {}
+    raw_size = (fields or {}).get("size")
+    if raw_size is None or (isinstance(raw_size, str)
+                            and not raw_size.strip()):
+        size = _batches.DEFAULT_SIZE
+    elif isinstance(raw_size, float) and not raw_size.is_integer():
+        return jsonify({"error": "VALIDATION-size: size must be an "
+                                 "integer 10..50"}), 400
+    else:
+        try:
+            size = int(raw_size)
+        except (TypeError, ValueError):
+            return jsonify({"error": "VALIDATION-size: size must be an "
+                                     "integer 10..50"}), 400
+    screened = _configured_path(str((fields or {}).get("screened_path")
+                                    or ""),
+                                SCREENED_ENV_VAR, DEFAULT_SCREENED_PATH)
+    try:
+        batch = _batches.build_batch(screened, size=size)
+        saved = _batches.save_batch(batch)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": "save failed: %s" % exc}), 500
+    return jsonify({"batch": _batch_summary(saved)}), 200
+
+
+@app.route("/api/batches", methods=["GET"])
+def api_batches():
+    return jsonify({"batches": [_batch_summary(b)
+                                for b in _batches.list_batches()]})
+
+
+@app.route("/api/batches/<batch_id>", methods=["GET"])
+def api_batch_fetch(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    directory = _batches.batch_dir(name)
+    meta_path = os.path.join(directory, "batch.json")
+    md_path = os.path.join(directory, "batch.md")
+    data_path = os.path.join(directory, "batch.json-data")
+    if not os.path.isfile(meta_path):
+        return jsonify({"error": "batch not found: %s" % name}), 404
+    try:
+        with open(meta_path, encoding="utf-8") as handle:
+            meta = json.load(handle)
+        md_text = ""
+        if os.path.isfile(md_path):
+            with open(md_path, encoding="utf-8") as handle:
+                md_text = handle.read()
+        items = []
+        if os.path.isfile(data_path):
+            with open(data_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, list):
+                items = payload
+            elif isinstance(payload, dict):
+                items = payload.get("items", [])
+            else:
+                return jsonify({"error": "unreadable batch %s: bad "
+                                         "items shape" % name}), 500
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": "unreadable batch %s: %s"
+                                 % (name, exc)}), 500
+    return jsonify({"batch": meta, "md": md_text, "items": items})
+
+
+@app.route("/api/batches/<batch_id>/cancel", methods=["POST"])
+def api_batch_cancel(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    try:
+        _batches.cancel_batch(name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"cancelled": name})
+
+
+# ─── Linker gallery viewing (P02) ──────────────────────────────────────
+# Thin route over factory/webui/gallery.py (viewer.py core untouched).
+
+@app.route("/api/gallery", methods=["GET"])
+def api_gallery():
+    ref = (request.args.get("run") or "").strip()
+    if not ref:
+        return jsonify({"error": "VALIDATION-run: ?run=<run-id-or-path> "
+                                 "is required"}), 400
+    try:
+        out = _gallery.build_gallery(ref)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": "gallery build failed: %s" % exc}), 500
+    try:
+        with open(out, encoding="utf-8") as handle:
+            html = handle.read()
+    except OSError as exc:
+        return jsonify({"error": "gallery unreadable: %s" % exc}), 500
+    return Response(html, mimetype="text/html")
 
 
 # ─── Custom provider profiles API (operator data) ────────────────────

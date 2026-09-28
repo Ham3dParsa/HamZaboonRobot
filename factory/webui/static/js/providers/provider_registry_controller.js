@@ -273,16 +273,26 @@ async function providerAdd(btn) {
   if (noteEl) noteEl.textContent = '';
   const name = ((document.getElementById('provider-add-name') || {}).value || '').trim();
   const keyVar = ((document.getElementById('provider-add-keyvar') || {}).value || '').trim();
+  const protocol = ((document.getElementById('provider-add-protocol') || {}).value || 'openai_compat').trim() || 'openai_compat';
+  const baseUrl = ((document.getElementById('provider-add-base-url') || {}).value || '').trim();
   const route = (document.getElementById('provider-add-route') || {}).value || 'direct';
   if (!name) { showFormError('provider-add-err', 'نام ارائه‌دهنده خالی است (چیزی ساخته نشد).', '', null); return; }
   await withBusy(btn || document.getElementById('btn-add-provider'), 'در حال افزودن…', async () => {
     try {
       const j = await getJSON('/api/managed_providers',
         {method: 'POST', headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({name: name, protocol: 'openai_compat', base_url: '',
+         body: JSON.stringify({name: name, protocol: protocol, base_url: baseUrl,
                                route: route, key_vars: keyVar ? [keyVar] : []})});
-      if (noteEl) noteEl.textContent = 'ارائه‌دهنده ' + (j.provider || name)
-        + ' ساخته شد (' + faNum(((j.row || {}).key_count) || 0) + ' شکاف کلید).';
+      if (noteEl) {
+        noteEl.replaceChildren();
+        noteEl.append(document.createTextNode('ارائه‌دهنده ' + (j.provider || name)
+          + ' ساخته شد (' + faNum(((j.row || {}).key_count) || 0) + ' شکاف کلید).'));
+        if (baseUrl) {
+          noteEl.append(document.createTextNode(' نقطه پایانی: '));
+          noteEl.append(ltrCode(baseUrl));
+        }
+        if (!keyVar) noteEl.append(document.createTextNode(' بدون کلید: «دریافت فهرست» سمت سرور رد می‌شود؛ مسیر اجرا به فهرست نیازی ندارد.'));
+      }
       await refreshProviderCards();
       await refreshBadges();
     } catch(e) { showFormError('provider-add-err', 'افزودن ارائه‌دهنده ناموفق بود.', (e && e.message) || e, () => providerAdd(), errCodeFor(e)); }
