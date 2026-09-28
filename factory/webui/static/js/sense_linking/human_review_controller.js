@@ -1,4 +1,4 @@
-import {getJSON, faNum, ltrCode} from '../shell/api_client.js';
+import {getJSON, faNum, ltrCode, withBusy, showFormError, clearFormError} from '../shell/api_client.js';
 import {FilterableListController} from '../shell/filterable_list_controller.js';
 let screenedRows = [];
 let screenedTotal = 0;
@@ -6,14 +6,28 @@ let screenedPath = '';
 let currentSense = null;
 let queueIndex = 0;
 let selectedTarget = null;
-/* غربال: سنس جاری + صف از خروجی واقعی */
-export async function loadScreened() {
+/* غربال: سنس جاری + صف از خروجی واقعی.
+   path اختیاری (T08 تحویل رکورد-محور تاریخچه): فایل screened.jsonl آن
+   اجرا را مسلح می‌کند؛ بدون آرگومان رفتار پیشین (پیش‌فرض سرور) حفظ
+   می‌شود — همه فراخوان‌های موجود سازگار می‌مانند. */
+export async function loadScreened(screenedPath) {
   try {
-    const j = await getJSON('/api/screened');
+    const url = screenedPath
+      ? '/api/screened?path=' + encodeURIComponent(screenedPath)
+      : '/api/screened';
+    const j = await getJSON(url);
     screenedRows = j.rows || [];
     screenedTotal = j.total || 0;
     screenedPath = j.path || '';
-    document.getElementById('handoff-path').textContent = screenedPath || '—';
+    clearFormError('linking-err');
+    const hp = document.getElementById('handoff-path');
+    if (screenedPath) {
+      hp.textContent = screenedPath;
+      hp.removeAttribute('title');
+    } else {
+      hp.textContent = '—';
+      hp.title = 'هنوز ورودی غربالگری بار نشده است';
+    }
     document.getElementById('handoff-total').textContent =
       '(' + faNum(screenedTotal) + ' سنس' + (j.truncated ? ' — نمایش ' + faNum(screenedRows.length) + ' تای اول' : '') + ')';
     if (queueIndex >= screenedRows.length) queueIndex = 0;
@@ -23,6 +37,9 @@ export async function loadScreened() {
   } catch(e) {
     document.getElementById('handoff-path').textContent = 'خواندن ناموفق بود';
     document.getElementById('handoff-total').textContent = '';
+    /* T12 OQ-10: every form error lives in the shared 3-part box. */
+    showFormError('linking-err', 'خواندن ورودی غربالگری ناموفق بود.',
+      (e && e.message) || e, () => loadScreened(screenedPath), undefined);
   }
 }
 /* پالایش زنده صف: زیررشته‌ای روی شناسه، لم، معنی، یا برچسب وضعیت */
@@ -56,6 +73,7 @@ function renderQueue() {
     b.className = 'code-token';
     if (i === queueIndex) b.style.color = 'var(--c-primary)';
     b.textContent = row.sense_id || '—';
+    if (!row.sense_id) b.title = 'سرور این شناسه را ثبت نکرد';
     /* ردیف صف دقیقاً سه چیز حمل می‌کند: شناسه کایکی، برش معنی، وضعیت —
        نامزدها/مثال‌ها/متن کامل هرگز در ردیف نیست (مالک آن‌ها بخش «جزئیات سنس» است) */
     const glossFlat = (row.gloss || '').replace(/\s+/g, ' ').trim();
@@ -66,7 +84,7 @@ function renderQueue() {
     sub.className = 'queue-gloss ltr-text';
     sub.setAttribute('dir', 'ltr');
     sub.textContent = glossSlice;
-    sub.title = glossSlice;
+    sub.title = glossFlat ? glossSlice : 'سرور معنایی برای این سنس ثبت نکرد';
     wrap.append(b, sub);
     const tag = document.createElement('span');
     tag.className = 'status-tag';
@@ -80,10 +98,18 @@ function renderQueue() {
 function selectSense(i) {
   if (!screenedRows.length) {
     currentSense = null;
-    document.getElementById('sense-id').textContent = '—';
+    /* T12 OQ-10: every — carries a title cause from the shared list. */
+    const dashTitle = 'هنوز ورودی غربالگری بار نشده است';
+    const sid = document.getElementById('sense-id');
+    sid.textContent = '—';
+    sid.title = dashTitle;
     document.getElementById('sense-meta').textContent = 'صفی خالی است';
-    document.getElementById('sense-def').textContent = '—';
-    document.getElementById('sense-example').textContent = '—';
+    const sdef = document.getElementById('sense-def');
+    sdef.textContent = '—';
+    sdef.title = dashTitle;
+    const sex = document.getElementById('sense-example');
+    sex.textContent = '—';
+    sex.title = dashTitle;
     renderCandidates([]);
     return;
   }
@@ -294,17 +320,29 @@ async function postLabel(verdict, target) {
     receiptEl.append(ltrCode(j.replay || '—'));
     receiptEl.append(document.createTextNode(' — ' + (j.store || '') + (j.watermark ? ' — ' + j.watermark : '')));
     await refreshLabelStats();
-  } catch(e) { statusEl.textContent = 'ذخیره ناموفق بود: ' + (e.message || e); }
+  } catch(e) {
+    statusEl.textContent = 'ذخیره ناموفق بود: ' + (e.message || e);
+    /* T12 OQ-10: failures also land in the shared 3-part box. */
+    showFormError('linking-err', 'ذخیره رأی ناموفق بود.',
+      (e && e.message) || e, () => postLabel(verdict, target), undefined);
+  }
 }
-document.getElementById('btn-refresh-screened').addEventListener('click', loadScreened);
+/* T12 OQ-10: every server button runs withBusy (busy «در حال…»,
+   no double-click). The refresh wrapper also drops the leaked click
+   event arg (R5): refresh always reloads the default screened input. */
+document.getElementById('btn-refresh-screened').addEventListener('click', (ev) => {
+  withBusy(ev && ev.currentTarget, 'در حال…', () => loadScreened());
+});
 /* پالایش زنده صف از طریق کنترلر (شناسه یا وضعیت) — سیم‌کشی ورودی
    در سازنده FilterableListController انجام می‌شود. */
 document.getElementById('btn-skip-next').addEventListener('click', () => selectSense(queueIndex + 1));
-document.getElementById('btn-reject-all').addEventListener('click', () => postLabel('none', null));
-document.getElementById('btn-record-link').addEventListener('click', () => {
+document.getElementById('btn-reject-all').addEventListener('click', (ev) => {
+  withBusy(ev && ev.currentTarget, 'در حال…', () => postLabel('none', null));
+});
+document.getElementById('btn-record-link').addEventListener('click', (ev) => {
   if (!selectedTarget) {
     document.getElementById('label-status').textContent = 'اول یک نامزد را از کارت‌ها انتخاب کنید.';
     return;
   }
-  postLabel('link', selectedTarget);
+  withBusy(ev && ev.currentTarget, 'در حال…', () => postLabel('link', selectedTarget));
 });

@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 2/7 — status: locked — focus: T02 duration helper, no code yet
+STATE: phase 2/7 — status: implemented-uncommitted — focus: T02 duration helper, code+tests+screenshots in worktree feat/screening-cabin-c (no commit)
 
 ## Ticket T02 — elapsed/duration helper (UX-25, OQ-9) [Wave 1 · PARALLEL-safe vs T01]
 

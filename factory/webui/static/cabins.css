@@ -244,3 +244,164 @@
     overflow-wrap: anywhere; word-break: break-word;
     color: var(--text-primary);
   }
+
+  /* ── کابین غربالگری T07: ستون کنترل چسبان (راست) + فضای کاری
+     زبانه‌دار (چپ) + آکاردئون تبلت ──
+     چیدمان راست‌به‌چپ است: نخستین فرزند (ستون کنترل) راست می‌نشیند. */
+  .screening-layout {
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 16px; align-items: start;
+  }
+  .screening-controls { margin: 0; min-width: 0; }
+  .screening-controls > summary.screening-controls-title { display: none; }
+  #screening-controls {
+    position: sticky; top: 58px;
+  }
+  .screening-workspace { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  #screening-words {
+    width: 100%; min-height: 120px; resize: vertical;
+    font-family: var(--mono); font-size: 0.8rem; line-height: 1.6;
+  }
+  .screening-check {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    font-size: 0.82rem; min-height: 36px; cursor: pointer; margin-top: 8px;
+  }
+  .screening-check input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--c-primary); }
+  .screening-filter { width: 100%; margin-bottom: 8px; }
+  .screening-resume {
+    border: 1px solid var(--c-primary); border-radius: 6px;
+    padding: 6px 10px; color: var(--c-primary);
+  }
+  .screening-handoff-line {
+    border: 1px solid var(--c-success); border-radius: 6px;
+    padding: 6px 10px; color: var(--c-success);
+  }
+  #screening-per-lemma-tbody tr[data-lemma] { cursor: pointer; }
+  #screening-per-lemma-tbody tr.sel { outline: 1px solid var(--c-primary); outline-offset: -1px; }
+  .screening-detail {
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 10px 12px; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  }
+  .screening-detail-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; min-width: 0;
+  }
+  .screening-drop-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .screening-drop-line {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; font-size: 0.8rem; min-width: 0;
+  }
+
+  .screening-history-filter { width: 100%; margin-bottom: 8px; }
+  #screening-history-tbody tr[data-run-id] td:first-child .p-meta { margin-top: 4px; }
+  #screening-history-tbody tr[data-run-id] button[disabled] { cursor: not-allowed; }
+  #screening-history-table td, #screening-history-table th { white-space: nowrap; }
+  #screening-history-table td:first-child { white-space: normal; min-width: 180px; }
+
+  @media (max-width: 1024px) {
+    .screening-layout { grid-template-columns: 1fr; }
+    #screening-controls { position: static; }
+    .screening-controls {
+      border: 1px solid var(--border-color); border-radius: 8px;
+      background: var(--bg-surface);
+    }
+    .screening-controls > summary.screening-controls-title {
+      display: flex; align-items: center; min-height: 44px;
+      padding: 6px 14px; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+    }
+  }
+
+  /* ── T09: گفت‌وگوی داده سراسری — کنارچسب مخالف ستون کنترل ──
+     ستون کنترل کابین راست (چسبان) است؛ گفت‌وگو به چپ می‌چسبد و هرگز
+     آن ستون را نمی‌پوشاند. تبلت: ورق تمام‌صفحه، اما ستون کنترل بالاتر
+     از ورق می‌ماند (خلاصه + توقف همیشه کلیک‌پذیر). */
+  #data-dialog {
+    position: fixed; top: 64px; bottom: 24px; left: 24px;
+    width: min(520px, 44vw); z-index: 60;
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 10px; display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  #data-dialog[hidden] { display: none !important; }
+  .data-dialog-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 12px 14px; border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  .data-dialog-title { font-weight: 700; font-size: 0.9rem; }
+  .data-dialog-body {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 12px 14px 14px; overflow-y: auto; min-height: 0;
+  }
+  #data-dialog-crumb {
+    font-size: 0.75rem; color: var(--text-secondary);
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .data-dialog-roots { display: flex; gap: 8px; flex-wrap: wrap; }
+  .data-dialog-ops { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .data-dialog-ops input { flex: 1 1 160px; min-width: 0; }
+  .data-dialog-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .data-dialog-pins { display: flex; gap: 8px; flex-wrap: wrap; }
+  .data-pin-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    background: var(--bg-elevated); border: 1px solid var(--border-color);
+    border-radius: 999px; padding: 4px 6px 4px 10px; font-size: 0.78rem;
+  }
+
+  /* ── T11: گفت‌وگوی برخورد نام — همان کنارچسب گفت‌وگوی داده،
+     یک پله بالاتر از آن؛ هرگز بازنویسی بی‌سر و صدا ندارد. ── */
+  #collision-dialog {
+    position: fixed; top: 64px; bottom: 24px; left: 24px;
+    width: min(520px, 44vw); z-index: 80;
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 10px; display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  #collision-dialog[hidden] { display: none !important; }
+  .collision-opts {
+    display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+  }
+  .collision-opts .screening-check {
+    display: flex; align-items: center; gap: 8px; font-size: 0.82rem;
+  }
+
+  /* ── T09: آکاردئون A1 تا A4 — دسکتاپ همه باز با summary پنهان؛
+     تبلت summary نمایان و یکی‌باز (بستن بقیه در JS). ── */
+  #screening-card details.acc { margin: 0 0 10px; min-width: 0; }
+  #screening-card details.acc > summary.acc-title { display: none; }
+  /* فقط بخش باز چیده می‌شود: display روی فرزند، قانون پنهان‌سازی
+     UA برای details بسته را خنثی می‌کند، پس به [open] مقید است. */
+  #screening-card details.acc[open] > .acc-body {
+    display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  }
+
+  @media (max-width: 1024px) {
+    #data-dialog {
+      top: 12px; bottom: 12px; left: 12px; right: 12px; width: auto;
+    }
+    #collision-dialog {
+      top: 12px; bottom: 12px; left: 12px; right: 12px; width: auto;
+    }
+    /* ورق هرگز کنترل را نمی‌پوشاند: ستون کنترل بالاتر از ورق است. */
+    body.has-data-dialog .screening-controls {
+      position: relative; z-index: 70;
+    }
+    body.has-data-dialog #screening-controls {
+      position: relative;
+    }
+    #screening-card details.acc {
+      border: 1px solid var(--border-color); border-radius: 8px;
+      background: var(--bg-elevated); padding: 0 10px 10px;
+    }
+    #screening-card details.acc > summary.acc-title {
+      display: flex; align-items: center; min-height: 44px;
+      font-weight: 700; font-size: 0.85rem; cursor: pointer;
+    }
+    #screening-card details.acc:not([open]) > summary.acc-title {
+      min-height: 44px;
+    }
+  }

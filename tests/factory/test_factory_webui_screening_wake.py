@@ -427,7 +427,7 @@ def test_screening_abort_kill_fallback_when_child_ignores_term(
 # ---------------------------------------------------------------------------
 
 def test_screening_words_validated_and_capped():
-    """Only [a-z-]{1,64} tokens survive; the list caps at 50."""
+    """Only [a-z-]{1,64} tokens survive; over 2500 fail-fast (T11 OQ-2)."""
     assert webui._screening_parse_words("Run, LIGHT, take") == [
         "run", "light", "take"]
     assert webui._screening_parse_words(
@@ -435,7 +435,11 @@ def test_screening_words_validated_and_capped():
     assert webui._screening_parse_words("") == [
         "run", "light", "take", "get", "make"]
     many = ",".join("z" * ((i % 60) + 1) for i in range(200))
-    assert len(webui._screening_parse_words(many)) == 50
+    assert len(webui._screening_parse_words(many)) == 200
+    over = ",".join("w%c%c" % (97 + (i // 26) % 26, 97 + i % 26)
+                    for i in range(2501))
+    with pytest.raises(webui._ScreeningOverCap):
+        webui._screening_parse_words(over)
 
 
 def test_screening_out_dir_escapes_rejected(tmp_path, monkeypatch,

@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 7/7 — status: locked — focus: T10+T11+T12, no code yet
+STATE: phase 7/7 — status: T10 implemented-uncommitted + T11 implemented-uncommitted + T12 implemented-uncommitted (T12 on top of both; seams disjoint) — focus: review/commit next, no push/PR/merge
 
 ## Ticket T10 — paths T3 wiring + formatting sweep (UX-22/23/24, UX-25/26/27-consume, OQ-9-consume) [Wave 3 · SERIAL after T07 · PARALLEL-safe vs T11]
 

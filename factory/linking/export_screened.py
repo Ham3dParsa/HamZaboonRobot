@@ -30,13 +30,128 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shlex
 import sys
+import uuid
 
 DEFAULT_OUT_DIR = (
     "W:/hamzaban_data_factory/proof-linker/screened")
 
 DEFAULT_WORDS = "run,light,take,get,make"
+
+
+#: T01 — drop-reason taxonomy over the drops sidecar ``reason`` strings
+#: (reuses the prune controller's existing reason classes, never
+#: re-derives screening): twin/dedup/dup → twin_r3 (R3 twin dedup);
+#: proper/propn/name → proper_r2 (R2 proper-noun hard drop); the rest
+#: (obsolete/form-of/xref/niche/…) → other.
+_TWIN_RE = re.compile(r"twin|dedup|dup", re.IGNORECASE)
+_PROPER_RE = re.compile(r"proper|propn|[^a-z]name[^a-z]|^name$", re.IGNORECASE)
+
+
+def classify_drop_reason(reason) -> str:
+    """Sidecar ``reason`` string → ``twin_r3`` / ``proper_r2`` / ``other``."""
+    text = str(reason or "")
+    if _TWIN_RE.search(text):
+        return "twin_r3"
+    if _PROPER_RE.search(text):
+        return "proper_r2"
+    return "other"
+
+
+def aggregate_drop_reasons(drops_path):
+    """Count ``{twin_r3, proper_r2, other}`` from the drops sidecar.
+
+    Pure aggregation over ``screened.drops.jsonl`` ``reason`` strings
+    (never re-runs screening). Returns the counts dict, or None when
+    the sidecar is missing/unreadable (honest absence — never zeros).
+    """
+    counts = {"twin_r3": 0, "proper_r2": 0, "other": 0}
+    try:
+        handle = open(drops_path, encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            counts[classify_drop_reason(row.get("reason", ""))] += 1
+    except OSError:
+        return None
+    finally:
+        try:
+            handle.close()
+        except Exception:
+            pass
+    return counts
+
+
+def registry_path(data_root=None):
+    """T03 — ``<DATA_ROOT>/screened_registry.jsonl`` (W root, single source).
+
+    ``data_root`` defaults to the factory ``data_root()`` resolver —
+    no second resolver lives here.
+    """
+    if data_root is None:
+        try:
+            from factory.core.env_loader import data_root as _root
+
+            data_root = _root()
+        except Exception:
+            data_root = ""
+    return os.path.join(str(data_root or ""), "screened_registry.jsonl")
+
+
+def append_registry(words, out_dir, created_at, run_id,
+                    data_root=None):
+    """T03 — append one ``{lemma, out_dir, created_at, run_id}`` line per lemma.
+
+    Best-effort ledger (atomic ``open("a")`` per run): never raises,
+    never fails a successful export.
+    """
+    try:
+        path = registry_path(data_root)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            for lemma in words:
+                handle.write(json.dumps(
+                    {"lemma": lemma, "out_dir": out_dir,
+                     "created_at": created_at, "run_id": run_id},
+                    ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def read_registry_lemmas(data_root=None):
+    """T03 — screened lemma set (lowercase) from the registry; missing → empty."""
+    seen = set()
+    try:
+        with open(registry_path(data_root), encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict):
+                    lemma = str(row.get("lemma") or "").strip().lower()
+                    if lemma:
+                        seen.add(lemma)
+    except (OSError, ValueError):
+        pass
+    return seen
 
 
 def _project_root():
@@ -119,10 +234,19 @@ def export_words(words, out_dir, index=None, raw_path=None,
         "files": {"kept": kept_path, "drops": drops_path},
         "replay": replay_command(words, out_dir),
     }
+    # T01 — aggregate drop_reasons from the just-written sidecar (never
+    # re-derive); missing/unreadable sidecar → key absent (honest empty,
+    # never zeros). Invariant: twin+proper+other == dropped_total.
+    drop_reasons = aggregate_drop_reasons(drops_path)
+    if drop_reasons is not None:
+        manifest["drop_reasons"] = drop_reasons
     tmp = manifest_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, ensure_ascii=False, indent=1)
     os.replace(tmp, manifest_path)
+    # T03 — ledger append (best-effort, never fails the export).
+    append_registry(list(words), out_dir, created,
+                    uuid.uuid4().hex)
     return manifest
 
 

@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 1/7 — status: locked — focus: T01 manifest drop_reasons, no code yet
+STATE: phase 1/7 — status: implemented-uncommitted — focus: T01 manifest drop_reasons, code+tests+screenshots in worktree feat/screening-cabin-c (no commit)
 
 ## Ticket T01 — manifest `drop_reasons` (UX-26, OQ-7) [Wave 1 · PARALLEL-safe vs T02]
 

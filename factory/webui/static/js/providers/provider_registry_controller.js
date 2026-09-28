@@ -47,11 +47,16 @@ export async function refreshBadges() {
   try {
     const f = await getJSON('/api/files/roots');
     const roots = f.roots || [];
+    const files = (f && f.files) || {};
     const rootEl = document.getElementById('badge-root');
     rootEl.replaceChildren();
     if (roots.length) rootEl.append(document.createTextNode(roots[0].path + (roots.length > 1 ? ' (+' + faNum(roots.length - 1) + ')' : '')));
     else rootEl.append(document.createTextNode('—'));
-    document.dispatchEvent(new CustomEvent('hz:paths-refreshed', {detail: {roots}}));
+    if (!roots.length) rootEl.title = 'سرور محلی مسیری گزارش نکرد';
+    else rootEl.title = '';
+    /* T10: files facts ride the same event so the paths table
+       renders exists/size/lines/mtime from the live response. */
+    document.dispatchEvent(new CustomEvent('hz:paths-refreshed', {detail: {roots, files}}));
   } catch(e) {
     document.getElementById('badge-root').textContent = 'نامشخص';
   }
