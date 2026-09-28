@@ -115,6 +115,7 @@ not in prose.
 - `factory/net/provider_cycle.py`: generic provider cycle driver (cache check, refresh, ping, prove in fives, remember, done) over injected adapters; single owner of the cycle state machine (no network/pool/secret I/O itself).
 - `factory/precard/provider_manifest.py`: dynamic provider manifest store (seed-once rows + removed set + N-wide key-slot names); single owner of persisted provider rows.
 - `factory/precard/provider_benchmark.py`: provider benchmark + gold evaluator over injected invoke_fn; single owner of benchmark scoring.
+- `factory/webui/`: operator console (LAN-visible, no auth) — `server.py` (Flask routes + screening run record; screening word/name/dir helpers + `_screening_split_tokens` shared splitter), `labels.py` (label store + replay reference), `duration_fmt.py` (elapsed_human formatter), `pinned_paths.py` (shared pin store across worktrees), `run_status.py` (per-cabin run-status file + history reader); `static/js/shell/view_navigator.js` (view switching, `#view-linking`-scoped tab memory), `static/js/shell/data_dialog_controller.js` (single-owner file/dest picker + collision dialog), `static/js/shell/cabin_history_controller.js` (generic cabin history list + handoff).
 - `tests/test_integration/`: handler-level integration tests.
 
 **Module change guard:** if module structure changes (add/rename/split/remove),

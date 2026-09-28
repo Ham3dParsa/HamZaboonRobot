@@ -47,11 +47,16 @@ export async function refreshBadges() {
   try {
     const f = await getJSON('/api/files/roots');
     const roots = f.roots || [];
+    const files = (f && f.files) || {};
     const rootEl = document.getElementById('badge-root');
     rootEl.replaceChildren();
     if (roots.length) rootEl.append(document.createTextNode(roots[0].path + (roots.length > 1 ? ' (+' + faNum(roots.length - 1) + ')' : '')));
     else rootEl.append(document.createTextNode('—'));
-    document.dispatchEvent(new CustomEvent('hz:paths-refreshed', {detail: {roots}}));
+    if (!roots.length) rootEl.title = 'سرور محلی مسیری گزارش نکرد';
+    else rootEl.title = '';
+    /* T10: files facts ride the same event so the paths table
+       renders exists/size/lines/mtime from the live response. */
+    document.dispatchEvent(new CustomEvent('hz:paths-refreshed', {detail: {roots, files}}));
   } catch(e) {
     document.getElementById('badge-root').textContent = 'نامشخص';
   }
@@ -165,8 +170,22 @@ export async function refreshProviderCards() {
       keyInp.className = 'inline-input code-token';
       keyInp.id = 'pk-' + row.name;
       keyInp.dir = 'ltr';
+      /* PUX-23: راز پیش‌فرض پنهان (password) + دکمه نمایش. */
+      keyInp.type = 'password';
+      keyInp.setAttribute('aria-label', 'مقدار کلید (' + row.name + ')');
       keyInp.placeholder = 'مقدار کلید (رمزشده ذخیره می‌شود)';
       keyInp.autocomplete = 'off';
+      const showBtn = document.createElement('button');
+      showBtn.type = 'button';
+      showBtn.className = 'btn-skip-next';
+      showBtn.textContent = 'نمایش';
+      showBtn.setAttribute('aria-label',
+        'نمایش مقدار کلید ' + row.name);
+      showBtn.addEventListener('click', () => {
+        const show = keyInp.type === 'password';
+        keyInp.type = show ? 'text' : 'password';
+        showBtn.textContent = show ? 'پنهان‌کردن' : 'نمایش';
+      });
       const saveBtn = document.createElement('button');
       saveBtn.className = 'btn-select-candidate';
       saveBtn.textContent = 'ذخیره کلید';
@@ -196,7 +215,7 @@ export async function refreshProviderCards() {
       delProvBtn.textContent = 'حذف ارائه‌دهنده';
       delProvBtn.setAttribute('aria-label', 'حذف ارائه‌دهنده ' + row.name);
       delProvBtn.addEventListener('click', (ev) => providerDelete(row.name, ev.currentTarget));
-      keyRow.append(keyInp, saveBtn, delBtn, addKeyBtn, jumpBtn, delProvBtn);
+      keyRow.append(keyInp, showBtn, saveBtn, delBtn, addKeyBtn, jumpBtn, delProvBtn);
       card.append(keyRow);
       box.append(card);
     }

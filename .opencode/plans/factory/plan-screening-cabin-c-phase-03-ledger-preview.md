@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 3/7 — status: locked — focus: T03 ledger + preview, no code yet
+STATE: phase 3/7 — status: implemented-uncommitted — focus: T03 ledger + preview, code+tests+screenshots in worktree feat/screening-cabin-c (no commit)
 
 ## Ticket T03 — ledger `screened_registry.jsonl` + preview (ADD-10, UX-5) [Wave 1 · PARALLEL-safe vs T01/T02/T04]
 

@@ -261,3 +261,95 @@ def test_telemetry_controller_fetches_on_init_besides_listeners():
     # wiring: main.js must actually load the controller, else neither the
     # listeners nor the init fetches ever run (proven frozen "…" live)
     assert "telemetry/telemetry_dashboard_controller.js" in _main_text()
+
+
+# ─── T10: paths T3 wiring + formatting sweep ────────────────────
+# Locked: renderPaths consumes files.{kaikki_raw,screened} (exists/size/
+# lines/mtime or titled —); every — titled; dead roots drop with count;
+# elapsed via elapsed_human; log idle/live/final with cause. Route-delete:
+# no splitDropReasons symbol exists (grep proof) — nothing to remove.
+
+def _screening_text():
+    with open(os.path.join(PROJECT_ROOT, "factory", "webui", "static",
+                           "js", "screening",
+                           "screening_cabin_controller.js"),
+              encoding="utf-8") as handle:
+        return handle.read()
+
+
+def test_file_facts_include_mtime_for_existing_file(tmp_path):
+    webui = _webui()
+    target = str(tmp_path / "m.jsonl")
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write('{"a": 1}\n')
+    facts = webui._file_facts(target)
+    assert facts["exists"] is True
+    assert facts["mtime_iso"], facts
+    assert facts["mtime_relative"] != "—", facts
+    assert "Asia/Tehran" in facts["mtime_detail"] or \
+        "میلادی" in facts["mtime_detail"], facts
+
+
+def test_file_facts_missing_file_keeps_honest_mtime(tmp_path):
+    webui = _webui()
+    facts = webui._file_facts(str(tmp_path / "nope.jsonl"))
+    assert facts["exists"] is False
+    assert facts["mtime_iso"] is None
+    assert facts["mtime_relative"] == "—"
+    assert facts["mtime_detail"] == "—"
+
+
+def test_files_roots_files_carry_four_values(monkeypatch):
+    """roots response with facts → 4 values per dataset (exists/size/
+    lines/mtime); over-cap lines keep the honest 50000+ label."""
+    webui = _webui()
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    webui._reset_file_facts_cache()
+    body = webui.app.test_client().get("/api/files/roots").get_json()
+    assert sorted(body["files"].keys()) == ["kaikki_raw", "screened"]
+    for facts in body["files"].values():
+        for key in ("exists", "size", "lines", "lines_label",
+                    "truncated", "mtime_iso", "mtime_relative",
+                    "mtime_detail"):
+            assert key in facts, (key, facts)
+        if facts["truncated"]:
+            assert facts["lines"] == 50000
+            assert facts["lines_label"] == "50000+"
+
+
+def test_telemetry_paths_consumes_files_facts():
+    """Static wiring proof: renderPaths(roots, files) reads screened/
+    kaikki_raw exists/size/lines/mtime; every — built with a title."""
+    text = _telemetry_text()
+    assert "export function renderPaths(roots, files)" in text
+    assert "files.screened" in text and "files.kaikki_raw" in text
+    assert "mtime_relative" in text and "lines_label" in text
+    assert "titledEmpty(" in text
+    # no bare dash construction remains in the paths renderer:
+    # every "—" literal in this module rides a titled cell
+    assert text.count("title") >= text.count("—"), text.count("—")
+    # event + init fetch both carry files through
+    assert "detail.files" in text
+    assert "f && f.files" in text or "(f && f.files)" in text
+
+
+def test_screening_metrics_prefer_drop_reasons_and_titled():
+    """Static proof: drop_reasons preferred, elapsed_human primary,
+    metric empties titled, log 3-state titled, no splitDropReasons."""
+    text = _screening_text()
+    assert "manifest.drop_reasons" in text or \
+        "manifest && manifest.drop_reasons" in text
+    # route-delete proof: no fallback reader function exists (the word
+    # only appears in the T10 proof comment, never as a def/call)
+    assert "function splitDropReasons" not in text
+    assert "splitDropReasons(" not in text.replace(
+        "splitDropReasons reader exists", "")
+    assert "elapsed_human" in text
+    # metricVal builds titled empties (no removeAttribute on the — path)
+    assert "emptyCause" in text
+    assert "سرور تفکیک علت ثبت نکرد" in text
+    assert "هنوز اجرایی شروع نشده است" in text
+    # log box three states each with a titled cause
+    assert "وضعیت: بیکار" in text
+    assert "وضعیت: در حال اجرا" in text
+    assert "سرور گزارشی برنگرداند" in text

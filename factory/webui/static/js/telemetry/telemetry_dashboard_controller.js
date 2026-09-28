@@ -35,7 +35,13 @@ export function renderTelemetry(providers, rates, info) {
     const tdName = document.createElement('td');
     tdName.append(ltrCode(p.name));
     const tdModel = document.createElement('td');
-    tdModel.append(ltrCode(defaults[p.name] || '—'));
+    if (defaults[p.name]) {
+      tdModel.append(ltrCode(defaults[p.name]));
+    } else {
+      tdModel.textContent = '—';
+      tdModel.title = 'سرور ثبت نمی‌کند';
+      tdModel.className = 'honest-empty';
+    }
     tr.append(tdName, tdModel);
     for (let i = 0; i < 5; i++) {
       tr.append(honestEmptyCell());
@@ -44,12 +50,43 @@ export function renderTelemetry(providers, rates, info) {
   }
 }
 
-/* مسیرها: فقط ریشه‌های زنده سرور */
-export function renderPaths(roots) {
-  document.getElementById('paths-badge').textContent = faNum(roots.length) + ' ریشه زنده';
+/* مسیرها: فقط ریشه‌های زنده سرور + حقایق زنده فایل (T10).
+   هر ردیف هر چهار مقدار بودن/اندازه/سطرها/زمان اصلاح یا خالی صادقانه
+   عنوان‌دار را از پاسخ زنده نشان می‌دهد (UX-22/23/24، OQ-9-consume):
+   ستون ۳ «آخرین فایل معتبر» = mtime نسبی (T02 format_moment، جزئیات
+   شمسی+میلادی در title)؛ ستون ۴ «تعداد سطرها / حجم» = lines_label
+   (سقف «۵۰۰۰۰+» با اعداد فارسی) + اندازه بایت. منبع: files.screened
+   (ترجیح) وگرنه files.kaikki_raw؛ ناموجود -> «—» عنوان‌دار (علت
+   فایل-ناموجود/ثبت‌نشده/بیش‌از‌سقف). ریشه مرده از سرور نمی‌آید؛ نشان
+   شمار با سطرهای نمایان برابر است. هرگز عدد ساختگی نیست. */
+function titledEmpty(cause) {
+  const td = document.createElement('td');
+  td.className = 'honest-empty';
+  td.textContent = '—';
+  td.title = cause;
+  return td;
+}
+function pickFacts(files) {
+  const f = (files && typeof files === 'object') ? files : {};
+  const screened = (f.screened && typeof f.screened === 'object') ? f.screened : null;
+  const raw = (f.kaikki_raw && typeof f.kaikki_raw === 'object') ? f.kaikki_raw : null;
+  if (screened && screened.exists) return {facts: screened, name: 'screened'};
+  if (raw && raw.exists) return {facts: raw, name: 'kaikki_raw'};
+  return {facts: screened || raw || null, name: (screened && 'screened') || (raw && 'kaikki_raw') || ''};
+}
+export function renderPaths(roots, files) {
+  const list = Array.isArray(roots) ? roots : [];
+  const badge = document.getElementById('paths-badge');
+  if (badge) {
+    badge.textContent = faNum(list.length) + ' ریشه زنده';
+    badge.title = list.length
+      ? 'ریشه‌های ناموجود خودبه‌خود کنار رفتند؛ شمار نشان با سطرهای جدول برابر است.'
+      : 'سرور محلی مسیری گزارش نکرد.';
+  }
   const tb = document.getElementById('paths-tbody');
+  if (!tb) return;
   tb.replaceChildren();
-  if (!roots.length) {
+  if (!list.length) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 4;
@@ -58,14 +95,60 @@ export function renderPaths(roots) {
     tb.append(tr);
     return;
   }
-  for (const r of roots) {
+  const picked = pickFacts(files);
+  const facts = picked.facts;
+  /* پسوند منبع فارسی (واژه‌نامه §۳)؛ نام ناشناخته خامِ برچسب‌دار. */
+  const SRC_FA = {screened: 'غربال‌شده', kaikki_raw: 'خام کایکی'};
+  const srcName = picked.name
+    ? (' (' + (SRC_FA[picked.name] || picked.name) + ')') : '';
+  for (const r of list) {
     const tr = document.createElement('tr');
     const tdLabel = document.createElement('td');
-    tdLabel.textContent = r.label || '—';
+    if (r && r.label) {
+      tdLabel.textContent = r.label;
+    } else {
+      tdLabel.textContent = '—';
+      tdLabel.title = 'سرور این ریشه را ثبت نکرد';
+      tdLabel.className = 'honest-empty';
+    }
     const tdPath = document.createElement('td');
-    tdPath.append(ltrCode(r.path || '—'));
-    const tdLast = honestEmptyCell();
-    const tdRows = honestEmptyCell();
+    if (r && r.path) {
+      tdPath.append(ltrCode(r.path));
+      tdPath.title = r.path;
+    } else {
+      tdPath.textContent = '—';
+      tdPath.title = 'سرور مسیری برای این ریشه ثبت نکرد';
+      tdPath.className = 'honest-empty';
+    }
+    /* ستون ۳: mtime نسبی + جزئیات تقویم در title (OQ-9-consume). */
+    let tdLast;
+    if (facts && facts.exists && facts.mtime_relative && facts.mtime_relative !== '—') {
+      tdLast = document.createElement('td');
+      tdLast.textContent = faNum(facts.mtime_relative) + srcName;
+      tdLast.title = String(facts.mtime_detail || facts.mtime_iso || '');
+    } else if (facts && facts.exists) {
+      tdLast = titledEmpty('فایل موجود است ولی سرور زمان اصلاح را ثبت نکرد' + srcName);
+    } else if (facts && facts.exists === false) {
+      tdLast = titledEmpty('فایل ناموجود است' + srcName + ' — سرور مسیری برای آن ندارد');
+    } else {
+      tdLast = titledEmpty('سرور این ستون را ثبت نمی‌کند');
+    }
+    /* ستون ۴: lines_label (سقف «۵۰۰۰۰+») + اندازه؛ بودن از exists. */
+    let tdRows;
+    if (facts && facts.exists) {
+      tdRows = document.createElement('td');
+      const label = String((facts.lines_label !== undefined && facts.lines_label !== null)
+        ? facts.lines_label : '—');
+      const size = (facts.size !== undefined && facts.size !== null) ? facts.size : '—';
+      tdRows.textContent = faNum(label) + ' سطر / ' + faNum(size) + ' بایت' + srcName;
+      tdRows.title = facts.truncated
+        ? 'بیش از سقف شمارش (' + faNum(label) + ') — شمار دقیق ثبت نشد' + srcName
+        : 'حقایق زنده سرور' + srcName;
+    } else if (facts && facts.exists === false) {
+      tdRows = titledEmpty('فایل ناموجود است' + srcName + ' — شمارش سطر ندارد');
+    } else {
+      tdRows = titledEmpty('سرور این ستون را ثبت نمی‌کند');
+    }
     tr.append(tdLabel, tdPath, tdLast, tdRows);
     tb.append(tr);
   }
@@ -76,7 +159,7 @@ document.addEventListener('hz:providers-refreshed', (ev) => {
 });
 document.addEventListener('hz:paths-refreshed', (ev) => {
   const detail = (ev && ev.detail) || {};
-  renderPaths(detail.roots || []);
+  renderPaths(detail.roots || [], detail.files || {});
 });
 /* مسابقه مقداردهی: جدول‌ها روی بارگذاری صفحه پر می‌شوند —
    رویدادهای hz *ممکن است پیش از شنونده‌ها برسند؛ واکشی مستقیمِ
@@ -92,7 +175,7 @@ export async function fetchAndRenderTelemetry() {
 export async function fetchAndRenderPaths() {
   try {
     const f = await getJSON('/api/files/roots');
-    renderPaths((f && f.roots) || []);
+    renderPaths((f && f.roots) || [], (f && f.files) || {});
   } catch(e) {}
 }
 fetchAndRenderTelemetry();

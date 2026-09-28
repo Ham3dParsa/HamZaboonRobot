@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 6/7 — status: locked — focus: T08+T09, no code yet
+STATE: phase 6/7 — status: locked — focus: T08 done (19/19 pytest green, 2 shots), T09 done in worktree (10 hermetic + 5 live green, 2 shots; uncommitted, no push/PR/merge)
 
 ## Ticket T08 — history/lineage tab (ADD-11 consume, UX-31) [Wave 2 · SERIAL after T05+T07 · PARALLEL-safe vs T09]
 

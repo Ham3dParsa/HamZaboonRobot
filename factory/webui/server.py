@@ -1621,8 +1621,14 @@ _FILE_LIST_LIMIT = 500
 
 
 def _browse_roots():
-    """Operator starting points: bundled samples, this console's runs, drives."""
+    """Operator starting points: data root first, then samples/runs/drives."""
     roots = []
+    try:
+        root = data_root()
+        if root and os.path.isdir(root):
+            roots.append({"path": root, "label": "data root"})
+    except Exception:
+        pass
     try:
         from factory.precard import pipeline as _pipe
         pilot = os.path.dirname(_pipe.DEFAULT_SAMPLE)
@@ -1650,11 +1656,65 @@ def _browse_roots():
     return out
 
 
+#: Line-scan budget for _list_dir per-file facts (T09): files at or
+#: below this size get exact-or-capped counts via _file_facts; bigger
+#: files report size + mtime with an honest "—" lines label (never a
+#: full unbounded scan per listing request).
+_LIST_LINES_SCAN_CAP = 512 * 1024
+
+
+def _list_entry_facts(full):
+    """T09 facts for one listed file: size + capped lines + mtime.
+
+    ``lines``/``lines_label`` come from the existing ``_file_facts``
+    (cap ``_FILE_LINES_CAP`` → label ``"50000+"``) when the file fits
+    ``_LIST_LINES_SCAN_CAP``; oversized files keep ``lines`` None with
+    label ``"—"`` and a titled cause. ``mtime_iso`` (UTC) + T02
+    ``format_moment`` ``mtime_relative``/``mtime_detail`` ride every
+    file; unstatable mtimes stay None/"—" (honest empty, never raises).
+    """
+    try:
+        size = os.path.getsize(full)
+    except OSError:
+        size = -1
+    entry = {"size": size, "lines": None, "lines_label": "—",
+             "lines_note": ("فایل بزرگ است — شمارش سطر در فهرست انجام "
+                            "نشد"),
+             "mtime_iso": None, "mtime_relative": "—", "mtime_detail": "—"}
+    if 0 <= size <= _LIST_LINES_SCAN_CAP:
+        try:
+            facts = _file_facts(full)
+        except Exception:
+            facts = {}
+        if facts:
+            entry["lines"] = facts.get("lines")
+            entry["lines_label"] = str(facts.get("lines_label", "—"))
+            entry["lines_note"] = ""
+    try:
+        stamp = os.path.getmtime(full)
+        iso = (datetime.datetime.fromtimestamp(
+            stamp, datetime.timezone.utc).isoformat())
+        entry["mtime_iso"] = iso
+        try:
+            from factory.webui import duration_fmt as _duration_fmt
+            moment = _duration_fmt.format_moment(iso)
+        except Exception:
+            moment = {}
+        entry["mtime_relative"] = str(moment.get("relative") or "—")
+        entry["mtime_detail"] = str(moment.get("detail") or "—")
+    except (OSError, ValueError, OverflowError):
+        pass
+    return entry
+
+
 def _list_dir(absdir):
     """(ok, error, payload) listing of one absolute directory.
 
     Names + dir flags + sizes only — file contents are never read here
     (sample validation stays the separate /api/sample/validate path).
+    T09: files also carry size-gated ``lines``/``lines_label`` (capped
+    ``"50000+"``) + ``mtime_iso``/``mtime_relative``/``mtime_detail``
+    (T02 ``format_moment``); folders carry no size claim at all.
     """
     want = os.path.abspath(str(absdir or ""))
     if not want or not os.path.isdir(want):
@@ -1670,12 +1730,9 @@ def _list_dir(absdir):
             if os.path.isdir(full):
                 dirs.append({"name": name, "is_dir": True})
             elif os.path.isfile(full):
-                try:
-                    size = os.path.getsize(full)
-                except OSError:
-                    size = -1
-                files.append({"name": name, "is_dir": False,
-                              "size": size})
+                row = {"name": name, "is_dir": False}
+                row.update(_list_entry_facts(full))
+                files.append(row)
         except OSError:
             continue
     parent = os.path.dirname(want.rstrip(os.sep)) or None
@@ -1696,9 +1753,16 @@ def _file_facts(path):
     counts at most ``_FILE_LINES_CAP`` lines — when the file holds more,
     ``lines`` stays at the cap with ``lines_label`` ``"50000+"`` and
     ``truncated`` True (never a full unbounded count per request).
+
+    T10: ``mtime_iso`` (UTC) + T02 ``format_moment`` ``mtime_relative`` /
+    ``mtime_detail`` ride every fact (dual calendar Asia/Tehran+UTC);
+    missing/unstatable files keep ``None``/``"—"`` (honest empty).
+    Additive keys only — existing callers/tests keep working.
     """
     info = {"path": path, "exists": False, "size": 0,
-            "lines": 0, "lines_label": "0", "truncated": False}
+            "lines": 0, "lines_label": "0", "truncated": False,
+            "mtime_iso": None, "mtime_relative": "—",
+            "mtime_detail": "—"}
     try:
         info["exists"] = bool(path) and os.path.isfile(path)
     except (OSError, ValueError, TypeError):
@@ -1726,6 +1790,20 @@ def _file_facts(path):
     else:
         info["lines"] = count
         info["lines_label"] = str(count)
+    try:
+        stamp = os.path.getmtime(path)
+        iso = (datetime.datetime.fromtimestamp(
+            stamp, datetime.timezone.utc).isoformat())
+        info["mtime_iso"] = iso
+        try:
+            from factory.webui import duration_fmt as _duration_fmt
+            moment = _duration_fmt.format_moment(iso)
+        except Exception:
+            moment = {}
+        info["mtime_relative"] = str(moment.get("relative") or "—")
+        info["mtime_detail"] = str(moment.get("detail") or "—")
+    except (OSError, ValueError, OverflowError):
+        pass
     return info
 
 
@@ -4512,6 +4590,269 @@ def api_files_list():
     return jsonify(payload)
 
 
+def _inside_dir(candidate, root):
+    """True when abspath ``candidate`` is ``root`` or below it."""
+    try:
+        cand_abs = os.path.abspath(candidate)
+        root_abs = os.path.abspath(root)
+    except (OSError, ValueError, TypeError):
+        return False
+    try:
+        return os.path.commonpath([root_abs, cand_abs]) == root_abs
+    except (OSError, ValueError):
+        return False
+
+
+def _ops_allowed_roots():
+    """Dirs the T09 dialog may create/rename/read words under.
+
+    The shared data root plus every existing browse root (same rule
+    the T06 pin validator uses — one resolver per root kind, no
+    second registry here). Missing/unreadable roots simply drop out.
+    """
+    roots = []
+    try:
+        root = data_root()
+        if root and os.path.isdir(root):
+            roots.append(os.path.abspath(root))
+    except Exception:
+        pass
+    try:
+        for row in _browse_roots():
+            path = (row or {}).get("path") or ""
+            if path and os.path.isdir(path):
+                roots.append(os.path.abspath(path))
+    except Exception:
+        pass
+    return roots
+
+
+def _ops_check_inside(abspath):
+    """Fail-closed containment: abspath must sit under an allowed root."""
+    return any(abspath and _inside_dir(abspath, root)
+               for root in _ops_allowed_roots())
+
+
+_DIR_NAME_RX = re.compile(r"^[^/\\]{1,64}$")
+
+
+def _clean_ops_name(raw):
+    """One path segment for mkdir/rename (no separators, no dot-dot)."""
+    name = str(raw or "").strip()
+    if not name or not _DIR_NAME_RX.match(name):
+        return ""
+    if name in (".", "..") or name.startswith("."):
+        return ""
+    return name
+
+
+@app.route("/api/files/mkdir", methods=["POST"])
+def api_files_mkdir():
+    """T09 — create one subdir; delete HARD-BLOCKED (no such route)."""
+    fields = request.get_json(force=True, silent=True) or {}
+    parent = os.path.abspath(str(fields.get("dir") or ""))
+    name = _clean_ops_name(fields.get("name"))
+    if not parent or not os.path.isdir(parent):
+        return jsonify({"error": "not a directory"}), 400
+    if not name:
+        return jsonify({"error": "bad name (one segment, no slashes)"}), 400
+    if not _ops_check_inside(parent):
+        return jsonify({"error": "outside the allowed roots"}), 400
+    target = os.path.join(parent, name)
+    if os.path.exists(target):
+        return jsonify({"error": "already exists: %s" % name}), 409
+    try:
+        os.mkdir(target)
+    except OSError as exc:
+        return jsonify({"error": "mkdir failed: %s" % exc}), 500
+    return jsonify({"path": target}), 200
+
+
+@app.route("/api/files/rename", methods=["POST"])
+def api_files_rename():
+    """T09 — rename within the SAME parent dir (no moves, no delete)."""
+    fields = request.get_json(force=True, silent=True) or {}
+    src = os.path.abspath(str(fields.get("path") or ""))
+    name = _clean_ops_name(fields.get("name"))
+    if not src or not os.path.exists(src):
+        return jsonify({"error": "not found"}), 400
+    if not name:
+        return jsonify({"error": "bad name (one segment, no slashes)"}), 400
+    if not _ops_check_inside(src):
+        return jsonify({"error": "outside the allowed roots"}), 400
+    dst = os.path.join(os.path.dirname(src), name)
+    if os.path.exists(dst):
+        return jsonify({"error": "already exists: %s" % name}), 409
+    try:
+        os.rename(src, dst)
+    except OSError as exc:
+        return jsonify({"error": "rename failed: %s" % exc}), 500
+    return jsonify({"path": dst}), 200
+
+
+#: Word-read budget for the T09 input fill (never a full dump per click).
+#: The word cap rides the screening run maximum (single source below):
+#: the fill hands A1 exactly what the run will process (fail-fast over
+#: the same count, never a larger truncated list).
+_WORDS_READ_SIZE_CAP = 2 * 1024 * 1024
+
+
+@app.route("/api/files/words", methods=["GET"])
+def api_files_words():
+    """T09 — bounded word fill for A1 pick-as-input (no typed paths).
+
+    Reads one allowed-root file (size-capped, read whole: the old 1 MB
+    head sniff truncated large JSON and misparsed it). JSON shapes are
+    list-of-dicts via ``text`` fields, list-of-strings, or a single
+    string; everything else rides the linker's ``read_wordlist`` line
+    rule. Every candidate runs through the shared screening validators
+    (``_screening_split_tokens`` + ``_SCREENING_WORD_RE`` + lowercase),
+    so the fill agrees with what ``POST /api/screening/run`` parses —
+    no silent drops, and the cap is the run maximum with an honest
+    ``truncated`` flag. Upload stays T11-owned: this route never writes.
+    """
+    raw = str(request.args.get("path") or "").strip()
+    if not raw:
+        return jsonify({"error": "path is required"}), 400
+    cand = os.path.abspath(raw)
+    if not os.path.isfile(cand):
+        return jsonify({"error": "not a file"}), 400
+    if not _ops_check_inside(cand):
+        return jsonify({"error": "outside the allowed roots"}), 400
+    try:
+        if os.path.getsize(cand) > _WORDS_READ_SIZE_CAP:
+            return jsonify({"error": "file too large to fill"}), 400
+    except OSError:
+        return jsonify({"error": "not a file"}), 400
+    words = []
+    try:
+        with open(cand, encoding="utf-8") as handle:
+            body = handle.read()
+        try:
+            doc = json.loads(body)
+        except ValueError:
+            doc = None
+        candidates: list = []
+        if isinstance(doc, list):
+            if all(isinstance(r, dict) for r in doc):
+                candidates = [r.get("text") for r in doc
+                              if isinstance(r.get("text"), str)]
+            elif all(isinstance(r, str) for r in doc):
+                candidates = list(doc)
+        elif isinstance(doc, str):
+            candidates = [doc]
+        if not candidates and doc is None:
+            from factory.linking import cli as _link_cli
+            candidates = list(_link_cli.read_wordlist(cand) or [])
+        words = _screening_fill_words(candidates)
+    except (OSError, ValueError):
+        return jsonify({"error": "unreadable file"}), 400
+    total = len(words)
+    if total > _SCREENING_WORDS_MAX:
+        words = words[:_SCREENING_WORDS_MAX]
+    return jsonify({"path": cand, "words": words, "total": total,
+                    "truncated": total > len(words)})
+
+
+#: Upload budget for the T11 dialog upload (never a large dump per click).
+_UPLOAD_SIZE_CAP = 2 * 1024 * 1024
+
+
+@app.route("/api/files/upload", methods=["POST"])
+def api_files_upload():
+    """T11 — upload one file into an allowlisted dir (data root + browse roots).
+
+    Multipart ``{dir, file}``. The target dir must already exist inside
+    ``_ops_allowed_roots`` (outside -> 400, never written); the file name
+    is one segment via ``_clean_ops_name`` (400 when unusable); bodies
+    over ``_UPLOAD_SIZE_CAP`` -> 400; an existing same-name file -> 409
+    (never a silent overwrite — rename first). On success the file is
+    listed by ``/api/files/list`` and re-pickable as dialog input.
+    """
+    parent = os.path.abspath(str(request.form.get("dir") or ""))
+    if not parent or not os.path.isdir(parent):
+        return jsonify({"error": "not a directory"}), 400
+    if not _ops_check_inside(parent):
+        return jsonify({"error": "outside the allowed roots"}), 400
+    stored = request.files.get("file")
+    if stored is None or not (stored.filename or "").strip():
+        return jsonify({"error": "file is required"}), 400
+    name = _clean_ops_name(stored.filename)
+    if not name:
+        return jsonify({"error": "bad name (one segment, no slashes)"}), 400
+    try:
+        blob = stored.read(_UPLOAD_SIZE_CAP + 1)
+    except (OSError, ValueError):
+        return jsonify({"error": "unreadable upload"}), 400
+    if len(blob) > _UPLOAD_SIZE_CAP:
+        return jsonify({"error": "file too large to upload"}), 400
+    target = os.path.join(parent, name)
+    if os.path.exists(target):
+        return jsonify({"error": "already exists: %s" % name}), 409
+    try:
+        with open(target, "wb") as handle:
+            handle.write(blob)
+    except OSError as exc:
+        return jsonify({"error": "upload failed: %s" % exc}), 500
+    return jsonify({"path": target, "name": name,
+                    "size": len(blob)}), 200
+
+
+@app.route("/api/files/pins", methods=["GET"])
+def api_files_pins_list():
+    """T06 — shared pinned paths (OQ-4, one factory-wide file)."""
+    from factory.webui import pinned_paths as _pins
+
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    return jsonify({"pins": _pins.load_pins(root)})
+
+
+@app.route("/api/files/pins", methods=["POST"])
+def api_files_pins_add():
+    """T06 — pin a dir/file by name; 400 on invalid path/kind."""
+    from factory.webui import pinned_paths as _pins
+
+    fields = request.get_json(force=True, silent=True) or {}
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    try:
+        roots = _browse_roots()
+    except Exception:
+        roots = []
+    try:
+        entry = _pins.add_pin(root, fields.get("name"),
+                              fields.get("path"), fields.get("kind"),
+                              extra_roots=roots)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": "save failed: %s" % exc}), 500
+    return jsonify({"pin": entry}), 200
+
+
+@app.route("/api/files/pins/<name>", methods=["DELETE"])
+def api_files_pins_delete(name):
+    """T06 — unpin by exact name (no cascade); 404 when absent."""
+    from factory.webui import pinned_paths as _pins
+
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    try:
+        removed = _pins.remove_pin(root, name)
+    except OSError as exc:
+        return jsonify({"error": "save failed: %s" % exc}), 500
+    if not removed:
+        return jsonify({"error": "pin not found: %s" % name}), 404
+    return jsonify({"deleted": name})
+
+
 @app.route("/api/presets", methods=["GET"])
 def api_presets():
     _ensure_witness_preset()
@@ -5034,14 +5375,25 @@ def api_screened():
 
 
 #: Screening-export job states: idle (never ran here) / running / completed
-#: (exit 0) / failed (nonzero exit or operator abort). In-memory only —
-#: a console restart returns the job to idle (never a stale label).
+#: (exit 0) / failed (nonzero exit or operator abort). The live record
+#: is in-memory; T04 additionally persists {run_id, pid, started_iso,
+#: out_dir, out_name, words_hash, status} per spawn/settle to
+#: ``<DATA_ROOT>/webui/screening_run_status.json`` (owner:
+#: ``factory.webui.run_status``) so a console restart reconnects to the
+#: same run_id with log tail + progress recovered from out_dir.
 _SCREENING_LOG_MAX = 100
+
+#: Log tail filename inside the export out_dir (pump tee, T04 reconnect).
+_SCREENING_LOG_NAME = "screening.log"
+
+#: Cabins served by GET /api/runs/history (single registry of run cabins).
+_KNOWN_RUN_CABINS = frozenset({"screening"})
 
 _SCREENING_LOCK = threading.Lock()
 _SCREENING = {"proc": None, "pid": None, "status": "idle", "words": [],
-              "out_dir": "", "started": None, "exit_code": None,
-              "log": [], "manifest": None, "note": ""}
+              "out_dir": "", "started": None, "started_iso": None,
+              "run_id": None, "words_hash": None,
+              "exit_code": None, "log": [], "manifest": None, "note": ""}
 
 
 def _default_screening_words():
@@ -5073,29 +5425,116 @@ def _screening_default_out_dir():
     return os.path.join(str(root).strip(), "proof-linker", "screened")
 
 
-#: Screening word-list bounds: at most this many lemmas, each matching
-#: ``^[a-z-]{1,64}$`` (lowercase English lemma or hyphenated form).
-#: Non-matching tokens are dropped; an empty result falls back to the
-#: export script's own default list.
-_SCREENING_WORDS_MAX = 50
+#: Screening word-list bounds (T11 — OQ-2): at most this many lemmas,
+#: each matching ``^[a-z-]{1,64}$`` (lowercase English lemma or hyphenated
+#: form). Non-matching tokens are dropped; an empty result falls back to the
+#: export script's own default list. Over-cap input FAILS FAST (no silent
+#: trim) via ``_ScreeningOverCap`` carrying total + excess.
+_SCREENING_WORDS_MAX = 2500
 _SCREENING_WORD_RE = re.compile(r"^[a-z-]{1,64}$")
 
 
-def _screening_parse_words(raw):
-    """Comma-separated words -> validated lemma list (default when empty).
+class _ScreeningOverCap(ValueError):
+    """Raised when the parsed word list exceeds ``_SCREENING_WORDS_MAX``."""
 
-    Tokens are stripped + lowercased, kept only when they match
-    ``_SCREENING_WORD_RE``, capped at ``_SCREENING_WORDS_MAX``. Empty
-    (or fully invalid) input falls back to the export script's own
-    default word list (validated the same way).
+    def __init__(self, total, excess):
+        super(_ScreeningOverCap, self).__init__("words over cap")
+        self.total = total
+        self.excess = excess
+        self.limit = _SCREENING_WORDS_MAX
+
+
+def _screening_split_tokens(raw):
+    """Raw words -> lowercase non-empty tokens (shared splitter).
+
+    Single owner of the ``[Latin/Persian comma + newline]+`` split:
+    both the run path (``_screening_parse_words``) and the read-only
+    ledger preview consume it, so preview fresh/duplicate counts can
+    never disagree with what the run actually processes over
+    Persian-comma / multiline input.
     """
-    words = [w.strip().lower() for w in str(raw or "").split(",")]
-    words = [w for w in words if _SCREENING_WORD_RE.match(w)]
+    return [w.strip().lower()
+            for w in re.split(r"[,،\n\r]+", str(raw or ""))
+            if w.strip()]
+
+
+def _screening_fill_words(candidates):
+    """Candidate strings -> run-agreement word list (shared validators).
+
+    Agreement point between the data-dialog fill
+    (``GET /api/files/words``) and the run path
+    (``_screening_parse_words``): the shared ``_screening_split_tokens``
+    splitter + ``_SCREENING_WORD_RE`` filter + lowercase, so A1 shows
+    exactly what the run will process (no silent drops, no case
+    drift). Pure: never reads disk, never falls back to defaults.
+    """
+    text = "\n".join(str(w or "") for w in (candidates or []))
+    return [w for w in _screening_split_tokens(text)
+            if _SCREENING_WORD_RE.match(w)]
+
+
+def _screening_parse_words(raw):
+    """Multiline+comma words -> validated lemma list (default when empty).
+
+    Tokens split on commas (Latin/Persian) or newlines, stripped +
+    lowercased, kept only when they match ``_SCREENING_WORD_RE``. Empty
+    (or fully invalid) input falls back to the export script's own
+    default word list (validated the same way). Over-cap input raises
+    ``_ScreeningOverCap`` (fail-fast with excess count — never a silent
+    trim, OQ-2).
+    """
+    words = [w for w in _screening_split_tokens(raw)
+             if _SCREENING_WORD_RE.match(w)]
     if not words:
         words = [w.strip().lower()
                  for w in _default_screening_words().split(",")]
         words = [w for w in words if _SCREENING_WORD_RE.match(w)]
-    return words[:_SCREENING_WORDS_MAX]
+    if len(words) > _SCREENING_WORDS_MAX:
+        raise _ScreeningOverCap(len(words),
+                                len(words) - _SCREENING_WORDS_MAX)
+    return words
+
+
+#: Output-name alphabet (T11 — OQ-6): Persian (Arabic block) + Latin +
+#: digits + ``-`` + ``_`` survive; every other run becomes one ``-``.
+_SCREENING_NAME_RX = re.compile(r"[^\u0600-\u06FFa-zA-Z0-9\-_]+")
+
+
+def _screening_clean_out_name(raw):
+    """Sanitize a screening output name (fa+lat+digits+``-``+``_``).
+
+    Foreign runs -> ``-``, dash runs collapse, edge ``-``/``_`` strip,
+    latin lowercased, capped at 64 chars. Empty result means unusable.
+    """
+    name = _SCREENING_NAME_RX.sub(
+        "-", str(raw or "").strip().lower())
+    name = re.sub(r"-+", "-", name).strip("-_")
+    return name[:64]
+
+
+def _screening_out_dir_for_name(clean):
+    """Resolve a sanitized output name under the confined screening root.
+
+    Returns ``(True, resolved_dir)`` confined via
+    ``_screening_safe_out_dir``; ``(False, reason)`` on empty/escape.
+    """
+    if not clean:
+        return False, "bad out_name (empty after sanitize)"
+    base = _screening_default_out_dir()
+    return _screening_safe_out_dir(os.path.join(base, clean))
+
+
+def _screening_next_free_name(clean):
+    """First ``<clean>_v2`` … ``<clean>_v999`` with no dir on disk."""
+    base = _screening_default_out_dir()
+    for i in range(2, 1000):
+        cand = "%s_v%d" % (clean, i)
+        try:
+            if not os.path.exists(os.path.join(base, cand)):
+                return cand
+        except (OSError, ValueError, TypeError):
+            continue
+    return ""
 
 
 def _screening_safe_out_dir(raw):
@@ -5124,11 +5563,14 @@ def _screening_safe_out_dir(raw):
 
 
 def _screening_manifest_summary(out_dir):
-    """{kept_total, dropped_total, per_lemma} from the export manifest.
+    """{kept_total, dropped_total, per_lemma[, drop_reasons]} from the manifest.
 
     Pure reader over ``screened.manifest.json`` (written by the export
     child on success): missing/unreadable file -> None (honest empty,
-    never invented). Only the summary keys are surfaced.
+    never invented). Only the summary keys are surfaced. ``drop_reasons``
+    (T01: ``{twin_r3, proper_r2, other}``) passes through verbatim when
+    present and well-formed — legacy manifests without the key yield a
+    summary without it (downstream renders ``—`` titled, never zeros).
     """
     path = os.path.join(str(out_dir or ""), "screened.manifest.json")
     try:
@@ -5149,8 +5591,177 @@ def _screening_manifest_summary(out_dir):
     per_lemma = manifest.get("per_lemma")
     if not isinstance(per_lemma, list):
         per_lemma = []
-    return {"kept_total": kept, "dropped_total": dropped,
-            "per_lemma": per_lemma}
+    summary = {"kept_total": kept, "dropped_total": dropped,
+               "per_lemma": per_lemma}
+    reasons = manifest.get("drop_reasons")
+    if isinstance(reasons, dict):
+        try:
+            packed = {"twin_r3": int(reasons.get("twin_r3") or 0),
+                      "proper_r2": int(reasons.get("proper_r2") or 0),
+                      "other": int(reasons.get("other") or 0)}
+        except (TypeError, ValueError):
+            packed = None
+        if packed is not None:
+            summary["drop_reasons"] = packed
+    return summary
+
+
+def _screening_words_hash(words):
+    """Short stable hash of the spawn word list (T04 status identity)."""
+    try:
+        digest = hashlib.sha256(
+            ",".join(list(words or [])).encode("utf-8")).hexdigest()
+    except Exception:
+        return None
+    return digest[:16]
+
+
+def _screening_store_write_locked():
+    """Persist the in-memory screening record to the T04 disk file.
+
+    Caller must hold ``_SCREENING_LOCK``. Best-effort: a failed write
+    never breaks the run (the T03 registry precedent) — reconnect just
+    degrades to the previous file content. No-op before the first
+    spawn (no ``run_id`` yet).
+    """
+    if not _SCREENING.get("run_id"):
+        return
+    try:
+        from factory.webui import run_status as _run_status
+
+        try:
+            root = data_root()
+        except Exception:
+            root = ""
+        out_dir = str(_SCREENING.get("out_dir") or "")
+        try:
+            out_name = os.path.basename(os.path.abspath(out_dir))
+        except (OSError, ValueError, TypeError):
+            out_name = ""
+        _run_status.write(root, "screening", {
+            "run_id": _SCREENING.get("run_id") or "",
+            "pid": _SCREENING.get("pid"),
+            "started_iso": _SCREENING.get("started_iso") or "",
+            "out_dir": out_dir,
+            "out_name": out_name,
+            "words_hash": _SCREENING.get("words_hash"),
+            "status": _SCREENING.get("status") or "unknown"})
+    except Exception:
+        pass
+
+
+def _screening_log_tail(out_dir, limit=_SCREENING_LOG_MAX):
+    """Last ``limit`` lines of the T04 pump log under ``out_dir``.
+
+    Reads only the trailing ~64KB (long runs never load fully);
+    missing/unreadable file -> ``[]`` (honest empty, never raises).
+    """
+    path = os.path.join(str(out_dir or ""), _SCREENING_LOG_NAME)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            if size > 65536:
+                handle.seek(max(0, size - 65536))
+                handle.readline()
+            lines = handle.read().splitlines()
+    except (OSError, ValueError):
+        return []
+    try:
+        keep = int(limit)
+    except (TypeError, ValueError):
+        keep = _SCREENING_LOG_MAX
+    return lines[-keep:] if keep > 0 else []
+
+
+def _screening_idle_snapshot():
+    """Honest idle snapshot (no run anywhere — memory or disk)."""
+    try:
+        from factory.webui import duration_fmt as _duration_fmt
+
+        elapsed_human = _duration_fmt.format_duration(None)
+    except Exception:
+        elapsed_human = None
+    return {"status": "idle", "run_id": None, "resumed": False,
+            "pid": None, "exit_code": None, "elapsed": None,
+            "elapsed_human": elapsed_human, "started_iso": None,
+            "words": [], "out_dir": "", "log": [], "manifest": None,
+            "note": ""}
+
+
+def _screening_disk_snapshot_locked():
+    """Reconnect snapshot from the T04 disk file (holds ``_SCREENING_LOCK``).
+
+    Fresh console process (restart/refresh with no in-memory proc):
+    the same run_id comes back, with log tail + progress recovered
+    from out_dir. A record still marked running whose pid died behind
+    our back settles here (manifest present -> completed, else failed)
+    and the disk file is updated to match. Missing/corrupt file ->
+    honest idle. ``pid`` is a liveness probe only — never signalled.
+    Never raises.
+    """
+    try:
+        from factory.webui import run_status as _run_status
+    except Exception:
+        return _screening_idle_snapshot()
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    try:
+        rec = _run_status.read(root, "screening")
+    except Exception:
+        rec = None
+    if not rec:
+        return _screening_idle_snapshot()
+    try:
+        from factory.webui import duration_fmt as _duration_fmt
+
+        elapsed_human = _duration_fmt.format_duration(None)
+    except Exception:
+        elapsed_human = None
+    run_id = rec.get("run_id")
+    pid = rec.get("pid") if isinstance(rec.get("pid"), int) else None
+    started_iso = (rec.get("started_iso")
+                   if isinstance(rec.get("started_iso"), str) else None)
+    out_dir = rec.get("out_dir") if isinstance(rec.get("out_dir"), str) \
+        else ""
+    status = rec.get("status") if isinstance(rec.get("status"), str) \
+        else "unknown"
+    if status not in ("running", "completed", "failed", "aborted"):
+        status = "unknown"
+    log = _screening_log_tail(out_dir)
+    manifest = None
+    if status == "running":
+        try:
+            alive = _pid_alive(pid) if pid is not None else False
+        except Exception:
+            alive = False
+        if alive:
+            return {"status": "running", "run_id": run_id,
+                    "resumed": True, "pid": pid, "exit_code": None,
+                    "elapsed": None, "elapsed_human": elapsed_human,
+                    "started_iso": started_iso, "words": [],
+                    "out_dir": out_dir, "log": log, "manifest": None,
+                    "note": ""}
+        summary = _screening_manifest_summary(out_dir)
+        status = "completed" if summary is not None else "failed"
+        manifest = summary
+        try:
+            settled = dict(rec)
+            settled["status"] = status
+            _run_status.write(root, "screening", settled)
+        except Exception:
+            pass
+    elif status == "completed":
+        manifest = _screening_manifest_summary(out_dir)
+    return {"status": status, "run_id": run_id, "resumed": True,
+            "pid": pid, "exit_code": None, "elapsed": None,
+            "elapsed_human": elapsed_human, "started_iso": started_iso,
+            "words": [], "out_dir": out_dir, "log": log,
+            "manifest": manifest, "note": ""}
 
 
 def _screening_public_locked():
@@ -5158,7 +5769,10 @@ def _screening_public_locked():
 
     Polls the child once so a finished run settles to completed/failed
     on read; on success the manifest summary is attached. Elapsed is
-    monotonic seconds since spawn (None before the first run).
+    monotonic seconds since spawn (None before the first run); the raw
+    ``elapsed`` key is kept for compat while ``elapsed_human`` (T02:
+    Persian text, never a raw float) and ``started_iso`` (wall-clock
+    UTC, for smart-relative stamps) are added alongside.
     """
     import time as _time
 
@@ -5177,16 +5791,27 @@ def _screening_public_locked():
                 _SCREENING.get("out_dir"))
         else:
             _SCREENING["status"] = "failed"
+        _screening_store_write_locked()
     started = _SCREENING.get("started")
     try:
         elapsed = (_time.monotonic() - float(started)
                    if started is not None else None)
     except (TypeError, ValueError):
         elapsed = None
+    try:
+        from factory.webui import duration_fmt as _duration_fmt
+
+        elapsed_human = _duration_fmt.format_duration(elapsed)
+    except Exception:
+        elapsed_human = None
     return {"status": _SCREENING.get("status"),
+            "run_id": _SCREENING.get("run_id"),
+            "resumed": False,
             "pid": _SCREENING.get("pid"),
             "exit_code": _SCREENING.get("exit_code"),
             "elapsed": elapsed,
+            "elapsed_human": elapsed_human,
+            "started_iso": _SCREENING.get("started_iso"),
             "words": list(_SCREENING.get("words") or []),
             "out_dir": _SCREENING.get("out_dir") or "",
             "log": list(_SCREENING.get("log") or [])[-_SCREENING_LOG_MAX:],
@@ -5195,20 +5820,45 @@ def _screening_public_locked():
 
 
 def _screening_snapshot():
-    """Public screening snapshot (locking wrapper, never raises)."""
+    """Public screening snapshot (locking wrapper, never raises).
+
+    T04: with no in-memory proc (fresh process after a restart, or a
+    never-ran console) the snapshot merges disk state so refresh /
+    restart resume the SAME run_id with log tail + progress recovered
+    from out_dir (``resumed: true``); otherwise the live record wins.
+    """
     with _SCREENING_LOCK:
-        return _screening_public_locked()
+        proc = _SCREENING.get("proc")
+        if proc is not None or _SCREENING.get("status") != "idle":
+            return _screening_public_locked()
+        try:
+            return _screening_disk_snapshot_locked()
+        except Exception:
+            return _screening_idle_snapshot()
 
 
-def _screening_pump(proc):
+def _screening_pump(proc, log_path=None):
     """Drain a screening child into the combined ring buffer (thread).
 
     Stdout+stderr arrive merged (single chronological stream, max 100
-    lines kept); on child exit a still-running record settles to
-    completed/failed with the manifest summary on success. An abort
-    that already settled the record wins (never overwritten here).
-    Best-effort — never raises, never touches other jobs.
+    lines kept); T04 also tees each line to ``log_path`` (the
+    ``screening.log`` under the run out_dir, best-effort) so a console
+    restart recovers the tail from disk. On child exit a still-running
+    record settles to completed/failed with the manifest summary on
+    success, and the T04 disk file follows. An abort that already
+    settled the record wins (never overwritten here). Best-effort —
+    never raises, never touches other jobs.
     """
+    handle = None
+    if log_path:
+        try:
+            parent = os.path.dirname(str(log_path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            handle = open(str(log_path), "a", encoding="utf-8",
+                          errors="replace")
+        except OSError:
+            handle = None
     try:
         stream = getattr(proc, "stdout", None)
         if stream is not None:
@@ -5221,8 +5871,29 @@ def _screening_pump(proc):
                 with _SCREENING_LOCK:
                     _SCREENING["log"].append(text.rstrip("\n"))
                     del _SCREENING["log"][:-_SCREENING_LOG_MAX]
+                if handle is not None:
+                    try:
+                        handle.write(text if text.endswith("\n")
+                                     else text + "\n")
+                        handle.flush()
+                    except OSError:
+                        try:
+                            handle.close()
+                        except OSError:
+                            pass
+                        handle = None
     except Exception:
         pass
+    finally:
+        if handle is not None:
+            try:
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+                handle.close()
+            except OSError:
+                pass
     try:
         code = proc.wait()
     except Exception:
@@ -5237,28 +5908,121 @@ def _screening_pump(proc):
                 _SCREENING.get("out_dir"))
         else:
             _SCREENING["status"] = "failed"
+        _screening_store_write_locked()
+
+
+@app.route("/api/screening/exists", methods=["GET"])
+def api_screening_exists():
+    """T11 — collision preflight for an output name (read-only, never spawns).
+
+    ``GET /api/screening/exists?out_name=demo`` ->
+    ``{out_name, path, exists}``. The name is sanitized exactly like the
+    run path (``_screening_clean_out_name``); 400 when nothing usable
+    remains. The run dialog calls this BEFORE spawning; the POST handler
+    re-checks, so skipping the preflight can never silently overwrite.
+    """
+    clean = _screening_clean_out_name(request.args.get("out_name") or "")
+    if not clean:
+        return jsonify({"error": "bad out_name (empty after sanitize)"}), 400
+    ok, resolved = _screening_out_dir_for_name(clean)
+    if not ok:
+        return jsonify({"error": resolved}), 400
+    try:
+        exists = os.path.exists(resolved)
+    except (OSError, ValueError, TypeError):
+        exists = False
+    return jsonify({"out_name": clean, "path": resolved, "exists": exists})
 
 
 @app.route("/api/screening/run", methods=["POST"])
 def api_screening_run():
     """Spawn the screened export (Step 2) in the background.
 
-    Body {"words" (optional, comma-separated; default is the export
-    script's own word list), "out_dir" (optional; default
-    ``<DATA_ROOT>/proof-linker/screened``)}. The child is exactly
+    Body {"words" (optional, comma/newline-separated; default is the export
+    script's own word list), "out_name" (optional; sanitized T11 OQ-6 and
+    resolved under the confined screening root), "out_dir" (optional;
+    default ``<DATA_ROOT>/proof-linker/screened``), "collision"
+    (optional; "" | "auto" | "overwrite"), "reprocess_duplicates" (bool,
+    default false)}. The child is exactly
     ``python -m factory.linking.export_screened --words .. --out-dir
     ..`` (receipt argv, replays from a terminal); the long export
     never runs in the request thread — the handler spawns via
     ``subprocess.Popen`` and returns while a pump thread drains the
     merged stdout+stderr into the 100-line ring buffer. 409 while a
     run is already in flight; 201 with the running snapshot otherwise.
-    400 when ``out_dir`` escapes the confined screening root.
+    400 when ``out_dir`` escapes the confined screening root, when the
+    word list exceeds 2500 (OQ-2 fail-fast with excess count, never a
+    silent trim), or when ``out_name`` is unusable. T11 collision: a
+    named target that already exists -> 409 ``{collision: true}``
+    unless ``collision`` is ``"auto"`` (next-free ``<name>_v2``) or
+    ``"overwrite"`` (explicit, dialog-confirmed) — the dialog runs
+    BEFORE the spawn, never a silent overwrite. T03:
+    body may carry ``reprocess_duplicates`` (bool, default false) —
+    fresh-only by default (already-screened lemmas from
+    ``screened_registry.jsonl`` are skipped); explicit true reprocesses
+    them. 400 when the fresh-only filter leaves no words.
     """
     fields = request.get_json(force=True, silent=True) or {}
-    words = _screening_parse_words(fields.get("words"))
+    try:
+        words = _screening_parse_words(fields.get("words"))
+    except _ScreeningOverCap as exc:
+        return jsonify({"error": "words over cap "
+                                 "(limit %d, got %d, excess %d)"
+                                 % (exc.limit, exc.total, exc.excess),
+                        "over_cap": True, "limit": exc.limit,
+                        "total": exc.total,
+                        "excess": exc.excess}), 400
+    reprocess = bool(fields.get("reprocess_duplicates", False))
+    if not reprocess:
+        try:
+            from factory.linking import export_screened as _export
+
+            try:
+                _root = data_root()
+            except Exception:
+                _root = ""
+            screened = _export.read_registry_lemmas(_root)
+        except Exception:
+            screened = set()
+        fresh = [w for w in words if w not in screened]
+        if not fresh:
+            return jsonify({"error": "all words already screened "
+                                     "(reprocess_duplicates to redo)",
+                            "duplicate": list(words)}), 400
+        words = fresh
     ok, out_dir = _screening_safe_out_dir(fields.get("out_dir"))
     if not ok:
         return jsonify({"error": out_dir}), 400
+    out_name = ""
+    raw_name = fields.get("out_name")
+    if raw_name is not None and str(raw_name).strip():
+        clean = _screening_clean_out_name(raw_name)
+        if not clean:
+            return jsonify(
+                {"error": "bad out_name (empty after sanitize)"}), 400
+        collision = str(fields.get("collision") or "").strip().lower()
+        if collision not in ("", "auto", "overwrite"):
+            return jsonify(
+                {"error": "bad collision (auto|overwrite)"}), 400
+        if collision == "auto":
+            clean = _screening_next_free_name(clean)
+            if not clean:
+                return jsonify(
+                    {"error": "no free name slot (v2..v999 taken)"}), 409
+        ok, resolved = _screening_out_dir_for_name(clean)
+        if not ok:
+            return jsonify({"error": resolved}), 400
+        if collision != "overwrite":
+            try:
+                taken = os.path.exists(resolved)
+            except (OSError, ValueError, TypeError):
+                taken = False
+            if taken:
+                return jsonify({"error": "output name already exists "
+                                         "(pick auto/overwrite/rename/cancel)",
+                                "collision": True, "out_name": clean,
+                                "path": resolved}), 409
+        out_dir, out_name = resolved, clean
     import time as _time
 
     with _SCREENING_LOCK:
@@ -5279,13 +6043,27 @@ def api_screening_run():
                 text=True, encoding="utf-8", errors="replace")
         except OSError as exc:
             return jsonify({"error": "spawn failed: %s" % exc}), 500
+        try:
+            started_iso = datetime.datetime.now(
+                datetime.timezone.utc).isoformat()
+        except Exception:
+            started_iso = None
+        run_id = uuid.uuid4().hex
         _SCREENING.update(proc=proc, pid=_proc_pid(proc),
                           status="running", words=list(words),
                           out_dir=out_dir, started=_time.monotonic(),
+                          started_iso=started_iso,
+                          run_id=run_id,
+                          words_hash=_screening_words_hash(words),
                           exit_code=None, log=[], manifest=None, note="")
-        threading.Thread(target=_screening_pump, args=(proc,),
+        try:
+            log_path = os.path.join(out_dir, _SCREENING_LOG_NAME)
+        except (OSError, ValueError, TypeError):
+            log_path = None
+        threading.Thread(target=_screening_pump, args=(proc, log_path),
                          daemon=True).start()
         body = _screening_public_locked()
+        _screening_store_write_locked()
     return jsonify({"screening": body}), 201
 
 
@@ -5299,6 +6077,38 @@ def api_screening_status():
     spawns, never signals.
     """
     return jsonify({"screening": _screening_snapshot()})
+
+
+@app.route("/api/screening/ledger_preview", methods=["GET"])
+def api_screening_ledger_preview():
+    """T03 — fresh/duplicate split for a candidate word list (read-only).
+
+    Query ``?words=a,b,c`` → ``{fresh, duplicate, fresh_count,
+    dup_count}`` partitioned against ``screened_registry.jsonl`` (exact
+    lowercase lemma match). Tokenizes through the shared
+    ``_screening_split_tokens`` splitter so Persian-comma / multiline
+    input previews exactly what the run parses. Never mutates; a
+    missing registry means all-fresh. This is the A3 ledger-preview
+    pane source.
+    """
+    raw = request.args.get("words") or ""
+    words = [w for w in _screening_split_tokens(raw)
+             if _SCREENING_WORD_RE.match(w)]
+    try:
+        from factory.linking import export_screened as _export
+
+        try:
+            _root = data_root()
+        except Exception:
+            _root = ""
+        screened = _export.read_registry_lemmas(_root)
+    except Exception:
+        screened = set()
+    fresh = [w for w in words if w not in screened]
+    duplicate = [w for w in words if w in screened]
+    return jsonify({"fresh": fresh, "duplicate": duplicate,
+                    "fresh_count": len(fresh),
+                    "dup_count": len(duplicate)})
 
 
 @app.route("/api/screening/abort", methods=["POST"])
@@ -5332,8 +6142,52 @@ def api_screening_abort():
         _SCREENING["status"] = "failed"
         _SCREENING["note"] = ("aborted by operator%s"
                               % (note or ""))
+        _screening_store_write_locked()
         body = _screening_public_locked()
     return jsonify({"screening": body})
+
+
+@app.route("/api/runs/history", methods=["GET"])
+def api_runs_history():
+    """T05 — cabin-parametric run history (ADD-11 backend, read-only).
+
+    ``GET /api/runs/history?cabin=screening`` -> ``{cabin, runs,
+    skipped, truncated}`` scanned from
+    ``<DATA_ROOT>/webui/<cabin>_runs/`` merged with the T04 status
+    file for that cabin (newest last; the status file wins on equal
+    ``run_id``). Per-run rows carry ``{run_id, out_name, out_dir,
+    started_iso, status, kept_total, dropped_total}``. Unknown or
+    missing cabin -> 400. Corrupt records are skipped + counted in
+    ``skipped`` (never 500). Capped at 500 rows (``truncated: true``
+    beyond, newest kept). Empty history -> ``runs: []``. No write
+    path — history never mutates.
+    """
+    from factory.webui import run_status as _run_status
+
+    cabin = (request.args.get("cabin") or "").strip()
+    if cabin not in _KNOWN_RUN_CABINS:
+        return jsonify({"error": "unknown cabin: %s" % cabin}), 400
+    try:
+        root = data_root()
+    except Exception:
+        root = ""
+    payload = _run_status.history(root, cabin)
+    # The T04 file carries identity only; totals for a completed live
+    # run come from the export manifest under out_dir (read here, in
+    # the adapter — never invented).
+    try:
+        live = _run_status.read(root, cabin) or {}
+        live_id = live.get("run_id")
+        if live_id and str(live.get("status") or "") == "completed":
+            summary = _screening_manifest_summary(live.get("out_dir"))
+            if summary is not None:
+                for row in payload.get("runs") or []:
+                    if row.get("run_id") == live_id:
+                        row["kept_total"] = summary["kept_total"]
+                        row["dropped_total"] = summary["dropped_total"]
+    except Exception:
+        pass
+    return jsonify(payload)
 
 
 def _candidates_limit():

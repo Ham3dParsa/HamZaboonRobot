@@ -31,6 +31,9 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py `_process_ask_word` / `_handle_query_dup_new` / `_handle_query_dup_reuse` / `_handle_query_dup_cancel` + handlers/srs_handler.py `_handle_query_add` + config/keyboards/__init__.py + config/keyboards/*.py `query_result_keyboard` + `query_duplicate_keyboard` | ask(), toggle_save(), find_duplicate(); callback `query:add:`, `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` (the old `query:prepare:`/prepare() path was removed in #340 R3) |
 | 18 | Display-toggle store | services/db/display_toggles.py | DisplayToggleService.get_effective(), set_user_toggle(), set_forced(), get_global_defaults(), set_global_defaults(); settings key `display_toggle_defaults` (J0.2 registry-backed). users.py/settings.py are thin delegates. |
 | 19 | Awaiting Text-Input Flow Registry | handlers/flows.py | register_flow(), resolve_flow(), text_router(), is_admin_awaiting() |
+| 21 | Factory Console Server | factory/webui/server.py | Flask app + /api/* routes; screening run record (_SCREENING, _screening_parse_words, _screening_split_tokens) |
+| 22 | Factory Console Support Modules | factory/webui/duration_fmt.py + factory/webui/pinned_paths.py + factory/webui/run_status.py + factory/webui/labels.py | format_elapsed(), pin store CRUD, run-status file + history(), label store + replay_reference() |
+| 23 | Factory Console Shell JS | factory/webui/static/js/shell/view_navigator.js + factory/webui/static/js/shell/data_dialog_controller.js + factory/webui/static/js/shell/cabin_history_controller.js | openView()/selectLinkingTab()/view memory; openDataDialog()/openCollisionDialog(); CabinHistoryController |
 
 ## Shared Resource Registries (non-seam collision surfaces)
 
@@ -95,8 +98,11 @@ scan-target update requirement.
   no cross-session collision surface beyond the manifest JSON file
   itself (owned by `provider_manifest.py`). Console HTTP wiring is
   covered by `tests/factory/test_provider_manifest_cycle.py`
-  (`test_managed_routes_crud_and_exact_counts`); `tests/test_wiring.py`
-  stays Telegram-callback-scoped (InlineKeyboardButton scan) and
-  intentionally does not scan factory/.
+  (`test_managed_routes_crud_and_exact_counts`); `tests/test_wiring.py`'s
+  `SCAN_DIRS` stays Telegram-callback-scoped (InlineKeyboardButton scan)
+  and intentionally does not scan factory/ — while its
+  `PRODUCTION_SOURCES` reverse/import guards cover `factory/webui`
+  (screening cabin-C follow-through: server + support modules must
+  resolve imports and keep `.answer()`/slot ownership clean).
 
 Copyright (c) Ham3dParsa. All rights reserved.

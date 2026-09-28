@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 4/7 — status: locked — focus: T04+T05+T06, no code yet
+STATE: phase 4/7 — status: partial (T06 implemented-uncommitted; T04+T05 untouched, per Wave-1 order) — focus: T06 pins in worktree feat/screening-cabin-c (no commit)
 
 ## Ticket T04 — run-status disk file, reconnect (UX-20, OQ-8) [Wave 1 · SERIAL before T05]
 

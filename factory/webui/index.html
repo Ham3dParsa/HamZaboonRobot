@@ -33,7 +33,7 @@
     <div class="nav-section-title">۱. مرکز پیکربندی و نظارت</div>
     <button class="nav-btn" data-view-target="view-providers">
       <span>ارائه‌دهندگان و مدل‌های هوش مصنوعی</span>
-      <span class="status-tag">AI</span>
+      <span class="status-tag code-token" dir="ltr">AI</span>
     </button>
     <button class="nav-btn" data-view-target="view-telemetry">
       <span>میز تله‌متری و تحلیل هزینه</span>
@@ -62,7 +62,7 @@
     <div class="nav-section-title" style="margin-top: 10px;">۳. انتقال و ربات</div>
     <button class="nav-btn" data-view-target="view-transfer">
       <span>تزریق به پایگاه داده ربات</span>
-      <span class="status-tag">SQLite</span>
+      <span class="status-tag code-token" dir="ltr">SQLite</span>
     </button>
   </aside>
 
@@ -74,17 +74,20 @@
       <div class="handoff-strip">
         <div class="strip-details">
           <span style="font-size: 1.1rem;">⚡</span>
-          <span><b>ورودی آماده از گام غربالگری:</b> <bdi dir="ltr" class="code-token" style="color: var(--text-primary);" id="handoff-path">…</bdi> <span id="handoff-total">…</span></span>
+          <span><b>ورودی آماده از گام غربالگری:</b> <bdi dir="ltr" class="code-token" style="color: var(--text-primary);" id="handoff-path" title="هنوز ورودی غربالگری بار نشده است">…</bdi> <span id="handoff-total">…</span></span>
         </div>
         <button class="badge" id="btn-refresh-screened" style="cursor: pointer; background: transparent;">تازه‌سازی ورودی غربالگری</button>
+        <!-- T12 OQ-10: handoff parity — path (strip) + next-cabin button;
+             intake stays queue-driven by design (deviation → follow-up). -->
+        <button class="badge" id="linking-handoff-next" style="cursor: pointer; background: transparent;">تحویل به کابین بعدی</button>
       </div>
 
       <div class="cockpit-tabs">
-        <button class="tab-link" data-tab-index="0" title="shortlisting — factory/linking/linker.py shortlist">۱. کوتاه‌فهرست نامزدها</button>
-        <button class="tab-link" data-tab-index="1" title="mechanical linking — factory/linking build_link_index/lookup_link + cli.py link over table.tsv">۲. پیوند مکانیکی</button>
-        <button class="tab-link" data-tab-index="2" title="AI arbitration — factory/linking/arbitration.py ArbitrationService">۳. داوری هوش مصنوعی</button>
-        <button class="tab-link active" data-tab-index="3" title="human review — factory/linking/human_queue.py + witness labels">۴. بازبینی انسانی (اختلافی)</button>
-        <button class="tab-link" data-tab-index="4" title="TSV export — factory/linking/cli.py read_table + viewer.py export">۵. خروجی جدول پیوند (TSV)</button>
+        <button class="tab-link" data-tab-index="0" title="کوتاه‌فهرست نامزدها (linker.py)">۱. کوتاه‌فهرست نامزدها</button>
+        <button class="tab-link" data-tab-index="1" title="پیوند مکانیکی (cli.py)">۲. پیوند مکانیکی</button>
+        <button class="tab-link" data-tab-index="2" title="داوری هوش مصنوعی (arbitration.py)">۳. داوری هوش مصنوعی</button>
+        <button class="tab-link active" data-tab-index="3" title="بازبینی انسانی (human_queue.py)">۴. بازبینی انسانی (اختلافی)</button>
+        <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
       </div>
 
       <div class="dense-workspace-grid">
@@ -107,7 +110,7 @@
           </section>
 
           <div class="action-bar-footer">
-            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر / NONE)</button>
+            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر)</button>
             <button class="btn-skip-next" id="btn-skip-next">پرش به سنس بعد ⏭</button>
             <span class="inline-input code-token" id="label-target-name" dir="ltr">نامزدی انتخاب نشده است</span>
             <button class="btn-select-candidate" id="btn-record-link">ثبت رأی پیوند</button>
@@ -117,12 +120,18 @@
                  نقش‌محور «operator» — هرگز نام شخصی ساخته نمی‌شود). -->
             <span id="label-status" style="font-size: 0.72rem; color: var(--text-muted);"></span>
             <span id="label-receipt" style="font-size: 0.72rem; color: var(--text-secondary);" hidden></span>
-            <!-- راهنمای آدرس کنسول (بوت روی همه رابط‌ها): از تبلت با آدرس LAN، از همین دستگاه با لوپ‌بک -->
-            <span id="boot-addr-note" style="font-size: 0.72rem; color: var(--text-muted);"
-                  title="plain start binds all interfaces (LAN-visible)">پیش‌فرض روی همه رابط‌ها باز است:
-              از تبلت با آدرس LAN سرور، از همین دستگاه با <span class="code-token">127.0.0.1</span> باز کنید.</span>
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;">
-              * رأی‌ها در labels.jsonl افزوده می‌شوند؛ غیرشاهد watermark می‌خورد (قابل امتیاز نیست).
+            <!-- T12 OQ-10: every form error lives in the shared 3-part box. -->
+            <div class="p-meta form-error-slot" id="linking-err"></div>
+            <!-- راهنمای اتصال کنسول: نمای پیش‌فرض فقط فارسی دوستانه؛
+                 جزئیات فنی فقط در title فرار دیباگ. -->
+            <details class="console-guide" id="boot-addr-note">
+              <summary>راهنمای اتصال کنسول</summary>
+              <span style="font-size: 0.72rem; color: var(--text-muted);"
+                    title="plain start binds all interfaces (LAN-visible)">از تبلت با نشانی همین سرور، از همین دستگاه با <span class="code-token" dir="ltr">127.0.0.1</span> باز کنید.</span>
+            </details>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;"
+                  title="store: labels.jsonl; non-witness verdicts carry the scoring watermark">
+              * رأی‌ها در دفتر رأی‌ها افزوده می‌شوند؛ گزینه غیرشاهد امتیاز ندارد.
             </span>
           </div>
         </div>
@@ -144,15 +153,15 @@
               <div class="mini-label">رأی ثبت‌شده / سنس غربال‌شده</div>
             </div>
             <div class="mini-metric-card">
-              <div class="mini-val" style="color: var(--c-success);" id="m-agree">—</div>
+              <div class="mini-val" style="color: var(--c-success);" id="m-agree" title="سرور این سنج را ثبت نکرد">—</div>
               <div class="mini-label">انطباق با شاهد (بدون محاسبه زنده)</div>
             </div>
             <div class="mini-metric-card">
               <div class="mini-val" style="color: var(--c-warning);" id="m-none">…</div>
-              <div class="mini-label">موارد NONE</div>
+              <div class="mini-label">موارد <span class="code-token" dir="ltr">NONE</span></div>
             </div>
             <div class="mini-metric-card">
-              <div class="mini-val" id="m-saved">—</div>
+              <div class="mini-val" id="m-saved" title="سرور این سنج را ثبت نکرد">—</div>
               <div class="mini-label">صرفه‌جویی توکن (ثبت نمی‌شود)</div>
             </div>
           </div>
@@ -170,7 +179,7 @@
         <div class="form-row-grid preset-compact">
           <div class="field-group">
             <label for="preset-label">نام پریست (اختیاری)</label>
-            <input type="text" class="code-token" id="preset-label" dir="ltr" placeholder="خالی = console-judge" autocomplete="off">
+            <input type="text" class="code-token" id="preset-label" dir="ltr" placeholder="خالی یعنی پیش‌فرض" autocomplete="off">
           </div>
           <div class="field-group">
             <label>ارائه‌دهنده مبدأ</label>
@@ -290,7 +299,7 @@
         <div class="p-meta" id="supervisor-lifecycle-note">…</div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <input class="inline-input code-token" id="supervisor-token-input" dir="ltr" type="password"
-                  placeholder="EGRESS_SUP_TOKEN (stored encrypted)" autocomplete="off" aria-label="توکن سرپرست EGRESS_SUP_TOKEN">
+                   placeholder="EGRESS_SUP_TOKEN" autocomplete="off" aria-label="توکن سرپرست EGRESS_SUP_TOKEN">
           <button class="btn-select-candidate" id="btn-supervisor-save">ذخیره توکن</button>
           <button class="btn-skip-next" id="btn-supervisor-delete">حذف توکن</button>
         </div>
@@ -337,7 +346,7 @@
         </div>
         <div class="mini-metric-card" style="padding: 14px;">
           <div class="mini-val" style="color: var(--c-warning);" id="t-groups">…</div>
-          <div class="mini-label">گروه‌های کلیدی پرشده (G1/G2)</div>
+          <div class="mini-label">گروه‌های کلیدی پرشده (<span class="code-token" dir="ltr">G1</span>/<span class="code-token" dir="ltr">G2</span>)</div>
         </div>
         <div class="mini-metric-card" style="padding: 14px;">
           <div class="mini-val" style="color: var(--c-success);" id="t-routes">…</div>
@@ -393,78 +402,244 @@
 
     <!-- سایر نماها با نشانگر آماده‌سازی -->
     <section class="workspace-view" id="view-screening">
-      <div class="cfg-form-card form-cap" id="screening-card">
-        <div class="p-header">
-          <span class="p-title">ایستگاه غربالگری کایکی (Kaikki Screening)</span>
-          <span class="badge" id="screening-state" aria-live="polite">بیکار</span>
-        </div>
-        <p class="p-meta">فیلتر اسامی خاص، دوقلوهای تکراری و صدور شناسه پایدار سنس‌ها.</p>
-        <div class="field-group">
-          <label for="screening-words">واژه‌ها (جداشده با ویرگول)</label>
-          <div class="screening-words-row">
-            <input type="text" class="code-token" id="screening-words" dir="ltr"
-                   placeholder="run,light,take,get,make" autocomplete="off">
-            <button class="btn-skip-next" id="screening-smoke" type="button" data-action="smoke-words">واژه‌های دود</button>
+      <div class="screening-layout">
+        <!-- ستون کنترل چسبان (راست): A1 تا A4 — دسکتاپ چسبان، تبلت آکاردئون بازشونده بالای فضای کاری -->
+        <details class="screening-controls" id="screening-controls" open>
+          <summary class="screening-controls-title">پنل کنترل غربالگری</summary>
+          <div class="cfg-form-card form-cap" id="screening-card">
+            <div class="p-header">
+              <span class="p-title">ایستگاه غربالگری کایکی</span>
+              <span class="badge" id="screening-state" aria-live="polite">بیکار</span>
+            </div>
+            <p class="p-meta">فیلتر اسامی خاص، دوقلوهای تکراری و صدور شناسه پایدار سنس‌ها.</p>
+            <!-- T09: A1 تا A4 آکاردئون تبلت (ترتیب حفظ، دسکتاپ باز) —
+                 شناسه‌ها دست‌نخورده (T07)؛ فقط بسته‌بندی details اضافه شد. -->
+            <details class="acc" id="screening-acc-a1" open>
+              <summary class="acc-title">۱. ورودی واژه‌ها</summary>
+              <div class="acc-body">
+            <!-- A1: ورودی چندخطی چپ‌چین + شمارش سمت‌کاربر + میان‌بر واژه‌های دود -->
+            <div class="field-group">
+              <label for="screening-words">واژه‌ها (ویرگول یا خط جدید)</label>
+              <textarea class="code-token" id="screening-words" dir="ltr" rows="6"
+                        placeholder="run,light,take,get,make" autocomplete="off" spellcheck="false"></textarea>
+              <div class="screening-words-row">
+                <span class="p-meta"><span id="screening-words-count">۰</span> واژه برای ارسال</span>
+                <button class="btn-skip-next" id="screening-pick-input" type="button" data-action="pick-input">انتخاب فایل…</button>
+                <button class="btn-skip-next" id="screening-smoke" type="button" data-action="smoke-words">واژه‌های دود</button>
+              </div>
+            </div>
+              </div>
+            </details>
+            <details class="acc" id="screening-acc-a2" open>
+              <summary class="acc-title">۲. نام و مقصد خروجی</summary>
+              <div class="acc-body">
+            <!-- A2: نام + مقصد با پیش‌فرض‌های نمایان + پیش‌نمایش پاک‌سازی‌شده -->
+            <div class="field-group">
+              <label for="screening-out-name">نام خروجی</label>
+              <input type="text" class="code-token" id="screening-out-name" dir="ltr" autocomplete="off" spellcheck="false">
+              <div class="p-meta">نام پاک‌سازی‌شده: <bdi dir="ltr" class="code-token" id="screening-out-name-clean">—</bdi></div>
+            </div>
+            <div class="field-group">
+              <label for="screening-out-dir">مقصد (خالی یعنی پیش‌فرض سرور)</label>
+              <div class="screening-words-row">
+                <input type="text" class="code-token" id="screening-out-dir" dir="ltr"
+                       placeholder="proof-linker/screened" autocomplete="off" spellcheck="false">
+                <button class="btn-skip-next" id="screening-pick-dest" type="button" data-action="pick-dest">انتخاب مقصد…</button>
+              </div>
+              <div class="p-meta">پیش‌فرض: <bdi dir="ltr" class="code-token">proof-linker/screened</bdi></div>
+            </div>
+              </div>
+            </details>
+            <details class="acc" id="screening-acc-a3" open>
+              <summary class="acc-title">۳. دفتر و پردازش دوباره</summary>
+              <div class="acc-body">
+            <!-- A3: پیش‌نمایش دفتر + فقط-تازه پیش‌فرض + کلید پردازش دوباره -->
+            <div class="field-group">
+              <span class="p-meta" id="screening-ledger" aria-live="polite">…</span>
+              <label class="screening-check" for="screening-reprocess">
+                <input type="checkbox" id="screening-reprocess">
+                پردازش دوباره واژه‌های تکراری (پیش‌فرض: فقط تازه‌ها)
+              </label>
+            </div>
+              </div>
+            </details>
+            <details class="acc" id="screening-acc-a4" open>
+              <summary class="acc-title">۴. اجرا و تحویل</summary>
+              <div class="acc-body">
+            <!-- A4: شروع/توقف/تحویل -->
+            <div class="screening-actions">
+              <button class="btn-select-candidate" id="screening-start" type="button" data-action="start">شروع غربالگری</button>
+              <button class="btn-skip-next" id="screening-abort" type="button" data-action="abort" disabled>توقف اجرا</button>
+              <button class="btn-skip-next" id="screening-handoff" type="button" data-action="handoff" disabled>تحویل خروجی به کابین پیوندزنی</button>
+              <span class="p-meta" id="screening-status" aria-live="polite">هنوز اجرایی شروع نشده است.</span>
+            </div>
+            <div class="p-meta form-error-slot" id="screening-err"></div>
+              </div>
+            </details>
           </div>
-        </div>
-        <div class="p-meta">مسیر خروجی: <bdi dir="ltr" class="code-token" id="screening-out-path">—</bdi></div>
-        <div class="screening-actions">
-          <button class="btn-select-candidate" id="screening-start" type="button" data-action="start">شروع غربالگری</button>
-          <button class="btn-skip-next" id="screening-abort" type="button" data-action="abort" disabled>توقف اجرا</button>
-          <button class="btn-skip-next" id="screening-handoff" type="button" data-action="handoff" disabled>تحویل خروجی به کابین پیوندزنی</button>
-          <span class="p-meta" id="screening-status" aria-live="polite">هنوز اجرایی شروع نشده است.</span>
-        </div>
-        <div class="p-meta form-error-slot" id="screening-err"></div>
-        <div class="p-header">
-          <span class="p-title">گزارش زنده اجرا</span>
-          <span class="badge" id="screening-elapsed">—</span>
-        </div>
-        <pre class="themed-scroll" id="screening-log" dir="ltr">هنوز اجرایی شروع نشده — گزارش اینجا می‌آید.</pre>
-        <div class="p-header">
-          <span class="p-title">سنج‌های غربالگری</span>
-        </div>
-        <div class="cards-grid-auto" id="screening-metrics">
-          <div class="mini-metric-card">
-            <div class="mini-val" id="screening-m-input">—</div>
-            <div class="mini-label">مجموع سنس‌های ورودی</div>
+        </details>
+        <!-- فضای کاری زبانه‌دار (چپ): زبانه ۱ زنده، زبانه ۲ پوسته T08 -->
+        <div class="screening-workspace">
+          <div class="cockpit-tabs" role="tablist" aria-label="زبانه‌های غربالگری">
+            <button class="tab-link active" id="screening-tabbtn-1" type="button" data-screening-tab="screening-tab-1">۱. اجرا و نتایج زنده</button>
+            <button class="tab-link" id="screening-tabbtn-2" type="button" data-screening-tab="screening-tab-2">۲. بررسی خروجی</button>
           </div>
-          <div class="mini-metric-card">
-            <div class="mini-val" id="screening-m-kept" style="color: var(--c-success);">—</div>
-            <div class="mini-label">سنس‌های پذیرفته‌شده</div>
+          <div id="screening-tab-1" role="tabpanel" aria-labelledby="screening-tabbtn-1">
+            <div class="cfg-form-card form-cap" id="screening-live-card">
+              <div class="p-header">
+                <span class="p-title">گزارش زنده اجرا</span>
+                <span class="badge" id="screening-elapsed">—</span>
+              </div>
+              <div class="p-meta screening-resume" id="screening-resumed" hidden>به اجرای پیشین متصل شد (بازیابی پس از بارگذاری دوباره)؛ گزارش زیر دنباله ثبت‌شده است.</div>
+              <div class="p-meta">مسیر خروجی: <bdi dir="ltr" class="code-token" id="screening-out-path">—</bdi></div>
+              <div class="p-meta screening-handoff-line" id="screening-handoff-banner" hidden>خروجی آماده است: <bdi dir="ltr" class="code-token" id="screening-handoff-path">—</bdi> — دکمه «تحویل» در ستون کنترل فعال شد.</div>
+              <pre class="themed-scroll" id="screening-log" dir="ltr">هنوز اجرایی شروع نشده — گزارش اینجا می‌آید.</pre>
+              <div class="p-header">
+                <span class="p-title">سنج‌های غربالگری</span>
+              </div>
+              <div class="cards-grid-auto" id="screening-metrics">
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-input">—</div>
+                  <div class="mini-label">مجموع سنس‌های ورودی</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-kept" style="color: var(--c-success);">—</div>
+                  <div class="mini-label">سنس‌های پذیرفته‌شده</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-dropped" style="color: var(--c-danger);">—</div>
+                  <div class="mini-label">مجموع حذف‌شده</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-twins">—</div>
+                  <div class="mini-label">حذف دوقلو (<span class="code-token" dir="ltr">R3</span>)</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-proper">—</div>
+                  <div class="mini-label">حذف اسم خاص (<span class="code-token" dir="ltr">R2</span>)</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div class="mini-val" id="screening-m-other">—</div>
+                  <div class="mini-label">حذف سایر علل</div>
+                </div>
+              </div>
+              <div class="p-header">
+                <span class="p-title">جزئیات هر لم</span>
+                <span class="badge" id="screening-visible-count">…</span>
+              </div>
+              <input class="inline-input screening-filter" id="screening-filter" type="search"
+                     placeholder="پالایش لم‌ها…" aria-label="پالایش لم‌های غربالگری">
+              <div class="table-responsive bounded themed-scroll">
+                <table class="data-table" id="screening-per-lemma">
+                  <thead><tr><th>لم</th><th>سنس ورودی</th><th>پذیرفته</th><th>حذف‌شده</th></tr></thead>
+                  <tbody id="screening-per-lemma-tbody">
+                    <tr><td colspan="4">هنوز اجرایی انجام نشده است.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="screening-detail" id="screening-detail" aria-live="polite">برای دیدن جزئیات یک لم، روی ردیف آن بزنید.</div>
+            </div>
           </div>
-          <div class="mini-metric-card">
-            <div class="mini-val" id="screening-m-dropped" style="color: var(--c-danger);">—</div>
-            <div class="mini-label">مجموع حذف‌شده</div>
+          <div id="screening-tab-2" role="tabpanel" aria-labelledby="screening-tabbtn-2" hidden>
+            <div class="cfg-form-card form-cap" id="screening-history-card">
+              <div class="p-header">
+                <span class="p-title">تاریخچه اجراهای غربالگری</span>
+                <span class="badge" id="screening-history-count">…</span>
+              </div>
+              <input class="inline-input screening-history-filter" id="screening-history-search" type="search"
+                     placeholder="پالایش تاریخچه: نام اجرا یا وضعیت…" aria-label="پالایش تاریخچه اجراها">
+              <div class="table-responsive bounded themed-scroll">
+                <table class="data-table" id="screening-history-table">
+                  <thead><tr><th>اجرا</th><th>وضعیت</th><th>آغاز</th><th>پذیرفته</th><th>حذف‌شده</th><th>اقدام</th></tr></thead>
+                  <tbody id="screening-history-tbody">
+                    <tr><td colspan="6">در حال خواندن تاریخچه…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="p-meta form-error-slot" id="screening-history-err"></div>
+            </div>
           </div>
-          <div class="mini-metric-card">
-            <div class="mini-val" id="screening-m-twins">—</div>
-            <div class="mini-label">حذف دوقلو (R3)</div>
-          </div>
-          <div class="mini-metric-card">
-            <div class="mini-val" id="screening-m-proper">—</div>
-            <div class="mini-label">حذف اسم خاص (R2)</div>
-          </div>
-        </div>
-        <div class="table-responsive bounded themed-scroll">
-          <table class="data-table" id="screening-per-lemma">
-            <thead><tr><th>لم</th><th>سنس ورودی</th><th>پذیرفته</th><th>حذف‌شده</th></tr></thead>
-            <tbody id="screening-per-lemma-tbody">
-              <tr><td colspan="4">هنوز اجرایی انجام نشده است.</td></tr>
-            </tbody>
-          </table>
         </div>
       </div>
     </section>
     <section class="workspace-view" id="view-precard">
-      <div class="cfg-form-card">
-        <h2>ایستگاه گزینش پیش‌کارت (Precard Extraction)</h2>
+      <!-- T12 OQ-10 conformance shell: byte-identical field names
+           (واژه‌ها/نام خروجی/مقصد/شروع/توقف/تحویل), withBusy server
+           buttons, handoff banner (path + next button), 3-part error
+           slot, titled honest empties. No backend wired yet — شروع
+           reports the follow-up honestly; deviations → follow-up
+           tickets, never silent fixes. -->
+      <div class="cfg-form-card form-cap" id="precard-card">
+        <div class="p-header">
+          <span class="p-title">ایستگاه گزینش پیش‌کارت</span>
+          <span class="badge" id="precard-state" aria-live="polite" title="پشتوانه سرور این کابین هنوز وصل نیست">بیکار</span>
+        </div>
         <p class="p-meta">فرآیند ۷ مرحله‌ای استخراج مثال‌های آموزشی و بردارهای موضوعی.</p>
+        <div class="field-group">
+          <label for="precard-words">واژه‌ها (ویرگول یا خط جدید)</label>
+          <textarea class="code-token" id="precard-words" dir="ltr" rows="6"
+                    placeholder="run,light,take,get,make" autocomplete="off" spellcheck="false"></textarea>
+          <div class="screening-words-row">
+            <span class="p-meta"><span id="precard-words-count">۰</span> واژه برای ارسال</span>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="precard-out-name">نام خروجی</label>
+          <input type="text" class="code-token" id="precard-out-name" dir="ltr" autocomplete="off" spellcheck="false">
+          <div class="p-meta">نام پاک‌سازی‌شده: <bdi dir="ltr" class="code-token" id="precard-out-name-clean" title="نامی وارد نشده است">—</bdi></div>
+        </div>
+        <div class="field-group">
+          <label for="precard-out-dir">مقصد (خالی یعنی پیش‌فرض سرور)</label>
+          <input type="text" class="code-token" id="precard-out-dir" dir="ltr"
+                 placeholder="proof-linker/precard" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="screening-actions">
+          <button class="btn-select-candidate" id="precard-start" type="button" data-action="start">شروع گزینش</button>
+          <button class="btn-skip-next" id="precard-abort" type="button" data-action="abort" disabled title="هنوز اجرایی شروع نشده است">توقف اجرا</button>
+          <button class="btn-skip-next" id="precard-handoff" type="button" data-action="handoff" disabled title="هنوز اجرایی شروع نشده است">تحویل خروجی به کابین پایلوت</button>
+          <span class="p-meta" id="precard-status" aria-live="polite">هنوز اجرایی شروع نشده است.</span>
+        </div>
+        <div class="p-meta form-error-slot" id="precard-err"></div>
+        <div class="p-meta screening-handoff-line" id="precard-handoff-banner" hidden>خروجی آماده است: <bdi dir="ltr" class="code-token" id="precard-handoff-path">—</bdi> <button class="btn-skip-next" id="precard-handoff-next" type="button">تحویل به کابین بعدی</button></div>
+        <div class="p-meta" id="precard-history-empty" title="پشتوانه تاریخچه این کابین هنوز به سرور وصل نیست — خالی صادقانه است، نه خطا.">تاریخچه این کابین هنوز به سرور وصل نیست.</div>
       </div>
     </section>
     <section class="workspace-view" id="view-pilot">
-      <div class="cfg-form-card">
-        <h2>غنی‌سازی و پایلوت کارت کامل</h2>
+      <!-- T12 OQ-10 conformance shell: same contract as view-precard,
+           next cabin is the transfer bridge. -->
+      <div class="cfg-form-card form-cap" id="pilot-card">
+        <div class="p-header">
+          <span class="p-title">غنی‌سازی و پایلوت کارت کامل</span>
+          <span class="badge" id="pilot-state" aria-live="polite" title="پشتوانه سرور این کابین هنوز وصل نیست">بیکار</span>
+        </div>
         <p class="p-meta">تولید ساختار نهایی فلش‌کارت و پیش‌نمایش در گالری HTML.</p>
+        <div class="field-group">
+          <label for="pilot-words">واژه‌ها (ویرگول یا خط جدید)</label>
+          <textarea class="code-token" id="pilot-words" dir="ltr" rows="6"
+                    placeholder="run,light,take,get,make" autocomplete="off" spellcheck="false"></textarea>
+          <div class="screening-words-row">
+            <span class="p-meta"><span id="pilot-words-count">۰</span> واژه برای ارسال</span>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="pilot-out-name">نام خروجی</label>
+          <input type="text" class="code-token" id="pilot-out-name" dir="ltr" autocomplete="off" spellcheck="false">
+          <div class="p-meta">نام پاک‌سازی‌شده: <bdi dir="ltr" class="code-token" id="pilot-out-name-clean" title="نامی وارد نشده است">—</bdi></div>
+        </div>
+        <div class="field-group">
+          <label for="pilot-out-dir">مقصد (خالی یعنی پیش‌فرض سرور)</label>
+          <input type="text" class="code-token" id="pilot-out-dir" dir="ltr"
+                 placeholder="proof-linker/pilot" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="screening-actions">
+          <button class="btn-select-candidate" id="pilot-start" type="button" data-action="start">شروع پایلوت</button>
+          <button class="btn-skip-next" id="pilot-abort" type="button" data-action="abort" disabled title="هنوز اجرایی شروع نشده است">توقف اجرا</button>
+          <button class="btn-skip-next" id="pilot-handoff" type="button" data-action="handoff" disabled title="هنوز اجرایی شروع نشده است">تحویل خروجی به پل انتقال</button>
+          <span class="p-meta" id="pilot-status" aria-live="polite">هنوز اجرایی شروع نشده است.</span>
+        </div>
+        <div class="p-meta form-error-slot" id="pilot-err"></div>
+        <div class="p-meta screening-handoff-line" id="pilot-handoff-banner" hidden>خروجی آماده است: <bdi dir="ltr" class="code-token" id="pilot-handoff-path">—</bdi> <button class="btn-skip-next" id="pilot-handoff-next" type="button">تحویل به کابین بعدی</button></div>
+        <div class="p-meta" id="pilot-history-empty" title="پشتوانه تاریخچه این کابین هنوز به سرور وصل نیست — خالی صادقانه است، نه خطا.">تاریخچه این کابین هنوز به سرور وصل نیست.</div>
       </div>
     </section>
     <section class="workspace-view" id="view-transfer">
@@ -475,6 +650,80 @@
     </section>
 
   </main>
+</div>
+
+<!-- T09: ریشه گفت‌وگوی داده سراسری (تک‌مالک: data_dialog_controller.js) —
+     هرگز ستون کنترل را نمی‌پوشاند (کنارچسب مخالف + ورق تمام‌صفحه تبلت
+     با بستن صریح و بازگشت فوکوس). بدون دکمه حذف؛ بارگذاری (T11) در
+     سطر عملیات بالای جدول است. -->
+<div id="data-dialog" role="dialog" aria-modal="false" aria-labelledby="data-dialog-title" hidden>
+  <div class="data-dialog-head">
+    <span class="data-dialog-title" id="data-dialog-title">گفت‌وگوی داده</span>
+    <span class="p-meta" id="data-dialog-mode">…</span>
+    <button class="btn-skip-next" id="data-dialog-close" type="button">بستن ✕</button>
+  </div>
+  <div class="data-dialog-body">
+    <div class="p-meta" id="data-dialog-crumb" dir="ltr"></div>
+    <div class="data-dialog-roots" id="data-dialog-roots"></div>
+    <div class="data-dialog-ops">
+      <input type="text" class="code-token" id="data-dialog-mkdir-name" dir="ltr"
+             placeholder="new-folder" autocomplete="off" spellcheck="false" aria-label="نام پوشه تازه">
+      <button class="btn-skip-next" id="data-dialog-mkdir" type="button">ساخت پوشه</button>
+    </div>
+    <!-- T11: بارگذاری یک فایل در پوشه جاری (فقط ریشه‌های مجاز سرور؛
+         هم‌نام → ۴۰۹ بدون بازنویسی؛ پس از موفقیت از همین فهرست
+         دوباره قابل انتخاب است). -->
+    <div class="data-dialog-ops">
+      <input type="file" class="file-input" id="data-dialog-upload-file" aria-label="فایل برای بارگذاری">
+      <button class="btn-skip-next" id="data-dialog-upload" type="button">بارگذاری در پوشه جاری</button>
+    </div>
+    <div class="table-responsive themed-scroll">
+      <table class="data-table" id="data-dialog-table">
+        <thead><tr><th>نام</th><th>اندازه</th><th>سطرها</th><th>اصلاح</th><th>اقدام</th></tr></thead>
+        <tbody id="data-dialog-tbody"></tbody>
+      </table>
+    </div>
+    <div class="p-header" style="margin-top: 10px;">
+      <span class="p-title">سنجاق‌ها</span>
+    </div>
+    <div class="data-dialog-ops">
+      <input type="text" id="data-dialog-pin-name" placeholder="نام سنجاق…" autocomplete="off" aria-label="نام سنجاق">
+      <button class="btn-skip-next" id="data-dialog-pin-add" type="button">سنجاق مسیر جاری</button>
+    </div>
+    <div class="data-dialog-pins" id="data-dialog-pins"></div>
+    <div class="p-meta">حذف فایل/پوشه در وب اکیداً مسدود است؛ بارگذاری فقط در ریشه‌های مجاز و بدون بازنویسی بی‌سر و صدا انجام می‌شود.</div>
+    <div class="p-meta form-error-slot" id="data-dialog-err"></div>
+  </div>
+</div>
+
+<!-- T11: گفت‌وگوی برخورد نام خروجی (تک‌مالک: data_dialog_controller.js) —
+     ۴ گزینه صریح: نام خودکار _v2 / بازنویسی با تأیید / نام تازه / انصراف
+     کامل. هرگز بازنویسی بی‌سر و صدا نیست؛ بستن یعنی انصراف کامل. -->
+<div id="collision-dialog" role="dialog" aria-modal="false" aria-labelledby="collision-title" hidden>
+  <div class="data-dialog-head">
+    <span class="data-dialog-title" id="collision-title">نام خروجی تکراری است</span>
+    <button class="btn-skip-next" id="collision-cancel-x" type="button">بستن ✕</button>
+  </div>
+  <div class="data-dialog-body">
+    <div class="p-meta">خروجی «<bdi dir="ltr" class="code-token" id="collision-name">—</bdi>»
+      از پیش در «<bdi dir="ltr" class="code-token" id="collision-path">—</bdi>» هست.
+      بدون انتخاب شما هیچ بازنویسی انجام نمی‌شود — یک گزینه را برگزینید:</div>
+    <div class="collision-opts">
+      <button class="btn-select-candidate" id="collision-auto" type="button">نام خودکار تازه (<bdi dir="ltr" class="code-token">_v2</bdi>)</button>
+      <label class="screening-check" for="collision-overwrite-confirm">
+        <input type="checkbox" id="collision-overwrite-confirm">
+        بازنویسی خروجی پیشین را تأیید می‌کنم
+      </label>
+      <button class="btn-skip-next" id="collision-overwrite" type="button" disabled>بازنویسی خروجی پیشین</button>
+      <div class="data-dialog-ops">
+        <input type="text" class="code-token" id="collision-rename" dir="ltr"
+               placeholder="fresh-name" autocomplete="off" spellcheck="false" aria-label="نام تازه">
+        <button class="btn-skip-next" id="collision-rename-go" type="button">اجرا با نام تازه</button>
+      </div>
+      <button class="btn-skip-next" id="collision-cancel" type="button">انصراف کامل</button>
+    </div>
+    <div class="p-meta form-error-slot" id="collision-err"></div>
+  </div>
 </div>
 
 <script type="module" src="/static/js/main.js"></script>

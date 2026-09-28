@@ -7,7 +7,7 @@ branch: refactor/webui-static-phase1
 status: locked
 ---
 
-STATE: phase 5/7 — status: locked — focus: T07 cabin controls + live tab, no code yet
+STATE: phase 5/7 — status: implemented — T07 cabin controls + live tab done in worktree (uncommitted, no push/PR/merge); focus: review then T08
 
 ## Ticket T07 — control column + live tab (UX-1/2/5/6/7/8/9, UX-18/19/21, UX-27, UX-20-consume) [Wave 2 · SERIAL after P01–P04]
 
