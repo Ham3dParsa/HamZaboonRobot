@@ -351,6 +351,8 @@ def _approve_locked(bid, ids, reviewer, data_root=None, labels_path=None):
         text = sid.strip() if isinstance(sid, str) else ""
         if text and text not in want:
             want.append(text)
+    if not want:
+        _reject("هیچ موردی انتخاب نشده است (ids خالی است).")
     unknown = [sid for sid in want if sid not in staged_by_id]
     if unknown:
         _reject("شناسه «%s» در پاسخ ثبت‌شده این بچ نیست."
@@ -369,6 +371,8 @@ def _approve_locked(bid, ids, reviewer, data_root=None, labels_path=None):
     for item in payload["items"]:
         if isinstance(item, dict) and item.get("sense_id"):
             lemma_by_id[item["sense_id"]] = item.get("lemma", "")
+    model = str(meta.get("model") or "").strip() or "unknown"
+    annotator = "%s:%s" % (model, bid)
     fields = []
     for sid in want:
         verdict = staged_by_id[sid]
@@ -379,7 +383,7 @@ def _approve_locked(bid, ids, reviewer, data_root=None, labels_path=None):
                 "target_synset": verdict.get("target_synset"),
                 "verdict": verdict.get("verdict"),
                 "stratum": STRATUM,
-                "annotator": "gemini:%s" % bid,
+                "annotator": annotator,
             }))
         except _labels.LabelError as exc:
             _reject("برچسب %s نامعتبر است (%s)." % (sid, exc),

@@ -10,8 +10,9 @@ Covers the phase-04 P04 half (P06 repair composer is the sibling's):
 - stage_import: happy path sets in_review (+answers stored, labels
   untouched); rejects leave batch + labels untouched.
 - approve: subset finalize appends labels.jsonl with
-  annotator=gemini:<batch-id>; rejected return to pool (re-exportable
-  after cancel); status imported with counts.
+  annotator=<model>:<batch-id> (R7: staged model, never hardcoded);
+  rejected return to pool (imported is terminal, no cancel needed);
+  status imported with counts; empty ids rejected.
 """
 
 from __future__ import annotations
@@ -328,7 +329,7 @@ def test_approve_happy_subset(env):
     assert len(records) == 6
     assert [r["sense_id"] for r in records] == keep
     for rec in records:
-        assert rec["annotator"] == "gemini:%s" % batch.id
+        assert rec["annotator"] == "gemini-2.5-flash:%s" % batch.id
         assert rec["stratum"] == "supervised"
         assert rec["lemma"] == "run"
     by_id = {r["sense_id"]: r for r in records}
@@ -371,23 +372,24 @@ def test_approve_empty_reviewer_rejected(env):
     assert not os.path.exists(env["labels"])
 
 
-def test_approve_empty_ids_finalizes_zero(env):
+def test_approve_empty_ids_rejected(env):
     mod = _batch_import()
     batch = _make_batch(env)
     mod.stage_import(batch.id, _sheet(batch))
-    out = mod.approve(batch.id, [], "op1")
-    assert out == {"finalized": 0, "returned": 10}
+    with pytest.raises(mod.BatchImportError, match="ids"):
+        mod.approve(batch.id, [], "op1")
     assert not os.path.exists(env["labels"])
-    assert _meta(batch.id, env)["status"] == "imported"
+    assert _meta(batch.id, env)["status"] == "in_review"
 
 
-def test_rejected_ids_reexportable_after_cancel(env):
+def test_rejected_ids_reexportable_after_approve(env):
     mod = _batch_import()
     batch = _make_batch(env)
     mod.stage_import(batch.id, _sheet(batch))
     keep = [it["sense_id"] for it in batch.items[:6]]
     mod.approve(batch.id, keep, "op1")
-    batches.cancel_batch(batch.id)
+    # No cancel needed (imported is terminal and audit-locked): rejected
+    # ids are already free, approved ids are judged via labels.
     nxt = batches.build_batch(env["screened"], 10, table_path=env["table"])
     got = [it["sense_id"] for it in nxt.items]
     # Approved ids are judged (labels); rejected ids return to the queue.

@@ -134,6 +134,29 @@ def test_dedup_vs_active_batch_and_cancel_releases(env):
     assert [it["sense_id"] for it in second.items] == ["run#%d" % i for i in range(10)]
 
 
+def test_imported_is_terminal_and_audit_locked(env):
+    _write_screened(env["screened"], _30_senses())
+    _write_table(env["table"], [])
+    first = batches.build_batch(env["screened"], 10, table_path=env["table"])
+    batches.save_batch(first)
+    base = batches.batch_dir(first.id)
+    with open(os.path.join(base, "batch.json"), encoding="utf-8") as handle:
+        meta = json.load(handle)
+    # Faithful imported shape: only approved ids stay claimed (approve
+    # narrows sense_ids to `want`; rejected ids already returned).
+    meta["status"] = "imported"
+    meta["sense_ids"] = [it["sense_id"] for it in first.items[:6]]
+    with open(os.path.join(base, "batch.json"), "w",
+              encoding="utf-8") as handle:
+        json.dump(meta, handle, ensure_ascii=False, indent=1)
+    # Imported batches neither block rebuilds nor accept cancel (W3):
+    # queue resumes at run#6 (claimed) → run#6..run#15.
+    second = batches.build_batch(env["screened"], 10, table_path=env["table"])
+    assert [it["sense_id"] for it in second.items] == ["run#%d" % i for i in range(6, 16)]
+    with pytest.raises(ValueError, match="VALIDATION-imported-final"):
+        batches.cancel_batch(first.id)
+
+
 def test_candidates_from_mechanical_table(env):
     _write_screened(env["screened"], [_sense("run#0", "en-run-en-verb-0")])
     _write_table(env["table"], [

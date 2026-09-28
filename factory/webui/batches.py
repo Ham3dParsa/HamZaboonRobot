@@ -253,8 +253,13 @@ def judged_ids(labels_path=None, data_root=None):
     return seen
 
 
+#: Terminal batch states: never block a new build, never re-openable.
+#: Everything else (exported/in_review/...) is live and blocks rebuilds.
+TERMINAL_STATUSES = frozenset({"imported", "cancelled"})
+
+
 def active_batches(data_root=None):
-    """Metas of all non-cancelled batches (oldest first)."""
+    """Metas of all live (non-terminal) batches (oldest first)."""
     out = []
     base = batches_dir(data_root)
     try:
@@ -268,7 +273,8 @@ def active_batches(data_root=None):
                 meta = json.load(handle)
         except (OSError, ValueError):
             continue
-        if isinstance(meta, dict) and str(meta.get("status") or "") != "cancelled":
+        if isinstance(meta, dict) and str(meta.get("status") or "") \
+                not in TERMINAL_STATUSES:
             out.append(meta)
     return out
 
@@ -466,7 +472,12 @@ def list_batches(data_root=None):
 
 
 def cancel_batch(batch_id, data_root=None):
-    """Mark a batch ``cancelled`` (releases its ids to the queue)."""
+    """Mark a batch ``cancelled`` (releases its ids to the queue).
+
+    Refuses ``imported`` batches (W3: the audit trail is locked once
+    labels are final — rejected ids already returned to the queue at
+    approve time, so no cancel is needed to re-export them).
+    """
     base = batch_dir(batch_id, data_root)
     meta_path = os.path.join(base, "batch.json")
     try:
@@ -478,6 +489,11 @@ def cancel_batch(batch_id, data_root=None):
         raise ValueError("VALIDATION-unknown-batch: no batch %s" % (batch_id,))
     if not isinstance(meta, dict) or not meta.get("id"):
         raise ValueError("VALIDATION-unknown-batch: no batch %s" % (batch_id,))
+    if str(meta.get("status") or "") == "imported":
+        raise ValueError("VALIDATION-imported-final: batch %s is already "
+                         "imported; its audit trail is locked (rejected ids "
+                         "returned to the queue at approve time)"
+                         % (batch_id,))
     meta["status"] = "cancelled"
     with open(meta_path, "w", encoding="utf-8") as handle:
         json.dump(meta, handle, ensure_ascii=False, indent=1)

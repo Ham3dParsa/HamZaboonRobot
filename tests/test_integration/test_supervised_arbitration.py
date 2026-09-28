@@ -103,6 +103,8 @@ class _SupervisedIsolation(unittest.TestCase):
         self.screened = os.path.join(self._root_holder.name,
                                      "screened.jsonl")
         _write_screened(self.screened)
+        self._prev_screened = os.environ.get("HAMZABAN_SCREENED_PATH")
+        os.environ["HAMZABAN_SCREENED_PATH"] = self.screened
         self.client = webui.app.test_client()
 
     def tearDown(self):
@@ -113,6 +115,10 @@ class _SupervisedIsolation(unittest.TestCase):
             os.environ.pop("HAMZABAN_DATA_ROOT", None)
         else:
             os.environ["HAMZABAN_DATA_ROOT"] = self._prev_data_root
+        if self._prev_screened is None:
+            os.environ.pop("HAMZABAN_SCREENED_PATH", None)
+        else:
+            os.environ["HAMZABAN_SCREENED_PATH"] = self._prev_screened
         db.DB_PATH = self._prev_db
         db_schema.DB_PATH = self._prev_schema
         self._root_holder.cleanup()
@@ -129,9 +135,7 @@ class _SupervisedIsolation(unittest.TestCase):
             return [json.loads(line) for line in handle if line.strip()]
 
     def _issue_batch(self, size=10):
-        resp = self.client.post("/api/batches",
-                                json={"screened_path": self.screened,
-                                      "size": size})
+        resp = self.client.post("/api/batches", json={"size": size})
         self.assertEqual(resp.status_code, 200, resp.get_json())
         return resp.get_json()["batch"]
 
@@ -186,7 +190,8 @@ class SupervisedArbitrationHappyFlowTests(_SupervisedIsolation):
             self.assertEqual(rec["verdict"], "none")
             self.assertIsNone(rec["target_synset"])
             self.assertEqual(rec["stratum"], "supervised")
-            self.assertEqual(rec["annotator"], "gemini:%s" % batch["id"])
+            self.assertEqual(rec["annotator"],
+                             "p08-synthetic:%s" % batch["id"])
 
         history = self.client.get("/api/batches").get_json()["batches"]
         final = [b for b in history if b["id"] == batch["id"]][0]
@@ -234,7 +239,7 @@ class SupervisedArbitrationRejectFlowTests(_SupervisedIsolation):
 
 class SupervisedGalleryFlowTests(_SupervisedIsolation):
     def test_gallery_build_for_synthetic_run(self):
-        run_dir = os.path.join(self._root_holder.name, "run_demo")
+        run_dir = os.path.join(self.data_root, "run_demo")
         _write_run_dir(run_dir)
         resp = self.client.get("/api/gallery", query_string={"run": run_dir})
         self.assertEqual(resp.status_code, 200)
