@@ -204,7 +204,7 @@ def test_restart_recovers_running_state(_roots, _idle_screening):
 
 
 def test_completed_manifest_recovered_from_out_dir(
-        _roots, _idle_screening):
+        _roots, _idle_screening, monkeypatch):
     """Dead pid + manifest in out_dir → completed with totals + log tail."""
     out_dir = str(_roots / "screened")
     os.makedirs(out_dir, exist_ok=True)
@@ -221,6 +221,12 @@ def test_completed_manifest_recovered_from_out_dir(
                  "started_iso": "2026-09-27T00:00:02+00:00",
                  "out_dir": out_dir, "out_name": "screened",
                  "words_hash": "abc", "status": "running"})
+    # The pid-1 init process is alive inside Linux containers (and the
+    # Windows liveness probe reports every pid alive), so the "pid died
+    # behind our back" half of this scenario is pinned deterministically
+    # instead of depending on ambient pid 1. The live-probe True path
+    # stays covered by test_restart_recovers_running_state.
+    monkeypatch.setattr(webui, "_pid_alive", lambda pid: False)
     client = webui.app.test_client()
     snap = client.get("/api/screening/status").get_json()["screening"]
     assert snap["run_id"] == "run-done-7"
