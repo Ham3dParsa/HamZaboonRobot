@@ -1061,6 +1061,16 @@ def _model_list_target(name, row, key_value):
     if not endpoint:
         return None, None, None, ("%s has no listable base address "
                                   "(no /models endpoint)" % name)
+    try:
+        from factory.precard.provider_manifest import (
+            base_host_allowed as _host_ok)
+        host_ok = _host_ok(base)
+    except Exception:
+        host_ok = False
+    if not host_ok:
+        return None, None, None, ("%s base host is not allowed "
+                                  "(loopback, localhost, or public "
+                                  "IP/hostname only)" % name)
     return endpoint, {"Authorization": "Bearer " + key_value}, \
         _openai_model_ids, None
 
@@ -4983,9 +4993,8 @@ def api_batch_create():
         except (TypeError, ValueError):
             return jsonify({"error": "VALIDATION-size: size must be an "
                                      "integer 10..50"}), 400
-    screened = _configured_path(str((fields or {}).get("screened_path")
-                                    or ""),
-                                SCREENED_ENV_VAR, DEFAULT_SCREENED_PATH)
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
     try:
         batch = _batches.build_batch(screened, size=size)
         saved = _batches.save_batch(batch)
@@ -5033,7 +5042,8 @@ def api_batch_fetch(batch_id):
     except (OSError, ValueError) as exc:
         return jsonify({"error": "unreadable batch %s: %s"
                                  % (name, exc)}), 500
-    return jsonify({"batch": meta, "md": md_text, "items": items})
+    return jsonify({"batch": meta, "md": md_text, "items": items,
+                    "staged": _batch_import.load_staged(name)})
 
 
 @app.route("/api/batches/<batch_id>/cancel", methods=["POST"])
@@ -5119,12 +5129,41 @@ def api_batch_approve(batch_id):
 # ─── Linker gallery viewing (P02) ──────────────────────────────────────
 # Thin route over factory/webui/gallery.py (viewer.py core untouched).
 
+def _gallery_ref_allowed(ref):
+    """True when a gallery ``run`` ref stays inside known runs areas.
+
+    Bare run ids (no separators/drive) always pass — they resolve
+    internally. Anything path-shaped must realpath-resolve under the
+    shared data root or this console's own dir; absolute strays get an
+    honest 404 (LAN-visible console, no auth).
+    """
+    text = str(ref or "").strip()
+    if not text:
+        return False
+    if ("/" not in text and "\\" not in text and ":" not in text
+            and os.path.basename(text) == text):
+        return True
+    try:
+        real = os.path.realpath(text)
+    except OSError:
+        return False
+    try:
+        roots = [os.path.realpath(data_root()),
+                 os.path.realpath(SCRIPT_DIR)]
+    except OSError:
+        return False
+    return any(real == root or real.startswith(root + os.sep)
+               for root in roots)
+
+
 @app.route("/api/gallery", methods=["GET"])
 def api_gallery():
     ref = (request.args.get("run") or "").strip()
     if not ref:
         return jsonify({"error": "VALIDATION-run: ?run=<run-id-or-path> "
                                  "is required"}), 400
+    if not _gallery_ref_allowed(ref):
+        return jsonify({"error": "run not found: %s" % ref}), 404
     try:
         out = _gallery.build_gallery(ref)
     except FileNotFoundError as exc:

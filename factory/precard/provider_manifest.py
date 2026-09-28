@@ -21,11 +21,13 @@ never persisted, never embedded in errors).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import pathlib
 import re
 import time
+import urllib.parse
 
 MANIFEST_FILENAME = "provider_manifest.json"
 
@@ -138,6 +140,33 @@ def manifest_paths(explicit=None):
     return [primary, fallback]
 
 
+def base_host_allowed(base_url):
+    """True when a provider base_url host is acceptable (SSRF guard).
+
+    Literal IPs must be loopback (local models: LM Studio/Ollama) or
+    globally routable; private/link-local/reserved literals are refused
+    (no metadata/internal targets from this LAN-visible console).
+    ``localhost`` names are always allowed; other DNS names pass here
+    (no blocking DNS lookup in the request path — resolution-time
+    rebinding stays a documented trusted-LAN-operator risk).
+    """
+    try:
+        host = (urllib.parse.urlsplit(str(base_url or "").strip())
+                .hostname or "")
+    except ValueError:
+        return False
+    if not host:
+        return False
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return bool(addr.is_loopback or addr.is_global)
+
+
 def validate_row(name, row):
     """Validate a provider data row; (ok, error). Names only in errors."""
     want = norm_name(name)
@@ -157,6 +186,10 @@ def validate_row(name, row):
         text = str(base_url).strip()
         if not (text.startswith("https://") or text.startswith("http://")):
             return False, "provider %s: base_url must be http(s) or empty" % want
+        if not base_host_allowed(text):
+            return False, ("provider %s: base_url host is not allowed "
+                           "(loopback, localhost, or public IP/hostname "
+                           "only)" % want)
     key_vars = row.get("key_vars", [])
     if not isinstance(key_vars, (list, tuple)):
         return False, "provider %s: key_vars must be a list" % want

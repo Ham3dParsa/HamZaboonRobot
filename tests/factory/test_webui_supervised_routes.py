@@ -37,12 +37,13 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("HAMZABAN_DATA_ROOT", root)
     screened = str(tmp_path / "screened.jsonl")
     _write_screened(screened)
+    monkeypatch.setenv("HAMZABAN_SCREENED_PATH", screened)
     return {"client": webui.app.test_client(), "screened": screened}
 
 
 def test_create_happy_summary_shape(env):
     resp = env["client"].post("/api/batches",
-                              json={"screened_path": env["screened"],
+                              json={
                                     "size": 10})
     assert resp.status_code == 200, resp.get_json()
     batch = resp.get_json()["batch"]
@@ -57,7 +58,7 @@ def test_create_size_coercion(env):
     for bad in (0, 9, 51, "abc", 10.5):
         resp = env["client"].post(
             "/api/batches",
-            json={"screened_path": env["screened"], "size": bad})
+            json={ "size": bad})
         assert resp.status_code == 400, bad
         assert "VALIDATION" in resp.get_json()["error"]
 
@@ -66,7 +67,7 @@ def test_create_blank_size_defaults(env):
     for blank in (None, ""):
         resp = env["client"].post(
             "/api/batches",
-            json={"screened_path": env["screened"], "size": blank})
+            json={ "size": blank})
         assert resp.status_code == 200, blank
         bid = resp.get_json()["batch"]["id"]
         assert env["client"].post(
@@ -85,7 +86,7 @@ def test_fetch_cancel_unknown_and_traversal(env):
 def test_fetch_single_and_cancel_roundtrip(env):
     created = env["client"].post(
         "/api/batches",
-        json={"screened_path": env["screened"], "size": 10}).get_json()["batch"]
+        json={"size": 10}).get_json()["batch"]
     fetched = env["client"].get(
         "/api/batches/%s" % created["id"]).get_json()
     assert len(fetched["items"]) == 10
@@ -106,8 +107,19 @@ def test_gallery_missing_and_unknown(env):
 def _make_batch(env, size=10):
     return env["client"].post(
         "/api/batches",
-        json={"screened_path": env["screened"],
-              "size": size}).get_json()["batch"]
+        json={"size": size}).get_json()["batch"]
+
+
+def test_create_ignores_client_screened_path(env):
+    """Exfiltration guard (R3): outside paths never become batch items."""
+    resp = env["client"].post(
+        "/api/batches",
+        json={"screened_path": "C:/Windows/win.ini", "size": 10})
+    assert resp.status_code == 200
+    fetched = env["client"].get(
+        "/api/batches/%s" % resp.get_json()["batch"]["id"]).get_json()
+    assert [it["sense_id"] for it in fetched["items"]] == \
+        ["run#%d" % i for i in range(10)]
 
 
 def _sheet_for(env, batch_id, verdict="none"):

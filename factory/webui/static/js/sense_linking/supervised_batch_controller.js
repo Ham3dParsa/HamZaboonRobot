@@ -9,13 +9,13 @@ import {FilterableListController} from '../shell/filterable_list_controller.js';
    (اصل persian-formatting برای وب — هرگز innerHTML با داده پویا)؛ عددها با
    faNum؛ خطاها جعبه سه‌بخشی؛ دکمه‌های سروری withBusy. نشت سراسری صفر:
    همه حالت‌ها در دامنه ماژول، بدون window.*. */
-const STATUS_FA = {exported: 'صادرشده', awaiting: 'در انتظار پاسخ',
-  partial: 'ناقص', complete: 'کامل', in_review: 'در بازبینی',
+const STATUS_FA = {exported: 'صادرشده', in_review: 'در بازبینی',
   imported: 'واردشده', cancelled: 'لغوشده'};
 let batches = [];
 let batchFilter = '';
 let reviewBatchId = '';
 let reviewItems = [];
+let reviewStaged = {};
 let repairCache = {};
 let initialized = false;
 function el(id) {
@@ -355,6 +355,24 @@ function renderReview() {
       + (defFlat ? (defFlat.length > 120 ? defFlat.slice(0, 120) + '…' : defFlat) : '—');
     gloss.title = gloss.textContent;
     wrap.append(b, gloss);
+    const verdict = reviewStaged[senseId] || null;
+    const vline = document.createElement('div');
+    vline.className = 'queue-gloss';
+    if (verdict) {
+      const vtext = String(verdict.verdict || '');
+      const vlabel = vtext === 'link' ? 'رأی: پیوند'
+        : vtext === 'none' ? 'رأی: بدون پیوند' : 'رأی: ' + vtext;
+      vline.append(document.createTextNode(vlabel));
+      const target = verdict.target_synset;
+      if (target) {
+        vline.append(document.createTextNode(' ← '));
+        vline.append(ltrCode(String(target)));
+      }
+      vline.title = vline.textContent;
+    } else {
+      vline.textContent = 'رأی ثبت‌شده‌ای نیست';
+    }
+    wrap.append(vline);
     const tag = document.createElement('span');
     tag.className = 'status-tag';
     tag.textContent = itemSummary(item);
@@ -385,6 +403,10 @@ async function openReview(id, btn) {
       const j = await fetchBatchDetail(id);
       reviewBatchId = id;
       reviewItems = (j && j.items) || [];
+      reviewStaged = {};
+      ((j && j.staged) || []).forEach((v) => {
+        if (v && v.sense_id) reviewStaged[String(v.sense_id)] = v;
+      });
       renderReview();
       const title = el('batch-review-title');
       if (title && btn) title.focus();
@@ -439,6 +461,7 @@ async function cancelBatch(id, btn, row) {
       if (reviewBatchId === id) {
         reviewBatchId = '';
         reviewItems = [];
+        reviewStaged = {};
         renderReview();
       }
       await refreshBatches();

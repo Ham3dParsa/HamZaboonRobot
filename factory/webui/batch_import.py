@@ -37,10 +37,15 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import threading
 import uuid
 
 from factory.webui import batches
 from factory.webui import labels as _labels
+
+#: Serializes approve() (the threaded Flask server can run two approves
+#: concurrently): check-then-write under one lock + idempotent retry.
+_APPROVE_LOCK = threading.Lock()
 
 VERDICTS = ("link", "none")
 
@@ -320,15 +325,22 @@ def approve(batch_id, ids, reviewer, data_root=None, labels_path=None):
 
     Returns ``{"finalized": n, "returned": m}``; rejected (staged but
     unapproved) ids stay unlabeled and return to the queue. All labels
-    are pre-validated before the first append (zero partial writes).
+    are pre-validated before the first append, written in ONE append
+    block, and the whole check-then-write runs under ``_APPROVE_LOCK``
+    (concurrent approves serialize; a retry with the same ids is
+    idempotent and never double-appends).
     """
     bid = _check_id(batch_id)
     if not (isinstance(reviewer, str) and reviewer.strip()):
         _reject("نام داور (reviewer) خالی است.")
+    with _APPROVE_LOCK:
+        return _approve_locked(bid, ids, reviewer.strip(),
+                               data_root, labels_path)
+
+
+def _approve_locked(bid, ids, reviewer, data_root=None, labels_path=None):
+    """approve() body; caller must hold ``_APPROVE_LOCK``."""
     meta, payload = _load_batch(bid, data_root)
-    if str(meta.get("status") or "") != "in_review":
-        _reject("بچ در وضعیت «%s» است؛ اول باید پاسخ‌نامه ثبت (stage) شود."
-                % (meta.get("status"),))
     staged = load_staged(bid, data_root)
     staged_by_id = {v.get("sense_id"): v for v in staged
                     if isinstance(v, dict) and v.get("sense_id")}
@@ -343,6 +355,16 @@ def approve(batch_id, ids, reviewer, data_root=None, labels_path=None):
     if unknown:
         _reject("شناسه «%s» در پاسخ ثبت‌شده این بچ نیست."
                 % ", ".join(unknown), failing_ids=unknown)
+    status = str(meta.get("status") or "")
+    if status == "imported":
+        if set(meta.get("approved_ids") or []) == set(want):
+            return {"finalized": int(meta.get("approved", 0)),
+                    "returned": int(meta.get("returned", 0))}
+        _reject("این بچ پیش‌تر نهایی شده است (تکرار با شناسه‌های "
+                "متفاوت مجاز نیست).")
+    if status != "in_review":
+        _reject("بچ در وضعیت «%s» است؛ اول باید پاسخ‌نامه ثبت (stage) شود."
+                % (status,))
     lemma_by_id = {}
     for item in payload["items"]:
         if isinstance(item, dict) and item.get("sense_id"):
@@ -363,14 +385,34 @@ def approve(batch_id, ids, reviewer, data_root=None, labels_path=None):
             _reject("برچسب %s نامعتبر است (%s)." % (sid, exc),
                     failing_ids=[sid])
     store = labels_path or batches.default_labels_path(data_root)
+    lines = []
     for field in fields:
-        _labels.save_label(field, store)
+        rec = dict(field)
+        rec["created_at"] = _stamp()
+        try:
+            lines.append(json.dumps(rec, ensure_ascii=False))
+        except (TypeError, ValueError) as exc:
+            _reject("برچسب %s قابل ذخیره نیست (%s)."
+                    % (rec.get("sense_id"), exc),
+                    failing_ids=[rec.get("sense_id")])
+    if lines:
+        parent = os.path.dirname(str(store))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(str(store), "a", encoding="utf-8") as handle:
+            for line in lines:
+                handle.write(line + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
     staged_ids = [v["sense_id"] for v in staged]
     returned = [sid for sid in staged_ids if sid not in set(want)]
     meta["status"] = "imported"
     meta["approved"] = len(want)
     meta["returned"] = len(returned)
-    meta["reviewed_by"] = reviewer.strip()
+    meta["reviewed_by"] = reviewer
     meta["approved_at"] = _stamp()
     meta["approved_ids"] = want
     meta["returned_ids"] = returned
