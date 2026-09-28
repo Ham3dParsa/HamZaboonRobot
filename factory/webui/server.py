@@ -55,6 +55,8 @@ from factory.precard import provider_registry
 from factory.precard.accounting import source_item_key
 from factory.core.env_loader import data_root
 from factory.webui import batches as _batches
+from factory.webui import batch_import as _batch_import
+from factory.webui import batch_repair as _batch_repair
 from factory.webui import gallery as _gallery
 
 app = Flask(__name__, static_folder=None)
@@ -4999,14 +5001,12 @@ def api_batch_fetch(batch_id):
         return jsonify({"error": "batch not found: %s"
                                  % str(batch_id or "").strip()}), 404
     directory = _batches.batch_dir(name)
-    meta_path = os.path.join(directory, "batch.json")
+    meta = _read_batch_meta(name)
+    if meta is None:
+        return jsonify({"error": "batch not found: %s" % name}), 404
     md_path = os.path.join(directory, "batch.md")
     data_path = os.path.join(directory, "batch.json-data")
-    if not os.path.isfile(meta_path):
-        return jsonify({"error": "batch not found: %s" % name}), 404
     try:
-        with open(meta_path, encoding="utf-8") as handle:
-            meta = json.load(handle)
         md_text = ""
         if os.path.isfile(md_path):
             with open(md_path, encoding="utf-8") as handle:
@@ -5039,6 +5039,73 @@ def api_batch_cancel(batch_id):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"cancelled": name})
+
+
+def _read_batch_meta(name):
+    """Batch meta dict or None (single loader — fetch + repair share it)."""
+    try:
+        with open(os.path.join(_batches.batch_dir(name), "batch.json"),
+                  encoding="utf-8") as handle:
+            meta = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict) or not meta.get("id"):
+        return None
+    return meta
+
+
+def _repair_bundle(name, exc):
+    """Copy-ready repair text for a rejected sheet (P06 composer)."""
+    meta = _read_batch_meta(name) or {"id": name}
+    try:
+        return _batch_repair.compose_repair_request(meta, exc)
+    except Exception:
+        return ""
+
+
+@app.route("/api/batches/<batch_id>/import", methods=["POST"])
+def api_batch_import(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name or not os.path.isfile(
+            os.path.join(_batches.batch_dir(name), "batch.json")):
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    fields = request.get_json(force=True, silent=True) or {}
+    sheet = (fields or {}).get("answer_sheet")
+    if not isinstance(sheet, str) or not sheet.strip():
+        return jsonify({"error": "VALIDATION-input: answer_sheet "
+                                 "is required"}), 400
+    try:
+        result = _batch_import.stage_import(name, sheet)
+    except _batch_import.BatchImportError as exc:
+        return jsonify({"error": str(exc),
+                        "failing_ids": list(exc.failing_ids or []),
+                        "repair_request": _repair_bundle(name, exc)}), 422
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    result["status"] = "in_review"
+    return jsonify(result), 200
+
+
+@app.route("/api/batches/<batch_id>/approve", methods=["POST"])
+def api_batch_approve(batch_id):
+    name = _clean_batch_id(batch_id)
+    if not name:
+        return jsonify({"error": "batch not found: %s"
+                                 % str(batch_id or "").strip()}), 404
+    fields = request.get_json(force=True, silent=True) or {}
+    ids = (fields or {}).get("ids") or []
+    reviewer = str((fields or {}).get("reviewer") or "operator").strip() \
+        or "operator"
+    try:
+        result = _batch_import.approve(name, ids, reviewer)
+    except _batch_import.BatchImportError as exc:
+        return jsonify({"error": str(exc),
+                        "failing_ids": list(exc.failing_ids or [])}), 422
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    result["status"] = "imported"
+    return jsonify(result), 200
 
 
 # ─── Linker gallery viewing (P02) ──────────────────────────────────────

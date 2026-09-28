@@ -101,3 +101,76 @@ def test_gallery_missing_and_unknown(env):
     assert env["client"].get("/api/gallery").status_code == 400
     resp = env["client"].get("/api/gallery?run=no-such-run")
     assert resp.status_code == 404
+
+
+def _make_batch(env, size=10):
+    return env["client"].post(
+        "/api/batches",
+        json={"screened_path": env["screened"],
+              "size": size}).get_json()["batch"]
+
+
+def _sheet_for(env, batch_id, verdict="none"):
+    items = env["client"].get(
+        "/api/batches/%s" % batch_id).get_json()["items"]
+    meta = env["client"].get(
+        "/api/batches/%s" % batch_id).get_json()["batch"]
+    return json.dumps({
+        "model": "route-test",
+        "prompt_hash": meta["prompt_hash"],
+        "verdicts": [{"sense_id": it["sense_id"], "verdict": verdict,
+                      "target_synset": None} for it in items],
+    })
+
+
+def test_import_stage_approve_roundtrip(env):
+    batch = _make_batch(env)
+    sheet = _sheet_for(env, batch["id"])
+    staged = env["client"].post(
+        "/api/batches/%s/import" % batch["id"],
+        json={"answer_sheet": sheet}).get_json()
+    assert staged["staged"] == 10
+    assert staged["status"] == "in_review"
+    items = env["client"].get(
+        "/api/batches/%s" % batch["id"]).get_json()["items"]
+    keep = [it["sense_id"] for it in items[:4]]
+    done = env["client"].post(
+        "/api/batches/%s/approve" % batch["id"],
+        json={"ids": keep, "reviewer": "route-test"}).get_json()
+    assert done["finalized"] == 4
+    assert done["returned"] == 6
+    assert done["status"] == "imported"
+
+
+def test_import_requires_raw_string_not_object(env):
+    """Pins the UI→route payload contract (F1): parsed object → 400."""
+    batch = _make_batch(env)
+    sheet = _sheet_for(env, batch["id"])
+    resp = env["client"].post(
+        "/api/batches/%s/import" % batch["id"],
+        json={"answer_sheet": json.loads(sheet)})
+    assert resp.status_code == 400
+    ok = env["client"].post(
+        "/api/batches/%s/import" % batch["id"],
+        json={"answer_sheet": sheet})
+    assert ok.status_code == 200
+
+
+def test_import_reject_gives_repair(env):
+    batch = _make_batch(env)
+    bad = json.dumps({"model": "route-test",
+                      "prompt_hash": batch["prompt_hash"],
+                      "verdicts": [{"sense_id": "ghost#0",
+                                    "verdict": "none",
+                                    "target_synset": None}]})
+    resp = env["client"].post(
+        "/api/batches/%s/import" % batch["id"],
+        json={"answer_sheet": bad})
+    assert resp.status_code == 422
+    body = resp.get_json()
+    assert "ghost#0" in body["error"]
+    assert body["repair_request"]
+    assert batch["id"] in body["repair_request"]
+    assert env["client"].post(
+        "/api/batches/%s/import" % batch["id"],
+        json={"answer_sheet": ""}).status_code == 400

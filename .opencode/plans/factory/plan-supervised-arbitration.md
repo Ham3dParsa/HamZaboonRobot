@@ -7,7 +7,7 @@ branch: feat/supervised-arbitration
 status: in-progress
 ---
 
-STATE: phase 0/6 — status: in-progress — focus: W1 tickets (P01/P02/P03) in progress
+STATE: phase 3/6 — status: in-progress — focus: W3 tickets (P07/P08/P09); W2 committed (reviewer PASS after F1 fix, 60 tests green)
 
 ## Locked rules (owner-confirmed 2026-09-28)
 
