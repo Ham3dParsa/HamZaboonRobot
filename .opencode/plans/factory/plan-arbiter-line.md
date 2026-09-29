@@ -7,7 +7,7 @@ branch: feat/arbiter-line
 status: in-progress
 ---
 
-STATE: phase 5/6 — status: in-progress — focus: P5 R2 A2 overhaul next (ticket locked with per-tab contracts + G1-G3); P0-P4 committed (reviewer PASS on substance throughout)
+STATE: phase 6/6 — status: in-progress — focus: P5 R2 under review; P6 preset migration parked (needs build lock); P0-P4 committed (reviewer PASS on substance throughout)
 
 ## Order (owner-corrected)
 

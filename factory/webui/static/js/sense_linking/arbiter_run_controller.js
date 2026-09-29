@@ -152,6 +152,18 @@ async function loadVerdicts(runId) {
   verdictPager.reset();
   renderVerdicts();
 }
+/* Cross-panel entry (unified history): show one run's verdicts without
+   starting anything. Exported for the history action only. */
+export async function openArbiterRun(runId) {
+  const id = String(runId || '').trim();
+  if (!id) return;
+  stopPolling();
+  setRunning(false);
+  const prog = el('arbiter-progress');
+  if (prog) prog.textContent = '';
+  activeRunId = id;
+  await loadVerdicts(id);
+}
 async function startRun(btn) {
   clearFormError('arbiter-err');
   await loadPresets();

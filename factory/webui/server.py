@@ -4312,6 +4312,68 @@ def api_runs():
     ]})
 
 
+# ─── Unified linking history (P5/G1): one table over three run kinds ──
+# Pure join over existing stores (runs registry, arbiter jobs, batch
+# store). No new store, no new write path. Rows are uniform:
+# {kind, run_id, out_name, status, created, detail}. Gallery actions
+# resolve per kind on the client (linking→TSV path, arbiter→verdicts,
+# batch→review).
+
+@app.route("/api/linking/history", methods=["GET"])
+def api_linking_history():
+    from factory.webui import arbiter_jobs as _jobs
+
+    rows = []
+    try:
+        records = _load_registry_migrated()
+    except Exception:
+        records = []
+    for rec in records or []:
+        if not isinstance(rec, dict):
+            continue
+        rows.append({
+            "kind": "linking",
+            "run_id": str(rec.get("run_name") or rec.get("id") or ""),
+            "out_name": str(rec.get("out") or ""),
+            "status": str(rec.get("status") or ""),
+            "created": str(rec.get("created") or ""),
+            "detail": str(rec.get("flow") or "linking"),
+        })
+    try:
+        jobs = _jobs.list_jobs()
+    except Exception:
+        jobs = []
+    for job in jobs or []:
+        if not isinstance(job, dict):
+            continue
+        rows.append({
+            "kind": "arbiter",
+            "run_id": str(job.get("run_id") or ""),
+            "out_name": str(job.get("model") or ""),
+            "status": str(job.get("status") or ""),
+            "created": str(job.get("started_at") or ""),
+            "detail": "done %s/%s" % (job.get("done", 0),
+                                      job.get("total", 0)),
+        })
+    try:
+        from factory.webui import batches as _batches_mod
+        batches = _batches_mod.list_batches()
+    except Exception:
+        batches = []
+    for batch in batches or []:
+        if not isinstance(batch, dict):
+            continue
+        rows.append({
+            "kind": "batch",
+            "run_id": str(batch.get("id") or ""),
+            "out_name": "batch",
+            "status": str(batch.get("status") or ""),
+            "created": str(batch.get("created_at") or ""),
+            "detail": "size %s" % (batch.get("size", 0)),
+        })
+    return jsonify({"runs": rows})
+
+
 @app.route("/api/runs", methods=["POST"])
 def api_create_run():
     fields = request.get_json(force=True, silent=True) or {}

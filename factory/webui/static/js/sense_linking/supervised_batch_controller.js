@@ -1,5 +1,8 @@
 import {getJSON, withBusy, errCodeFor, buildFormError, showFormError, clearFormError, copyReport, faNum, ltrCode} from '../shell/api_client.js';
 import {FilterableListController} from '../shell/filterable_list_controller.js';
+import {PagedListController} from '../shell/paginated_list_controller.js';
+import {selectLinkingTab} from '../shell/view_navigator.js';
+import {openArbiterRun} from './arbiter_run_controller.js';
 /* کنترلر بسته‌های داوری تحت نظارت اپراتور (P05، قراردادهای قفل‌شده W2):
    POST /api/batches {size}، GET /api/batches، GET /api/batches/<id>،
    POST /api/batches/<id>/import {answer_sheet}،
@@ -472,7 +475,9 @@ async function cancelBatch(id, btn, row) {
   });
 }
 /* گالری: پاسخ سرور HTML است (نه JSON) پس fetch خام؛ موفقیت یعنی بازکردن
-   در زبانه تازه، 404 صادقانه یعنی جعبه سه‌بخشی بدون زبانه تازه. */
+   در زبانه تازه، 404 صادقانه یعنی جعبه سه‌بخشی بدون زبانه تازه.
+   ورودی مسیر-شکل اول از POST /api/files/resolve می‌گذرد (تک‌مالک
+   اعتبارسنجی مسیر؛ شناسه لخت مستقیم می‌رود). */
 async function buildGallery(btn) {
   clearFormError('gallery-err');
   const note = el('gallery-note');
@@ -483,7 +488,20 @@ async function buildGallery(btn) {
       '?run is required', buildGallery, 'VALIDATION-run');
     return;
   }
+  const pathShaped = run.indexOf('/') !== -1 || run.indexOf('\\') !== -1
+    || /^[A-Za-z]:/.test(run);
   const url = '/api/gallery?run=' + encodeURIComponent(run);
+  if (pathShaped) {
+    try {
+      await getJSON('/api/files/resolve',
+        {method: 'POST', headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({path: run})});
+    } catch(e) {
+      showFormError('gallery-err', 'این مسیر خارج از ریشه‌های مجاز است (گالری ساخته نشد).',
+        (e && e.message) || e, buildGallery, codeFrom(e));
+      return;
+    }
+  }
   await withBusy(btn || el('btn-build-gallery'), 'در حال ساخت…', async () => {
     try {
       const r = await fetch(url);
@@ -507,63 +525,111 @@ async function buildGallery(btn) {
     }
   });
 }
-/* تاریخچه اجراها (GET /api/runs): هر سطر دکمه گالری خودش را دارد —
-   شناسه در ورودی می‌نشیند و همان مسیر ساخت فراخوانی می‌شود. */
-async function refreshHistory() {
+/* تاریخچه یکپارچه (GET /api/linking/history): هر سه گونه اجرا در یک
+   جدول — شناسه در ورودی می‌نشیند و اقدامِ همان گونه فراخوانی می‌شود
+   (پیوندزنی→گالری، داوری→برگه‌ها در زبانه ۲، بسته→بازبینی در زبانه ۳). */
+const HISTORY_KIND_FA = {linking: 'پیوندزنی', arbiter: 'داوری',
+  batch: 'بسته'};
+const HISTORY_STATUS_FA = {done: 'تمام‌شده', running: 'در حال اجرا',
+  failed: 'ناموفق', aborted: 'متوقف‌شده', exported: 'صادرشده',
+  in_review: 'در بازبینی', imported: 'واردشده', cancelled: 'لغوشده'};
+/* Unified history rows (shared 50-row pager like queue/verdict lists). */
+let historyRows = [];
+const historyPager = new PagedListController({
+  pagerId: 'gallery-history-pager', onPage: () => renderHistoryRows()});
+function renderHistoryRows() {
   const tb = el('gallery-history-tbody');
   const count = el('gallery-history-count');
   const note = el('gallery-history-note');
   if (!tb) return;
+  tb.replaceChildren();
+  historyPager.setTotal(historyRows.length);
+  if (count) count.textContent = faNum(historyRows.length) + ' اجرا';
+  if (!historyRows.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.textContent = 'اجرایی ثبت نشده است.';
+    tr.append(td);
+    tb.append(tr);
+    if (note) note.textContent = '';
+    return;
+  }
+  historyPager.pageItems(historyRows).forEach((r) => {
+    const tr = document.createElement('tr');
+    const kind = String((r && r.kind) || '');
+    const tdRun = document.createElement('td');
+    tdRun.append(ltrCode((r && (r.out_name || r.run_id)) || '—'));
+    const tdKind = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = 'status-tag';
+    badge.textContent = HISTORY_KIND_FA[kind] || kind || '—';
+    tdKind.append(badge);
+    const tdStatus = document.createElement('td');
+    const st = String((r && r.status) || '');
+    tdStatus.textContent = HISTORY_STATUS_FA[st] || st || '—';
+    const tdCreated = document.createElement('td');
+    tdCreated.append(ltrCode((r && r.created) || '—'));
+    const tdAct = document.createElement('td');
+    tdAct.append(historyAction(r));
+    tr.append(tdRun, tdKind, tdStatus, tdCreated, tdAct);
+    tb.append(tr);
+  });
+  if (note) note.textContent = faNum(historyRows.length) + ' اجرا از تاریخچه یکپارچه خوانده شد.';
+}
+async function refreshHistory() {
+  const tb = el('gallery-history-tbody');
+  const count = el('gallery-history-count');
+  if (!tb) return;
   try {
-    const j = await getJSON('/api/runs');
+    const j = await getJSON('/api/linking/history');
     const rows = (j && j.runs) || [];
-    tb.replaceChildren();
-    if (count) count.textContent = faNum(rows.length) + ' اجرا';
-    if (!rows.length) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 4;
-      td.textContent = 'اجرایی ثبت نشده است.';
-      tr.append(td);
-      tb.append(tr);
-      if (note) note.textContent = '';
-      return;
-    }
-    rows.forEach((r) => {
-      const tr = document.createElement('tr');
-      const tdRun = document.createElement('td');
-      tdRun.append(ltrCode(r.run_name || r.id || '—'));
-      const tdStatus = document.createElement('td');
-      tdStatus.textContent = r.status || '—';
-      const tdCreated = document.createElement('td');
-      tdCreated.append(ltrCode(r.created || '—'));
-      const tdAct = document.createElement('td');
-      const g = document.createElement('button');
-      g.type = 'button';
-      g.className = 'btn-skip-next';
-      g.textContent = 'گالری';
-      g.setAttribute('aria-label', 'بازکردن گالری اجرای ' + (r.run_name || r.id || ''));
-      g.addEventListener('click', (ev) => {
-        const inp = el('gallery-run');
-        if (inp) inp.value = r.run_name || r.id || '';
-        buildGallery(ev.currentTarget);
-      });
-      tdAct.append(g);
-      tr.append(tdRun, tdStatus, tdCreated, tdAct);
-      tb.append(tr);
-    });
-    if (note) note.textContent = faNum(rows.length) + ' اجرا از تاریخچه خوانده شد.';
+    historyRows = Array.isArray(rows) ? rows : [];
+    historyPager.reset();
+    renderHistoryRows();
   } catch(e) {
+    historyRows = [];
+    historyPager.reset();
     tb.replaceChildren();
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 4;
+    td.colSpan = 5;
     td.append(buildFormError('خواندن تاریخچه اجراها ناموفق بود.',
       (e && e.message) || e, refreshHistory, undefined, codeFrom(e)));
     tr.append(td);
     tb.append(tr);
     if (count) count.textContent = 'نامشخص';
   }
+}
+function historyAction(r) {
+  const kind = String((r && r.kind) || '');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-skip-next';
+  if (kind === 'arbiter') {
+    btn.textContent = 'برگه‌ها';
+    btn.setAttribute('aria-label', 'دیدن برگه‌های اجرای ' + (r.run_id || ''));
+    btn.addEventListener('click', async () => {
+      selectLinkingTab(2);
+      await openArbiterRun(r.run_id || '');
+    });
+  } else if (kind === 'batch') {
+    btn.textContent = 'بازبینی';
+    btn.setAttribute('aria-label', 'بازبینی بسته ' + (r.run_id || ''));
+    btn.addEventListener('click', () => {
+      selectLinkingTab(3);
+      openReview(r.run_id || '', null);
+    });
+  } else {
+    btn.textContent = 'گالری';
+    btn.setAttribute('aria-label', 'بازکردن گالری اجرای ' + (r.run_id || ''));
+    btn.addEventListener('click', (ev) => {
+      const inp = el('gallery-run');
+      if (inp) inp.value = r.run_id || '';
+      buildGallery(ev.currentTarget);
+    });
+  }
+  return btn;
 }
 function initSupervisedBatches() {
   if (initialized) return;

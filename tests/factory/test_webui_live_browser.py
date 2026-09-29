@@ -246,6 +246,8 @@ def test_candidate_card_no_clipping_live_browser(live_console):
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     try:
         page.goto(base + "/")
+        # P5/R2: queue lives in tab 0, candidates in tab 1 (panels).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_selector("#queue-list .queue-item", timeout=15000)
         page.wait_for_timeout(800)
         total = page.evaluate(
@@ -254,6 +256,7 @@ def test_candidate_card_no_clipping_live_browser(live_console):
         page.evaluate(
             "[...document.querySelectorAll('#queue-list .queue-item')]"
             ".filter(el=>el.textContent.includes('run#25'))[0].click()")
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
         page.wait_for_selector(
             "#candidates-stack .candidate-row-card", timeout=15000)
         page.wait_for_timeout(500)
@@ -656,6 +659,8 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
     page.on("pageerror", lambda exc: crashes.append(str(exc)))
     try:
         page.goto(base + "/")
+        # P5/R2: queue lives in tab 0 (hidden until its tab opens).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_selector("#queue-list .queue-item", timeout=15000)
         page.wait_for_timeout(800)
         # single module script tag, zero inline handlers
@@ -708,6 +713,9 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
         assert page.evaluate(
             "document.getElementById('screening-tab-1').hidden") is False
         page.click('button.nav-btn[data-view-target="view-linking"]')
+        page.wait_for_timeout(300)
+        # queue filter lives in tab 0 (P5/R2 panels).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_timeout(300)
         # queue filter narrows the 30-row list, clearing restores it
         page.fill("#queue-filter", "run#25")
@@ -1658,6 +1666,8 @@ def test_t12_02_server_buttons_busy_live_browser(live_console):
         # NOTE: explicit nav (not a bare goto) — view-memory from the
         # precard/pilot loop above would otherwise reopen a hidden view.
         _t12_open_cabin(page, base, "view-linking")
+        # P5/R2: queue lives in tab 0 (hidden until its tab opens).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_selector("#queue-list .queue-item", timeout=15000)
         page.click("#btn-refresh-screened")
         page.wait_for_function(
@@ -1753,6 +1763,8 @@ def test_t12_04_errors_in_three_part_box_live_browser(live_console):
                        status=500, content_type="application/json",
                        body=json.dumps({"error": "t12 forced"})))
         page.goto(base + "/")
+        # P5/R2: linking-err lives in tab 1 (hidden until its tab opens).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
         page.wait_for_selector("#linking-err .form-error", timeout=15000)
         page.unroute("**/api/screened*")
         page.click(
@@ -2944,6 +2956,9 @@ def _bc06_open_linking(page, base, via_menu=False):
         page.click("#menu-toggle-btn")
         page.wait_for_timeout(400)
     page.click('button.nav-btn[data-view-target="view-linking"]')
+    # P5/R2: the cabin opens on the persisted tab (default: supervised);
+    # intake tests start from tab 0 explicitly.
+    page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
     page.wait_for_selector(
         "#queue-list .queue-item, #queue-list .p-meta", timeout=15000)
     page.wait_for_timeout(600)
@@ -3296,5 +3311,67 @@ def test_p4_arbiter_tab_panel_live_browser(live_console):
         _t07_assert_clean(errors, crashes)
         page.screenshot(path=os.path.join(
             _bc06_shots_dir(), "shot-p4-arbiter-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_p5_linking_five_panels_live_browser(live_console):
+    """P5/R2: five tabs switch five real panels, unified history (shot).
+
+    History endpoint is route-mocked (one row per kind); nothing real
+    runs, no model is called. Tab memory is asserted via reload.
+    """
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+
+    def history_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"runs": [
+                          {"kind": "linking", "run_id": "r1",
+                           "out_name": "t.tsv", "status": "done",
+                           "created": "2026-01-01", "detail": "linking"},
+                          {"kind": "arbiter", "run_id": "a1",
+                           "out_name": "m", "status": "done",
+                           "created": "2026-01-02", "detail": "done 2/2"},
+                          {"kind": "batch", "run_id": "b1",
+                           "out_name": "batch", "status": "exported",
+                           "created": "2026-01-03",
+                           "detail": "size 10"}]}))
+
+    try:
+        page.route("**/api/linking/history", history_route)
+        _bc06_open_linking(page, base)
+        for idx in ("0", "1", "2", "3", "4"):
+            page.click('#view-linking .cockpit-tabs '
+                       '.tab-link[data-tab-index="%s"]' % idx)
+            page.wait_for_function(
+                "document.querySelector("
+                "'#linking-tabpanel-%s:not([hidden])') !== null" % idx,
+                timeout=5000)
+            visible = page.evaluate(
+                "[...document.querySelectorAll("
+                "'#view-linking .linking-tabpanel:not([hidden])')]"
+                ".map(p=>p.id)")
+            assert visible == ["linking-tabpanel-" + idx], visible
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="4"]')
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#gallery-history-tbody tr').length === 3",
+            timeout=10000)
+        kinds = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#gallery-history-tbody tr td:nth-child(2)')]"
+            ".map(td=>td.innerText)")
+        assert kinds == ['پیوندزنی', 'داوری', 'بسته'], kinds
+        page.reload()
+        page.wait_for_selector("#view-linking", timeout=15000)
+        page.wait_for_function(
+            "document.querySelector('#view-linking .cockpit-tabs "
+            ".tab-link.active').getAttribute('data-tab-index') === '4'",
+            timeout=10000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p5-panels-desktop.png"))
     finally:
         page.close()

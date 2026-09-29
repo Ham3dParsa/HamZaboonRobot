@@ -205,3 +205,15 @@ def test_import_reject_gives_repair(env):
     assert env["client"].post(
         "/api/batches/%s/import" % batch["id"],
         json={"answer_sheet": ""}).status_code == 400
+
+
+def test_linking_history_aggregates_three_kinds(env):
+    body = env['client'].get('/api/linking/history').get_json()
+    assert body['runs'] == []
+    created = env['client'].post('/api/batches', json={'size': 10}).get_json()['batch']
+    body = env['client'].get('/api/linking/history').get_json()
+    kinds = [r['kind'] for r in body['runs']]
+    assert 'batch' in kinds
+    row = [r for r in body['runs'] if r['kind'] == 'batch'][0]
+    assert row['run_id'] == created['id']
+    assert set(row) >= {'kind', 'run_id', 'out_name', 'status', 'created', 'detail'}

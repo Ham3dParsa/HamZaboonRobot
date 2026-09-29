@@ -91,7 +91,42 @@
         <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
       </div>
 
+      <!-- P5/R2: زبانه ۰ — پذیرش (صف سنس‌ها + شمارش‌ها) -->
+      <div class="linking-tabpanel" id="linking-tabpanel-0" hidden>
+        <div class="inspector-column">
+          <div class="panel-heading">
+            <span>صف سنس‌های نیازمند بازبینی</span>
+            <span class="badge" id="queue-remaining">…</span>
+          </div>
+          <input class="inline-input queue-filter" id="queue-filter" type="search"
+                 placeholder="پالایش صف: شناسه، معنی یا وضعیت…" aria-label="پالایش صف سنس‌ها">
+          <div class="queue-list themed-scroll" id="queue-list">
+          </div>
+          <div class="list-pager p-meta" id="queue-pager" hidden></div>
+
+          <div class="metrics-mini-grid">
+            <div class="mini-metric-card">
+              <div class="mini-val" id="m-judged">…</div>
+              <div class="mini-label">رأی ثبت‌شده / سنس غربال‌شده</div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" style="color: var(--c-success);" id="m-agree" title="سرور این سنج را ثبت نکرد">—</div>
+              <div class="mini-label">انطباق با شاهد (بدون محاسبه زنده)</div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" style="color: var(--c-warning);" id="m-none">…</div>
+              <div class="mini-label">موارد <span class="code-token" dir="ltr">NONE</span></div>
+            </div>
+            <div class="mini-metric-card">
+              <div class="mini-val" id="m-saved" title="سرور این سنج را ثبت نکرد">—</div>
+              <div class="mini-label">صرفه‌جویی توکن (ثبت نمی‌شود)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- P4: زبانه ۲ — اجرای داوری با پریست (پنل واقعی؛ جابه‌جایی کامل زبانه‌ها در P5) -->
+      <div class="linking-tabpanel" id="linking-tabpanel-2" hidden>
       <div class="cfg-form-card form-cap" id="arbiter-run-card">
         <div class="p-header">
           <span class="p-title">اجرای داوری هوش مصنوعی</span>
@@ -123,9 +158,10 @@
         </div>
         <div class="list-pager p-meta" id="arbiter-pager" hidden></div>
       </div>
+      </div>
 
-      <div class="dense-workspace-grid">
-        <!-- ستون کاندیداها -->
+      <div class="linking-tabpanel" id="linking-tabpanel-1" hidden>
+        <!-- ستون داوری مکانیکی (نمای زبانه ۱) -->
         <div class="arbitration-column">
           <section id="sense-detail" aria-label="جزئیات سنس">
             <div class="panel-heading"><span>جزئیات سنس</span></div>
@@ -169,40 +205,12 @@
             </span>
           </div>
         </div>
-
-        <!-- ستون ناظر صف و آمار -->
-        <div class="inspector-column">
-          <div class="panel-heading">
-            <span>صف سنس‌های نیازمند بازبینی</span>
-            <span class="badge" id="queue-remaining">…</span>
-          </div>
-          <input class="inline-input queue-filter" id="queue-filter" type="search"
-                 placeholder="پالایش صف: شناسه، معنی یا وضعیت…" aria-label="پالایش صف سنس‌ها">
-          <div class="queue-list themed-scroll" id="queue-list">
-          </div>
-          <div class="list-pager p-meta" id="queue-pager" hidden></div>
-
-          <div class="metrics-mini-grid">
-            <div class="mini-metric-card">
-              <div class="mini-val" id="m-judged">…</div>
-              <div class="mini-label">رأی ثبت‌شده / سنس غربال‌شده</div>
-            </div>
-            <div class="mini-metric-card">
-              <div class="mini-val" style="color: var(--c-success);" id="m-agree" title="سرور این سنج را ثبت نکرد">—</div>
-              <div class="mini-label">انطباق با شاهد (بدون محاسبه زنده)</div>
-            </div>
-            <div class="mini-metric-card">
-              <div class="mini-val" style="color: var(--c-warning);" id="m-none">…</div>
-              <div class="mini-label">موارد <span class="code-token" dir="ltr">NONE</span></div>
-            </div>
-            <div class="mini-metric-card">
-              <div class="mini-val" id="m-saved" title="سرور این سنج را ثبت نکرد">—</div>
-              <div class="mini-label">صرفه‌جویی توکن (ثبت نمی‌شود)</div>
-            </div>
-          </div>
-        </div>
       </div>
 
+      <!-- P5/R2 tab panels: one visible step at a time (Req-1) -->
+      <!-- P5/R2: زبانه ۳ — داوری تحت نظارت (رأی مستقیم + بسته‌ها، کنار هم با لغزش مستقل) -->
+      <div class="linking-tabpanel" id="linking-tabpanel-3">
+      <div class="supervised-duo">
       <!-- P05: داوری تحت نظارت اپراتور — پنل بسته‌ها + بازبینی + گالری (افزایشی؛ شناسه‌های موجود دست‌نخورده) -->
       <div class="cfg-form-card form-cap" id="supervised-batch-card">
         <div class="p-header">
@@ -247,7 +255,11 @@
         <div class="queue-list themed-scroll" id="batch-review-list">
         </div>
       </div>
+      </div>
+      </div>
 
+      <!-- P5/R2: زبانه ۴ — خروجی و گالری (آخرین گام) + تاریخچه یکپارچه -->
+      <div class="linking-tabpanel" id="linking-tabpanel-4" hidden>
       <div class="cfg-form-card form-cap" id="linking-gallery-card">
         <div class="p-header">
           <span class="p-title">گالری پیوند (خروجی TSV)</span>
@@ -271,13 +283,15 @@
         </div>
         <div class="table-responsive themed-scroll">
           <table class="data-table">
-            <thead><tr><th>اجرا</th><th>وضعیت</th><th>ایجاد</th><th>اقدام</th></tr></thead>
+            <thead><tr><th>اجرا</th><th>نوع</th><th>وضعیت</th><th>ایجاد</th><th>اقدام</th></tr></thead>
             <tbody id="gallery-history-tbody">
-              <tr><td colspan="4">هنوز تاریخچه‌ای خوانده نشده است.</td></tr>
+              <tr><td colspan="5">هنوز تاریخچه‌ای خوانده نشده است.</td></tr>
             </tbody>
           </table>
         </div>
+        <div class="list-pager p-meta" id="gallery-history-pager" hidden></div>
         <div class="p-meta" id="gallery-history-note" aria-live="polite"></div>
+      </div>
       </div>
     </section>
 

@@ -456,3 +456,20 @@
       min-height: 44px;
     }
   }
+
+/* ── P5/R2: پنج پنل زبانه پیوندزنی — یک گام نمایان، بقیه پنهان ── */
+.linking-tabpanel[hidden] { display: none; }
+/* زبانه ۳: دو ستون کنارهم (بسته‌ها + بازبینی) با لغزش درونی مستقل —
+   هیچ سرریزی به اسکلت اصلی تحمیل نمی‌شود (Req-3). */
+.supervised-duo {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: var(--space-4); align-items: start;
+}
+.supervised-duo > .cfg-form-card {
+  min-width: 0; max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+@media (max-width: 1024px) {
+  .supervised-duo { grid-template-columns: 1fr; }
+  .supervised-duo > .cfg-form-card { max-height: none; }
+}
