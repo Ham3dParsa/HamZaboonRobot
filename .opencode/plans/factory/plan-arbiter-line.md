@@ -7,7 +7,7 @@ branch: feat/arbiter-line
 status: in-progress
 ---
 
-STATE: phase 0/6 — status: planned (spec locked, tickets written, awaiting build lock) — focus: owner says build
+STATE: phase 3/6 — status: in-progress — focus: P3 endpoint next; P0-P2 committed (reviewer PASS on substance; graphify absent repo-wide so blast-radius rests on enumerated grep)
 
 ## Order (owner-corrected)
 
