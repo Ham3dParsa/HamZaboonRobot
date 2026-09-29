@@ -59,13 +59,13 @@
   /* مهار پرش و شکست نگارشی متن‌های لاتین (BiDi Isolation) */
   .ltr-text {
     direction: ltr;
-    text-align: left;
+    text-align: start;
     unicode-bidi: isolate;
   }
   .code-token {
     font-family: var(--mono);
     direction: ltr;
-    text-align: left;
+    text-align: start;
     unicode-bidi: isolate;
     display: inline-block;
   }

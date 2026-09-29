@@ -137,7 +137,7 @@
   /* برش تک‌خطی معنی در صف: لحن کم‌رنگ، چپ‌چین لاتین ایزوله (BiDi) */
   .queue-gloss {
     font-size: 0.72rem; color: var(--text-muted);
-    direction: ltr; text-align: left; unicode-bidi: isolate;
+    direction: ltr; text-align: start; unicode-bidi: isolate;
     display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     max-width: 100%; overflow-wrap: anywhere;
   }
@@ -169,7 +169,7 @@
     border-radius: 6px; padding: 4px 10px; overflow: hidden;
   }
   .model-id {
-    font-family: var(--mono); direction: ltr; text-align: left; unicode-bidi: isolate;
+    font-family: var(--mono); direction: ltr; text-align: start; unicode-bidi: isolate;
     font-size: 0.78rem; color: var(--text-primary); flex: 1 1 auto; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
@@ -234,9 +234,11 @@
   .screening-actions {
     display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;
   }
+  /* PUX-B8: جعبه گزارش با قلم بدنه؛ شناسه‌های درون گزارش در گره
+     ایزوله خودشان (ltrCode/.code-token) مونو می‌مانند. */
   #screening-log {
-    font-family: var(--mono); font-size: 0.75rem; line-height: 1.5;
-    direction: ltr; text-align: left; unicode-bidi: isolate;
+    font-family: var(--sans); font-size: 0.75rem; line-height: 1.5;
+    direction: ltr; text-align: start; unicode-bidi: isolate;
     background: var(--bg-elevated); border: 1px solid var(--border-color);
     border-radius: 6px; padding: var(--space-3); margin: 0;
     max-height: 380px; min-height: calc(var(--space-6) * 3);
@@ -258,10 +260,20 @@
   #screening-controls {
     position: sticky; top: 58px;
   }
+  /* PUX-B5 (دسکتاپ ≥1024px): ستون کنترل سقف خودش را دارد و درون خودش
+     می‌لغزد — شروع/توقف/تحویل هرگز با لغزش فضای کاری جابه‌جا نمی‌شوند. */
+  @media (min-width: 1024px) {
+    #screening-controls {
+      max-height: calc(100vh - 74px);
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .screening-workspace { min-height: 0; }
+  }
   .screening-workspace { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   #screening-words {
     width: 100%; min-height: 120px; resize: vertical;
-    font-family: var(--mono); font-size: 0.8rem; line-height: 1.6;
+    font-family: var(--sans); font-size: 0.8rem; line-height: 1.6;
   }
   .screening-check {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -349,6 +361,45 @@
     display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
     background: var(--bg-elevated); border: 1px solid var(--border-color);
     border-radius: 999px; padding: 4px 6px 4px 10px; font-size: 0.78rem;
+  }
+
+  /* ── P05: فرمان‌بر لنگردار PICKING-ONLY — لایه موقت کنار نقطه
+     فراخوان (position: fixed، خارج از چیدمان؛ هیچ ستون ثابتی به نما
+     اضافه نمی‌کند). جای dock ثابت گفت‌وگو را برای گزینش می‌گیرد؛
+     خود گفت‌وگو (T09) با dock خودش برای مرور کامل می‌ماند. ── */
+  #cmd-popover {
+    position: fixed; z-index: 90;
+    width: min(420px, 92vw); max-height: min(480px, 70vh);
+    overflow-y: auto;
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 10px; display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px; min-width: 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  #cmd-popover[hidden] { display: none !important; }
+  #cmd-popover-filter {
+    width: 100%; min-height: 36px;
+  }
+  .cmd-groups { display: flex; flex-direction: column; gap: 8px; }
+  .cmd-group-title {
+    font-weight: 700; font-size: 0.78rem; margin: 0 0 4px;
+    color: var(--text-secondary);
+  }
+  .cmd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .cmd-row {
+    border: 1px solid var(--border-color); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; background: var(--bg-elevated);
+  }
+  .cmd-row.active, #cmd-popover-browse.active {
+    outline: 2px solid var(--accent-color, #4d9fff); outline-offset: 1px;
+  }
+  .cmd-row.cmd-disabled { opacity: 0.55; cursor: default; }
+  .cmd-line1 { font-size: 0.82rem; font-weight: 600; overflow-wrap: anywhere; }
+  .cmd-use { font-weight: 400; color: var(--text-secondary); font-size: 0.76rem; }
+  .cmd-line2 { font-size: 0.74rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+  .cmd-empty {
+    font-size: 0.78rem; color: var(--text-secondary);
+    border: 1px dashed var(--border-color); border-radius: 8px; padding: 6px 10px;
   }
 
   /* ── T11: گفت‌وگوی برخورد نام — همان کنارچسب گفت‌وگوی داده،

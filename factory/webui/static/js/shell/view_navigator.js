@@ -32,6 +32,12 @@ export function openView(viewId) {
   // حافظه نما: آخرین کابین (فقط شناسه نما، بدون راز)
   saveViewMemory(viewId);
 
+  /* P05 scope-check: فرمان‌بر لنگردار به نمای فراخوان چسبیده است —
+     با تعویض نما/زبانه بسته می‌شود (بدون نشت به نمای دیگر). */
+  try {
+    document.dispatchEvent(new CustomEvent('hz:close-popover'));
+  } catch(e) {}
+
   // بستن منو در موبایل پس از انتخاب
   mainNav.classList.remove('open');
   backdrop.classList.remove('open');
@@ -68,6 +74,11 @@ export function selectLinkingTab(index, persist) {
   if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
   tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
   if (persist !== false) saveViewMemory(null, idx);
+  /* P05 scope-check: مانند تعویض نما — فرمان‌بر باز روی زبانه قبلی
+     با رفتن به زبانه دیگر بسته می‌شود. */
+  try {
+    document.dispatchEvent(new CustomEvent('hz:close-popover'));
+  } catch(e) {}
   /* P07 clean-wiring: tabs previously toggled highlight only (silent dead
      buttons). Each tab now scrolls to its section on user click (no new
      Persian strings); restore path (persist === false) never scrolls. */

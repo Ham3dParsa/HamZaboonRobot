@@ -46,6 +46,7 @@ const screeningHistory = new CabinHistoryController({
   filterInputId: 'screening-history-search',
   tbodyId: 'screening-history-tbody',
   counterId: 'screening-history-count',
+  pagerId: 'screening-history-pager',
   errorSlotId: 'screening-history-err',
   onHandoff: async (row) => {
     const dir = String((row && row.out_dir) || '').trim();

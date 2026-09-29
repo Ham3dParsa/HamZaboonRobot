@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>کنسول عملیات کارخانه داده هم‌زبان v5.0</title>
 <link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/fonts.css">
 <link rel="stylesheet" href="/static/layout.css">
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="/static/cabins.css">
@@ -146,6 +147,7 @@
                  placeholder="پالایش صف: شناسه، معنی یا وضعیت…" aria-label="پالایش صف سنس‌ها">
           <div class="queue-list themed-scroll" id="queue-list">
           </div>
+          <div class="list-pager p-meta" id="queue-pager" hidden></div>
 
           <div class="metrics-mini-grid">
             <div class="mini-metric-card">
@@ -639,6 +641,7 @@
                   </tbody>
                 </table>
               </div>
+              <div class="list-pager p-meta" id="screening-per-lemma-pager" hidden></div>
               <div class="screening-detail" id="screening-detail" aria-live="polite">برای دیدن جزئیات یک لم، روی ردیف آن بزنید.</div>
             </div>
           </div>
@@ -658,6 +661,7 @@
                   </tbody>
                 </table>
               </div>
+              <div class="list-pager p-meta" id="screening-history-pager" hidden></div>
               <div class="p-meta form-error-slot" id="screening-history-err"></div>
             </div>
           </div>
@@ -695,7 +699,7 @@
           <input type="text" class="code-token" id="precard-out-dir" dir="ltr"
                  placeholder="proof-linker/precard" autocomplete="off" spellcheck="false">
         </div>
-        <div class="screening-actions">
+        <div class="screening-actions" id="precard-actions">
           <button class="btn-select-candidate" id="precard-start" type="button" data-action="start">شروع گزینش</button>
           <button class="btn-skip-next" id="precard-abort" type="button" data-action="abort" disabled title="هنوز اجرایی شروع نشده است">توقف اجرا</button>
           <button class="btn-skip-next" id="precard-handoff" type="button" data-action="handoff" disabled title="هنوز اجرایی شروع نشده است">تحویل خروجی به کابین پایلوت</button>
@@ -733,7 +737,7 @@
           <input type="text" class="code-token" id="pilot-out-dir" dir="ltr"
                  placeholder="proof-linker/pilot" autocomplete="off" spellcheck="false">
         </div>
-        <div class="screening-actions">
+        <div class="screening-actions" id="pilot-actions">
           <button class="btn-select-candidate" id="pilot-start" type="button" data-action="start">شروع پایلوت</button>
           <button class="btn-skip-next" id="pilot-abort" type="button" data-action="abort" disabled title="هنوز اجرایی شروع نشده است">توقف اجرا</button>
           <button class="btn-skip-next" id="pilot-handoff" type="button" data-action="handoff" disabled title="هنوز اجرایی شروع نشده است">تحویل خروجی به پل انتقال</button>
@@ -754,6 +758,32 @@
   </main>
 </div>
 
+<!-- P05: فرمان‌بر لنگردار PICKING-ONLY (تک‌مالک: data_dialog_controller.js) —
+     لایه موقت کنار نقطه فراخوان (نخست غربالگری A1/A2)؛ فقط گزینشِ
+     سنجاق/تازه/مسیر برای پرکردن ورودی فراخوان، هرگز اقدام (بدون دکمه
+     ساخت/بارگذاری/تغییرنام/حذف/سنجاق). Escape/کلیک‌بیرون/تعویض‌نما
+     می‌بندد و فوکوس به دکمه فراخوان برمی‌گردد. -->
+<div id="cmd-popover" role="listbox" aria-label="فرمان‌بر انتخاب" hidden>
+  <input type="text" id="cmd-popover-filter" placeholder="پالایش…" autocomplete="off"
+         spellcheck="false" aria-label="پالایش فرمان">
+  <div class="cmd-groups" id="cmd-popover-groups">
+    <section class="cmd-group" data-group="pins">
+      <h4 class="cmd-group-title">سنجاق‌ها</h4>
+      <ul class="cmd-list"></ul>
+    </section>
+    <section class="cmd-group" data-group="recents">
+      <h4 class="cmd-group-title">تازه‌ها</h4>
+      <ul class="cmd-list"></ul>
+    </section>
+    <section class="cmd-group" data-group="paths">
+      <h4 class="cmd-group-title">مسیرها</h4>
+      <ul class="cmd-list"></ul>
+    </section>
+  </div>
+  <button class="btn-skip-next" id="cmd-popover-browse" type="button" tabindex="-1">مرور کامل…</button>
+  <div class="p-meta form-error-slot" id="cmd-popover-err"></div>
+</div>
+
 <!-- T09: ریشه گفت‌وگوی داده سراسری (تک‌مالک: data_dialog_controller.js) —
      هرگز ستون کنترل را نمی‌پوشاند (کنارچسب مخالف + ورق تمام‌صفحه تبلت
      با بستن صریح و بازگشت فوکوس). بدون دکمه حذف؛ بارگذاری (T11) در
@@ -766,6 +796,18 @@
   </div>
   <div class="data-dialog-body">
     <div class="p-meta" id="data-dialog-crumb" dir="ltr"></div>
+    <!-- P04: نوار مدیر یکپارچه — پیش‌فرض حالت‌مند (ریشه/سنجاق/تازه)
+         + مسیر تایپی با اعتبارسنجی سرور؛ هر دو فقط ورودی فراخوان
+         را پر می‌کنند (تک‌راه fillInput مدیر). -->
+    <div class="data-dialog-ops">
+      <select id="data-dialog-preset" aria-label="مقصد پیش‌فرض" style="flex: 1 1 160px; min-width: 0;"></select>
+      <button class="btn-select-candidate" id="data-dialog-preset-pick" type="button">نشاندن پیش‌فرض</button>
+    </div>
+    <div class="data-dialog-ops">
+      <input type="text" class="code-token" id="data-dialog-custom" dir="ltr"
+             placeholder="/data/root/custom-path" autocomplete="off" spellcheck="false" aria-label="مسیر تایپی">
+      <button class="btn-select-candidate" id="data-dialog-custom-pick" type="button">نشاندن مسیر تایپی</button>
+    </div>
     <div class="data-dialog-roots" id="data-dialog-roots"></div>
     <div class="data-dialog-ops">
       <input type="text" class="code-token" id="data-dialog-mkdir-name" dir="ltr"
@@ -785,6 +827,7 @@
         <tbody id="data-dialog-tbody"></tbody>
       </table>
     </div>
+    <div class="list-pager p-meta" id="data-dialog-pager" hidden></div>
     <div class="p-header" style="margin-top: 10px;">
       <span class="p-title">سنجاق‌ها</span>
     </div>

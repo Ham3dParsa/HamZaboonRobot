@@ -1,4 +1,5 @@
 import {getJSON, faNum, ltrCode} from '../shell/api_client.js';
+import {rootFacts, causeFa} from '../shell/file_history_manager.js';
 /* تله‌متری: فقط حقایق زنده نرخ/کلید/مسیر؛ ستون توکن صادقانه خالی —
    خانه ثبت‌نشده هرگز دیوار «—» بی‌برچسب نیست: برچسب «سرور ثبت نمی‌کند» */
 function honestEmptyCell() {
@@ -50,29 +51,22 @@ export function renderTelemetry(providers, rates, info) {
   }
 }
 
-/* مسیرها: فقط ریشه‌های زنده سرور + حقایق زنده فایل (T10).
-   هر ردیف هر چهار مقدار بودن/اندازه/سطرها/زمان اصلاح یا خالی صادقانه
-   عنوان‌دار را از پاسخ زنده نشان می‌دهد (UX-22/23/24، OQ-9-consume):
+/* مسیرها: فقط ریشه‌های زنده سرور + حقایق همان ریشه (P04/L4).
+   هر ردیف هر چهار مقدار بودن/اندازه/سطرها/زمان اصلاح را فقط از
+   files همان ریشه می‌خواند (ریشه خودش، هرگز سراسری تکراری):
    ستون ۳ «آخرین فایل معتبر» = mtime نسبی (T02 format_moment، جزئیات
    شمسی+میلادی در title)؛ ستون ۴ «تعداد سطرها / حجم» = lines_label
-   (سقف «۵۰۰۰۰+» با اعداد فارسی) + اندازه بایت. منبع: files.screened
-   (ترجیح) وگرنه files.kaikki_raw؛ ناموجود -> «—» عنوان‌دار (علت
-   فایل-ناموجود/ثبت‌نشده/بیش‌از‌سقف). ریشه مرده از سرور نمی‌آید؛ نشان
-   شمار با سطرهای نمایان برابر است. هرگز عدد ساختگی نیست. */
+   (سقف «۵۰۰۰۰+» با اعداد فارسی) + اندازه بایت. ناموجود -> «—»
+   عنوان‌دار (علت فایل-ناموجود/ثبت‌نشده/بیش‌از‌سقف از cause همان
+   ریشه). ریشه مرده از سرور نمی‌آید؛ نشان شمار با سطرهای نمایان
+   برابر است. هرگز عدد ساختگی نیست. پارامتر سراسری files فقط برای
+   سازگاری رویداد نگه داشته شده و خوانده نمی‌شود. */
 function titledEmpty(cause) {
   const td = document.createElement('td');
   td.className = 'honest-empty';
   td.textContent = '—';
   td.title = cause;
   return td;
-}
-function pickFacts(files) {
-  const f = (files && typeof files === 'object') ? files : {};
-  const screened = (f.screened && typeof f.screened === 'object') ? f.screened : null;
-  const raw = (f.kaikki_raw && typeof f.kaikki_raw === 'object') ? f.kaikki_raw : null;
-  if (screened && screened.exists) return {facts: screened, name: 'screened'};
-  if (raw && raw.exists) return {facts: raw, name: 'kaikki_raw'};
-  return {facts: screened || raw || null, name: (screened && 'screened') || (raw && 'kaikki_raw') || ''};
 }
 export function renderPaths(roots, files) {
   const list = Array.isArray(roots) ? roots : [];
@@ -95,13 +89,13 @@ export function renderPaths(roots, files) {
     tb.append(tr);
     return;
   }
-  const picked = pickFacts(files);
-  const facts = picked.facts;
-  /* پسوند منبع فارسی (واژه‌نامه §۳)؛ نام ناشناخته خامِ برچسب‌دار. */
-  const SRC_FA = {screened: 'غربال‌شده', kaikki_raw: 'خام کایکی'};
-  const srcName = picked.name
-    ? (' (' + (SRC_FA[picked.name] || picked.name) + ')') : '';
+  /* P04/L4: پارامتر سراسری files خوانده نمی‌شود (سازگاری رویداد) —
+     هر ردیف فقط حقایق ریشه خودش را می‌خواند. */
   for (const r of list) {
+    /* حقایق همین ردیف از همان ریشه (نه سراسری). */
+    const rowFacts = rootFacts(r);
+    const facts = rowFacts.facts;
+    const missingCause = causeFa(rowFacts.cause);
     const tr = document.createElement('tr');
     const tdLabel = document.createElement('td');
     if (r && r.label) {
@@ -124,14 +118,14 @@ export function renderPaths(roots, files) {
     let tdLast;
     if (facts && facts.exists && facts.mtime_relative && facts.mtime_relative !== '—') {
       tdLast = document.createElement('td');
-      tdLast.textContent = faNum(facts.mtime_relative) + srcName;
+      tdLast.textContent = faNum(facts.mtime_relative);
       tdLast.title = String(facts.mtime_detail || facts.mtime_iso || '');
     } else if (facts && facts.exists) {
-      tdLast = titledEmpty('فایل موجود است ولی سرور زمان اصلاح را ثبت نکرد' + srcName);
+      tdLast = titledEmpty('فایل موجود است ولی سرور زمان اصلاح را ثبت نکرد');
     } else if (facts && facts.exists === false) {
-      tdLast = titledEmpty('فایل ناموجود است' + srcName + ' — سرور مسیری برای آن ندارد');
+      tdLast = titledEmpty(missingCause);
     } else {
-      tdLast = titledEmpty('سرور این ستون را ثبت نمی‌کند');
+      tdLast = titledEmpty(missingCause);
     }
     /* ستون ۴: lines_label (سقف «۵۰۰۰۰+») + اندازه؛ بودن از exists. */
     let tdRows;
@@ -140,14 +134,14 @@ export function renderPaths(roots, files) {
       const label = String((facts.lines_label !== undefined && facts.lines_label !== null)
         ? facts.lines_label : '—');
       const size = (facts.size !== undefined && facts.size !== null) ? facts.size : '—';
-      tdRows.textContent = faNum(label) + ' سطر / ' + faNum(size) + ' بایت' + srcName;
+      tdRows.textContent = faNum(label) + ' سطر / ' + faNum(size) + ' بایت';
       tdRows.title = facts.truncated
-        ? 'بیش از سقف شمارش (' + faNum(label) + ') — شمار دقیق ثبت نشد' + srcName
-        : 'حقایق زنده سرور' + srcName;
+        ? causeFa('over-cap') + ' (' + faNum(label) + ')'
+        : 'حقایق زنده همین ریشه';
     } else if (facts && facts.exists === false) {
-      tdRows = titledEmpty('فایل ناموجود است' + srcName + ' — شمارش سطر ندارد');
+      tdRows = titledEmpty(missingCause);
     } else {
-      tdRows = titledEmpty('سرور این ستون را ثبت نمی‌کند');
+      tdRows = titledEmpty(missingCause);
     }
     tr.append(tdLabel, tdPath, tdLast, tdRows);
     tb.append(tr);

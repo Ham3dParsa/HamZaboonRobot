@@ -1883,6 +1883,98 @@ def _reset_file_facts_cache():
         _FILE_FACTS_CACHE["at"] = 0.0
 
 
+#: Data-file extensions the P04 per-root probe considers (plain-text
+#: datasets only — binaries never represent a root).
+_ROOT_DATA_EXTS = frozenset({".jsonl", ".json", ".tsv", ".csv", ".txt"})
+
+#: Stat budget for the per-root probe (listdir is one syscall; per-file
+#: stat+mtime is bounded so home/drive roots stay cheap).
+_ROOT_PROBE_STATS_CAP = 64
+
+
+def _root_data_facts(root_path):
+    """Facts of the newest direct-child data file under one browse root.
+
+    The row's own root is the only source (L4 — the global-repeat bug
+    is gone). Missing roots (no data file directly underneath, or an
+    unlistable dir) return an honest ``exists: False`` object with a
+    machine ``cause`` code (``file-missing`` / ``root-unlistable``);
+    the over-cap case rides the shared ``truncated`` flag. Same shape
+    as ``_file_facts`` (additive ``cause`` key only).
+    """
+    missing = {"path": root_path, "exists": False, "size": 0,
+               "lines": 0, "lines_label": "0", "truncated": False,
+               "mtime_iso": None, "mtime_relative": "—",
+               "mtime_detail": "—", "cause": "file-missing"}
+    try:
+        names = sorted(os.listdir(root_path))
+    except (OSError, ValueError, TypeError):
+        missing["cause"] = "root-unlistable"
+        return missing
+    best, best_mtime, checked = None, -1.0, 0
+    for name in names:
+        if checked >= _ROOT_PROBE_STATS_CAP:
+            break
+        _, ext = os.path.splitext(name)
+        if ext.lower() not in _ROOT_DATA_EXTS:
+            continue
+        full = os.path.join(root_path, name)
+        checked += 1
+        try:
+            if not os.path.isfile(full):
+                continue
+            stamp = os.path.getmtime(full)
+        except OSError:
+            continue
+        if stamp > best_mtime:
+            best, best_mtime = full, stamp
+    if best is None:
+        return missing
+    facts = _file_facts(best)
+    facts["cause"] = ""
+    return facts
+
+
+#: Per-root probe cache (same short TTL as ``_FILE_FACTS_TTL`` — the
+#: polling-heavy /api/files/roots endpoint must not rescan per GET).
+_ROOT_FACTS_CACHE = {"at": 0.0, "payload": None}
+
+
+def _reset_root_facts_cache():
+    """Clear the per-root probe cache (test seam)."""
+    with _FILE_FACTS_LOCK:
+        _ROOT_FACTS_CACHE["payload"] = None
+        _ROOT_FACTS_CACHE["at"] = 0.0
+
+
+def _per_root_facts(roots):
+    """``{root_path: facts}`` for every browse root (never raises).
+
+    Unreadable roots contribute an honest missing object (same shape
+    as ``_root_data_facts``) — never a 500, never a bare dash.
+    """
+    now = time.monotonic()
+    with _FILE_FACTS_LOCK:
+        if (_ROOT_FACTS_CACHE["payload"] is not None
+                and now - _ROOT_FACTS_CACHE["at"] < _FILE_FACTS_TTL):
+            return _ROOT_FACTS_CACHE["payload"]
+    payload = {}
+    for row in roots or []:
+        path = (row or {}).get("path") or ""
+        try:
+            payload[path] = _root_data_facts(path)
+        except Exception:
+            payload[path] = {"path": path, "exists": False, "size": 0,
+                             "lines": 0, "lines_label": "0",
+                             "truncated": False, "mtime_iso": None,
+                             "mtime_relative": "—", "mtime_detail": "—",
+                             "cause": "file-missing"}
+    with _FILE_FACTS_LOCK:
+        _ROOT_FACTS_CACHE["payload"] = payload
+        _ROOT_FACTS_CACHE["at"] = time.monotonic()
+    return payload
+
+
 # ─── Dated run layout (human-sortable, newest last) ──────────────────
 
 def run_name_for(created_iso, run_id):
@@ -4612,8 +4704,47 @@ def api_engine_info():
 
 @app.route("/api/files/roots", methods=["GET"])
 def api_files_roots():
-    return jsonify({"roots": _browse_roots(),
+    roots = _browse_roots()
+    per_root = _per_root_facts(roots)
+    out = []
+    for row in roots:
+        entry = dict(row or {})
+        entry["files"] = per_root.get((row or {}).get("path") or "")
+        out.append(entry)
+    return jsonify({"roots": out,
                     "files": _data_file_facts()})
+
+
+@app.route("/api/files/resolve", methods=["POST"])
+def api_files_resolve():
+    """P04 — validate a free-text custom path against the allowlist.
+
+    No writes: abspaths ``path``, requires containment in
+    ``_ops_allowed_roots`` (the single allowlist — no second registry),
+    optional ``kind`` in ``dir|file`` (checked only when the path
+    exists, so not-yet-created dest dirs validate). Outside → 400.
+    """
+    fields = request.get_json(force=True, silent=True) or {}
+    raw = str(fields.get("path") or "").strip()
+    kind = str(fields.get("kind") or "").strip() or None
+    if not raw:
+        return jsonify({"error": "path is required"}), 400
+    if kind is not None and kind not in ("dir", "file"):
+        return jsonify({"error": "kind must be dir|file"}), 400
+    try:
+        cand = os.path.abspath(raw)
+    except (OSError, ValueError):
+        return jsonify({"error": "bad path"}), 400
+    if not _ops_check_inside(cand):
+        return jsonify({"error": "outside the allowed roots"}), 400
+    exists = os.path.exists(cand)
+    is_dir = os.path.isdir(cand)
+    if kind == "dir" and exists and not is_dir:
+        return jsonify({"error": "not a directory: %s" % raw}), 400
+    if kind == "file" and exists and not os.path.isfile(cand):
+        return jsonify({"error": "not a file: %s" % raw}), 400
+    return jsonify({"path": cand, "exists": exists,
+                    "is_dir": is_dir}), 200
 
 
 @app.route("/api/files/list", methods=["GET"])

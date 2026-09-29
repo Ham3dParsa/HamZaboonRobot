@@ -1,5 +1,6 @@
 import {getJSON, faNum, ltrCode, showFormError, clearFormError} from './api_client.js';
 import {FilterableListController} from './filterable_list_controller.js';
+import {PagedListController, EMPTY_FA} from './paginated_list_controller.js';
 /* کنترلر GENERIC تاریخچه اجراهای کابین‌ها (T08: نمونه‌سازی برای غربالگری؛
    کابین‌های بعدی همین کلاس را با cabin خودشان نمونه می‌سازند — بدون کپی).
    منبع: GET /api/runs/history?cabin=<id> (سرور newest-last می‌دهد؛ همین
@@ -25,10 +26,14 @@ export class CabinHistoryController {
     this.handoffLabel = o.handoffLabel || 'تحویل به کابین بعدی';
     this.rows = [];
     this.query = '';
+    /* P06: صفحه‌بندی مشترک p50 (بدون کپی) — pagerId تزریقی؛ بدون آن
+       رفتار تک‌صفحه‌ای پیشین حفظ می‌شود. */
+    this.pager = new PagedListController({
+      pagerId: String(o.pagerId || ''), onPage: () => this.render()});
     try {
       new FilterableListController(this.filterInputId, this.tbodyId,
         (row, i, q) => this.matches(row, q),
-        (q) => { this.query = q || ''; this.render(); });
+        (q) => { this.query = q || ''; this.pager.reset(); this.render(); });
     } catch(e) {}
   }
   /* زیررشته‌ای روی نام اجرا/وضعیت/مسیر (حساس‌نبودن به بزرگی/کوچکی لاتین). */
@@ -46,7 +51,7 @@ export class CabinHistoryController {
     if (!node) return;
     if (!total) {
       node.textContent = '…';
-      node.removeAttribute('title');
+      node.title = EMPTY_FA.noHistory.title;
       return;
     }
     node.textContent = faNum(visible) + ' نمایان از ' + faNum(total) + ' اجرا';
@@ -85,14 +90,16 @@ export class CabinHistoryController {
     const tb = document.getElementById(this.tbodyId);
     if (!tb) return;
     const vis = this.rows.filter((row) => this.matches(row, this.query));
+    this.pager.setTotal(vis.length);
+    const page = this.pager.pageItems(vis);
     this.setCounter(vis.length, this.rows.length);
     tb.replaceChildren();
     if (!this.rows.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
       td.colSpan = 6;
-      td.textContent = 'هنوز اجرایی برای این کابین ثبت نشده است — پس از نخستین اجرای موفق اینجا پر می‌شود.';
-      td.title = 'سرور runs خالی برگرداند؛ خالی صادقانه است، نه خطا.';
+      td.textContent = EMPTY_FA.noHistory.text;
+      td.title = EMPTY_FA.noHistory.title;
       tr.append(td);
       tb.append(tr);
       return;
@@ -101,16 +108,20 @@ export class CabinHistoryController {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
       td.colSpan = 6;
-      td.textContent = 'ردیفی با این پالایش نیست — پالایش را پاک کنید.';
+      td.textContent = EMPTY_FA.noFilterMatch.text;
+      td.title = EMPTY_FA.noFilterMatch.title;
       tr.append(td);
       tb.append(tr);
       return;
     }
-    vis.forEach((row) => {
+    page.forEach((row) => {
       const tr = document.createElement('tr');
       tr.setAttribute('data-run-id', (row && row.run_id) || '');
       const tdRun = document.createElement('td');
       tdRun.append(ltrCode((row && (row.out_name || row.run_id)) || '—'));
+      if (!row || (!row.out_name && !row.run_id)) {
+        tdRun.title = EMPTY_FA.missingFact.title;
+      }
       if (row && row.out_dir) {
         const sub = document.createElement('div');
         sub.className = 'p-meta';
