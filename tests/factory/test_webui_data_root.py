@@ -8,6 +8,8 @@ a monkeypatched cap). Secrets: names only, values never.
 import json
 import os
 
+import pytest
+
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
@@ -339,7 +341,7 @@ def test_resolve_outside_allowlist_400(tmp_path, monkeypatch):
                        json={"path": os.path.join(root, "sub"),
                              "kind": "dir"})
     assert resp.status_code == 200, resp.get_json()
-    assert resp.get_json()["path"] == os.path.abspath(
+    assert resp.get_json()["path"] == os.path.realpath(
         os.path.join(root, "sub"))
     # not-yet-created dest dir under the root validates (no existence
     # requirement for dest picks)
@@ -527,3 +529,58 @@ def test_screening_metrics_prefer_drop_reasons_and_titled():
     assert "وضعیت: بیکار" in text
     assert "وضعیت: در حال اجرا" in text
     assert "سرور گزارشی برنگرداند" in text
+
+
+def test_per_root_facts_cache_bypass_on_changed_roots(tmp_path, monkeypatch):
+    """Changed root set within TTL bypasses the cache (no stale facts)."""
+    webui = _webui()
+    root_a, root_b = str(tmp_path / "a"), str(tmp_path / "b")
+    os.makedirs(root_a)
+    os.makedirs(root_b)
+    _reset_all_facts_caches(webui)
+    first = webui._per_root_facts([{"path": root_a, "label": "a"}])
+    assert list(first) == [root_a]
+    second = webui._per_root_facts([{"path": root_b, "label": "b"}])
+    assert list(second) == [root_b]
+
+
+def test_root_data_facts_over_cap_truncated(tmp_path, monkeypatch):
+    """More data files than the probe cap → truncated True (honest)."""
+    webui = _webui()
+    root = str(tmp_path / "many")
+    os.makedirs(root)
+    monkeypatch.setattr(webui, "_ROOT_PROBE_STATS_CAP", 4)
+    for i in range(7):
+        with open(os.path.join(root, "f%02d.txt" % i), "w",
+                  encoding="utf-8") as handle:
+            handle.write("x\n")
+    facts = webui._root_data_facts(root)
+    assert facts["exists"] is True
+    assert facts["truncated"] is True
+
+
+def test_resolve_symlink_outside_allowlist_400(tmp_path, monkeypatch):
+    """A symlink inside the data root pointing outside → 400 (no escape);
+    the admitted path is the resolved physical path."""
+    webui = _webui()
+    root = str(tmp_path / "data")
+    outside = str(tmp_path / "outside")
+    os.makedirs(os.path.join(root, "sub"))
+    os.makedirs(outside)
+    link = os.path.join(root, "leak")
+    try:
+        os.symlink(outside, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("os.symlink unavailable on this box")
+    monkeypatch.setattr(webui, "data_root", lambda: root)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [])
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    client = webui.app.test_client()
+    resp = client.post("/api/files/resolve", json={"path": link})
+    assert resp.status_code == 400, resp.get_json()
+    resp = client.post("/api/files/resolve",
+                       json={"path": os.path.join(root, "sub"),
+                             "kind": "dir"})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["path"] == os.path.realpath(
+        os.path.join(root, "sub"))

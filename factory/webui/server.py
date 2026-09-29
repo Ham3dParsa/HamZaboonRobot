@@ -1877,7 +1877,12 @@ _FILE_FACTS_CACHE = {"at": 0.0, "payload": None}
 
 
 def _reset_file_facts_cache():
-    """Clear the facts cache (test seam; production never calls this)."""
+    """Clear the facts cache (test seam; production never calls this).
+
+    NOTE: this alone does NOT reset the per-root ``/api/files/roots``
+    facts — tests touching that endpoint must also call
+    ``_reset_root_facts_cache()``.
+    """
     with _FILE_FACTS_LOCK:
         _FILE_FACTS_CACHE["payload"] = None
         _FILE_FACTS_CACHE["at"] = 0.0
@@ -1898,28 +1903,36 @@ def _root_data_facts(root_path):
     The row's own root is the only source (L4 — the global-repeat bug
     is gone). Missing roots (no data file directly underneath, or an
     unlistable dir) return an honest ``exists: False`` object with a
-    machine ``cause`` code (``file-missing`` / ``root-unlistable``);
-    the over-cap case rides the shared ``truncated`` flag. Same shape
-    as ``_file_facts`` (additive ``cause`` key only).
+    machine ``cause`` code (``file-missing`` / ``root-unlistable``).
+    The scan itself is O(cap): ``os.scandir`` collects at most
+    ``_ROOT_PROBE_STATS_CAP + 1`` data-ext names (no full-dir
+    materialize/sort, at most cap stats) — when more candidates exist
+    the probe stops early and the over-cap case rides the shared
+    ``truncated`` flag. Same shape as ``_file_facts`` (additive
+    ``cause`` key only).
     """
     missing = {"path": root_path, "exists": False, "size": 0,
                "lines": 0, "lines_label": "0", "truncated": False,
                "mtime_iso": None, "mtime_relative": "—",
                "mtime_detail": "—", "cause": "file-missing"}
+    over_cap = False
     try:
-        names = sorted(os.listdir(root_path))
+        with os.scandir(root_path) as it:
+            names = []
+            for entry in it:
+                _, ext = os.path.splitext(entry.name)
+                if ext.lower() not in _ROOT_DATA_EXTS:
+                    continue
+                names.append(entry.name)
+                if len(names) > _ROOT_PROBE_STATS_CAP:
+                    over_cap = True
+                    break
     except (OSError, ValueError, TypeError):
         missing["cause"] = "root-unlistable"
         return missing
-    best, best_mtime, checked = None, -1.0, 0
-    for name in names:
-        if checked >= _ROOT_PROBE_STATS_CAP:
-            break
-        _, ext = os.path.splitext(name)
-        if ext.lower() not in _ROOT_DATA_EXTS:
-            continue
+    best, best_mtime = None, -1.0
+    for name in sorted(names[:_ROOT_PROBE_STATS_CAP]):
         full = os.path.join(root_path, name)
-        checked += 1
         try:
             if not os.path.isfile(full):
                 continue
@@ -1932,18 +1945,25 @@ def _root_data_facts(root_path):
         return missing
     facts = _file_facts(best)
     facts["cause"] = ""
+    if over_cap:
+        facts["truncated"] = True
     return facts
 
 
 #: Per-root probe cache (same short TTL as ``_FILE_FACTS_TTL`` — the
 #: polling-heavy /api/files/roots endpoint must not rescan per GET).
-_ROOT_FACTS_CACHE = {"at": 0.0, "payload": None}
+#: Keyed on the root-path tuple: a changed ``_browse_roots()`` within
+#: the TTL bypasses the cache instead of serving another root set's
+#: facts. NOTE: ``_reset_file_facts_cache()`` alone does NOT reset this
+#: endpoint — tests must also call ``_reset_root_facts_cache()``.
+_ROOT_FACTS_CACHE = {"at": 0.0, "payload": None, "roots_key": None}
 
 
 def _reset_root_facts_cache():
     """Clear the per-root probe cache (test seam)."""
     with _FILE_FACTS_LOCK:
         _ROOT_FACTS_CACHE["payload"] = None
+        _ROOT_FACTS_CACHE["roots_key"] = None
         _ROOT_FACTS_CACHE["at"] = 0.0
 
 
@@ -1953,9 +1973,11 @@ def _per_root_facts(roots):
     Unreadable roots contribute an honest missing object (same shape
     as ``_root_data_facts``) — never a 500, never a bare dash.
     """
+    key = tuple((row or {}).get("path") or "" for row in roots or [])
     now = time.monotonic()
     with _FILE_FACTS_LOCK:
         if (_ROOT_FACTS_CACHE["payload"] is not None
+                and _ROOT_FACTS_CACHE["roots_key"] == key
                 and now - _ROOT_FACTS_CACHE["at"] < _FILE_FACTS_TTL):
             return _ROOT_FACTS_CACHE["payload"]
     payload = {}
@@ -1971,6 +1993,7 @@ def _per_root_facts(roots):
                              "cause": "file-missing"}
     with _FILE_FACTS_LOCK:
         _ROOT_FACTS_CACHE["payload"] = payload
+        _ROOT_FACTS_CACHE["roots_key"] = key
         _ROOT_FACTS_CACHE["at"] = time.monotonic()
     return payload
 
@@ -4719,10 +4742,13 @@ def api_files_roots():
 def api_files_resolve():
     """P04 — validate a free-text custom path against the allowlist.
 
-    No writes: abspaths ``path``, requires containment in
-    ``_ops_allowed_roots`` (the single allowlist — no second registry),
-    optional ``kind`` in ``dir|file`` (checked only when the path
-    exists, so not-yet-created dest dirs validate). Outside → 400.
+    No writes: realpaths ``path`` (symlinks resolved — a link inside
+    an allowed root pointing outside validates 400), requires
+    containment in ``_ops_allowed_roots`` (the single allowlist — no
+    second registry), optional ``kind`` in ``dir|file`` (checked only
+    when the path exists, so not-yet-created dest dirs validate).
+    Outside → 400. The returned ``path`` is the resolved physical
+    path, so downstream fill/mkdir/handoff never follow the link.
     """
     fields = request.get_json(force=True, silent=True) or {}
     raw = str(fields.get("path") or "").strip()
@@ -4732,7 +4758,7 @@ def api_files_resolve():
     if kind is not None and kind not in ("dir", "file"):
         return jsonify({"error": "kind must be dir|file"}), 400
     try:
-        cand = os.path.abspath(raw)
+        cand = os.path.realpath(raw)
     except (OSError, ValueError):
         return jsonify({"error": "bad path"}), 400
     if not _ops_check_inside(cand):
@@ -4758,10 +4784,14 @@ def api_files_list():
 
 
 def _inside_dir(candidate, root):
-    """True when abspath ``candidate`` is ``root`` or below it."""
+    """True when realpath ``candidate`` is ``root`` or below it.
+
+    Both sides resolve symlinks first, so a link inside an allowed
+    root pointing outside never compares inside.
+    """
     try:
-        cand_abs = os.path.abspath(candidate)
-        root_abs = os.path.abspath(root)
+        cand_abs = os.path.realpath(candidate)
+        root_abs = os.path.realpath(root)
     except (OSError, ValueError, TypeError):
         return False
     try:

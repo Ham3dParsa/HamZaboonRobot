@@ -51,10 +51,6 @@ export async function fetchRoots(force) {
   });
   return rootsPromise;
 }
-export function clearRootsCache() {
-  rootsPayload = null;
-  rootsPromise = null;
-}
 /* حقایق همان ریشه (L4): هرگز از ریشه دیگر یا سراسری نمی‌آید.
    برمی‌گرداند {facts|null, cause} — cause همیشه کد ماشینی است. */
 export function rootFacts(root) {

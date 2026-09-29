@@ -32,18 +32,8 @@ export const EMPTY_FA = {
     title: 'سرور این مقدار را ثبت نکرد'},
 };
 
-/* سطر خالی عنوان‌دار جدول (colSpan همان جدول پذیرنده). */
-export function emptyRow(colSpan, key) {
-  const entry = EMPTY_FA[key] || EMPTY_FA.noRows;
-  const tr = document.createElement('tr');
-  const td = document.createElement('td');
-  td.colSpan = colSpan;
-  td.textContent = entry.text;
-  td.title = entry.title;
-  tr.append(td);
-  return tr;
-}
-
+/* سطر خالی عنوان‌دار جدول حذف شد (route-delete: هیچ پذیرنده‌ای
+   از emptyDiv به جدول کوچ نکرد — مصرف‌کننده صفر). */
 /* خالی عنوان‌دار ظرف بلوکی (صف داوری: div، نه جدول). */
 export function emptyDiv(key) {
   const entry = EMPTY_FA[key] || EMPTY_FA.noRows;

@@ -88,7 +88,6 @@ async function boot() {
     const j = await fetchRoots();
     const roots = (j && j.roots) || [];
     renderRoots(roots);
-    renderRoots(roots);
     if (roots.length && roots[0].path) {
       listDir(roots[0].path);
     } else {
@@ -668,6 +667,10 @@ let cmdCallerId = '';
 let cmdInvoker = null;
 let cmdItems = [];
 let cmdActive = -1;
+/* توکن نسل رندر فرمان‌بر: هر ورودی پالایش نسل تازه می‌گیرد؛ ساخته‌ای
+   که با await برگشته ولی نسلش کهنه است دور ریخته می‌شود تا فیلتر
+   کهنه روی نما ننشیند (پاسخ‌های ناهم‌زمانِ مسابقه‌ای). */
+let cmdRenderSeq = 0;
 
 function cmdPopover() {
   return el('cmd-popover');
@@ -755,6 +758,8 @@ function cmdFactsText(item) {
 function cmdRenderRow(item) {
   const li = document.createElement('li');
   li.className = 'cmd-row';
+  /* ارجاع مستقیم آیتم روی سطر — نگاشت موقعیتی شکننده نیست. */
+  li._cmdItem = item;
   li.setAttribute('role', 'option');
   li.setAttribute('tabindex', '-1');
   if (item.disabled) {
@@ -799,7 +804,9 @@ async function cmdRender() {
   const filter = el('cmd-popover-filter');
   const needle = String((filter && filter.value) || '').trim().toLowerCase();
   clearFormError('cmd-popover-err');
+  const my = ++cmdRenderSeq;
   const built = await cmdBuildItems();
+  if (my !== cmdRenderSeq) return; /* نسل کهنه — پالایش تازه‌تری در راه است */
   cmdItems = built.items.filter((it) => cmdMatches(it, needle));
   const groups = {pins: [], recents: [], paths: []};
   cmdItems.forEach((it) => {
@@ -863,6 +870,7 @@ function cmdActivate() {
   if (item) cmdPick(item);
 }
 function cmdRowItem(row, rows) {
+  if (row && row._cmdItem && !row._cmdItem.disabled) return row._cmdItem;
   const pos = Array.prototype.indexOf.call(rows, row);
   const enabled = cmdItems.filter((it) => !it.disabled);
   return enabled[pos] || null;
