@@ -15,6 +15,8 @@ import './telemetry/telemetry_dashboard_controller.js';
 /* Supervised batches: same side-effect pattern — the controller wires
    its own listeners on import (single module script tag rule). */
 import './sense_linking/supervised_batch_controller.js';
+/* Arbiter runs (P4 tab-2 panel): same side-effect pattern. */
+import './sense_linking/arbiter_run_controller.js';
 // سیستم سوئیچ تم شب و روز
 const themeBtn = document.getElementById('theme-btn');
 try {

@@ -91,6 +91,39 @@
         <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
       </div>
 
+      <!-- P4: زبانه ۲ — اجرای داوری با پریست (پنل واقعی؛ جابه‌جایی کامل زبانه‌ها در P5) -->
+      <div class="cfg-form-card form-cap" id="arbiter-run-card">
+        <div class="p-header">
+          <span class="p-title">اجرای داوری هوش مصنوعی</span>
+          <span class="badge" id="arbiter-run-state" aria-live="polite">بیکار</span>
+        </div>
+        <div class="p-meta" id="arbiter-contract">ورودی: صف سنس‌های همین کابین · خروجی: برگه‌های رأی در کنار اجرا (موارد نیازمند بازبینی به زبانه ۴ می‌روند).</div>
+        <div class="form-row-grid">
+          <div class="field-group">
+            <label for="arbiter-preset">پریست (فهرست فقط‌خواندنی — ساخت در نمای ارائه‌دهندگان)</label>
+            <select id="arbiter-preset"></select>
+          </div>
+          <div class="field-group">
+            <label for="arbiter-limit">سقف سنس (خالی یعنی همه)</label>
+            <input type="text" class="inline-input code-token" id="arbiter-limit" dir="ltr" inputmode="numeric" placeholder="خالی = همه" autocomplete="off">
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-select-candidate" id="btn-arbiter-run" type="button">شروع داوری</button>
+          <button class="btn-skip-next" id="btn-arbiter-abort" type="button" disabled>توقف اجرا</button>
+          <button class="btn-skip-next" id="btn-arbiter-jump" type="button">رفتن به داوری تحت نظارت ⏭</button>
+          <span class="p-meta" id="arbiter-progress" aria-live="polite" role="status"></span>
+        </div>
+        <div class="p-meta form-error-slot" id="arbiter-err"></div>
+        <div class="p-header" style="margin-top: 12px;">
+          <span class="p-title">برگه‌های رأی آخرین اجرا</span>
+          <span class="badge" id="arbiter-verdict-count" aria-live="polite">…</span>
+        </div>
+        <div class="queue-list themed-scroll" id="arbiter-verdict-list">
+        </div>
+        <div class="list-pager p-meta" id="arbiter-pager" hidden></div>
+      </div>
+
       <div class="dense-workspace-grid">
         <!-- ستون کاندیداها -->
         <div class="arbitration-column">

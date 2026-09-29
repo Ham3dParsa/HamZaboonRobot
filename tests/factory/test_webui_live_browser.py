@@ -3223,3 +3223,78 @@ def test_bc06_paged_tablet_shot_live_browser(live_console):
             _bc06_shots_dir(), "shot-bc-p06-paged-tablet.png"))
     finally:
         page.close()
+
+
+def test_p4_arbiter_tab_panel_live_browser(live_console):
+    """P4 tab-2 panel: renders, mocked run polls to done, jump works (shot).
+
+    All arbiter endpoints are route-mocked: no model is ever called, no
+    batch/labels/history is touched. API 404 paths are covered in
+    test_webui_arbiter_runs.py; this test proves the panel behavior.
+    """
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    polls = {"n": 0}
+
+    def run_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"run": {
+                          "run_id": "p4-live", "status": "running",
+                          "total": 2, "done": 0, "abstained": 0}}))
+
+    def status_route(route):
+        polls["n"] += 1
+        done = polls["n"] >= 2
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"run": {
+                          "run_id": "p4-live",
+                          "status": "done" if done else "running",
+                          "total": 2, "done": 2 if done else 0,
+                          "abstained": 0}}))
+
+    def verdicts_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"verdicts": [
+                          {"sense_id": "s#1", "verdict": "link",
+                           "target_synset": "w%1:01::", "model": "m"},
+                          {"sense_id": "s#2", "verdict": None,
+                           "target_synset": None, "model": "m"}]}))
+
+    def presets_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"judge_presets": [
+                          {"name": "p4-live-preset", "provider": "stub",
+                           "model": "stub-m"}]}))
+
+    try:
+        page.route("**/api/judge_presets", presets_route)
+        _bc06_open_linking(page, base)
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="2"]')
+        page.wait_for_selector("#arbiter-run-card", timeout=10000)
+        assert page.is_visible("#arbiter-preset")
+        assert page.is_visible("#btn-arbiter-run")
+        page.route("**/api/arbiter/runs", run_route)
+        page.route("**/api/arbiter/runs/p4-live", status_route)
+        page.route("**/api/arbiter/runs/p4-live/verdicts", verdicts_route)
+        page.wait_for_function(
+            "document.getElementById('arbiter-preset').options.length === 1",
+            timeout=10000)
+        page.select_option("#arbiter-preset", "p4-live-preset")
+        page.click("#btn-arbiter-run")
+        page.wait_for_function(
+            "document.getElementById('arbiter-verdict-list')"
+            ".querySelectorAll('.queue-item').length === 2",
+            timeout=15000)
+        progress = page.inner_text("#arbiter-progress")
+        assert "۲" in progress or "2" in progress, progress
+        page.click("#btn-arbiter-jump")
+        page.wait_for_function(
+            "document.querySelector('#view-linking .cockpit-tabs "
+            ".tab-link.active').getAttribute('data-tab-index') === '3'",
+            timeout=5000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p4-arbiter-desktop.png"))
+    finally:
+        page.close()
