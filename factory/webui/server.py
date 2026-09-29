@@ -1196,6 +1196,53 @@ def _cycle_ping_fn(proxy_url=""):
     return _ping_exit
 
 
+def _provider_key_value(name, _mgr=None):
+    """(key_value, var_order): server-side key resolution, values in-memory.
+
+    Single owner of the resolve order (process env / dotenv files /
+    operator store); names out, values never returned, logged, or
+    displayed. Shared by model-listing and arbiter transports.
+    """
+    try:
+        from factory.precard.provider_lease_policy import (
+            resolve_key as _resolve)
+    except Exception:
+        _resolve = None
+    stored = _operator_key_values()
+    var_order = []
+    try:
+        eff = _provider_key_var(name, _manager=_mgr)
+        try:
+            refs = list(provider_registry.ordered_key_vars(
+                name, _manager=_mgr))
+        except Exception:
+            refs = []
+        if not refs:
+            refs = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
+        for var in ([eff] if eff else []) + refs:
+            if var and var not in var_order:
+                var_order.append(var)
+    except Exception:
+        var_order = []
+    key_value = ""
+    key_paths = _extra_key_paths()
+    for var in var_order:
+        if _resolve is not None:
+            try:
+                hit = _resolve(var, file_paths=key_paths)
+            except Exception:
+                hit = ""
+            if hit:
+                key_value = hit
+                break
+        if not key_value and var in stored:
+            key_value = stored[var]
+            break
+    return key_value, var_order
+
+
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
                          target_fn=None, clean_fn=None, verify_fn=None,
                          remember_fn=None, report_fn=None, tunneled=None,
@@ -1247,43 +1294,7 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     except Exception:
         row = {}
     # Key-gated: resolve server-side only (names out, values in-memory).
-    try:
-        from factory.precard.provider_lease_policy import (
-            resolve_key as _resolve)
-    except Exception:
-        _resolve = None
-    stored = _operator_key_values()
-    var_order = []
-    try:
-        eff = _provider_key_var(name, _manager=_mgr)
-        try:
-            refs = list(provider_registry.ordered_key_vars(
-                name, _manager=_mgr))
-        except Exception:
-            refs = []
-        if not refs:
-            refs = list(provider_registry.key_ref_for(
-                name, "G1", _manager=_mgr)
-                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
-        for var in ([eff] if eff else []) + refs:
-            if var and var not in var_order:
-                var_order.append(var)
-    except Exception:
-        var_order = []
-    key_value = ""
-    key_paths = _extra_key_paths()
-    for var in var_order:
-        if _resolve is not None:
-            try:
-                hit = _resolve(var, file_paths=key_paths)
-            except Exception:
-                hit = ""
-            if hit:
-                key_value = hit
-                break
-        if not key_value and var in stored:
-            key_value = stored[var]
-            break
+    key_value, var_order = _provider_key_value(name, _mgr=_mgr)
     if not key_value:
         return None, ("no key resolves for %s (%s) — paste the key in "
                       "the providers panel first"
@@ -5306,6 +5317,148 @@ def api_batch_approve(batch_id):
         return jsonify({"error": str(exc)}), 400
     result["status"] = "imported"
     return jsonify(result), 200
+
+
+# ─── Arbiter runs (P3): preset-driven LLM arbitration over queue senses ─
+# Thin routes over factory/webui/arbiter_jobs.py (job tracking only);
+# transport construction reuses the key/trust seams above. Values
+# (keys, prompts answers) never leave the server except as verdicts.
+
+def _arbiter_transport_for(preset):
+    """Adapter for a console preset record (names only in errors).
+
+    Trust-gated like model listing: untrusted non-loopback hosts never
+    receive a stored key. Raises ValueError with a plain message.
+    """
+    from factory.linking import arbitration as _arb
+
+    provider = str((preset or {}).get("provider") or "").strip()
+    model = str((preset or {}).get("model") or "").strip()
+    if not provider or not model:
+        raise ValueError("preset needs provider + model")
+    try:
+        timeout = int((preset or {}).get("timeout_seconds") or 120)
+    except (TypeError, ValueError):
+        timeout = 120
+    _mgr = _request_manifest_manager()
+    if provider not in provider_registry.provider_names(_manager=_mgr):
+        raise ValueError("unknown provider: %s" % provider)
+    try:
+        row = provider_registry.resolve_provider(provider, _manager=_mgr) or {}
+    except Exception:
+        row = {}
+    try:
+        from factory.precard.provider_manifest import (
+            effective_trust as _trust)
+        trusted = _trust(provider, row)
+    except Exception:
+        trusted = False
+    if not trusted:
+        raise ValueError("%s is not trusted: confirm trust in the "
+                         "providers panel first" % provider)
+    protocol = str(row.get("protocol") or "")
+    key_value, _order = _provider_key_value(provider, _mgr=_mgr)
+    if protocol == "gemini_rest" or provider == "google":
+        if not key_value:
+            raise ValueError("no key resolves for %s" % provider)
+        return _arb.GeminiRestAdapter(model=model, key_value=key_value,
+                                      timeout=timeout)
+    base = str(row.get("base_url") or "")
+    if not base:
+        raise ValueError("provider %s has no base_url" % provider)
+    return _arb.LocalGemmaAdapter(endpoint=base, timeout=timeout,
+                                  model=model, key_value=key_value)
+
+
+def _arbiter_preset_by_name(name):
+    """Console judge-preset record by name (None when absent)."""
+    want = str(name or "").strip()
+    if not want:
+        return None
+    for rec in list_presets(kind="judge"):
+        if isinstance(rec, dict) and str(rec.get("name") or "") == want:
+            return rec
+    return None
+
+
+@app.route("/api/arbiter/runs", methods=["POST"])
+def api_arbiter_run_create():
+    from factory.linking import sense_feed as _feed
+    from factory.webui import arbiter_jobs as _jobs
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    preset = _arbiter_preset_by_name((fields or {}).get("preset"))
+    if preset is None:
+        return jsonify({"error": "unknown preset: %s"
+                                 % str((fields or {}).get("preset") or "")
+                                 .strip()}), 404
+    try:
+        transport = _arbiter_transport_for(preset)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        limit = int((fields or {}).get("limit") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    if limit < 0:
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    senses = _feed.load_senses(screened)
+    want_ids = (fields or {}).get("sense_ids") or []
+    if isinstance(want_ids, list) and want_ids:
+        keep = {str(sid).strip() for sid in want_ids
+                if isinstance(sid, str) and sid.strip()}
+        senses = [s for s in senses if s.get("sense_id") in keep]
+    if limit > 0:
+        senses = senses[:limit]
+    if not senses:
+        return jsonify({"error": "VALIDATION-empty: no senses selected "
+                                 "for this run"}), 400
+    run_id = _jobs.launch(preset, senses, transport.execute_arbitration)
+    return jsonify({"run": _jobs.get_job(run_id)}), 200
+
+
+@app.route("/api/arbiter/runs", methods=["GET"])
+def api_arbiter_runs():
+    from factory.webui import arbiter_jobs as _jobs
+
+    return jsonify({"runs": _jobs.list_jobs()})
+
+
+@app.route("/api/arbiter/runs/<run_id>", methods=["GET"])
+def api_arbiter_run_fetch(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    job = _jobs.get_job(run_id)
+    if job is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"run": job})
+
+
+@app.route("/api/arbiter/runs/<run_id>/verdicts", methods=["GET"])
+def api_arbiter_run_verdicts(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    if _jobs.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"verdicts": _jobs.load_verdicts(run_id)})
+
+
+@app.route("/api/arbiter/runs/<run_id>/abort", methods=["POST"])
+def api_arbiter_run_abort(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    if not _jobs.request_abort(run_id):
+        return jsonify({"error": "run not found or not running: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"aborted": str(run_id or "").strip()})
 
 
 # ─── Linker gallery viewing (P02) ──────────────────────────────────────
