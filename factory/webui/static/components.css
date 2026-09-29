@@ -30,9 +30,10 @@
 
   /* جدول آمار تله‌متری و توکن‌های کش‌شده */
   .table-responsive { overflow-x: auto; border: 1px solid var(--border-color); border-radius: 6px; }
-  /* جدول‌های پویا سقف ارتفاع دارند و درون خود می‌لغزند (§1.5) */
+  /* جدول‌های پویا سقف ارتفاع دارند و درون خود می‌لغزند (§1.5:
+     استاندارد 320px — فشرده 260 / گزارش 380 در cabins.css) */
   .table-responsive.bounded { max-height: 320px; overflow-y: auto; }
-  table.data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: right; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: end; }
   table.data-table th, table.data-table td {
     padding: 8px 12px; border-bottom: 1px solid var(--border-color);
   }
@@ -140,8 +141,10 @@
     align-self: flex-start;
   }
   .form-error-msg { font-size: 0.8rem; color: var(--text-primary); }
+  /* PUX-B8: جزئیات خطا (متن فارسی/لاتین آمیخته) با قلم بدنه؛
+     مونو فقط برای نشان کد (.error-code) می‌ماند. */
   .form-error-detail {
-    font-family: var(--mono); direction: ltr; text-align: left;
+    font-family: var(--sans); direction: ltr; text-align: start;
     unicode-bidi: isolate; font-size: 0.75rem; color: var(--text-secondary);
     overflow-wrap: anywhere; word-break: break-word;
   }

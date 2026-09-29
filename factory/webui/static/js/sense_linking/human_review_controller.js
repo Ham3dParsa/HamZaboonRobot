@@ -1,5 +1,6 @@
 import {getJSON, faNum, ltrCode, withBusy, showFormError, clearFormError} from '../shell/api_client.js';
 import {FilterableListController} from '../shell/filterable_list_controller.js';
+import {PagedListController, emptyDiv, moveAcrossPages} from '../shell/paginated_list_controller.js';
 let screenedRows = [];
 let screenedTotal = 0;
 let screenedPath = '';
@@ -53,29 +54,53 @@ function queueItemMatches(row, i, q) {
     || (row.gloss || '').includes(needle)
     || status.includes(needle);
 }
-/* نمونه‌سازی صف داوری: ورودی queue-filter + ظرف queue-list */
+/* نمونه‌سازی صف داوری: ورودی queue-filter + ظرف queue-list.
+   P06: صفحه‌بندی مشترک p50 از paginated_list_controller (بدون کپی)؛
+   تغییر پالایش به صفحه اول برمی‌گردد، پیجر صفحه را می‌گیرد. */
+const queuePager = new PagedListController({
+  pagerId: 'queue-pager', onPage: () => renderQueue()});
 const queueFilterCtl = new FilterableListController(
   'queue-filter', 'queue-list',
   function(row, i, q) { return queueItemMatches(row, i, q); },
-  function(q) { queueFilter = q || ''; renderQueue(); });
+  function(q) { queueFilter = q || ''; queuePager.reset(); renderQueue(); });
+/* P06: پرچم یک‌بارمصرف آشکارسازی سطر برگزیده — selectSense پیش از
+   فراخوان مسلح می‌کند تا امضای بدون‌آرگومان renderQueue (پین
+   آزمون‌های صف) حفظ شود؛ رندرهای پیجر/پالایش هرگز آشکار نمی‌کنند. */
+let queueRevealArmed = false;
 function renderQueue() {
   const box = document.getElementById('queue-list');
   box.replaceChildren();
   const visible = screenedRows.map((row, i) => ({row, i}))
     .filter(({row, i}) => queueItemMatches(row, i));
+  queuePager.setTotal(visible.length);
+  if (queueRevealArmed) {
+    queueRevealArmed = false;
+    const pos = visible.findIndex(({i}) => i === queueIndex);
+    if (pos >= 0) queuePager.reveal(pos);
+  }
+  const page = queuePager.pageItems(visible);
   document.getElementById('queue-remaining').textContent =
     faNum(visible.length) + ' از ' + faNum(screenedRows.length) + ' مورد';
-  visible.forEach(({row, i}) => {
+  if (!screenedRows.length) {
+    box.append(emptyDiv('noRows'));
+    return;
+  }
+  if (!visible.length) {
+    box.append(emptyDiv('noFilterMatch'));
+    return;
+  }
+  page.forEach(({row, i}) => {
     const item = document.createElement('div');
     item.className = 'queue-item' + (i === queueIndex ? ' active' : '');
     /* PUX-22: ردیف صف با صفحه‌کلید کار می‌کند (tabIndex + Enter/Space
        مثل ردیف‌های هر-لم غربالگری). */
     item.tabIndex = 0;
     const wrap = document.createElement('div');
-    const b = document.createElement('b');
-    b.className = 'code-token';
+    /* PUX-B9: شناسه صف از تک‌مالک api_client (گره ایزوله bdi + dir
+       + کلاس)؛ ضخامت پیشین <b> با وزن صریح حفظ می‌شود. */
+    const b = ltrCode(row.sense_id || '—');
+    b.style.fontWeight = '700';
     if (i === queueIndex) b.style.color = 'var(--c-primary)';
-    b.textContent = row.sense_id || '—';
     if (!row.sense_id) b.title = 'سرور این شناسه را ثبت نکرد';
     /* ردیف صف دقیقاً سه چیز حمل می‌کند: شناسه کایکی، برش معنی، وضعیت —
        نامزدها/مثال‌ها/متن کامل هرگز در ردیف نیست (مالک آن‌ها بخش «جزئیات سنس» است) */
@@ -99,6 +124,13 @@ function renderQueue() {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
         selectSense(i);
+      } else if (ev.key === 'ArrowDown') {
+        /* P06: پیمایش جهت‌دار با گذر از مرز صفحه از طریق پیجر مشترک. */
+        ev.preventDefault();
+        moveAcrossPages(box, item, 1, queuePager, '.queue-item');
+      } else if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        moveAcrossPages(box, item, -1, queuePager, '.queue-item');
       }
     });
     box.append(item);
@@ -129,6 +161,7 @@ function selectSense(i) {
     (currentSense.lemma || '—') + ' · سنس ' + faNum(queueIndex + 1) + ' از ' + faNum(screenedRows.length);
   document.getElementById('sense-def').textContent = currentSense.gloss || '—';
   document.getElementById('sense-example').textContent = currentSense.example || '—';
+  queueRevealArmed = true;
   renderQueue();
   loadCandidates();
 }
@@ -196,10 +229,8 @@ function renderCandidates(cands, feed) {
     /* سطر بالایی: شناسه لاتین ایزوله + دکمه انتخاب */
     const top = document.createElement('div');
     top.className = 'c-top-row';
-    const keyTag = document.createElement('bdi');
-    keyTag.setAttribute('dir', 'ltr');
-    keyTag.className = 'code-token c-sensekey';
-    keyTag.textContent = cand.sensekey || '—';
+    const keyTag = ltrCode(cand.sensekey || '—');
+    keyTag.classList.add('c-sensekey');
     keyTag.title = cand.sensekey || '';
     const pick = document.createElement('button');
     pick.className = 'btn-select-candidate';

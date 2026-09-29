@@ -8,7 +8,15 @@ export function ltrCode(text) {
   const s = document.createElement('bdi');
   s.className = 'code-token';
   s.setAttribute('dir', 'ltr');
-  s.textContent = text;
+  s.textContent = String(text === null || text === undefined ? '—' : text);
+  return s;
+}
+/* خانه عدد فارسی (تک‌مالک PUX-B9 در کنار faNum/ltrCode): رقم فارسی
+   با قلم بدنه، علت در title. */
+export function faCell(value, title) {
+  const s = document.createElement('span');
+  s.textContent = faNum(value);
+  if (title) s.title = title;
   return s;
 }
 

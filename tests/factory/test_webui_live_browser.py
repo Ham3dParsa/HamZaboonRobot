@@ -1005,18 +1005,47 @@ def _t09_seed(tmpdir):
 
 
 def _t09_roots_route(tmpdir):
+    """Mock roots shaped like the REAL server (P04+): each root carries
+    its own files facts (the fixture words file when seeded)."""
     def _route(route):
+        words = os.path.join(tmpdir, "words-t09.txt")
+        if os.path.isfile(words):
+            facts = {"path": words, "exists": True,
+                     "size": os.path.getsize(words),
+                     "lines": 3, "lines_label": "3", "truncated": False,
+                     "mtime_iso": "2026-09-27T00:00:00+00:00",
+                     "mtime_relative": "۱ دقیقه پیش",
+                     "mtime_detail": "roots mock",
+                     "cause": ""}
+        else:
+            facts = {"path": "", "exists": False, "size": 0,
+                     "lines": 0, "lines_label": "0", "truncated": False,
+                     "mtime_iso": None, "mtime_relative": "—",
+                     "mtime_detail": "—", "cause": "file-missing"}
         route.fulfill(status=200, content_type="application/json",
                       body=json.dumps(
                           {"roots": [{"path": tmpdir,
-                                      "label": "t09 fixtures"}],
+                                      "label": "t09 fixtures",
+                                      "files": facts}],
                            "files": {}}))
     return _route
 
 
 def _t09_open_dialog(page, base, pick_id):
     _t07_open_screening(page, base)
+    # P05: pick buttons open the anchored picking-only popover first;
+    # the full data browser comes from its «مرور کامل…» navigation row
+    # (navigation, not an action — the popover itself never acts).
+    # Rows-settled wait: the groups render async — clicking browse
+    # before the render lands shifts the button under the cursor and
+    # the click is lost (proven flake, fixed by waiting).
     page.click("#" + pick_id)
+    page.wait_for_selector(
+        "#cmd-popover:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll('#cmd-popover li').length >= 3",
+        timeout=15000)
+    page.click("#cmd-popover-browse")
     page.wait_for_selector(
         "#data-dialog:not([hidden])", timeout=10000)
     page.wait_for_function(
@@ -1212,7 +1241,15 @@ def test_t09_05_tablet_accordion_fullsheet_live_browser(live_console):
         page.wait_for_timeout(400)
         page.click("#screening-acc-a1 > summary")
         page.wait_for_timeout(400)
+        # P05: pick opens the anchored popover; the full browser comes
+        # from «مرور کامل…» after the async groups settle
         page.click("#screening-pick-input")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        page.wait_for_function(
+            "document.querySelectorAll('#cmd-popover li').length >= 3",
+            timeout=15000)
+        page.click("#cmd-popover-browse")
         page.wait_for_selector(
             "#data-dialog:not([hidden])", timeout=10000)
         wide = page.evaluate(
@@ -1264,10 +1301,17 @@ def _t10_shots_dir(live_console):
     return os.environ.get("T10_SHOTS_DIR") or live_console["tmpdir"]
 
 
-def _t10_files(screened_exists=True, over_cap=True):
-    screened = {
+def _t10_root_facts(screened_exists=True, over_cap=True):
+    """One root's OWN facts (P04/L4 shape: root.files, not global)."""
+    if not screened_exists:
+        return {"path": "/tmp/t10-screened.jsonl", "exists": False,
+                "size": 0, "lines": 0, "lines_label": "0",
+                "truncated": False, "mtime_iso": None,
+                "mtime_relative": "—", "mtime_detail": "—",
+                "cause": "file-missing"}
+    return {
         "path": "/tmp/t10-screened.jsonl",
-        "exists": bool(screened_exists),
+        "exists": True,
         "size": 12345,
         "lines": 50000 if over_cap else 7,
         "lines_label": "50000+" if over_cap else "7",
@@ -1275,22 +1319,41 @@ def _t10_files(screened_exists=True, over_cap=True):
         "mtime_iso": "2026-09-27T00:00:00+00:00",
         "mtime_relative": "۵ دقیقه پیش",
         "mtime_detail": "شمسی ۱۴۰۵/۰۷/۰۵ (Asia/Tehran) • میلادی 2026-09-27 (UTC)",
+        "cause": "",
     }
-    if not screened_exists:
-        screened = {"path": "/tmp/t10-screened.jsonl", "exists": False,
-                    "size": 0, "lines": 0, "lines_label": "0",
-                    "truncated": False, "mtime_iso": None,
-                    "mtime_relative": "—", "mtime_detail": "—"}
-    kaikki = {"path": "", "exists": False, "size": 0, "lines": 0,
-              "lines_label": "0", "truncated": False, "mtime_iso": None,
-              "mtime_relative": "—", "mtime_detail": "—"}
-    return {"kaikki_raw": kaikki, "screened": screened}
 
 
-def _t10_roots_route(roots, files):
+def _t10_files(screened_exists=True, over_cap=True):
+    """Decoy global key (P04/L4 negative proof): the renderer must NOT
+    read it — per-row facts ride each root's own files. Values are
+    chosen to never collide with any per-root fixture."""
+    _ = (screened_exists, over_cap)
+    return {"kaikki_raw": {"path": "/tmp/t10-global-decoy.jsonl",
+                           "exists": True, "size": 99999, "lines": 99,
+                           "lines_label": "99", "truncated": False,
+                           "mtime_iso": "2026-09-27T00:00:00+00:00",
+                           "mtime_relative": "۹۹ دقیقه پیش",
+                           "mtime_detail": "decoy"},
+            "screened": {"path": "/tmp/t10-global-decoy.jsonl",
+                         "exists": True, "size": 99999, "lines": 99,
+                         "lines_label": "99", "truncated": False,
+                         "mtime_iso": "2026-09-27T00:00:00+00:00",
+                         "mtime_relative": "۹۹ دقیقه پیش",
+                         "mtime_detail": "decoy"}}
+
+
+def _t10_root(path, label, facts=None):
+    row = {"path": path, "label": label}
+    if facts is not None:
+        row["files"] = facts
+    return row
+
+
+def _t10_roots_route(roots, files=None):
     def _route(route):
         route.fulfill(status=200, content_type="application/json",
-                      body=json.dumps({"roots": roots, "files": files}))
+                      body=json.dumps({"roots": roots,
+                                       "files": files or {}}))
     return _route
 
 
@@ -1309,10 +1372,11 @@ def _t10_open_paths(page, base, via_menu=False):
 
 
 def test_t10_01_paths_row_shows_live_facts_live_browser(live_console):
-    """IT-T10-01: paths row shows exists/size/۵۰۰۰۰+/mtime from live facts."""
+    """IT-T10-01: paths row shows its OWN root facts (exists/size/۵۰۰۰۰+/mtime)."""
     browser, base = live_console["browser"], live_console["base"]
     tmpdir = live_console["tmpdir"]
-    roots = [{"path": tmpdir, "label": "t10 fixtures"}]
+    roots = [_t10_root(tmpdir, "t10 fixtures",
+                       _t10_root_facts(True, True))]
     page, errors, crashes = _t07_new_page(browser)
     try:
         page.route("**/api/files/roots",
@@ -1324,11 +1388,17 @@ def test_t10_01_paths_row_shows_live_facts_live_browser(live_console):
             timeout=10000)
         body = page.inner_text("#paths-tbody")
         assert "۵۰۰۰۰+" in body, body
-        assert "۱۲۳۴۵" in body, body  # fa size from live facts
-        assert "۵ دقیقه پیش" in body, body  # fa mtime from live facts
-        # Group A glossary: source dataset renders Persian.
-        assert "غربال‌شده" in body, body  # source dataset named
-        assert "(screened)" not in body, body
+        assert "۱۲۳۴۵" in body, body  # fa size from the row's own facts
+        assert "۵ دقیقه پیش" in body, body  # fa mtime from the row's own facts
+        # P04/L4 negative proof: the global decoy (۹۹۹۹۹/۹۹) is never
+        # repeated into any row — per-row values come only from the row.
+        assert "۹۹۹۹۹" not in body, body
+        assert "۹۹ دقیقه پیش" not in body, body
+        bare = page.evaluate(
+            "[...document.querySelectorAll('#paths-tbody td')]"
+            ".filter(td=>td.textContent.trim() === '—'"
+            " && !(td.title && td.title.length > 0)).length")
+        assert bare == 0, bare
         _t07_assert_clean(errors, crashes)
         page.screenshot(path=os.path.join(
             _t10_shots_dir(live_console), "shot-t10-paths-desktop.png"))
@@ -1340,10 +1410,10 @@ def test_t10_02_dead_root_drops_badge_matches_live_browser(live_console):
     """IT-T10-02: remove a root dir → row gone, badge count matches."""
     browser, base = live_console["browser"], live_console["base"]
     tmpdir = live_console["tmpdir"]
-    two = [{"path": tmpdir, "label": "t10-a"},
-           {"path": os.path.join(tmpdir, "t10-b"), "label": "t10-b"}]
+    two = [_t10_root(tmpdir, "t10-a", _t10_root_facts(True, False)),
+           _t10_root(os.path.join(tmpdir, "t10-b"), "t10-b")]
     os.makedirs(os.path.join(tmpdir, "t10-b"), exist_ok=True)
-    one = [{"path": tmpdir, "label": "t10-a"}]
+    one = [_t10_root(tmpdir, "t10-a", _t10_root_facts(True, False))]
     page, errors, crashes = _t07_new_page(browser)
     try:
         page.route("**/api/files/roots",
@@ -1375,7 +1445,7 @@ def test_t10_03_every_dash_titled_live_browser(live_console):
     """IT-T10-03: every — in paths + screening metrics has a title cause."""
     browser, base = live_console["browser"], live_console["base"]
     tmpdir = live_console["tmpdir"]
-    roots = [{"path": tmpdir, "label": "t10 fixtures"}]
+    roots = [_t10_root(tmpdir, "t10 fixtures")]
     page, errors, crashes = _t07_new_page(browser)
     try:
         page.route("**/api/files/roots",
@@ -1473,7 +1543,8 @@ def test_t10_paths_tablet_shot_live_browser(live_console):
     """Tablet ≤1024px: paths table renders + tablet screenshot."""
     browser, base = live_console["browser"], live_console["base"]
     tmpdir = live_console["tmpdir"]
-    roots = [{"path": tmpdir, "label": "t10 fixtures"}]
+    roots = [_t10_root(tmpdir, "t10 fixtures",
+                       _t10_root_facts(True, True))]
     page = browser.new_page(viewport={"width": 820, "height": 1180})
     errors, crashes = [], []
     page.on("console",
@@ -2007,3 +2078,1148 @@ def test_t05_03_corrupt_run_skipped_live_browser(
             page.close()
     finally:
         _t04_stop(proc, log_handle)
+
+
+# ── Wave 1 / P03: sticky control + inner workspace scroll (PUX-B5+B6) ──
+# IT-BC03-01 (control rect fixed after workspace scroll, action buttons
+# clickable without page scroll) + IT-BC03-02 (Tab reaches all three
+# action buttons without moving the page) + desktop no-page-scroll cap.
+def test_screening_sticky_control_inner_scroll_live_browser(live_console):
+    """Control column fixed while workspace scrolls; no page-level scroll."""
+    browser, base = live_console["browser"], live_console["base"]
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    try:
+        page.goto(base + "/")
+        page.click(
+            'button.nav-btn[data-view-target="view-screening"]')
+        page.wait_for_selector("#screening-controls", timeout=15000)
+        page.wait_for_timeout(600)
+        # Tall-content load: pad the per-lemma table so the workspace
+        # genuinely overflows (otherwise the scroll below is a no-op and
+        # the rect assertions below prove nothing).
+        page.evaluate(
+            "const tb = document.getElementById("
+            "'screening-per-lemma-tbody');"
+            " for (let i = 0; i < 200; i++) {"
+            " const tr = document.createElement('tr');"
+            " const td = document.createElement('td');"
+            " td.textContent = 'filler-lemma-' + i;"
+            " tr.append(td); tb.append(tr); }")
+        page.wait_for_timeout(300)
+        overflow = page.evaluate(
+            "(() => { const w = document.querySelector("
+            "'main.workspace-area');"
+            " return w.scrollHeight - w.clientHeight; })()")
+        assert overflow > 200, overflow
+        before = page.evaluate(
+            "document.getElementById('screening-controls')"
+            ".getBoundingClientRect().top")
+        page.evaluate(
+            "const w = document.querySelector('main.workspace-area');"
+            " w.scrollTo(0, w.scrollHeight);")
+        page.wait_for_timeout(400)
+        stuck1 = page.evaluate(
+            "document.getElementById('screening-controls')"
+            ".getBoundingClientRect().top")
+        page.evaluate(
+            "const w = document.querySelector('main.workspace-area');"
+            " w.scrollTo(0, w.scrollHeight - 200);")
+        page.wait_for_timeout(400)
+        stuck2 = page.evaluate(
+            "document.getElementById('screening-controls')"
+            ".getBoundingClientRect().top")
+        # Pinned once stuck: two deep scroll positions, one rect; and the
+        # stuck position is at/above the natural position (never scrolled
+        # away with the content).
+        assert abs(stuck1 - stuck2) <= 2, (stuck1, stuck2)
+        assert stuck1 <= before + 2, (before, stuck1)
+        boxes = page.evaluate(
+            "() => {"
+            "  const vh = window.innerHeight;"
+            "  return ['screening-start', 'screening-abort',"
+            "    'screening-handoff'].map((id) => {"
+            "    const r = document.getElementById(id)"
+            "      .getBoundingClientRect();"
+            "    return {id, top: r.top, bottom: r.bottom, vh};"
+            "  });"
+            "}")
+        for box in boxes:
+            assert box["top"] >= 0, box
+            assert box["bottom"] <= box["vh"] + 1, box
+        page_scroll = page.evaluate(
+            "document.documentElement.scrollHeight - window.innerHeight")
+        assert page_scroll <= 8, page_scroll
+        # IT-BC03-02: keyboard-only Tab reaches all three action buttons
+        # without moving the page. (abort/handoff are runtime-disabled
+        # until a run starts, so the test enables them to traverse the
+        # layout order — the assertion is about scroll, not run state.)
+        page.evaluate(
+            "['screening-start', 'screening-abort', 'screening-handoff']"
+            ".forEach((id) => { document.getElementById(id)"
+            ".removeAttribute('disabled'); });")
+        page.evaluate("document.getElementById('screening-start').focus()")
+        page_top = page.evaluate("window.scrollY")
+        seen = []
+        for _ in range(2):
+            page.keyboard.press("Tab")
+            page.wait_for_timeout(150)
+            seen.append(page.evaluate(
+                "document.activeElement && document.activeElement.id"))
+        assert page.evaluate("window.scrollY") == page_top, seen
+        assert seen == ["screening-abort", "screening-handoff"], seen
+    finally:
+        page.close()
+
+
+def _bc03_shots_dir():
+    return os.environ.get("BC03_SHOTS_DIR") or os.path.join(
+        PROJECT_ROOT, ".opencode", "plans", "factory", "shots")
+
+
+def _bc03_open_cabin(page, base, view, via_menu=False):
+    page.goto(base + "/")
+    page.wait_for_selector(
+        'button.nav-btn[data-view-target="%s"]' % view, timeout=15000)
+    if via_menu:  # tablet: nav lives behind the hamburger toggle
+        page.click("#menu-toggle-btn")
+        page.wait_for_timeout(400)
+    page.click('button.nav-btn[data-view-target="%s"]' % view)
+    page.wait_for_selector("#%s.active" % view, timeout=15000)
+    page.wait_for_timeout(400)
+
+
+# IT-BC03-03 (tab-level): every cabin keeps its own sticky control +
+# inner scroll — switch tabs, each cabin's action buttons stay visible
+# with no page-level scroll.
+def test_cabins_sticky_control_per_tab_live_browser(live_console):
+    """Each cabin tab keeps sticky control + inner scroll, no page scroll."""
+    browser, base = live_console["browser"], live_console["base"]
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    try:
+        # Linking has queue-driven intake (no start/abort trio): its
+        # sticky control is the inspector column + inner-scrolling queue.
+        cabins = [
+            ("view-screening", "#screening-controls",
+             ["screening-start", "screening-abort", "screening-handoff"]),
+            ("view-linking", ".inspector-column", []),
+            ("view-precard", "#precard-actions",
+             ["precard-start", "precard-abort", "precard-handoff"]),
+            ("view-pilot", "#pilot-actions",
+             ["pilot-start", "pilot-abort", "pilot-handoff"]),
+        ]
+        for view, control_sel, buttons in cabins:
+            _bc03_open_cabin(page, base, view)
+            sticky = page.evaluate(
+                "(sel) => { const el = document.querySelector(sel);"
+                " if (!el) return 'missing:' + sel;"
+                " return getComputedStyle(el).position; }", control_sel)
+            assert sticky == "sticky", (view, control_sel, sticky)
+            page_scroll = page.evaluate(
+                "document.documentElement.scrollHeight - window.innerHeight")
+            assert page_scroll <= 8, (view, page_scroll)
+            boxes = page.evaluate(
+                "(ids) => ids.map((id) => { const el ="
+                " document.getElementById(id); if (!el) return {id, miss: 1};"
+                " const r = el.getBoundingClientRect();"
+                " return {id, top: r.top, bottom: r.bottom,"
+                " vh: window.innerHeight}; })", buttons)
+            for box in boxes:
+                assert not box.get("miss"), (view, box)
+                assert box["top"] >= 0, (view, box)
+                assert box["bottom"] <= box["vh"] + 1, (view, box)
+            if view == "view-linking":
+                queue_scroll = page.evaluate(
+                    "() => { const q = document.getElementById("
+                    "'batch-review-list'); if (!q) return 'missing';"
+                    " return getComputedStyle(q).overflowY; }")
+                assert queue_scroll == "auto", queue_scroll
+    finally:
+        page.close()
+
+
+def test_bc03_layout_desktop_shot_live_browser(live_console):
+    """Desktop 1280px: tall screening workspace, shot proves sticky."""
+    browser, base = live_console["browser"], live_console["base"]
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    try:
+        _bc03_open_cabin(page, base, "view-screening")
+        page.evaluate(
+            "const tb = document.getElementById("
+            "'screening-per-lemma-tbody');"
+            " for (let i = 0; i < 200; i++) {"
+            " const tr = document.createElement('tr');"
+            " const td = document.createElement('td');"
+            " td.textContent = 'filler-lemma-' + i;"
+            " tr.append(td); tb.append(tr); }")
+        page.evaluate(
+            "const w = document.querySelector('main.workspace-area');"
+            " w.scrollTo(0, w.scrollHeight);")
+        page.wait_for_timeout(400)
+        page.screenshot(path=os.path.join(
+            _bc03_shots_dir(), "shot-bc-p03-layout-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_bc03_layout_tablet_shot_live_browser(live_console):
+    """Tablet 820px: screening cabin via hamburger, shot proves control."""
+    browser, base = live_console["browser"], live_console["base"]
+    page = browser.new_page(viewport={"width": 820, "height": 1180})
+    try:
+        _bc03_open_cabin(page, base, "view-screening", via_menu=True)
+        assert page.is_visible("#screening-controls")
+        page.screenshot(path=os.path.join(
+            _bc03_shots_dir(), "shot-bc-p03-layout-tablet.png"))
+    finally:
+        page.close()
+
+
+# ── P04 unified file/history manager (IT-BC04-01..04) ──
+# Live Chromium against the live console server. /api/files/roots is
+# stubbed at the HTTP layer ONLY to shape per-root facts (the server
+# shape itself is proven hermetically in test_webui_data_root.py);
+# words/resolve/pins hit the REAL server. The global files key carries
+# a decoy — any global-repeat regression fails the negative asserts.
+def _bc04_shots_dir():
+    return os.environ.get("BC04_SHOTS_DIR") or os.path.join(
+        PROJECT_ROOT, ".opencode", "plans", "factory", "shots")
+
+
+def _bc04_facts(size, lines_label, mtime_relative, path="/tmp/bc04.jsonl"):
+    return {"path": path, "exists": True, "size": size,
+            "lines": 0, "lines_label": lines_label, "truncated": False,
+            "mtime_iso": "2026-09-27T00:00:00+00:00",
+            "mtime_relative": mtime_relative,
+            "mtime_detail": "شمسی ۱۴۰۵/۰۷/۰۵ • میلادی 2026-09-27",
+            "cause": ""}
+
+
+def _bc04_roots_route(roots):
+    def _route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"roots": roots,
+                                       "files": _t10_files(True, True)}))
+    return _route
+
+
+def test_bc04_01_rows_show_own_root_facts_live_browser(live_console):
+    """IT-BC04-01: two differing roots → each row shows its own facts."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    roots = [
+        {"path": tmpdir, "label": "bc04-a",
+         "files": _bc04_facts(1111, "11", "۱ ساعت پیش",
+                              os.path.join(tmpdir, "a.jsonl"))},
+        {"path": os.path.join(tmpdir, "bc04-b"), "label": "bc04-b",
+         "files": _bc04_facts(2222, "22", "۲ ساعت پیش",
+                              os.path.join(tmpdir, "bc04-b",
+                                           "b.jsonl"))},
+    ]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/files/roots", _bc04_roots_route(roots))
+        _t10_open_paths(page, base)
+        page.wait_for_function(
+            "document.getElementById('paths-tbody')"
+            ".textContent.includes('۱۱۱۱')",
+            timeout=10000)
+        rows = page.evaluate(
+            "[...document.querySelectorAll('#paths-tbody tr')]"
+            ".map(tr => tr.textContent)")
+        assert len(rows) == 2, rows
+        assert "۱۱۱۱" in rows[0] and "۲۲۲۲" not in rows[0], rows
+        assert "۲۲۲۲" in rows[1] and "۱۱۱۱" not in rows[1], rows
+        assert "۱۱ سطر" in rows[0] and "۲۲ سطر" in rows[1], rows
+        assert "۱ ساعت پیش" in rows[0], rows
+        assert "۲ ساعت پیش" in rows[1], rows
+        # global decoy never leaks into any row
+        assert "۹۹۹۹۹" not in "".join(rows), rows
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc04_02_missing_file_titled_empty_live_browser(live_console):
+    """IT-BC04-02: root without a file → titled — with cause, no bare."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    roots = [{"path": tmpdir, "label": "bc04-empty",
+              "files": {"path": "", "exists": False, "size": 0,
+                        "lines": 0, "lines_label": "0",
+                        "truncated": False, "mtime_iso": None,
+                        "mtime_relative": "—", "mtime_detail": "—",
+                        "cause": "file-missing"}}]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/files/roots", _bc04_roots_route(roots))
+        _t10_open_paths(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll('#paths-tbody tr').length === 1",
+            timeout=10000)
+        bare = page.evaluate(
+            "[...document.querySelectorAll('#paths-tbody td')]"
+            ".filter(td=>td.textContent.trim() === '—'"
+            " && !(td.title && td.title.length > 0)).length")
+        assert bare == 0, bare
+        titles = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#paths-tbody td.honest-empty')].map(td=>td.title)")
+        assert titles, titles
+        assert any("فایلی در این ریشه نیست" in t for t in titles), titles
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def _bc04_open_dest_dialog(page, base, tmpdir):
+    page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+    _t07_open_screening(page, base)
+    # P05: pick opens the popover; the full browser (with the P04
+    # preset + free-text block) comes from «مرور کامل…» after the
+    # async groups settle (same lost-click race guard as T09).
+    page.click("#screening-pick-dest")
+    page.wait_for_selector(
+        "#cmd-popover:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll('#cmd-popover li').length >= 3",
+        timeout=15000)
+    page.click("#cmd-popover-browse")
+    page.wait_for_selector(
+        "#data-dialog:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll("
+        "'#data-dialog-preset option').length > 1",
+        timeout=15000)
+
+
+def _bc04_reopen_dest_dialog(page):
+    """Re-open the full dest browser through the P05 popover."""
+    page.click("#screening-pick-dest")
+    page.wait_for_selector(
+        "#cmd-popover:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll('#cmd-popover li').length >= 3",
+        timeout=15000)
+    page.click("#cmd-popover-browse")
+    page.wait_for_selector(
+        "#data-dialog:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll("
+        "'#data-dialog-preset option').length > 1",
+        timeout=15000)
+
+
+def test_bc04_03_preset_custom_picks_live_browser(live_console):
+    """IT-BC04-03: preset pick fills; custom valid fills; custom invalid
+    → fa error with no pick."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _, dest = _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc04_open_dest_dialog(page, base, tmpdir)
+        # preset pick → input fills with the resolved abspath
+        page.select_option("#data-dialog-preset", tmpdir)
+        page.click("#data-dialog-preset-pick")
+        page.wait_for_function(
+            "document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        assert os.path.abspath(
+            page.input_value("#screening-out-dir")) == os.path.abspath(
+                tmpdir)
+        assert page.evaluate("document.activeElement.id") == \
+            "screening-out-dir"
+        # custom valid path → validated + fills
+        _bc04_reopen_dest_dialog(page)
+        page.fill("#data-dialog-custom", dest)
+        page.click("#data-dialog-custom-pick")
+        page.wait_for_function(
+            "document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        assert os.path.abspath(
+            page.input_value("#screening-out-dir")) == os.path.abspath(
+                dest)
+        # custom invalid path → fa error, no pick, dialog stays open
+        _bc04_reopen_dest_dialog(page)
+        page.fill("#data-dialog-custom", "/bc04-outside-allowlist-xyz")
+        page.click("#data-dialog-custom-pick")
+        page.wait_for_function(
+            "document.getElementById('data-dialog-err')"
+            ".textContent.includes('ریشه‌های مجاز')",
+            timeout=10000)
+        assert os.path.abspath(
+            page.input_value("#screening-out-dir")) == os.path.abspath(
+                dest)
+        assert page.evaluate(
+            "!document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')") is True
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc04_04_same_manager_recents_live_browser(live_console):
+    """IT-BC04-04: preset + custom picks both land through the same
+    manager (one recents list, no second picker dialect)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _, dest = _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc04_open_dest_dialog(page, base, tmpdir)
+        page.select_option("#data-dialog-preset", tmpdir)
+        page.click("#data-dialog-preset-pick")
+        page.wait_for_function(
+            "document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        _bc04_reopen_dest_dialog(page)
+        page.fill("#data-dialog-custom", dest)
+        page.click("#data-dialog-custom-pick")
+        page.wait_for_function(
+            "document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        recents = page.evaluate(
+            "JSON.parse(localStorage.getItem('hz-file-recents') || '[]')"
+            ".map(r => r.path)")
+        assert os.path.abspath(tmpdir) in [
+            os.path.abspath(p) for p in recents], recents
+        assert os.path.abspath(dest) in [
+            os.path.abspath(p) for p in recents], recents
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc04_manager_desktop_shot_live_browser(live_console):
+    """Desktop 1440px: dest dialog with preset + free-text block (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc04_open_dest_dialog(page, base, tmpdir)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc04_shots_dir(), "shot-bc-p04-manager-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_bc04_manager_tablet_shot_live_browser(live_console):
+    """Tablet 820px: dest dialog via hamburger (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page = browser.new_page(viewport={"width": 820, "height": 1180})
+    errors, crashes = [], []
+    page.on("console",
+            lambda msg: errors.append(msg.text)
+            if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: crashes.append(str(exc)))
+    try:
+        page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+        _t07_open_screening(page, base, via_menu=True)
+        # tablet: A1–A4 accordion is single-open — expand A2 (dest) so
+        # the caller button is visible (same pattern as IT-T09-05)
+        page.click("#screening-acc-a2 > summary")
+        page.wait_for_timeout(400)
+        page.click("#screening-pick-dest")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        page.wait_for_function(
+            "document.querySelectorAll('#cmd-popover li').length >= 3",
+            timeout=15000)
+        page.click("#cmd-popover-browse")
+        page.wait_for_selector(
+            "#data-dialog:not([hidden])", timeout=10000)
+        assert page.is_visible("#data-dialog-custom-pick")
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc04_shots_dir(), "shot-bc-p04-manager-tablet.png"))
+    finally:
+        page.close()
+
+
+# ── P05 anchored picking-only popover (IT-BC05-01..05) ──
+# Live Chromium against the live console server. /api/files/roots is
+# stubbed at the HTTP layer ONLY to shape roots/facts (server shape is
+# proven hermetically); words/resolve/pins hit the REAL server. The
+# popover never mutates: the tests assert zero POST/PUT/DELETE while it
+# is open and no action buttons inside it.
+def _bc05_shots_dir():
+    return os.environ.get("BC05_SHOTS_DIR") or os.path.join(
+        PROJECT_ROOT, ".opencode", "plans", "factory", "shots")
+
+
+def _bc05_open_popover(page, base, tmpdir, pick_id="screening-pick-input"):
+    page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+    _t07_open_screening(page, base)
+    page.click("#" + pick_id)
+    page.wait_for_selector(
+        "#cmd-popover:not([hidden])", timeout=10000)
+    page.wait_for_function(
+        "document.querySelectorAll('#cmd-popover li').length >= 3",
+        timeout=15000)
+
+
+def test_bc05_01_popover_anchored_no_column_live_browser(live_console):
+    """IT-BC05-01: click «انتخاب فایل…» → transient layer anchored at
+    the button; page grid unchanged; control column never covered."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        grid_before = None
+        page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+        _t07_open_screening(page, base)
+        grid_before = page.evaluate(
+            "getComputedStyle(document.querySelector("
+            "'main.workspace-area')).overflowY")
+        page.click("#screening-pick-input")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        # transient layer, not a layout column: fixed positioning, the
+        # full dialog stays hidden, no dialog body class is added
+        pos = page.evaluate(
+            "getComputedStyle(document.getElementById("
+            "'cmd-popover')).position")
+        assert pos == "fixed", pos
+        assert page.evaluate(
+            "document.getElementById('data-dialog')"
+            ".hasAttribute('hidden')") is True
+        assert page.evaluate(
+            "document.body.classList.contains('has-data-dialog')") \
+            is False
+        assert page.evaluate(
+            "getComputedStyle(document.querySelector("
+            "'main.workspace-area')).overflowY") == grid_before
+        # anchored at the button (nearby) and inside the viewport
+        gap = page.evaluate(
+            "() => {"
+            "  const p = document.getElementById('cmd-popover')"
+            "    .getBoundingClientRect();"
+            "  const b = document.getElementById('screening-pick-input')"
+            "    .getBoundingClientRect();"
+            "  const vh = window.innerHeight, vw = window.innerWidth;"
+            "  return {dx: Math.min(Math.abs(p.left - b.left),"
+            "    Math.abs(p.right - b.right)),"
+            "    inside: p.top >= 0 && p.left >= 0"
+            "      && p.bottom <= vh + 1 && p.right <= vw + 1};"
+            "}")
+        assert gap["inside"] is True, gap
+        assert gap["dx"] < 500, gap
+        # never covers the control column
+        cover = page.evaluate(
+            "() => {"
+            "  const p = document.getElementById('cmd-popover')"
+            "    .getBoundingClientRect();"
+            "  const c = document.getElementById('screening-controls')"
+            "    .getBoundingClientRect();"
+            "  return !(p.right <= c.left || p.left >= c.right"
+            "    || p.bottom <= c.top || p.top >= c.bottom);"
+            "}")
+        assert cover is False, "popover must never cover the control column"
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc05_02_keyboard_only_cycle_pick_live_browser(live_console):
+    """IT-BC05-02: keyboard-only — Tab stays in the layer, Up/Down
+    cycles every row, Enter picks, focus returns to the invoker."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc05_open_popover(page, base, tmpdir)
+        # keyboard-only from here (no mouse): focus the invoker, open
+        # with Enter, then Tab stays on the single tab-stop
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "document.getElementById('cmd-popover')"
+            ".hasAttribute('hidden')",
+            timeout=5000)
+        page.evaluate(
+            "document.getElementById('screening-pick-input').focus()")
+        page.keyboard.press("Enter")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        page.wait_for_function(
+            "document.activeElement.id === 'cmd-popover-filter'",
+            timeout=5000)
+        page.keyboard.press("Tab")
+        page.wait_for_timeout(200)
+        assert page.evaluate("document.activeElement.id") == \
+            "cmd-popover-filter"
+        # cycle: walk every row with Down (null-safe), then prove the
+        # wrap lands on «مرور کامل…» and cycles back to the first row
+        total = page.evaluate(
+            "document.querySelectorAll("
+            "'#cmd-popover li.cmd-row:not(.cmd-disabled)').length")
+        assert total >= 1, total
+        seen = set()
+        for _ in range(total):
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(120)
+            active = page.evaluate(
+                "(() => { const n = document.querySelector("
+                "'#cmd-popover li.cmd-row.active');"
+                " return n ? n.textContent : null; })()")
+            assert active, "every Down step must land on a row"
+            seen.add(active)
+        assert len(seen) == total, (len(seen), total)
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(120)
+        assert page.evaluate(
+            "document.getElementById('cmd-popover-browse')"
+            ".classList.contains('active')") is True
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(120)
+        assert page.evaluate(
+            "document.querySelector("
+            "'#cmd-popover li.cmd-row.active') !== null") is True
+        # deterministic pick: narrow to the seeded words file, Down to
+        # its row, Enter fills A1 and returns focus to the invoker
+        page.fill("#cmd-popover-filter", "words-t09")
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#cmd-popover li.cmd-row:not(.cmd-disabled)').length === 1",
+            timeout=5000)
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(150)
+        # Enter picks the active row: words land in A1, popover closes,
+        # focus returns to the invoking button
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "document.getElementById('cmd-popover')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        page.wait_for_function(
+            "document.getElementById('screening-words-count')"
+            ".textContent.trim() === '۳'",
+            timeout=10000)
+        assert "alpha" in page.input_value("#screening-words")
+        assert page.evaluate("document.activeElement.id") == \
+            "screening-pick-input"
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc05_03_escape_outside_cancel_live_browser(live_console):
+    """IT-BC05-03: Escape / outside-click closes with no selection and
+    focus back on the invoker."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc05_open_popover(page, base, tmpdir)
+        before = page.input_value("#screening-words")
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "document.getElementById('cmd-popover')"
+            ".hasAttribute('hidden')",
+            timeout=5000)
+        assert page.input_value("#screening-words") == before
+        assert page.evaluate("document.activeElement.id") == \
+            "screening-pick-input"
+        # outside-click: reopen, click the workspace nav, same outcome
+        page.click("#screening-pick-input")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        page.click('button.nav-btn[data-view-target="view-screening"]')
+        page.wait_for_function(
+            "document.getElementById('cmd-popover')"
+            ".hasAttribute('hidden')",
+            timeout=5000)
+        assert page.input_value("#screening-words") == before
+        assert page.evaluate("document.activeElement.id") == \
+            "screening-pick-input"
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc05_04_filter_client_side_no_fetch_live_browser(live_console):
+    """IT-BC05-04: typing filters all three groups with titled empties;
+    zero server calls after the popover settles."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    calls = []
+    page.on("request", lambda req: calls.append(
+        (req.method, req.url)) if "/api/" in req.url else None)
+    try:
+        _bc05_open_popover(page, base, tmpdir)
+        page.wait_for_timeout(800)
+        del calls[:]
+        # positive filter: the mocked root label matches in paths
+        page.fill("#cmd-popover-filter", "t09")
+        page.wait_for_function(
+            "document.querySelector("
+            "'section[data-group=\"paths\"]')"
+            ".textContent.includes('t09')",
+            timeout=5000)
+        assert page.evaluate(
+            "document.querySelectorAll("
+            "'section[data-group=\"paths\"] li.cmd-row').length") >= 1
+        # negative filter: every group shows a titled empty, none vanishes
+        page.fill("#cmd-popover-filter", "bc05-no-such-row-xyz")
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#cmd-popover li.cmd-empty').length === 3",
+            timeout=5000)
+        titles = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#cmd-popover li.cmd-empty')].map(li=>li.title)")
+        assert all(len(t) > 0 for t in titles), titles
+        groups = page.evaluate(
+            "document.querySelectorAll("
+            "'#cmd-popover section.cmd-group').length")
+        assert groups == 3, groups
+        assert calls == [], calls
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc05_05_picking_only_no_actions_live_browser(live_console):
+    """IT-BC05-05: no action buttons inside; the whole session performs
+    zero mutations (no POST/PUT/DELETE)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _, dest = _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    mutating = []
+    page.on("request", lambda req: mutating.append(
+        (req.method, req.url))
+        if req.method in ("POST", "PUT", "DELETE") else None)
+    try:
+        _bc05_open_popover(page, base, tmpdir, "screening-pick-dest")
+        labels = page.evaluate(
+            "[...document.querySelectorAll('#cmd-popover button')]"
+            ".map(b=>b.textContent.trim())")
+        for banned in ("ساخت پوشه", "بارگذاری", "تغییر نام", "حذف",
+                       "سنجاق"):
+            assert not any(banned in t for t in labels), labels
+        # every row carries a usefulness sentence + an effect line, and
+        # facts from its own root (fa) or a titled cause
+        rows = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#cmd-popover li.cmd-row')].map(li=>li.textContent)")
+        assert rows, rows
+        for text in rows:
+            assert "می‌نشیند" in text, text  # effect line
+        facts_titles = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#cmd-popover .cmd-facts')].map(s=>s.title)")
+        assert facts_titles and all(
+            len(t) > 0 for t in facts_titles), facts_titles
+        # picking a dest fills A2 with no mutation along the way
+        page.fill("#cmd-popover-filter", "t09")
+        page.wait_for_timeout(400)
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(150)
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "document.getElementById('cmd-popover')"
+            ".hasAttribute('hidden')",
+            timeout=10000)
+        value = page.input_value("#screening-out-dir")
+        assert value, value
+        assert mutating == [], mutating
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc05_popover_desktop_shot_live_browser(live_console):
+    """Desktop 1440px: anchored popover with three titled groups (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        _bc05_open_popover(page, base, tmpdir)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc05_shots_dir(), "shot-bc-p05-popover-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_bc05_popover_tablet_shot_live_browser(live_console):
+    """Tablet 820px: popover via hamburger + A1 accordion (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page = browser.new_page(viewport={"width": 820, "height": 1180})
+    errors, crashes = [], []
+    page.on("console",
+            lambda msg: errors.append(msg.text)
+            if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: crashes.append(str(exc)))
+    try:
+        page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+        _t07_open_screening(page, base, via_menu=True)
+        # tablet accordion starts with A1 open — only expand when closed
+        # (a blind summary click would toggle it shut, same trap as T09-05)
+        if not page.evaluate(
+                "document.getElementById('screening-acc-a1').open"):
+            page.click("#screening-acc-a1 > summary")
+            page.wait_for_timeout(400)
+        page.click("#screening-pick-input")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        assert page.is_visible("#cmd-popover-filter")
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc05_shots_dir(), "shot-bc-p05-popover-tablet.png"))
+    finally:
+        page.close()
+
+
+# ── P06 shared paged list p50 + titled empties (IT-BC06-01..04) ──
+# Live Chromium against the live console server. /api/screened,
+# /api/runs/history and /api/screening/status are stubbed at the HTTP
+# layer ONLY to shape list volume (server shapes are proven
+# hermetically); candidates/labels/words hit the REAL server. The
+# popover itself is untouched by P06 (its titled group-empty is only
+# asserted, never restyled).
+def _bc06_shots_dir():
+    return os.environ.get("BC06_SHOTS_DIR") or os.path.join(
+        PROJECT_ROOT, ".opencode", "plans", "factory", "shots")
+
+
+def _bc06_screened_route(n):
+    """Serve n flat queue rows shaped like the REAL /api/screened."""
+    def _route(route):
+        rows = [{"sense_id": "bc06#%d" % i,
+                 "lemma": "lemma%d" % (i % 50),
+                 "gloss": "sense gloss number %d" % i,
+                 "example": "example sentence %d" % i}
+                for i in range(1, n + 1)]
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(
+                          {"rows": rows, "total": n, "path": "bc06-mock"}))
+    return _route
+
+
+def _bc06_history_route(runs):
+    def _route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"runs": runs}))
+    return _route
+
+
+def _bc06_status_route(manifest):
+    def _route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(
+                          {"screening": {
+                              "status": ("completed"
+                                         if manifest is not None
+                                         else "idle"),
+                              "elapsed": None, "elapsed_human": None,
+                              "started_iso": None, "run_id": None,
+                              "resumed": False, "exit_code": None,
+                              "log": [], "manifest": manifest,
+                              "out_path": "", "words": []}}))
+    return _route
+
+
+def _bc06_open_linking(page, base, via_menu=False):
+    page.goto(base + "/")
+    page.wait_for_selector(
+        'button.nav-btn[data-view-target="view-linking"]', timeout=15000)
+    if via_menu:  # tablet/phone: nav lives behind the hamburger toggle
+        page.click("#menu-toggle-btn")
+        page.wait_for_timeout(400)
+    page.click('button.nav-btn[data-view-target="view-linking"]')
+    page.wait_for_selector(
+        "#queue-list .queue-item, #queue-list .p-meta", timeout=15000)
+    page.wait_for_timeout(600)
+
+
+def _bc06_queue_count(page):
+    return page.evaluate(
+        "document.querySelectorAll('#queue-list .queue-item').length")
+
+
+def _bc06_first_queue_text(page):
+    return page.evaluate(
+        "document.querySelector('#queue-list .queue-item').textContent")
+
+
+def test_bc06_01_paged_500_queue_live_browser(live_console):
+    """IT-BC06-01: 500-row queue mounts one 50-row page; pager
+    next/prev turns pages with an exact counter."""
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(500))
+        _bc06_open_linking(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 50",
+            timeout=15000)
+        assert _bc06_queue_count(page) == 50
+        assert _norm_digits(
+            page.inner_text("#queue-remaining")) == "500 از 500 مورد"
+        assert page.evaluate(
+            "document.getElementById('queue-pager')"
+            ".hasAttribute('hidden')") is False
+        assert _norm_digits(page.inner_text(
+            "#queue-pager [data-pager='label']")) == "صفحه 1 از 10"
+        first = _bc06_first_queue_text(page)
+        assert "bc06#1" in first, first
+        page.click("#queue-pager [data-pager='next']")
+        page.wait_for_function(
+            "document.querySelector("
+            "'#queue-pager [data-pager=\"label\"]')"
+            ".textContent.includes('۲')",
+            timeout=5000)
+        assert _bc06_queue_count(page) == 50
+        second = _bc06_first_queue_text(page)
+        assert "bc06#51" in second, second
+        assert second != first
+        assert _norm_digits(
+            page.inner_text("#queue-remaining")) == "500 از 500 مورد"
+        page.click("#queue-pager [data-pager='prev']")
+        page.wait_for_function(
+            "document.querySelector("
+            "'#queue-pager [data-pager=\"label\"]')"
+            ".textContent.includes('۱')",
+            timeout=5000)
+        assert _bc06_first_queue_text(page) == first
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc06_02_filter_spans_pages_live_browser(live_console):
+    """IT-BC06-02: filter matches across all pages with an exact
+    count; paging keeps the filter (no unfiltered leak)."""
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(500))
+        _bc06_open_linking(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 50",
+            timeout=15000)
+        # bc06#4 + bc06#40-49 + bc06#400-499 = 111 matches
+        page.fill("#queue-filter", "bc06#4")
+        page.wait_for_function(
+            "document.getElementById('queue-remaining')"
+            ".textContent.includes('۱۱۱')",
+            timeout=5000)
+        assert _norm_digits(
+            page.inner_text("#queue-remaining")) == "111 از 500 مورد"
+        assert _bc06_queue_count(page) == 50
+        page.click("#queue-pager [data-pager='next']")
+        page.wait_for_function(
+            "document.querySelector("
+            "'#queue-pager [data-pager=\"label\"]')"
+            ".textContent.includes('۲')",
+            timeout=5000)
+        texts = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#queue-list .queue-item')].map(el=>el.textContent)")
+        assert len(texts) == 50, len(texts)
+        assert all("bc06#4" in text for text in texts), texts[:3]
+        assert _norm_digits(
+            page.inner_text("#queue-remaining")) == "111 از 500 مورد"
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc06_03_keyboard_crosses_page_live_browser(live_console):
+    """IT-BC06-03: Tab into the list, ArrowDown at the page edge
+    turns the page via the pager; ArrowUp turns back; Enter
+    still activates the focused row."""
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(500))
+        _bc06_open_linking(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 50",
+            timeout=15000)
+        page.evaluate(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item')[49].focus()")
+        assert "bc06#50" in page.evaluate(
+            "document.activeElement.textContent")
+        page.keyboard.press("ArrowDown")
+        page.wait_for_function(
+            "document.querySelector("
+            "'#queue-pager [data-pager=\"label\"]')"
+            ".textContent.includes('۲')",
+            timeout=5000)
+        focused = page.evaluate("document.activeElement.textContent")
+        assert "bc06#51" in focused, focused
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function(
+            "document.querySelector("
+            "'#queue-pager [data-pager=\"label\"]')"
+            ".textContent.includes('۱')",
+            timeout=5000)
+        focused = page.evaluate("document.activeElement.textContent")
+        assert "bc06#50" in focused, focused
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "document.getElementById('sense-id')"
+            ".textContent.includes('bc06#50')",
+            timeout=5000)
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc06_04_six_empties_titled_live_browser(live_console):
+    """IT-BC06-04: every one of the six empty states renders a fa
+    sentence plus a title cause in the DOM."""
+    browser, base = live_console["browser"], live_console["base"]
+    # (a) queue no-rows: screened returns nothing
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(0))
+        _bc06_open_linking(page, base)
+        page.wait_for_selector("#queue-list .p-meta", timeout=15000)
+        empty = page.evaluate(
+            "() => { const n = document.querySelector("
+            "'#queue-list .p-meta');"
+            " return {text: n.textContent, title: n.title}; }")
+        assert len(empty["text"]) > 3, empty
+        assert len(empty["title"]) > 3, empty
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+    # (b) queue no-filter-match: rows exist, the filter matches none
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(10))
+        _bc06_open_linking(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 10",
+            timeout=15000)
+        page.fill("#queue-filter", "bc06-no-such-row-xyz")
+        page.wait_for_selector("#queue-list .p-meta", timeout=5000)
+        empty = page.evaluate(
+            "() => { const n = document.querySelector("
+            "'#queue-list .p-meta');"
+            " return {text: n.textContent, title: n.title}; }")
+        assert len(empty["text"]) > 3, empty
+        assert len(empty["title"]) > 3, empty
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+    # (c)+(d) history no-history + per-lemma no-rows on one page
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/runs/history*", _bc06_history_route([]))
+        page.route("**/api/screening/status", _bc06_status_route(None))
+        _t07_open_screening(page, base)
+        page.click("#screening-tabbtn-2")
+        page.wait_for_selector(
+            "#screening-history-tbody td[title]", timeout=15000)
+        hist = page.evaluate(
+            "() => { const n = document.querySelector("
+            "'#screening-history-tbody td');"
+            " return {text: n.textContent, title: n.title}; }")
+        assert len(hist["text"]) > 3, hist
+        assert len(hist["title"]) > 3, hist
+        lemma = page.evaluate(
+            "() => { const n = document.querySelector("
+            "'#screening-per-lemma-tbody td');"
+            " return {text: n.textContent, title: n.title}; }")
+        assert len(lemma["text"]) > 3, lemma
+        assert len(lemma["title"]) > 3, lemma
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+    # (e)+(f) popover group-empty + history missing-fact dash, one page
+    tmpdir = live_console["tmpdir"]
+    _t09_seed(tmpdir)
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/files/roots", _t09_roots_route(tmpdir))
+        page.route("**/api/runs/history*", _bc06_history_route(
+            [{"run_id": "", "out_name": "", "status": "completed",
+              "out_dir": "", "started_iso": None,
+              "kept_total": None, "dropped_total": None}]))
+        _t07_open_screening(page, base)
+        dash = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#screening-history-tbody td')]"
+            ".filter(td=>td.textContent.trim() === '—')"
+            ".map(td=>td.title)")
+        assert dash and all(len(t) > 0 for t in dash), dash
+        _bc05_open_popover(page, base, tmpdir)
+        page.fill("#cmd-popover-filter", "bc06-no-such-row-xyz")
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#cmd-popover li.cmd-empty').length === 3",
+            timeout=5000)
+        titles = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#cmd-popover li.cmd-empty')].map(li=>li.title)")
+        assert all(len(t) > 0 for t in titles), titles
+        _t07_assert_clean(errors, crashes)
+    finally:
+        page.close()
+
+
+def test_bc06_paged_desktop_shot_live_browser(live_console):
+    """Desktop 1440px: 500-row queue shows one 50-row page plus
+    the shared pager (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.route("**/api/screened", _bc06_screened_route(500))
+        _bc06_open_linking(page, base)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 50",
+            timeout=15000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-bc-p06-paged-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_bc06_paged_tablet_shot_live_browser(live_console):
+    """Tablet 820px: paged queue via hamburger nav (shot)."""
+    browser, base = live_console["browser"], live_console["base"]
+    page = browser.new_page(viewport={"width": 820, "height": 1180})
+    errors, crashes = [], []
+    page.on("console",
+            lambda msg: errors.append(msg.text)
+            if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: crashes.append(str(exc)))
+    try:
+        page.route("**/api/screened", _bc06_screened_route(500))
+        _bc06_open_linking(page, base, via_menu=True)
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#queue-list .queue-item').length === 50",
+            timeout=15000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-bc-p06-paged-tablet.png"))
+    finally:
+        page.close()

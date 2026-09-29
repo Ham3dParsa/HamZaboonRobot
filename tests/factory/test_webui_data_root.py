@@ -8,6 +8,8 @@ a monkeypatched cap). Secrets: names only, values never.
 import json
 import os
 
+import pytest
+
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
@@ -233,6 +235,175 @@ def test_data_file_facts_cached_with_short_ttl(tmp_path, monkeypatch):
     assert calls["n"] == 4  # reset re-arms the scan
 
 
+# ─── P04: unified file/history manager ───────────────────────────
+# L4 — one shared manager owns file/history picks; per-row values come
+# only from that row's root (global-repeat bug gone); custom paths
+# validate against the allowlist (outside → 400).
+
+def _reset_all_facts_caches(webui):
+    webui._reset_file_facts_cache()
+    webui._reset_root_facts_cache()
+
+
+def test_per_root_facts_differ_per_row(tmp_path, monkeypatch):
+    """Two roots with different files → each root carries its OWN facts
+    on the same /api/files/roots response (cols 3-4 differ per row)."""
+    webui = _webui()
+    first, second = str(tmp_path / "ra"), str(tmp_path / "rb")
+    os.makedirs(first)
+    os.makedirs(second)
+    with open(os.path.join(first, "a.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write("one\ntwo\nthree\n")
+    with open(os.path.join(second, "b.jsonl"), "w",
+              encoding="utf-8") as handle:
+        for num in range(7):
+            handle.write('{"n": %d}\n' % num)
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [
+        {"path": first, "label": "root-a"},
+        {"path": second, "label": "root-b"}])
+    _reset_all_facts_caches(webui)
+    body = webui.app.test_client().get("/api/files/roots").get_json()
+    assert [r["label"] for r in body["roots"]] == ["root-a", "root-b"]
+    facts_a = body["roots"][0]["files"]
+    facts_b = body["roots"][1]["files"]
+    assert facts_a["exists"] is True and facts_b["exists"] is True
+    assert (facts_a["lines"], facts_a["lines_label"]) == (3, "3")
+    assert (facts_b["lines"], facts_b["lines_label"]) == (7, "7")
+    assert facts_a["size"] != facts_b["size"]
+    assert facts_a["path"] != facts_b["path"]
+    # the legacy global key still rides along untouched
+    assert sorted(body["files"].keys()) == ["kaikki_raw", "screened"]
+
+
+def test_per_root_facts_missing_file_honest(tmp_path, monkeypatch):
+    """Root without a data file → exists False with a machine cause
+    (renderer turns it into a titled —, never a bare dash)."""
+    webui = _webui()
+    empty = str(tmp_path / "empty-root")
+    os.makedirs(empty)
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [
+        {"path": empty, "label": "empty"}])
+    _reset_all_facts_caches(webui)
+    body = webui.app.test_client().get("/api/files/roots").get_json()
+    facts = body["roots"][0]["files"]
+    assert facts["exists"] is False
+    assert facts["cause"] == "file-missing"
+    assert facts["mtime_relative"] == "—"
+
+
+def test_per_root_facts_cached_with_short_ttl(tmp_path, monkeypatch):
+    """Second GET within TTL performs zero rescans (same short TTL)."""
+    webui = _webui()
+    root = str(tmp_path / "cached-root")
+    os.makedirs(root)
+    with open(os.path.join(root, "c.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write("x\n")
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [
+        {"path": root, "label": "cached"}])
+    calls = {"n": 0}
+    real = webui._file_facts
+
+    def _counting(path):
+        calls["n"] += 1
+        return real(path)
+
+    monkeypatch.setattr(webui, "_file_facts", _counting)
+    _reset_all_facts_caches(webui)
+    client = webui.app.test_client()
+    client.get("/api/files/roots")
+    first_n = calls["n"]
+    assert first_n >= 3  # kaikki_raw + screened + the root probe
+    client.get("/api/files/roots")
+    assert calls["n"] == first_n  # served from cache — no rescan
+
+
+def test_resolve_outside_allowlist_400(tmp_path, monkeypatch):
+    """Free-text custom path outside the allowlist → 400 (fail-closed);
+    inside the data root → 200 with the abspath."""
+    webui = _webui()
+    root = str(tmp_path / "data")
+    os.makedirs(os.path.join(root, "sub"))
+    monkeypatch.setattr(webui, "data_root", lambda: root)
+    # isolate the allowlist: no browse roots, so only the data root
+    # admits paths (the real box mounts tmp under an allowed drive)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [])
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    client = webui.app.test_client()
+    outside = os.path.abspath(os.path.join(str(tmp_path), "nope", "q"))
+    resp = client.post("/api/files/resolve", json={"path": outside})
+    assert resp.status_code == 400, resp.get_json()
+    resp = client.post("/api/files/resolve",
+                       json={"path": os.path.join(root, "sub"),
+                             "kind": "dir"})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["path"] == os.path.realpath(
+        os.path.join(root, "sub"))
+    # not-yet-created dest dir under the root validates (no existence
+    # requirement for dest picks)
+    resp = client.post("/api/files/resolve",
+                       json={"path": os.path.join(root, "future-out"),
+                             "kind": "dir"})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["exists"] is False
+    # kind mismatch + bad kind both 400
+    resp = client.post("/api/files/resolve",
+                       json={"path": os.path.join(root, "sub"),
+                             "kind": "file"})
+    assert resp.status_code == 400
+    resp = client.post("/api/files/resolve",
+                       json={"path": root, "kind": "bogus"})
+    assert resp.status_code == 400
+    resp = client.post("/api/files/resolve", json={"path": "   "})
+    assert resp.status_code == 400
+
+
+def _shell_js(name):
+    with open(os.path.join(PROJECT_ROOT, "factory", "webui", "static",
+                           "js", "shell", name),
+              encoding="utf-8") as handle:
+        return handle.read()
+
+
+def test_manager_single_owner_static():
+    """Static proof: exactly one manager module owns preset destinations
+    + custom-path validation + per-root facts + single fill path; the
+    dialog and the paths table consume it; no second picker dialect."""
+    manager = _shell_js("file_history_manager.js")
+    for symbol in ("presetDestinations", "validateCustomPath",
+                   "fillInput", "fetchRoots", "rootFacts",
+                   "rememberRecent", "listRecents"):
+        assert symbol in manager, symbol
+    assert "/api/files/resolve" in manager
+    assert "hz-file-recents" in manager
+    dialog = _shell_js("data_dialog_controller.js")
+    assert "file_history_manager.js" in dialog
+    assert "fillInput(" in dialog
+    assert "validateCustomPath(" in dialog
+    assert "presetDestinations(" in dialog
+    # openDataDialog is defined in exactly one shell module (no second
+    # picker dialect for the next cabin to drift into)
+    import glob as _glob
+    definers = [path for path in _glob.glob(os.path.join(
+        PROJECT_ROOT, "factory", "webui", "static", "js", "shell",
+        "*.js")) if "export function openDataDialog" in open(
+            path, encoding="utf-8").read()]
+    assert len(definers) == 1, definers
+    assert definers[0].endswith("data_dialog_controller.js")
+    # dialog markup carries the preset + free-text hooks
+    with open(os.path.join(PROJECT_ROOT, "factory", "webui",
+                           "index.html"), encoding="utf-8") as handle:
+        html = handle.read()
+    assert 'id="data-dialog-preset"' in html
+    assert 'id="data-dialog-custom"' in html
+    assert 'id="data-dialog-preset-pick"' in html
+    assert 'id="data-dialog-custom-pick"' in html
+
+
 # ─── T2: telemetry init race (controller-only) ───────────────────
 
 def _telemetry_text():
@@ -317,20 +488,25 @@ def test_files_roots_files_carry_four_values(monkeypatch):
             assert facts["lines_label"] == "50000+"
 
 
-def test_telemetry_paths_consumes_files_facts():
-    """Static wiring proof: renderPaths(roots, files) reads screened/
-    kaikki_raw exists/size/lines/mtime; every — built with a title."""
+def test_telemetry_paths_consumes_per_root_facts():
+    """Static wiring proof (P04/L4): renderPaths(roots) reads each row's
+    OWN root.files (exists/size/lines/mtime or titled —); the old global
+    pickFacts repeat path is gone (route-delete)."""
     text = _telemetry_text()
     assert "export function renderPaths(roots, files)" in text
-    assert "files.screened" in text and "files.kaikki_raw" in text
+    assert "rootFacts(r)" in text or "rootFacts(" in text
+    assert "function pickFacts" not in text
+    assert "files.screened" not in text and "files.kaikki_raw" not in text
     assert "mtime_relative" in text and "lines_label" in text
     assert "titledEmpty(" in text
     # no bare dash construction remains in the paths renderer:
     # every "—" literal in this module rides a titled cell
     assert text.count("title") >= text.count("—"), text.count("—")
-    # event + init fetch both carry files through
-    assert "detail.files" in text
-    assert "f && f.files" in text or "(f && f.files)" in text
+    # per-root facts ride the roots payload (manager-owned fetch)
+    assert "file_history_manager" in text
+    # event + init fetch both carry roots through
+    assert "detail.roots" in text
+    assert "(f && f.roots)" in text or "f.roots" in text
 
 
 def test_screening_metrics_prefer_drop_reasons_and_titled():
@@ -353,3 +529,58 @@ def test_screening_metrics_prefer_drop_reasons_and_titled():
     assert "وضعیت: بیکار" in text
     assert "وضعیت: در حال اجرا" in text
     assert "سرور گزارشی برنگرداند" in text
+
+
+def test_per_root_facts_cache_bypass_on_changed_roots(tmp_path, monkeypatch):
+    """Changed root set within TTL bypasses the cache (no stale facts)."""
+    webui = _webui()
+    root_a, root_b = str(tmp_path / "a"), str(tmp_path / "b")
+    os.makedirs(root_a)
+    os.makedirs(root_b)
+    _reset_all_facts_caches(webui)
+    first = webui._per_root_facts([{"path": root_a, "label": "a"}])
+    assert list(first) == [root_a]
+    second = webui._per_root_facts([{"path": root_b, "label": "b"}])
+    assert list(second) == [root_b]
+
+
+def test_root_data_facts_over_cap_truncated(tmp_path, monkeypatch):
+    """More data files than the probe cap → truncated True (honest)."""
+    webui = _webui()
+    root = str(tmp_path / "many")
+    os.makedirs(root)
+    monkeypatch.setattr(webui, "_ROOT_PROBE_STATS_CAP", 4)
+    for i in range(7):
+        with open(os.path.join(root, "f%02d.txt" % i), "w",
+                  encoding="utf-8") as handle:
+            handle.write("x\n")
+    facts = webui._root_data_facts(root)
+    assert facts["exists"] is True
+    assert facts["truncated"] is True
+
+
+def test_resolve_symlink_outside_allowlist_400(tmp_path, monkeypatch):
+    """A symlink inside the data root pointing outside → 400 (no escape);
+    the admitted path is the resolved physical path."""
+    webui = _webui()
+    root = str(tmp_path / "data")
+    outside = str(tmp_path / "outside")
+    os.makedirs(os.path.join(root, "sub"))
+    os.makedirs(outside)
+    link = os.path.join(root, "leak")
+    try:
+        os.symlink(outside, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("os.symlink unavailable on this box")
+    monkeypatch.setattr(webui, "data_root", lambda: root)
+    monkeypatch.setattr(webui, "_browse_roots", lambda: [])
+    monkeypatch.setitem(webui._MIGRATED_ONCE, "done", True)
+    client = webui.app.test_client()
+    resp = client.post("/api/files/resolve", json={"path": link})
+    assert resp.status_code == 400, resp.get_json()
+    resp = client.post("/api/files/resolve",
+                       json={"path": os.path.join(root, "sub"),
+                             "kind": "dir"})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["path"] == os.path.realpath(
+        os.path.join(root, "sub"))

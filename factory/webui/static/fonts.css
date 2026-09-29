@@ -1,0 +1,18 @@
+/* PUX-B7 — Vazirmatn self-hosted (Wave 1 / P01).
+   Bundled woff2 served from the same origin (zero outbound font
+   requests). If a file is missing, body falls back to the system
+   stack in tokens.css (--sans) with no layout break. */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/static/fonts/Vazirmatn-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/static/fonts/Vazirmatn-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

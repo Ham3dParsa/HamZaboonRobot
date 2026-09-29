@@ -81,6 +81,31 @@
     min-height: calc(100vh - 46px);
   }
 
+  /* PUX-B5+B6 (دسکتاپ ≥1024px): پوسته سقف ثابت می‌گیرد و فضای کاری
+     درون خودش می‌لغزد — محتوای کابین هرگز لغزش سطح‌صفحه نمی‌سازد و
+     ستون کنترل/اقدام همیشه در دید می‌ماند. */
+  @media (min-width: 1024px) {
+    .console-shell {
+      height: calc(100vh - 46px);
+      min-height: 0;
+    }
+    main.workspace-area {
+      min-height: 0;
+      overflow-y: auto;
+    }
+    /* PUX-B5 هم‌تاهای پیش‌کارت/پایلوت: نوار اقدام هر کابین به کف
+       فضای کاری می‌چسبد تا شروع/توقف/تحویل هرگز با لغزش جابه‌جا
+       نشوند (کارت کوتاه: هیچ تغییر دیداری؛ کارت بلند: چسبان). */
+    main.workspace-area #precard-actions,
+    main.workspace-area #pilot-actions {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg-surface);
+      padding-block: 6px;
+      z-index: 5;
+    }
+  }
+
   /* سایدبار ناوبری ثابت دسکتاپ و واکنش‌گرا در تبلت */
   aside.main-nav {
     background: var(--bg-surface);
@@ -97,7 +122,7 @@
   .nav-btn {
     width: 100%; min-height: 38px; padding: 6px 10px; border-radius: 6px;
     border: 1px solid transparent; background: transparent; color: var(--text-secondary);
-    font: inherit; font-size: 0.82rem; cursor: pointer; text-align: right;
+    font: inherit; font-size: 0.82rem; cursor: pointer; text-align: end;
     display: flex; align-items: center; justify-content: space-between;
   }
   .nav-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
@@ -187,7 +212,8 @@
   .mini-metric-card {
     background: var(--bg-elevated); border-radius: 6px; padding: 8px; text-align: center;
   }
-  .mini-val { font-size: 1.1rem; font-weight: 700; font-family: var(--mono); color: var(--c-secondary); }
+  /* PUX-B8: شمار فارسی با قلم بدنه (مونو فقط شناسه ماشینی) */
+  .mini-val { font-size: 1.1rem; font-weight: 700; font-family: var(--sans); color: var(--c-secondary); }
   .mini-label { font-size: 0.7rem; color: var(--text-muted); }
 
   /* نماهای اختصاصی دیگر (غیر از داوری) */
@@ -199,6 +225,32 @@
     .console-shell { grid-template-columns: 1fr; }
     .btn-menu-toggle { display: inline-flex; }
     .dense-workspace-grid { grid-template-columns: 1fr; }
+    /* PUX-B5+B6 (تبلت): همان پیمان ستون ثابت + لغزش درونی دسکتاپ —
+       فضای کاری درون خودش می‌لغزد (لغزش فضای کاری هرگز لغزش
+       سطح‌صفحه را تکان نمی‌دهد)؛ ستون کنترل غربالگری چسبان
+       می‌ماند و نوار اقدام (شروع/توقف/تحویل) به کف جعبه کنترل
+       می‌چسبد تا همیشه ضربه‌پذیر بماند. گزینش‌گرها عامدانه از
+       main.workspace-area می‌آیند تا بر قانون position: static
+       تبلت در cabins.css (بارگذاری دیرتر، ویژگی برابر) بچربند —
+       بدون !important و بدون دست‌زدن به z-index گفت‌وگو (P05). */
+    main.workspace-area {
+      max-height: calc(100vh - 46px);
+      min-height: 0;
+      overflow-y: auto;
+    }
+    main.workspace-area #screening-controls {
+      position: sticky;
+      top: 0;
+      max-height: calc(100vh - 60px);
+      min-height: 0;
+      overflow-y: auto;
+    }
+    main.workspace-area #screening-controls .screening-actions {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg-surface);
+      padding-block: 6px;
+    }
     aside.main-nav {
       position: fixed; top: 0; right: -280px; bottom: 0; width: 260px;
       z-index: 50; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.5);

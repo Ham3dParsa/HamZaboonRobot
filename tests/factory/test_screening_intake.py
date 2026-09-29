@@ -643,7 +643,15 @@ def test_t11_04_upload_lands_and_repicks_live_browser(live_console):
                             "files": {}})))
         page.route("**/api/screening/status", _t11_idle_status)
         _t11_open_screening(page, base)
+        # P05: pick opens the anchored popover; the full browser comes
+        # from «مرور کامل…» after the async groups settle
         page.click("#screening-pick-input")
+        page.wait_for_selector(
+            "#cmd-popover:not([hidden])", timeout=10000)
+        page.wait_for_function(
+            "document.querySelectorAll('#cmd-popover li').length >= 3",
+            timeout=15000)
+        page.click("#cmd-popover-browse")
         page.wait_for_selector(
             "#data-dialog:not([hidden])", timeout=10000)
         page.wait_for_timeout(800)

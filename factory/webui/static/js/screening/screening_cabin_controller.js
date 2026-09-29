@@ -2,6 +2,7 @@ import {getJSON, withBusy, faNum, showFormError, clearFormError, ltrCode} from '
 import {openCollisionDialog} from '../shell/data_dialog_controller.js';
 import {openView} from '../shell/view_navigator.js';
 import {FilterableListController} from '../shell/filterable_list_controller.js';
+import {PagedListController, EMPTY_FA, moveAcrossPages} from '../shell/paginated_list_controller.js';
 import {loadScreened} from '../sense_linking/human_review_controller.js';
 /* کابین غربالگری کایکی (T07): ستون کنترل چسبان A1 تا A4 + زبانه
    «اجرا و نتایج زنده» (زبانه ۲ پوسته T08 است).
@@ -242,19 +243,39 @@ function lemmaMatches(row, q) {
   if (!needle) return true;
   return String((row && row.lemma) || '').toLowerCase().includes(needle);
 }
+/* P06: پیجر مشترک p50 جدول هر-لم (بدون کپی)؛ تنبل ساخته می‌شود تا
+   پیش از آماده‌بودن DOM هیچ گذری به سند نزند. */
+let lemmaPager = null;
+function getLemmaPager() {
+  if (!lemmaPager) {
+    lemmaPager = new PagedListController({
+      pagerId: 'screening-per-lemma-pager', onPage: () => renderPerLemma()});
+  }
+  return lemmaPager;
+}
 /* جدول هر-لم: پالایش سمت‌کاربر (بدون فراخوانی سرور) + شمارنده
-   «N نمایان از M سطر» + ردیف کلیک‌پذیر. */
-function renderPerLemma() {
+   «N نمایان از M سطر» + صفحه‌بندی مشترک p50 + ردیف کلیک‌پذیر. */
+function renderPerLemma(opts) {
   const tb = el('screening-per-lemma-tbody');
   const counter = el('screening-visible-count');
+  const pager = getLemmaPager();
   const vis = perLemma
     .map((row, i) => ({row, i}))
     .filter(({row}) => lemmaMatches(row, lemmaQuery));
+  pager.setTotal(vis.length);
+  if (opts && opts.revealSelected && selectedLemma !== null) {
+    const pos = vis.findIndex(({row}) => row && row.lemma === selectedLemma);
+    if (pos >= 0) pager.reveal(pos);
+  }
+  const page = pager.pageItems(vis);
   if (counter) {
-    counter.textContent = (perLemma.length
-      ? faNum(vis.length) + ' نمایان از ' + faNum(perLemma.length) + ' سطر'
-      : '…');
-    counter.removeAttribute('title');
+    if (perLemma.length) {
+      counter.textContent = faNum(vis.length) + ' نمایان از ' + faNum(perLemma.length) + ' سطر';
+      counter.removeAttribute('title');
+    } else {
+      counter.textContent = '…';
+      counter.title = EMPTY_FA.noRows.title;
+    }
   }
   if (!tb) return;
   tb.replaceChildren();
@@ -263,6 +284,7 @@ function renderPerLemma() {
     const td = document.createElement('td');
     td.colSpan = 4;
     td.textContent = 'سنجی از سرور نرسید — پس از اجرای موفق پر می‌شود.';
+    td.title = EMPTY_FA.noRows.title;
     tr.append(td);
     tb.append(tr);
     return;
@@ -271,12 +293,13 @@ function renderPerLemma() {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 4;
-    td.textContent = 'ردیفی با این پالایش نیست — پالایش را پاک کنید.';
+    td.textContent = EMPTY_FA.noFilterMatch.text;
+    td.title = EMPTY_FA.noFilterMatch.title;
     tr.append(td);
     tb.append(tr);
     return;
   }
-  vis.forEach(({row}) => {
+  page.forEach(({row}) => {
     const tr = document.createElement('tr');
     tr.setAttribute('data-lemma', row.lemma || '');
     tr.tabIndex = 0;
@@ -317,6 +340,13 @@ function renderPerLemma() {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
         selectLemma(row.lemma);
+      } else if (ev.key === 'ArrowDown') {
+        /* P06: پیمایش جهت‌دار با گذر از مرز صفحه از طریق پیجر مشترک. */
+        ev.preventDefault();
+        moveAcrossPages(tb, tr, 1, getLemmaPager(), 'tr[data-lemma]');
+      } else if (ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        moveAcrossPages(tb, tr, -1, getLemmaPager(), 'tr[data-lemma]');
       }
     });
     tb.append(tr);
@@ -324,7 +354,7 @@ function renderPerLemma() {
 }
 function selectLemma(lemma) {
   selectedLemma = lemma;
-  renderPerLemma();
+  renderPerLemma({revealSelected: true});
   renderDetail();
 }
 /* جزئیات لم: شمارش‌ها + شناسه‌های حذف‌شده + علت هر حذف از ردیف
@@ -698,11 +728,12 @@ export function initScreeningCabin() {
   document.querySelectorAll('[data-screening-tab]').forEach((btn) => {
     btn.addEventListener('click', () => selectScreeningTab(btn.getAttribute('data-screening-tab')));
   });
-  /* پالایش سمت‌کاربر جدول هر-لم: بدون فراخوانی سرور. */
+  /* پالایش سمت‌کاربر جدول هر-لم: بدون فراخوانی سرور؛ تغییر
+     پالایش پیجر مشترک را به صفحه اول برمی‌گرداند. */
   try {
     new FilterableListController('screening-filter', 'screening-per-lemma-tbody',
       (row, i, q) => lemmaMatches(row, q),
-      (q) => { lemmaQuery = q || ''; renderPerLemma(); });
+      (q) => { lemmaQuery = q || ''; getLemmaPager().reset(); renderPerLemma(); });
   } catch(e) {}
   refreshWordsCount();
   refreshNamePreview();
