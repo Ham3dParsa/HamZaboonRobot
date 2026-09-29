@@ -7,7 +7,7 @@ branch: feat/arbiter-line
 status: in-progress
 ---
 
-STATE: phase 3/6 — status: in-progress — focus: P3 endpoint next; P0-P2 committed (reviewer PASS on substance; graphify absent repo-wide so blast-radius rests on enumerated grep)
+STATE: phase 4/6 — status: in-progress — focus: P4 tab-2 UI next (needs contract lock); P0-P3 committed 3129c14 (reviewer PASS on substance; graphify absent repo-wide so blast-radius rests on enumerated grep)
 
 ## Order (owner-corrected)
 
