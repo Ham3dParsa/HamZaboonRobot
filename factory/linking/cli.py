@@ -10,6 +10,9 @@ TSV link table (default: the shipped ``factory/linking/table.tsv``).
 - ``lookup``   — print the row(s) for one ``kaikki_sense_id``.
 - ``stats``    — method distribution + flag counts for a table.
 - ``validate`` — run :func:`validate_table_rows`, pretty report.
+- ``arbitrate`` — run the LLM arbiter over screened senses (the ONLY
+  network command here: needs ``--endpoint`` or a registered provider
+  plus ``--key-var``; keys resolve from env/dotenv, never from args).
 """
 
 from __future__ import annotations
@@ -153,6 +156,96 @@ def cmd_validate(args):
     return 1
 
 
+def _build_transport(args, key_value):
+    """Adapter for the arbitrate run (names only in errors, never keys)."""
+    from factory.linking import arbitration as _arb
+
+    model = args.model
+    timeout = args.timeout
+    if args.endpoint:
+        return _arb.LocalGemmaAdapter(
+            endpoint=args.endpoint, timeout=timeout, model=model,
+            key_value=key_value)
+    try:
+        from factory.precard import provider_registry as _reg
+    except Exception:
+        _reg = None
+    row = {}
+    if _reg is not None:
+        try:
+            names = _reg.provider_names()
+        except Exception:
+            names = []
+        if args.provider not in list(names or []):
+            raise ValueError("unknown provider: %r" % (args.provider,))
+        try:
+            row = _reg.resolve_provider(args.provider) or {}
+        except Exception as exc:
+            raise ValueError("cannot resolve provider %r (%s)"
+                             % (args.provider, exc))
+    protocol = str(row.get("protocol") or "")
+    if protocol == "gemini_rest" or args.provider == "google":
+        if not key_value:
+            raise ValueError("provider %r needs --key-var (no key "
+                             "resolves)" % (args.provider,))
+        return _arb.GeminiRestAdapter(model=model, key_value=key_value,
+                                      timeout=timeout)
+    base = str(row.get("base_url") or "")
+    if not base:
+        raise ValueError("provider %r has no base_url (use --endpoint "
+                         "for local models)" % (args.provider,))
+    return _arb.LocalGemmaAdapter(endpoint=base, timeout=timeout,
+                                  model=model, key_value=key_value)
+
+
+def cmd_arbitrate(args):
+    import shlex
+
+    from factory.linking import arbiter_runner as _runner
+    from factory.linking import sense_feed as _feed
+
+    try:
+        key_value = ""
+        if args.key_var:
+            from factory.precard.provider_lease_policy import (
+                resolve_key as _resolve)
+            key_value = _resolve(args.key_var) or ""
+            if not key_value:
+                print("error: no key resolves for %r (env/dotenv empty)"
+                      % args.key_var, file=sys.stderr)
+                return 1
+        transport = _build_transport(args, key_value)
+    except ValueError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 1
+    senses = _feed.load_senses(args.in_file, args.table)
+    if args.limit and args.limit > 0:
+        senses = senses[:args.limit]
+    if not senses:
+        print("error: no senses to arbitrate in %s" % args.in_file,
+              file=sys.stderr)
+        return 1
+    preset = {"provider": args.provider, "model": args.model,
+              "label": args.preset_label or "cli"}
+    records = _runner.run_arbiter(senses, preset, transport.execute_arbitration)
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            for rec in records:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print("error: cannot write %s (%s)" % (args.out, exc),
+              file=sys.stderr)
+        return 1
+    abstained = sum(1 for rec in records if rec.get("needs_review"))
+    print("provider=%s model=%s senses=%d verdicts=%d abstained=%d out=%s"
+          % (args.provider, args.model, len(senses), len(records),
+             abstained, args.out), file=sys.stderr)
+    print("replay: %s" % shlex.join(
+        ["python", "-m", "factory.linking.cli", "arbitrate"]
+        + sys.argv[2:]), file=sys.stderr)
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="python -m factory.linking.cli",
@@ -185,6 +278,32 @@ def build_parser():
     p_validate.add_argument("table", nargs="?", default=str(DEFAULT_TABLE),
                             help="link table (default: shipped table.tsv)")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_arb = sub.add_parser("arbitrate",
+                           help="run the LLM arbiter over screened senses")
+    p_arb.add_argument("--in", dest="in_file", required=True,
+                       help="screened senses JSONL (one sense per line)")
+    p_arb.add_argument("--out", required=True,
+                       help="output verdicts JSONL path")
+    p_arb.add_argument("--table", default=str(DEFAULT_TABLE),
+                       help="link table for candidates "
+                       "(default: shipped table.tsv)")
+    p_arb.add_argument("--provider", required=True,
+                       help="provider name (registry row or local label)")
+    p_arb.add_argument("--model", required=True,
+                       help="exact model id (recorded; sent to the endpoint)")
+    p_arb.add_argument("--preset-label", default="cli",
+                       help="identity label recorded on verdicts")
+    p_arb.add_argument("--endpoint", default="",
+                       help="local base URL override (forces openai_compat)")
+    p_arb.add_argument("--key-var", default="",
+                       help="env/dotenv variable holding the key "
+                       "(never pass values)")
+    p_arb.add_argument("--limit", type=int, default=0,
+                       help="max senses (0 = all)")
+    p_arb.add_argument("--timeout", type=int, default=120,
+                       help="per-request seconds")
+    p_arb.set_defaults(func=cmd_arbitrate)
     return parser
 
 

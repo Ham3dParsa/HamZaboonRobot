@@ -104,5 +104,14 @@ scan-target update requirement.
   `PRODUCTION_SOURCES` reverse/import guards cover `factory/webui`
   (screening cabin-C follow-through: server + support modules must
   resolve imports and keep `.answer()`/slot ownership clean).
+- `factory/linking/arbiter_runner.py` + `sense_feed.py` (feat/arbiter-line):
+  pure orchestration/join helpers with injected seams (no Telegram
+  handler/callback boundary, no shared flat-namespace identifiers).
+  Same rationale as `services/plan_fields.py`: one owner per module;
+  divergence guarded by focused suites
+  (`tests/factory/test_arbiter_runner.py`,
+  `tests/factory/test_sense_feed.py`,
+  `tests/factory/test_linking_cli_arbitrate.py`) + the dead-reference
+  guard on the P0 rename.
 
 Copyright (c) Ham3dParsa. All rights reserved.
