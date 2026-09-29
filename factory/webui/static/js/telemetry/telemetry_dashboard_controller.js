@@ -1,5 +1,5 @@
 import {getJSON, faNum, ltrCode} from '../shell/api_client.js';
-import {rootFacts, causeFa} from '../shell/file_history_manager.js';
+import {rootFacts, causeFa, srcFa} from '../shell/file_history_manager.js';
 /* تله‌متری: فقط حقایق زنده نرخ/کلید/مسیر؛ ستون توکن صادقانه خالی —
    خانه ثبت‌نشده هرگز دیوار «—» بی‌برچسب نیست: برچسب «سرور ثبت نمی‌کند» */
 function honestEmptyCell() {
@@ -114,30 +114,31 @@ export function renderPaths(roots, files) {
       tdPath.title = 'سرور مسیری برای این ریشه ثبت نکرد';
       tdPath.className = 'honest-empty';
     }
-    /* ستون ۳: mtime نسبی + جزئیات تقویم در title (OQ-9-consume). */
+    /* ستون ۳: mtime نسبی + نام منبع همان ریشه + جزئیات تقویم در title. */
+    const srcName = srcFa(facts && facts.path);
     let tdLast;
     if (facts && facts.exists && facts.mtime_relative && facts.mtime_relative !== '—') {
       tdLast = document.createElement('td');
-      tdLast.textContent = faNum(facts.mtime_relative);
+      tdLast.textContent = faNum(facts.mtime_relative) + srcName;
       tdLast.title = String(facts.mtime_detail || facts.mtime_iso || '');
     } else if (facts && facts.exists) {
-      tdLast = titledEmpty('فایل موجود است ولی سرور زمان اصلاح را ثبت نکرد');
+      tdLast = titledEmpty('فایل موجود است ولی سرور زمان اصلاح را ثبت نکرد' + srcName);
     } else if (facts && facts.exists === false) {
-      tdLast = titledEmpty(missingCause);
+      tdLast = titledEmpty(missingCause + srcName);
     } else {
       tdLast = titledEmpty(missingCause);
     }
-    /* ستون ۴: lines_label (سقف «۵۰۰۰۰+») + اندازه؛ بودن از exists. */
+    /* ستون ۴: lines_label (سقف «۵۰۰۰۰+») + اندازه + نام منبع؛ بودن از exists. */
     let tdRows;
     if (facts && facts.exists) {
       tdRows = document.createElement('td');
       const label = String((facts.lines_label !== undefined && facts.lines_label !== null)
         ? facts.lines_label : '—');
       const size = (facts.size !== undefined && facts.size !== null) ? facts.size : '—';
-      tdRows.textContent = faNum(label) + ' سطر / ' + faNum(size) + ' بایت';
+      tdRows.textContent = faNum(label) + ' سطر / ' + faNum(size) + ' بایت' + srcName;
       tdRows.title = facts.truncated
-        ? causeFa('over-cap') + ' (' + faNum(label) + ')'
-        : 'حقایق زنده همین ریشه';
+        ? causeFa('over-cap') + ' (' + faNum(label) + ')' + srcName
+        : 'حقایق زنده همین ریشه' + srcName;
     } else if (facts && facts.exists === false) {
       tdRows = titledEmpty(missingCause);
     } else {

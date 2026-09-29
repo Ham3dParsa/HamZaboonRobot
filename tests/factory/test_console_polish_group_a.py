@@ -170,7 +170,10 @@ def test_witness_and_drop_reasons_mapped_with_labelled_fallback():
     assert "حذف دوقلو (" in screening and "حذف اسم خاص (" in screening
     assert "علت سرور: " in screening
     telemetry = _js("telemetry", "telemetry_dashboard_controller.js")
-    assert "غربال‌شده" in telemetry and "خام کایکی" in telemetry
+    # P04/L4: منبع‌نام‌ها تک‌مالک در مدیر یکپارچه‌اند؛ تله‌متری فقط مصرف می‌کند.
+    manager = _js("shell", "file_history_manager.js")
+    assert "غربال‌شده" in manager and "خام کایکی" in manager
+    assert "srcFa(" in telemetry
     assert "(' (' + picked.name + ')'" not in telemetry
 
 

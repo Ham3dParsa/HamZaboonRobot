@@ -27,6 +27,18 @@ export function causeFa(code) {
   return CAUSE_FA[String(code || '')] || CAUSE_FA['server-missing'];
 }
 
+/* پسوند نام منبع فایل برگزیده هر ریشه (تک‌مالک واژگان؛ کنار causeFa).
+   از نام‌فایل facts.path مشتق می‌شود (غربال‌شده/خام کایکی)؛ ناشناخته
+   → '' (صادقانه، بدون حدس). رشته خالیِ برگشتی عمداً همان قالب قدیمی
+   ' (نام)' است تا الحاق مستقیم به متن/عنوان قبلی بی‌تغییر بماند. */
+export function srcFa(path) {
+  const base = String(path || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+  if (!base) return '';
+  if (base.includes('screened')) return ' (غربال‌شده)';
+  if (base.includes('kaikki')) return ' (خام کایکی)';
+  return '';
+}
+
 export async function fetchRoots(force) {
   if (!force && rootsPayload) return rootsPayload;
   if (!force && rootsPromise) return rootsPromise;

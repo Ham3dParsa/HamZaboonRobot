@@ -63,13 +63,18 @@ const queueFilterCtl = new FilterableListController(
   'queue-filter', 'queue-list',
   function(row, i, q) { return queueItemMatches(row, i, q); },
   function(q) { queueFilter = q || ''; queuePager.reset(); renderQueue(); });
-function renderQueue(opts) {
+/* P06: پرچم یک‌بارمصرف آشکارسازی سطر برگزیده — selectSense پیش از
+   فراخوان مسلح می‌کند تا امضای بدون‌آرگومان renderQueue (پین
+   آزمون‌های صف) حفظ شود؛ رندرهای پیجر/پالایش هرگز آشکار نمی‌کنند. */
+let queueRevealArmed = false;
+function renderQueue() {
   const box = document.getElementById('queue-list');
   box.replaceChildren();
   const visible = screenedRows.map((row, i) => ({row, i}))
     .filter(({row, i}) => queueItemMatches(row, i));
   queuePager.setTotal(visible.length);
-  if (opts && opts.revealSelected) {
+  if (queueRevealArmed) {
+    queueRevealArmed = false;
     const pos = visible.findIndex(({i}) => i === queueIndex);
     if (pos >= 0) queuePager.reveal(pos);
   }
@@ -156,7 +161,8 @@ function selectSense(i) {
     (currentSense.lemma || '—') + ' · سنس ' + faNum(queueIndex + 1) + ' از ' + faNum(screenedRows.length);
   document.getElementById('sense-def').textContent = currentSense.gloss || '—';
   document.getElementById('sense-example').textContent = currentSense.example || '—';
-  renderQueue({revealSelected: true});
+  queueRevealArmed = true;
+  renderQueue();
   loadCandidates();
 }
 let candidatesRequest = 0;
