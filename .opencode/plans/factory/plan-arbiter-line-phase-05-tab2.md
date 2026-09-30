@@ -9,7 +9,7 @@ New `#linking-tabpanel-2` (only the active tab's panel is visible —
 tabs switch views; the P07 scroll hack is deleted with its code):
 - Contract strip: entry (queued N senses + candidates) → exit
   (verdicts M + needs-review K), live counts.
-- Preset selector: COMPACT READONLY list from the judge-preset store
+- Preset selector: COMPACT READONLY list from the AI-preset store
   + link to the providers view. No duplicate preset form ever.
 - Run / abort (busy-state, 3-part errors), progress
   `aria-live="polite"` (done/total/abstained).

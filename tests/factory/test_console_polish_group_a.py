@@ -126,7 +126,7 @@ def test_blacklisted_english_prose_replaced():
             "(Kaikki Screening)",
             "(Precard Extraction)",
             "/ NONE",
-            "خالی = console-judge",
+            "خالی = console-ai",
             "(stored encrypted)",
     ):
         assert literal not in bundle, literal

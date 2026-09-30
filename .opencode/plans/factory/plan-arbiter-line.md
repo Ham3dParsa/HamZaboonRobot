@@ -7,7 +7,7 @@ branch: feat/arbiter-line
 status: in-progress
 ---
 
-STATE: phase 6/6 — status: in-progress — focus: P5 R2 under review; P6 preset migration parked (needs build lock); P0-P4 committed (reviewer PASS on substance throughout)
+STATE: phase 6/6 — status: complete — focus: PR for feat/arbiter-line (reviewer PASS, 242+ focused tests green, live P4/P5/P6 shots inspected)
 
 ## Order (owner-corrected)
 

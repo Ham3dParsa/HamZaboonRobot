@@ -74,6 +74,12 @@ export function selectLinkingTab(index, persist) {
   if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
   tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
   if (persist !== false) saveViewMemory(null, idx);
+  /* Tab activation broadcast (panels lazily refresh on open, e.g. the
+     arbiter preset list re-reads the store when tab 2 opens). */
+  try {
+    document.dispatchEvent(new CustomEvent('hz:linking-tab',
+      {detail: {index: idx}}));
+  } catch(e) {}
   /* P05 scope-check: مانند تعویض نما — فرمان‌بر باز روی زبانه قبلی
      با رفتن به زبانه دیگر بسته می‌شود. */
   try {

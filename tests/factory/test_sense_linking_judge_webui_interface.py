@@ -405,7 +405,7 @@ def test_preset_form_live_registry_locked_temp():
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/presets" in rules
     assert "/api/job_templates" in rules
-    assert "/api/judge_presets" in rules
+    assert "/api/ai_presets" in rules
 
 
 def test_preset_caps_editable_and_smart_defaults():
@@ -687,7 +687,7 @@ def test_routing_line_notes_whitelisted_exit(monkeypatch):
     assert "clean_exit" in text and "خروجی تمیز" in text
 
 
-def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
+def test_engine_info_routing_and_ai_schema_mirror_bot(monkeypatch):
     # Same live-whitelist isolation as the routing-line test above.
     from factory.linking import google_clean as _gc
     monkeypatch.setattr(_gc, "fresh_clean_exits", lambda *a, **k: [])
@@ -699,9 +699,9 @@ def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
     assert "\n" not in info["google_tunnel_reason"]
     assert info["routing"]["google"]["clean_exit"] == ""
     assert info["routing"]["avalai"]["route"] == "direct"
-    # inspiration 2: judge schema mirrors the bot preset wording
+    # inspiration 2: ai schema mirrors the bot preset wording
     from handlers import admin_ai_wizard as _wiz
-    schema = info["judge_schema"]
+    schema = info["ai_schema"]
     by_field = {f["field"]: f for group in (
         schema["rate_caps"] + schema["pacing"] + schema["timeout"])
         for f in [group]}
@@ -712,7 +712,7 @@ def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
     temp = schema["temperature"]
     assert temp["locked"] is True and temp["supported"] is False
     assert temp["fixed"] == 0.0 and temp["reason"]
-    # the spare form carries no judge-schema panel (backend stays working)
+    # the spare form carries no ai-schema panel (backend stays working)
     text = _html()
     assert 'id="judge-schema"' not in text
     assert "paintJudgeSchema" not in text
@@ -1619,11 +1619,11 @@ def test_busy_states_wake_and_fetch_models():
     assert "در حال دریافت" in text
 
 
-def test_judge_preset_save_posts_values_to_server_route():
+def test_ai_preset_save_posts_values_to_server_route():
     text = _html()
     assert 'id="btn-save-judge-preset"' in text
     assert "saveJudgePreset" in text
-    assert "/api/judge_presets" in text
+    assert "/api/ai_presets" in text
     block = text[text.index("async function saveJudgePreset"):
                  text.index("async function saveJudgePreset") + 2500]
     for field in ("max_rpm", "max_rph", "max_daily", "rate_scope",
@@ -1631,7 +1631,7 @@ def test_judge_preset_save_posts_values_to_server_route():
         assert field in block, field
     # backend route genuinely exists: no duplicate route, no local-only path
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/judge_presets" in rules
+    assert "/api/ai_presets" in rules
     # caps inputs stay enabled (temp alone stays locked at 0.0)
     assert 'id="preset-rpm" disabled' not in text
     assert 'id="preset-rph" disabled' not in text
@@ -1639,18 +1639,18 @@ def test_judge_preset_save_posts_values_to_server_route():
     assert 'id="preset-temp" disabled' in text
 
 
-def test_judge_preset_save_roundtrip(tmp_path, monkeypatch):
+def test_ai_preset_save_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
-    resp = client.post("/api/judge_presets", json={
-        "name": "console-judge", "provider": "avalai", "model": "m-test",
+    resp = client.post("/api/ai_presets", json={
+        "name": "console-ai", "provider": "avalai", "model": "m-test",
         "max_rpm": "15", "max_rph": "", "temperature": "0.0",
         "limit": 0, "concurrency": 8})
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["judge_preset"]["provider"] == "avalai"
-    assert body["judge_preset"]["model"] == "m-test"
-    assert client.delete("/api/judge_presets/console-judge").status_code == 200
+    assert body["ai_preset"]["provider"] == "avalai"
+    assert body["ai_preset"]["model"] == "m-test"
+    assert client.delete("/api/ai_presets/console-ai").status_code == 200
 
 
 def test_design_tokens_spacing_scale_and_auto_fit_grid():
@@ -1883,18 +1883,18 @@ def test_preset_catalog_table_under_form():
                    "سقف دقیقه‌ای", "سقف ساعتی", "سقف روزانه",
                    "محدوده نرخ", "اقدام"):
         assert header in text, header
-    # renders from the existing judge-presets endpoint with
+    # renders from the existing ai-presets endpoint with
     # delete + load-into-form actions (no new server route)
     assert "refreshJudgeCatalog" in text
-    assert "/api/judge_presets" in text[
+    assert "/api/ai_presets" in text[
         text.index("async function refreshJudgeCatalog"):
         text.index("async function refreshJudgeCatalog") + 800]
     assert "loadJudgePresetIntoForm" in text
     assert "deleteJudgePreset" in text
     assert "نشاندن در فرم" in text
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/judge_presets" in rules
-    assert "/api/judge_presets/<name>" in rules
+    assert "/api/ai_presets" in rules
+    assert "/api/ai_presets/<name>" in rules
 
 
 def test_preset_scope_selector_three_state():
@@ -1933,32 +1933,32 @@ def test_preset_daily_cap_label_and_unlimited_placeholders():
     assert defaults.count("نامحدود") >= 3
 
 
-def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
+def test_ai_preset_new_fields_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-probe", "label": "hub-probe", "provider": "avalai",
         "model": "m-hub", "max_rpm": "15", "max_rph": "200",
         "max_daily": "1000", "rate_scope": "address",
         "limit": 0, "concurrency": 8})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["label"] == "hub-probe"
     assert rec["max_rpm"] == 15
     assert rec["max_rph"] == 200
     assert rec["max_daily"] == 1000
     assert rec["rate_scope"] == "address"
-    listed = client.get("/api/judge_presets").get_json()["judge_presets"]
+    listed = client.get("/api/ai_presets").get_json()["ai_presets"]
     (found,) = [r for r in listed if r["name"] == "hub-probe"]
     assert found["max_daily"] == 1000
     assert found["rate_scope"] == "address"
     # empty caps read as unlimited (0); empty scope reads as model
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-empty", "provider": "avalai", "model": "",
         "max_rpm": "", "max_rph": "", "max_daily": "",
         "rate_scope": ""})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["max_rpm"] == 0
     assert rec["max_rph"] == 0
     assert rec["max_daily"] == 0
@@ -1970,68 +1970,68 @@ def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
                 {"name": "hub-neg", "provider": "avalai",
                  "max_daily": "-3"}):
         assert client.post(
-            "/api/judge_presets", json=bad).status_code == 400
+            "/api/ai_presets", json=bad).status_code == 400
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert "hub-bad" not in names
     assert "hub-neg" not in names
-    assert client.delete("/api/judge_presets/hub-probe").status_code == 200
-    assert client.delete("/api/judge_presets/hub-empty").status_code == 200
+    assert client.delete("/api/ai_presets/hub-probe").status_code == 200
+    assert client.delete("/api/ai_presets/hub-empty").status_code == 200
 
 
-def test_judge_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
+def test_ai_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     # JSON Infinity parses to float("inf"): fail-closed 400, never 500.
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-inf", "provider": "avalai", "model": "m",
         "max_rpm": float("inf")})
     assert resp.status_code == 400
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert "hub-inf" not in names
 
 
-def test_judge_preset_edit_rename_migrates_without_duplicates(
+def test_ai_preset_edit_rename_migrates_without_duplicates(
         tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     base = {"provider": "avalai", "model": "m",
             "max_rpm": "15", "max_rph": "", "max_daily": "500",
             "rate_scope": "model", "limit": 0, "concurrency": 8}
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-orig", "label": "hub-orig", **base}).status_code == 200
     # same-name re-save (load-into-form flow) bumps the version, no twin
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-orig", "label": "hub-orig",
         "previous_name": "hub-orig", **base})
     assert resp.status_code == 200
-    assert resp.get_json()["judge_preset"]["version"] == 2
+    assert resp.get_json()["ai_preset"]["version"] == 2
     # rename migrates: one record under the new name, caps preserved
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-new", "label": "hub-new",
         "previous_name": "hub-orig", **base})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["name"] == "hub-new"
     assert rec["version"] == 3
     assert rec["max_rpm"] == 15
     assert rec["max_daily"] == 500
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert names.count("hub-new") == 1
     assert "hub-orig" not in names
     # fail-closed: unknown previous name, or a rename onto an live name
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-ghost", "previous_name": "hub-missing",
         **base}).status_code == 400
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-other", "label": "hub-other", **base}).status_code == 200
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-other", "previous_name": "hub-new",
         **base}).status_code == 400
-    assert client.delete("/api/judge_presets/hub-new").status_code == 200
-    assert client.delete("/api/judge_presets/hub-other").status_code == 200
+    assert client.delete("/api/ai_presets/hub-new").status_code == 200
+    assert client.delete("/api/ai_presets/hub-other").status_code == 200
 
 
 def test_candidate_card_structure_hygiene():

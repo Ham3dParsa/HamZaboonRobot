@@ -230,7 +230,7 @@ def test_preset_caps_save_and_edit_live_browser(live_console):
     finally:
         page.close()
         req = urllib.request.Request(
-            base + "/api/judge_presets/" + tag, method="DELETE")
+            base + "/api/ai_presets/" + tag, method="DELETE")
         try:
             urllib.request.urlopen(req, timeout=10).read()
         except Exception:
@@ -775,7 +775,7 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
     finally:
         page.close()
         req = urllib.request.Request(
-            base + "/api/judge_presets/" + tag, method="DELETE")
+            base + "/api/ai_presets/" + tag, method="DELETE")
         try:
             urllib.request.urlopen(req, timeout=10).read()
         except Exception:
@@ -3277,12 +3277,12 @@ def test_p4_arbiter_tab_panel_live_browser(live_console):
 
     def presets_route(route):
         route.fulfill(status=200, content_type="application/json",
-                      body=json.dumps({"judge_presets": [
+                      body=json.dumps({"ai_presets": [
                           {"name": "p4-live-preset", "provider": "stub",
                            "model": "stub-m"}]}))
 
     try:
-        page.route("**/api/judge_presets", presets_route)
+        page.route("**/api/ai_presets", presets_route)
         _bc06_open_linking(page, base)
         page.click('#view-linking .cockpit-tabs '
                    '.tab-link[data-tab-index="2"]')
@@ -3375,3 +3375,52 @@ def test_p5_linking_five_panels_live_browser(live_console):
             _bc06_shots_dir(), "shot-p5-panels-desktop.png"))
     finally:
         page.close()
+
+
+def test_p6_ai_preset_ui_flow_live_browser(live_console):
+    """P6 Req-3: real UI flow — create AI preset, tab-2 lists it live,
+    delete cleans up (shot). No mocks: proves the renamed chain works."""
+    browser, base = live_console["browser"], live_console["base"]
+    tag = "p6-live-%d" % os.getpid()
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.goto(base + "/")
+        page.wait_for_selector(
+            'button.nav-btn[data-view-target="view-providers"]',
+            timeout=15000)
+        page.click('button.nav-btn[data-view-target="view-providers"]')
+        # NOTE: <option> is never "visible" to Playwright — assert on DOM,
+        # like the older preset test, after a settle delay.
+        page.wait_for_timeout(1500)
+        opts = page.evaluate(
+            "[...document.getElementById('preset-provider').options]"
+            ".map(o=>o.value)")
+        assert opts, "provider select must list real registry providers"
+        provider = "avalai" if "avalai" in opts else opts[0]
+        page.select_option("#preset-provider", provider)
+        page.fill("#preset-label", tag)
+        page.fill("#preset-model", "m-p6-live")
+        page.click("#btn-save-judge-preset")
+        page.wait_for_function(
+            "document.getElementById('preset-save-note')"
+            ".textContent.includes('ذخیره شد')",
+            timeout=15000)
+        page.click('button.nav-btn[data-view-target="view-linking"]')
+        page.wait_for_timeout(600)
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="2"]')
+        page.wait_for_function(
+            "[...document.getElementById('arbiter-preset').options]"
+            ".some(o=>o.value === '%s')" % tag,
+            timeout=15000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p6-ai-preset-desktop.png"))
+    finally:
+        page.close()
+        req = urllib.request.Request(
+            base + "/api/ai_presets/" + tag, method="DELETE")
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception:
+            pass

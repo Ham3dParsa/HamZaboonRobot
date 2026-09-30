@@ -416,17 +416,17 @@ def test_file_browser_roots_and_list(tmp_path):
     assert client.get("/api/files/list").status_code == 400
 
 
-def test_preset_kinds_judge_and_run(tmp_path, monkeypatch):
+def test_preset_kinds_ai_and_run(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
-    # judge preset: kind forced by the judge route
-    resp = client.post("/api/judge_presets", json={
+    # AI preset: kind forced by the ai route
+    resp = client.post("/api/ai_presets", json={
         "name": "j1", "provider": "avalai", "model": "m", "concurrency": 4})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
-    assert rec["kind"] == "judge" and rec["version"] == 1
-    got = client.get("/api/judge_presets").get_json()
-    assert [p["name"] for p in got["judge_presets"]] == ["j1"]
+    rec = resp.get_json()["ai_preset"]
+    assert rec["kind"] == "ai" and rec["version"] == 1
+    got = client.get("/api/ai_presets").get_json()
+    assert [p["name"] for p in got["ai_presets"]] == ["j1"]
     # run preset: full compose form (out/progress_dir/resume included)
     resp = client.post("/api/job_templates", json={
         "name": "r1", "provider": "avalai", "model": "", "sample": "s",
@@ -440,11 +440,11 @@ def test_preset_kinds_judge_and_run(tmp_path, monkeypatch):
     assert [p["name"] for p in
             client.get("/api/job_templates").get_json()["job_templates"]] == [
         "r1", webui.WITNESS_PRESET_NAME]
-    # bad kind rejected; judge delete path works
+    # bad kind rejected; ai delete path works
     assert client.post("/api/presets", json={
         "name": "x", "provider": "avalai", "kind": "nope"}).status_code == 400
-    assert client.delete("/api/judge_presets/j1").status_code == 200
-    assert client.delete("/api/judge_presets/j1").status_code == 404
+    assert client.delete("/api/ai_presets/j1").status_code == 200
+    assert client.delete("/api/ai_presets/j1").status_code == 404
 
 
 def test_witness_preset_seeded_once_and_kept(tmp_path, monkeypatch):
@@ -933,7 +933,7 @@ def test_preset_dedup_survives_operator_data(tmp_path, monkeypatch):
 def test_preset_dedup_keeps_kinds_apart(tmp_path, monkeypatch):
     """Same display name across kinds hides neither preset."""
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
-    for kind in ("run", "judge"):
+    for kind in ("run", "ai"):
         rec = {"name": "shared", "version": 1, "kind": kind,
                "provider": "avalai", "model": "", "sample": "",
                "limit": 0, "concurrency": 0, "out": "",
@@ -942,7 +942,7 @@ def test_preset_dedup_keeps_kinds_apart(tmp_path, monkeypatch):
             json.dumps(rec), encoding="utf-8")
     assert len(webui.list_presets()) == 2
     assert len(webui.list_presets(kind="run")) == 1
-    assert len(webui.list_presets(kind="judge")) == 1
+    assert len(webui.list_presets(kind="ai")) == 1
 
 
 def test_linking_run_bad_limit_defaults_zero(tmp_path, monkeypatch):

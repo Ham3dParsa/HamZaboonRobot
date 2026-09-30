@@ -2,7 +2,7 @@ import {getJSON, withBusy, errCodeFor, showFormError, clearFormError, faNum, ltr
 import {PagedListController} from '../shell/paginated_list_controller.js';
 import {selectLinkingTab} from '../shell/view_navigator.js';
 /* کنترلر زبانه ۲ — اجرای داوری با پریست (P4):
-   GET /api/judge_presets (فهرست فقط‌خواندنی)، POST /api/arbiter/runs،
+   GET /api/ai_presets (فهرست فقط‌خواندنی)، POST /api/arbiter/runs،
    نظرسنجی وضعیت، GET …/verdicts، POST …/abort، پرش به زبانه ۴.
    قرارداد نمایشی: textContent/ltrCode (هرگز innerHTML پویا)، faNum،
    جعبه سه‌بخشی، withBusy، aria-live روی پیشرفت و شمارش. */
@@ -90,8 +90,8 @@ async function loadPresets() {
   const sel = el('arbiter-preset');
   if (!sel) return;
   try {
-    const j = await getJSON('/api/judge_presets');
-    const rows = (j && (j.judge_presets || j.presets)) || [];
+    const j = await getJSON('/api/ai_presets');
+    const rows = (j && (j.ai_presets || j.presets)) || [];
     sel.replaceChildren();
     if (!rows.length) {
       const o = document.createElement('option');
@@ -227,5 +227,10 @@ document.getElementById('btn-arbiter-jump').addEventListener('click', () => {
   }
 });
 document.addEventListener('hz:providers-refreshed', () => loadPresets());
+document.addEventListener('hz:linking-tab', (ev) => {
+  try {
+    if (ev && ev.detail && ev.detail.index === 2) loadPresets();
+  } catch(e) {}
+});
 loadPresets();
 renderVerdicts();

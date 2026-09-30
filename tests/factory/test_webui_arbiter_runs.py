@@ -53,7 +53,7 @@ class _StubAdapter:
 
 
 def _preset_payload(name="t3-preset"):
-    return {"name": name, "kind": "judge", "provider": "stub-local",
+    return {"name": name, "kind": "ai", "provider": "stub-local",
             "model": "stub-m", "version": 1}
 
 
@@ -107,7 +107,7 @@ def test_create_untrusted_provider_refused(env):
               "base_url": "https://evil.example/v1", "route": "direct",
               "kind": "cloud", "key_vars": []})
     assert created.status_code == 200, created.get_json()
-    _save_preset(env["client"], {"name": "t3-evil", "kind": "judge",
+    _save_preset(env["client"], {"name": "t3-evil", "kind": "ai",
                                  "provider": "evil-prov",
                                  "model": "evil-m", "version": 1})
     resp = env["client"].post("/api/arbiter/runs",

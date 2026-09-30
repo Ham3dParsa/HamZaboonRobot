@@ -952,8 +952,8 @@ def comparability(gold_rows, run_rows, profile=None):
     return True, "پیوند طلا روی %d کلید" % len(gold_joined)
 
 
-def judge_preset_schema():
-    """Judge knob schema mirroring the bot's own preset wording.
+def ai_preset_schema():
+    """AI knob schema mirroring the bot's own preset wording.
 
     Field names/defaults come from the single owner
     (services.ai.preset_fields); labels + help wording come from the
@@ -1620,10 +1620,10 @@ def engine_info():
                            "clean_exit": _routing_clean_exit(name)}
                     for name in provider_registry.provider_names()},
         "google_tunnel_reason": GOOGLE_TUNNEL_REASON,
-        # Judge knob schema mirroring the bot's own preset fields
+        # AI knob schema mirroring the bot's own preset fields
         # (labels + help wording from the admin wizard, defaults from
         # the canonical preset schema; temperature locked — pinned).
-        "judge_schema": judge_preset_schema(),
+        "ai_schema": ai_preset_schema(),
         "rate_limit_note": (
             "429 rotates to the next key on the same model; a "
             "ROTATE-exhausted model steps down to the next chain model; "
@@ -2456,11 +2456,13 @@ def _safe_filename(name):
     return "%s-%s" % (stem, digest)
 
 
-PRESET_KINDS = ("run", "judge")
+PRESET_KINDS = ("run", "judge", "ai")
 
-#: Rate-scope states for judge presets (single owner of the enum — the
+#: Rate-scope states for AI presets (single owner of the enum — the
 #: console selector posts one of these, the catalog renders it back).
-JUDGE_RATE_SCOPES = ("model", "address", "account")
+#: "judge" is the legacy kind name, still read (migration flips it to
+#: "ai"); new records are always written as "ai" (D5/D6).
+AI_RATE_SCOPES = ("model", "address", "account")
 
 #: Ready whole-run preset (speed + accuracy): small limit for speed, the
 #: engine-default gold sample for accuracy. Seeded only when missing —
@@ -2549,9 +2551,10 @@ def get_preset(name):
 def save_preset(fields):
     """Save a versioned preset; returns the stored record (version bumped).
 
-    Two kinds: "run" (the whole compose form) and "judge" (judge knobs
-    only: provider/model/rate caps/rate scope/optional label — plugs into
-    the compose form). Old records without a kind read back as "run".
+    Three kinds: "run" (the whole compose form), "ai" (AI knobs only:
+    provider/model/rate caps/rate scope/optional label — shared by
+    every factory cabin), and legacy "judge" (read-only now; migrate
+    via POST /api/presets/migrate — new records are always "ai").
     Judge rate caps (max_rpm/max_rph/max_daily) store 0 for unlimited
     (empty input means unlimited); rate_scope is one of
     model/address/account (empty reads as model). Old judge records
@@ -2579,6 +2582,10 @@ def save_preset(fields):
     if kind not in PRESET_KINDS:
         raise ValueError("preset kind must be one of %s" % "/".join(
             PRESET_KINDS))
+    if kind == "judge":
+        raise ValueError("kind judge is legacy (read-only): migrate via "
+                         "POST /api/presets/migrate, new records use "
+                         "kind ai")
     provider = str((fields or {}).get("provider") or "").strip()
     if not _is_known_provider(provider):
         raise ValueError("unknown provider: %r" % provider)
@@ -2597,12 +2604,12 @@ def save_preset(fields):
     resume = str((fields or {}).get("resume", "on") or "on").strip()
     if resume not in RESUME_MODES:
         raise ValueError("resume must be one of %s" % ("/".join(RESUME_MODES),))
-    judge_extra = {}
-    if kind == "judge":
+    preset_extra = {}
+    if kind in ("judge", "ai"):
         label = str((fields or {}).get("label") or "").strip()
         if len(label) > 64:
             raise ValueError("label must be at most 64 chars")
-        judge_extra["label"] = label
+        preset_extra["label"] = label
         for cap in ("max_rpm", "max_rph", "max_daily"):
             try:
                 value = int((fields or {}).get(cap, 0) or 0)
@@ -2610,12 +2617,12 @@ def save_preset(fields):
                 raise ValueError("%s must be an integer >= 0 or empty" % cap)
             if value < 0:
                 raise ValueError("%s must be >= 0 or empty" % cap)
-            judge_extra[cap] = value
+            preset_extra[cap] = value
         scope = str((fields or {}).get("rate_scope") or "").strip() or "model"
-        if scope not in JUDGE_RATE_SCOPES:
+        if scope not in AI_RATE_SCOPES:
             raise ValueError("rate_scope must be one of %s" % "/".join(
-                JUDGE_RATE_SCOPES))
-        judge_extra["rate_scope"] = scope
+                AI_RATE_SCOPES))
+        preset_extra["rate_scope"] = scope
     os.makedirs(presets_dir(), exist_ok=True)
     prev = get_preset(previous_name) if renamed else get_preset(name)
     if renamed and prev is None:
@@ -2642,7 +2649,7 @@ def save_preset(fields):
         "updated": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
     }
-    rec.update(judge_extra)
+    rec.update(preset_extra)
     if (fields or {}).get("ready") is True or (
             prev or {}).get("ready") is True:
         rec["ready"] = True
@@ -4787,8 +4794,8 @@ def _save_preset_route(fields, force_kind=None):
         return jsonify({"error": str(exc)}), 400
     except OSError as exc:
         return jsonify({"error": "save failed: %s" % exc}), 500
-    if rec.get("kind") == "judge":
-        return jsonify({"judge_preset": rec, "preset": rec}), 200
+    if rec.get("kind") in ("judge", "ai"):
+        return jsonify({"ai_preset": rec, "preset": rec}), 200
     return jsonify({"preset": rec, "job_template": rec}), 200
 
 
@@ -5138,10 +5145,10 @@ def api_job_templates():
     return jsonify(_preset_payload())
 
 
-@app.route("/api/judge_presets", methods=["GET"])
-def api_judge_presets():
-    return jsonify({"judge_presets": list_presets(kind="judge"),
-                    "presets": list_presets(kind="judge")})
+@app.route("/api/ai_presets", methods=["GET"])
+def api_ai_presets():
+    return jsonify({"ai_presets": list_presets(kind="ai"),
+                    "presets": list_presets(kind="ai")})
 
 
 @app.route("/api/presets", methods=["POST"])
@@ -5156,10 +5163,10 @@ def api_job_template_save():
     return _save_preset_route(fields, force_kind="run")
 
 
-@app.route("/api/judge_presets", methods=["POST"])
-def api_judge_preset_save():
+@app.route("/api/ai_presets", methods=["POST"])
+def api_ai_preset_save():
     fields = request.get_json(force=True, silent=True) or {}
-    return _save_preset_route(fields, force_kind="judge")
+    return _save_preset_route(fields, force_kind="ai")
 
 
 @app.route("/api/presets/<name>", methods=["DELETE"])
@@ -5176,11 +5183,93 @@ def api_job_template_delete(name):
     return jsonify({"deleted": name})
 
 
-@app.route("/api/judge_presets/<name>", methods=["DELETE"])
-def api_judge_preset_delete(name):
+@app.route("/api/ai_presets/<name>", methods=["DELETE"])
+def api_ai_preset_delete(name):
     if not delete_preset(name):
-        return jsonify({"error": "judge preset not found: %s" % name}), 404
+        return jsonify({"error": "AI preset not found: %s" % name}), 404
     return jsonify({"deleted": name})
+
+
+def migrate_judge_to_ai_presets():
+    """Flip kind judge→ai in place; returns {migrated[], skipped[]}.
+
+    Non-overlapping and safe: an ai record already owning the name, a
+    record failing ai validation, or an unreadable file is SKIPPED
+    (reported with reason) — never overwritten, never deleted. Same
+    version preserved. Idempotent (second run migrates nothing).
+    """
+    migrated, skipped = [], []
+
+    def _skip(name, reason):
+        skipped.append({"name": name, "reason": reason})
+
+    try:
+        names = sorted(os.listdir(presets_dir()))
+    except OSError:
+        return {"migrated": migrated, "skipped": skipped}
+    ai_names = {str(r.get("name") or "")
+                for r in list_presets(kind="ai")
+                if isinstance(r, dict) and r.get("name")}
+    for entry in names:
+        if not entry.endswith(".json"):
+            continue
+        path = os.path.join(presets_dir(), entry)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                rec = json.load(handle)
+        except (OSError, ValueError) as exc:
+            _skip(entry, "unreadable file (%s)" % type(exc).__name__)
+            continue
+        if not isinstance(rec, dict) or rec.get("kind") != "judge":
+            continue
+        name = str(rec.get("name") or "")
+        if not name:
+            _skip(entry, "record without a name")
+            continue
+        if name in ai_names:
+            _skip(name, "ai preset already owns this name")
+            continue
+        trial = dict(rec, kind="ai")
+        ok, error = _validate_ai_record(name, trial)
+        if not ok:
+            _skip(name, error)
+            continue
+        trial["kind"] = "ai"
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(trial, handle, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+        except OSError as exc:
+            _skip(name, "write failed: %s" % exc)
+            continue
+        ai_names.add(name)
+        migrated.append(name)
+    return {"migrated": migrated, "skipped": skipped}
+
+
+def _validate_ai_record(name, rec):
+    """(ok, error) for one AI-preset-shaped record (names only)."""
+    provider = str((rec or {}).get("provider") or "").strip()
+    if not _is_known_provider(provider):
+        return False, "unknown provider: %r" % provider
+    scope = str((rec or {}).get("rate_scope") or "").strip() or "model"
+    if scope not in AI_RATE_SCOPES:
+        return False, "bad rate_scope"
+    for cap in ("max_rpm", "max_rph", "max_daily"):
+        try:
+            value = int((rec or {}).get(cap, 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return False, "bad %s" % cap
+        if value < 0:
+            return False, "bad %s" % cap
+    return True, ""
+
+
+@app.route("/api/presets/migrate", methods=["POST"])
+def api_presets_migrate():
+    """Explicit operator-invoked judge→ai migration (Req-2 safe)."""
+    return jsonify(migrate_judge_to_ai_presets()), 200
 
 
 # ─── Supervised arbitration batches (P01; import/approve land in W2) ───
@@ -5433,11 +5522,11 @@ def _arbiter_transport_for(preset):
 
 
 def _arbiter_preset_by_name(name):
-    """Console judge-preset record by name (None when absent)."""
+    """Console AI-preset record by name (None when absent)."""
     want = str(name or "").strip()
     if not want:
         return None
-    for rec in list_presets(kind="judge"):
+    for rec in list_presets(kind="ai"):
         if isinstance(rec, dict) and str(rec.get("name") or "") == want:
             return rec
     return None
