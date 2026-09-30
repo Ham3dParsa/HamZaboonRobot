@@ -5532,6 +5532,40 @@ def _arbiter_preset_by_name(name):
     return None
 
 
+def _arbiter_accounting(preset):
+    """Cost-accounting identity for a preset (names only, never values).
+
+    Feeds the quota/pacing guards: provider/model/endpoint/key-var-name
+    select the scope bucket; caps come straight from the preset record
+    (0 = unlimited, the console-wide convention).
+    """
+    provider = str((preset or {}).get("provider") or "").strip()
+    _mgr = _request_manifest_manager()
+    try:
+        row = provider_registry.resolve_provider(provider, _manager=_mgr) or {}
+    except Exception:
+        row = {}
+
+    def _cap(key):
+        try:
+            return max(0, int((preset or {}).get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    try:
+        key_var = str(_provider_key_var(provider, _manager=_mgr) or "")
+    except Exception:
+        key_var = ""
+    return {"provider": provider,
+            "model": str((preset or {}).get("model") or "").strip(),
+            "endpoint": str(row.get("base_url") or ""),
+            "key_var": key_var,
+            "scope": str((preset or {}).get("rate_scope") or "model"),
+            "preset": str((preset or {}).get("name") or ""),
+            "max_rpm": _cap("max_rpm"), "max_rph": _cap("max_rph"),
+            "max_daily": _cap("max_daily")}
+
+
 @app.route("/api/arbiter/runs", methods=["POST"])
 def api_arbiter_run_create():
     from factory.linking import sense_feed as _feed
@@ -5570,7 +5604,15 @@ def api_arbiter_run_create():
     if not senses:
         return jsonify({"error": "VALIDATION-empty: no senses selected "
                                  "for this run"}), 400
-    run_id = _jobs.launch(preset, senses, transport.execute_arbitration)
+    try:
+        run_id = _jobs.launch(preset, senses, transport.execute_arbitration,
+                              accounting=_arbiter_accounting(preset))
+    except _jobs.ConflictError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except _jobs.QuotaExhausted as exc:
+        return jsonify({"error": str(exc)}), 400
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     return jsonify({"run": _jobs.get_job(run_id)}), 200
 
 

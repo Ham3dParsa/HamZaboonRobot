@@ -25,6 +25,27 @@ _JOBS = {}
 _ABORTS = set()
 _LOCK = threading.Lock()
 
+#: Hard per-run ceiling (single constant, documented): no arbiter run
+#: ever takes more senses, whatever the request says.
+ARBITER_RUN_MAX = 100
+
+USAGE_FILENAME = "arbiter_usage.jsonl"
+
+
+class ConflictError(ValueError):
+    """Another arbiter run is already active (single-flight)."""
+
+
+class QuotaExhausted(ValueError):
+    """Preset quota cannot fit even one more sense (fail-fast)."""
+
+
+def reset_for_tests():
+    """Clear in-memory jobs (test isolation only — same-process suites)."""
+    with _LOCK:
+        _JOBS.clear()
+        _ABORTS.clear()
+
 _RUN_ID_RX = None
 
 
@@ -61,6 +82,118 @@ def _paths(run_id, data_root=None):
         base, "verdicts.jsonl")
 
 
+def usage_path(data_root=None):
+    """Append-only usage ledger (counts only — never keys or answers)."""
+    return os.path.join(_resolve_root(data_root), "webui",
+                        USAGE_FILENAME)
+
+
+def _to_record(raw):
+    """Normalize one ledger line (None when malformed)."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        stamp = datetime.datetime.fromisoformat(str(raw.get("ts") or ""))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=datetime.timezone.utc)
+    return {"ts": stamp,
+            "provider": str(raw.get("provider") or ""),
+            "model": str(raw.get("model") or ""),
+            "endpoint": str(raw.get("endpoint") or ""),
+            "key_var": str(raw.get("key_var") or ""),
+            "preset": str(raw.get("preset") or ""),
+            "run_id": str(raw.get("run_id") or "")}
+
+
+def read_usage(data_root=None):
+    """Ledger records (newest last); unreadable lines skipped."""
+    out = []
+    try:
+        with open(usage_path(data_root), encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        norm = _to_record(rec)
+        if norm is not None:
+            out.append(norm)
+    return out
+
+
+def record_use(entry, data_root=None):
+    """Append one usage record (best-effort, never raises)."""
+    try:
+        path = usage_path(data_root)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        blob = dict(entry or {})
+        blob["ts"] = _stamp()
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(blob, ensure_ascii=False) + "\n")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def scope_key(scope, *, provider="", model="", endpoint="", key_var=""):
+    """(dim, key) for one rate scope (unknown scopes read as model)."""
+    scope = str(scope or "").strip().lower()
+    if scope == "address":
+        return ("address", endpoint or provider)
+    if scope == "account":
+        return ("account", key_var or provider)
+    return ("model", model or provider)
+
+
+def _dims_of(rec):
+    return {("provider", rec["provider"]), ("model", rec["model"]),
+            ("address", rec["endpoint"]), ("account", rec["key_var"])}
+
+
+def summarize(records, now):
+    """{(dim, key): {minute, hour, day}} over normalized records."""
+    out = {}
+    for rec in records or []:
+        if not isinstance(rec, dict) or not isinstance(
+                rec.get("ts"), datetime.datetime):
+            continue
+        for dim in _dims_of(rec):
+            bucket = out.setdefault(
+                dim, {"minute": 0, "hour": 0, "day": 0})
+            age = (now - rec["ts"]).total_seconds()
+            if age < 0:
+                continue
+            if age < 60:
+                bucket["minute"] += 1
+            if age < 3600:
+                bucket["hour"] += 1
+            if rec["ts"].date() == now.date():
+                bucket["day"] += 1
+    return out
+
+
+def quota_remaining(caps, scope_tuple, records, now):
+    """{hour, day} remaining (None when that cap is 0 = unlimited)."""
+    counts = summarize(records, now).get(tuple(scope_tuple),
+                                         {"hour": 0, "day": 0})
+    out = {}
+    for window, cap_key in (("hour", "max_rph"), ("day", "max_daily")):
+        try:
+            cap = int((caps or {}).get(cap_key) or 0)
+        except (TypeError, ValueError):
+            cap = 0
+        out[window] = None if cap <= 0 else max(0, cap - counts[window])
+    return out
+
+
 def _write_status(base, job):
     try:
         with open(os.path.join(base, "status.json"), "w",
@@ -70,34 +203,114 @@ def _write_status(base, job):
         pass
 
 
-def launch(preset, senses, transport, data_root=None):
-    """Start a detached run; return the job id (status ``running``)."""
-    run_id = "%s-%s" % (datetime.datetime.now(datetime.timezone.utc)
-                        .strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:6])
-    base, _status_path, _verdicts_path = _paths(run_id, data_root)
-    os.makedirs(base, exist_ok=True)
-    job = {"run_id": run_id,
-           "preset": str((preset or {}).get("name") or ""),
-           "provider": str((preset or {}).get("provider") or ""),
-           "model": str((preset or {}).get("model") or ""),
-           "status": "running", "started_at": _stamp(),
-           "total": len(senses or []), "done": 0, "abstained": 0,
-           "error": ""}
+def _accounting_of(accounting):
+    """Normalized accounting dict (all keys present, safe defaults)."""
+    acc = dict(accounting or {})
+    try:
+        max_rpm = int(acc.get("max_rpm") or 0)
+    except (TypeError, ValueError):
+        max_rpm = 0
+    try:
+        max_rph = int(acc.get("max_rph") or 0)
+    except (TypeError, ValueError):
+        max_rph = 0
+    try:
+        max_daily = int(acc.get("max_daily") or 0)
+    except (TypeError, ValueError):
+        max_daily = 0
+    return {"provider": str(acc.get("provider") or ""),
+            "model": str(acc.get("model") or ""),
+            "endpoint": str(acc.get("endpoint") or ""),
+            "key_var": str(acc.get("key_var") or ""),
+            "scope": str(acc.get("scope") or "model").strip().lower()
+            or "model",
+            "preset": str(acc.get("preset") or ""),
+            "max_rpm": max(0, max_rpm), "max_rph": max(0, max_rph),
+            "max_daily": max(0, max_daily)}
+
+
+def launch(preset, senses, transport, data_root=None, accounting=None,
+           now=None):
+    """Start a detached run; return the job id (status ``running``).
+
+    Enforces, in order: single-flight (one active run — ConflictError),
+    quota fail-fast (hour/day remaining by scope — QuotaExhausted when
+    nothing fits), per-run ceiling (ARBITER_RUN_MAX, clamped with the
+    requested count kept on the job for honesty).
+    """
+    requested = list(senses or [])
+    acc = _accounting_of(accounting)
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
     with _LOCK:
+        for job in _JOBS.values():
+            if job.get("status") == "running":
+                raise ConflictError(
+                    "an arbiter run is already active "
+                    "(single-flight: one at a time)")
+        scope = scope_key(acc["scope"], provider=acc["provider"],
+                          model=acc["model"], endpoint=acc["endpoint"],
+                          key_var=acc["key_var"])
+        remaining = quota_remaining(
+            {"max_rph": acc["max_rph"], "max_daily": acc["max_daily"]},
+            scope, read_usage(data_root), moment)
+        fits = [n for n in (remaining["hour"], remaining["day"])
+                if n is not None]
+        granted = list(requested)
+        if fits:
+            granted = granted[:max(0, min(fits))]
+        granted = granted[:ARBITER_RUN_MAX]
+        if not granted:
+            raise QuotaExhausted(
+                "preset quota exhausted (remaining hour=%s day=%s) — "
+                "nothing fits" % (remaining["hour"], remaining["day"]))
+        run_id = "%s-%s" % (moment.strftime("%Y%m%dT%H%M%SZ"),
+                            uuid.uuid4().hex[:6])
+        base, _status_path, _verdicts_path = _paths(run_id, data_root)
+        os.makedirs(base, exist_ok=True)
+        job = {"run_id": run_id,
+               "preset": str((preset or {}).get("name") or ""),
+               "provider": acc["provider"],
+               "model": str((preset or {}).get("model") or ""),
+               "status": "running", "started_at": _stamp(),
+               "requested": len(requested),
+               "total": len(granted), "done": 0, "abstained": 0,
+               "error": ""}
         _JOBS[run_id] = job
-    _write_status(base, job)
+        _write_status(base, job)
     thread = threading.Thread(
         target=_worker,
-        args=(run_id, preset or {}, list(senses or []), transport,
-              data_root),
+        args=(run_id, preset or {}, granted, transport, data_root, acc),
         daemon=True)
     thread.start()
     return run_id
 
 
-def _worker(run_id, preset, senses, transport, data_root):
+def _minute_wait(run_id, acc, data_root):
+    """Sleep (abort-aware) while this minute's budget is spent."""
+    import time as _time
+
+    cap = int(acc.get("max_rpm") or 0)
+    if cap <= 0:
+        return True
+    while True:
+        with _LOCK:
+            if run_id in _ABORTS:
+                return False
+        moment = datetime.datetime.now(datetime.timezone.utc)
+        spent = summarize(read_usage(data_root), moment).get(
+            scope_key(acc.get("scope"), provider=acc.get("provider"),
+                      model=acc.get("model"), endpoint=acc.get("endpoint"),
+                      key_var=acc.get("key_var")),
+            {"minute": 0})["minute"]
+        if spent < cap:
+            return True
+        _time.sleep(1.0)
+
+
+def _worker(run_id, preset, senses, transport, data_root, acc=None):
     from factory.linking import arbiter_runner as _runner
 
+    acc = _accounting_of(acc)
     base, _status_path, verdicts_path = _paths(run_id, data_root)
     try:
         with open(verdicts_path, "w", encoding="utf-8"):
@@ -109,6 +322,10 @@ def _worker(run_id, preset, senses, transport, data_root):
             if run_id in _ABORTS:
                 _settle(run_id, base, "aborted")
                 return
+        if not _minute_wait(run_id, acc, data_root):
+            with _LOCK:
+                _settle(run_id, base, "aborted")
+            return
         try:
             records = _runner.run_arbiter([sense], preset, transport)
         except Exception as exc:
@@ -124,6 +341,13 @@ def _worker(run_id, preset, senses, transport, data_root):
                     written += 1
         except OSError:
             pass
+        for _rec in records[:written]:
+            record_use({"provider": acc["provider"],
+                        "model": str(preset.get("model") or ""),
+                        "endpoint": acc["endpoint"],
+                        "key_var": acc["key_var"],
+                        "preset": str(preset.get("name") or ""),
+                        "run_id": run_id}, data_root)
         with _LOCK:
             job = _JOBS.get(run_id)
             if job is None:

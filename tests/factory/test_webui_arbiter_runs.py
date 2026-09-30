@@ -30,13 +30,17 @@ def _write_screened(path, n=6):
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
+    from factory.webui import arbiter_jobs as _jobs
+
+    _jobs.reset_for_tests()
     root = str(tmp_path / "data")
     os.makedirs(root)
     monkeypatch.setenv("HAMZABAN_DATA_ROOT", root)
     screened = str(tmp_path / "screened.jsonl")
     _write_screened(screened)
     monkeypatch.setenv("HAMZABAN_SCREENED_PATH", screened)
-    return {"client": webui.app.test_client(), "root": root}
+    yield {"client": webui.app.test_client(), "root": root}
+    _jobs.reset_for_tests()
 
 
 class _StubAdapter:
@@ -135,3 +139,94 @@ def test_unknown_run_404(env):
     assert env["client"].get("/api/arbiter/runs/nope").status_code == 404
     assert env["client"].post(
         "/api/arbiter/runs/nope/abort").status_code == 404
+
+
+def _preset_with_caps(client, name, caps):
+    import json as _json
+    import os as _os
+
+    root = _os.environ["HAMZABAN_DATA_ROOT"]
+    presets = _os.path.join(root, "webui", "presets")
+    _os.makedirs(presets, exist_ok=True)
+    rec = {"name": name, "version": 1, "kind": "ai",
+           "provider": "stub-local", "model": "stub-m"}
+    rec.update(caps)
+    with open(_os.path.join(presets, name + ".json"), "w",
+              encoding="utf-8") as handle:
+        _json.dump(rec, handle)
+
+
+def test_concurrent_create_conflicts_409(env, monkeypatch):
+    import threading
+
+    _preset_with_caps(env["client"], "t3-cap",
+                      {"max_rph": 0, "max_daily": 0})
+    gate = threading.Event()
+    monkeypatch.setattr(webui, "_arbiter_transport_for",
+                        lambda _preset: _StubAdapter(block=gate))
+    codes = []
+
+    def _one():
+        codes.append(env["client"].post(
+            "/api/arbiter/runs",
+            json={"preset": "t3-cap", "limit": 2}).status_code)
+
+    first = threading.Thread(target=_one)
+    first.start()
+    import time as _time
+
+    deadline = _time.time() + 15
+    while len(codes) < 1 and _time.time() < deadline:
+        _time.sleep(0.05)
+    second = threading.Thread(target=_one)
+    second.start()
+    second.join(timeout=20)
+    gate.set()
+    first.join(timeout=20)
+    assert sorted(codes) == [200, 409]
+
+
+def test_exhausted_quota_refuses_with_counts(env, monkeypatch):
+    import datetime as _dt
+    import json as _json
+    import os as _os
+
+    _preset_with_caps(env["client"], "t3-q",
+                      {"max_rph": 0, "max_daily": 1,
+                       "rate_scope": "model"})
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    usage = _os.path.join(env["root"], "webui", "arbiter_usage.jsonl")
+    _os.makedirs(_os.path.dirname(usage), exist_ok=True)
+    with open(usage, "w", encoding="utf-8") as handle:
+        handle.write(_json.dumps(
+            {"ts": now, "provider": "stub-local", "model": "stub-m",
+             "endpoint": "", "key_var": "", "preset": "t3-q",
+             "run_id": "old"}) + "\n")
+    monkeypatch.setattr(webui, "_arbiter_transport_for",
+                        lambda _preset: _StubAdapter())
+    resp = env["client"].post("/api/arbiter/runs",
+                              json={"preset": "t3-q", "limit": 2})
+    assert resp.status_code == 400
+    assert "quota" in resp.get_json()["error"].lower()
+
+
+def test_ledger_holds_names_only(env, monkeypatch):
+    import json as _json
+    import os as _os
+
+    _preset_with_caps(env["client"], "t3-l", {})
+    monkeypatch.setattr(webui, "_arbiter_transport_for",
+                        lambda _preset: _StubAdapter())
+    run_id = env["client"].post(
+        "/api/arbiter/runs",
+        json={"preset": "t3-l", "limit": 1}).get_json()["run"]["run_id"]
+    _wait_done(env["client"], run_id)
+    usage = _os.path.join(env["root"], "webui", "arbiter_usage.jsonl")
+    with open(usage, encoding="utf-8") as handle:
+        lines = [line for line in handle.read().splitlines()
+                 if line.strip()]
+    assert len(lines) == 1
+    rec = _json.loads(lines[0])
+    assert set(rec) == {"ts", "provider", "model", "endpoint",
+                        "key_var", "preset", "run_id"}
+    assert rec["preset"] == "t3-l"
