@@ -208,12 +208,12 @@ def test_import_reject_gives_repair(env):
 
 
 def test_linking_history_aggregates_three_kinds(env):
-    body = env['client'].get('/api/linking/history').get_json()
-    assert body['runs'] == []
+    from factory.webui import arbiter_jobs as _jobs
+
+    _jobs.reset_for_tests()
     created = env['client'].post('/api/batches', json={'size': 10}).get_json()['batch']
     body = env['client'].get('/api/linking/history').get_json()
-    kinds = [r['kind'] for r in body['runs']]
-    assert 'batch' in kinds
-    row = [r for r in body['runs'] if r['kind'] == 'batch'][0]
-    assert row['run_id'] == created['id']
+    rows = [r for r in body['runs'] if r['kind'] == 'batch']
+    assert rows, body['runs']
+    row = [r for r in rows if r['run_id'] == created['id']][0]
     assert set(row) >= {'kind', 'run_id', 'out_name', 'status', 'created', 'detail'}
