@@ -164,7 +164,7 @@ def test_linker_core_untouched():
         assert "google_clean" not in text, path.name
     # Core symbols still intact (migration adds adapters, removes nothing).
     from factory.linking import linker as _linker
-    for name in ("arbitrate_link", "evidence_families", "shortlist",
+    for name in ("mechanical_review", "evidence_families", "shortlist",
                  "quarantine_check"):
         assert callable(getattr(_linker, name)), name
     from factory.linking import gates as _gates

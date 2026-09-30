@@ -66,23 +66,25 @@ def test_boot_note_hides_lan_bind_behind_title():
     assert 'title="plain start binds all interfaces (LAN-visible)"' in html
 
 
-# ─── PUX-11: vote note → friendly status, tech in title escape ───
+# ─── PUX-11: manual vote note deleted with the manual form ───
 
 def test_vote_note_hides_store_and_watermark():
+    """Route-delete proof: no vote ledger/watermark prose anywhere."""
     html = _html()
     visible = _no_titles(html)
     assert "labels.jsonl" not in visible
     assert "watermark" not in visible
-    assert "دفتر رأی‌ها" in html
-    assert "گزینه غیرشاهد امتیاز ندارد" in html
-    assert "labels.jsonl" in html  # title debug escape kept
+    assert "دفتر رأی‌ها" not in html
+    assert "گزینه غیرشاهد امتیاز ندارد" not in html
+    assert "labels.jsonl" not in html
 
 
 def test_vote_receipt_maps_store_and_watermark_to_persian():
+    """Route-delete proof: no vote receipt code in the queue controller."""
     js = _js("sense_linking", "human_review_controller.js")
-    assert "ثبت شد در دفتر رأی‌ها" in js
-    assert "نشان غیرشاهد (غیرقابل امتیاز)" in js
-    assert "j.store" in js and "j.watermark" in js  # raw rides titles only
+    assert "ثبت شد در دفتر رأی‌ها" not in js
+    assert "نشان غیرشاهد (غیرقابل امتیاز)" not in js
+    assert "j.store" not in js and "j.watermark" not in js
 
 
 # ─── PUX-12: tab titles Persian, no module paths ───
@@ -126,14 +128,14 @@ def test_blacklisted_english_prose_replaced():
             "(Kaikki Screening)",
             "(Precard Extraction)",
             "/ NONE",
-            "خالی = console-judge",
+            "خالی = console-ai",
             "(stored encrypted)",
     ):
         assert literal not in bundle, literal
-    # glossary replacements landed
+    # glossary replacements landed (manual-form empty states deleted
+    # with the manual form — their absence is asserted by the
+    # route-delete tests, not here)
     for fa in (
-            "پیوندی برای این سنس نیست",
-            "نامزدی در جدول پیوند برای این سنس نیست",
             "مورد بیشتر از سقف",
             "کد خروج",
             "پشتوانه سرور این کابین هنوز وصل نیست",
@@ -156,15 +158,18 @@ def test_latin_remnants_isolated_with_persian_labels():
             '<span class="status-tag code-token" dir="ltr">SQLite</span>',
     ):
         assert token in html, token
-    assert "موارد " in html and "بدون پیوند معتبر" in html
+    assert "موارد " in html
+    assert "بدون پیوند معتبر" not in html  # manual reject-all deleted
 
 
 # ─── PUX-24: server English mapped, unmapped raw stays labelled ───
 
 def test_witness_and_drop_reasons_mapped_with_labelled_fallback():
+    # Manual-form witness line deleted with the manual form (route-delete);
+    # screening + telemetry mappings below are untouched.
     human = _js("sense_linking", "human_review_controller.js")
-    assert "شاهد: " in human
-    assert "ltrCode(witness)" in human
+    assert "شاهد: " not in human
+    assert "ltrCode(witness)" not in human
     screening = _js("screening", "screening_cabin_controller.js")
     assert "dropReasonNodes" in screening
     assert "حذف دوقلو (" in screening and "حذف اسم خاص (" in screening

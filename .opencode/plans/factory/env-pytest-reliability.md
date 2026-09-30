@@ -1,24 +1,74 @@
 # Windows pytest reliability — field findings (2026-09-28, HamZaban shared box)
 
+Proven by repeated observation on `feat/supervised-arbitration` validation.
+Intended for any session running pytest on this machine.
 
-## 1. Silent-death pattern
-Full-suite runs die mid-run at random percentages (seen 24/51/65/66/73%) with zero output: no traceback, no FAILED, no event log, faulthandler silent. Foreground AND background runs die alike. Dead = pid gone + log mtime frozen + no DONE marker.
+## 1. Silent-death pattern (the headline)
 
+Full-suite runs die mid-run at RANDOM percentages (seen: 24/51/65/66/73%)
+with ZERO output: no traceback, no FAILED line, no Windows event-log
+entry, nothing from `python -X faulthandler`. Foreground AND background
+(`Start-Process` file-redirected) runs die alike. A dead run is
+recognized by: pid gone + log mtime frozen + no DONE marker.
 
-## 2. Causes
-**2a. Harness reaps long silent foreground commands (certain).** Anything silent ~30–60s+ may return empty. Keep foreground calls short with visible output; long work to a log file; poll with short reads.
-**2b. External console Ctrl+C kills console-attached trees (proven).** A background log caught `KeyboardInterrupt` in `subprocess.py` at 0.51s with no tests run. Hidden-window `Start-Process` jobs still share the invoker console. Launch long runs via WMI `Win32_Process.Create` to a file. A `KeyboardInterrupt` in a pytest log is environmental — rerun, never "fix".
-**2c. Real product bug found en route (fixed, merged #832).** `_pid_alive`: Windows `os.kill(pid,0)` raises `OSError WinError 87` (not `ProcessLookupError`) for dead pids; blanket `except → True` reported every dead pid alive. Fix: `except OSError: return False`. Lesson: a stall near restart-recovery tests is a suspect — reproduce solo first.
-**2d. Orphaned test servers (observed: 25 copies).** Wake/sleep fixtures leak real `supervisor.py --port 18789` servers fighting over one port. Before validating, kill ONLY processes matching YOUR worktree path. Never touch others' worktrees, unknown `556x` consoles, or editor helpers.
+## 2. Causes (separated by evidence)
 
+### 2a. Harness reaps long silent foreground commands (CERTAIN)
+Any foreground command silent for ~30–60s+ (even `Start-Sleep 45` or a
+file read issued at the wrong moment) can return `(no output)`.
+Mitigation: keep every foreground call short with visible output;
+long work goes to a log FILE; poll the file with short reads.
 
-## 3. Suite traps
-- `test_webui_live_browser.py`: heavy file; targeted runs + CI, not full local.
-- `t04_02` is innocent (~3.5s solo). No hunch-quarantines.
-- Suite rewrites `shots/shot-t11-*.png` — always `git checkout --` them before commit.
-- LF→CRLF warnings are noise; `git diff --check` is the signal.
-- faulthandler silence proves nothing about kills.
+### 2b. External console control events kill console-attached trees (PROVEN)
+A background pytest log contained `KeyboardInterrupt` inside
+`subprocess.py` at 0.51s with zero tests run. Hidden-window processes
+started via `Start-Process` still share the invoker's console, so a
+Ctrl+C broadcast (e.g. the harness cancelling a stuck call) murders the
+test run AND any sibling background job on that console. WMI-spawned
+(`Win32_Process.Create`) processes survive this specific vector.
+Mitigation: launch long runs via WMI `Win32_Process.Create` writing to
+a file; poll with short commands. A `KeyboardInterrupt` in a pytest log
+is an ENVIRONMENTAL kill, never a test failure — rerun, don't "fix".
 
+### 2c. Real product bug found en route (FIXED, merged in #832)
+`factory/webui/server.py::_pid_alive`: on Windows, `os.kill(pid, 0)`
+raises generic `OSError WinError 87` (not `ProcessLookupError`) for dead
+pids; the blanket `except Exception: return True` reported EVERY dead
+pid alive, so restart-settle never fired. Fix: `except OSError: return
+False` before the generic handler. Lesson: a hanging suite near
+`test_screening_runstatus` / restart-recovery tests is a suspect, not
+proof of environment flakiness — reproduce the single test first.
 
-## 4. Loop
-Sweep own orphans → targeted fast suites → full suite WMI-detached-to-file only → on death, classify (KeyboardInterrupt = rerun; reproducible stall = bisect to test, solo repro) → CI is arbiter of record; local red must be classified before it blocks anything.
+### 2d. Orphaned test servers accumulate (OBSERVED: 25 copies)
+Wake/sleep + live-console fixtures spawn real `supervisor.py --port
+18789` / webui servers that leak on teardown and fight over the same
+port. Before a validation run, list `python.exe` processes and kill
+ONLY ones attributable to your own runs (match YOUR worktree path in
+the command line). Never kill: PID 27328-class scratch consoles in
+active use, other sessions' worktree paths, `5561`/`5571` consoles
+whose owner is unknown, VSCode helpers.
+
+## 3. Suite-specific traps
+
+- `tests/factory/test_webui_live_browser.py` full-file vs solo: the file
+  is heavy (chromium); prefer targeted runs + CI for the full pass.
+- `t04_02_restart_console_recovers_run` is INNOCENT (passes solo ~3.5s);
+  do not quarantine it on a hunch.
+- The suite REWRITES `.opencode/plans/factory/shots/shot-t11-*.png`
+  (bytes shrink). Always `git checkout --` those before commit; they
+  are review evidence, never your change.
+- LF→CRLF warnings on `git add`/`git status` are noise; `git diff
+  --check` clean is the real signal.
+- `faulthandler` prints nothing on kills (expected — kills aren't
+  Python faults). Its silence proves nothing either way.
+
+## 4. Recommended validation loop on this box
+
+1. Sweep orphans yours-only (§2d). 2. Targeted fast suites foreground
+(short). 3. Full suite ONLY via WMI-detached-to-file; poll log tail +
+pid + mtime. 4. Death with frozen log + no traceback → check for
+`KeyboardInterrupt` (environmental, rerun) vs reproducible stall point
+(bisect to file, then to test, solo). 5. Single-test repro before ANY
+quarantine/fix (test-sync rule). 6. CI (`-n 4`, clean machine) is the
+arbiter of record — local green here is supporting evidence, and local
+red must be classified (environmental vs real) before it blocks a PR.

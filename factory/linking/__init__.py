@@ -15,7 +15,7 @@ Public surface (everything else is private-by-convention):
 - :func:`validate_table_rows` — pure vendor-table guard (re-exported).
 - :func:`build_link_index` / :func:`lookup_link` — thin pure TSV-row
   index helpers for the CLI (new in M1-M3; no scoring logic).
-- :mod:`factory.linking.linker` — full scoring core (``arbitrate_link``,
+- :mod:`factory.linking.linker` — full scoring core (``mechanical_review``,
   ``gloss_overlap_signal`` / ``synonym_crossfire_signal`` /
   ``example_crossfire_signal`` / ``hypernym_topic_signal``,
   ``match_exact``, ...).

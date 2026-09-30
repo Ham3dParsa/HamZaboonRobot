@@ -230,7 +230,7 @@ def test_preset_caps_save_and_edit_live_browser(live_console):
     finally:
         page.close()
         req = urllib.request.Request(
-            base + "/api/judge_presets/" + tag, method="DELETE")
+            base + "/api/ai_presets/" + tag, method="DELETE")
         try:
             urllib.request.urlopen(req, timeout=10).read()
         except Exception:
@@ -240,72 +240,31 @@ def test_preset_caps_save_and_edit_live_browser(live_console):
             os.remove(leftover)
 
 
-def test_candidate_card_no_clipping_live_browser(live_console):
-    """run#25 candidate cards show full text; select button sits balanced."""
+def test_mechanical_tab_panel_replaces_manual_form_live_browser(live_console):
+    """Tab 1 is the mechanical panel; the manual-review form is gone.
+
+    Obsoletes the candidate-card geometry test (manual form
+    route-deleted by the mechanical sprint): tab-1 shows the run card
+    (run/log/handoff), the tab reads «گزینش نامزدها», and no manual
+    voting DOM remains anywhere.
+    """
     browser, base = live_console["browser"], live_console["base"]
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     try:
         page.goto(base + "/")
-        page.wait_for_selector("#queue-list .queue-item", timeout=15000)
-        page.wait_for_timeout(800)
-        total = page.evaluate(
-            "document.querySelectorAll('#queue-list .queue-item').length")
-        assert total == 30, total
-        page.evaluate(
-            "[...document.querySelectorAll('#queue-list .queue-item')]"
-            ".filter(el=>el.textContent.includes('run#25'))[0].click()")
-        page.wait_for_selector(
-            "#candidates-stack .candidate-row-card", timeout=15000)
-        page.wait_for_timeout(500)
-        geo = page.evaluate(
-            "() => {"
-            "  const cards = [...document.querySelectorAll("
-            "    '#candidates-stack .candidate-row-card')];"
-            "  return cards.map((card) => {"
-            "    const one = (sel) => card.querySelector(sel);"
-            "    const rect = (el) => {"
-            "      if (!el) return null;"
-            "      const r = el.getBoundingClientRect();"
-            "      return {top: r.top, bottom: r.bottom,"
-            "        height: r.height,"
-            "        scrollH: el.scrollHeight, clientH: el.clientHeight};"
-            "    };"
-            "    const hdr = one('.c-top-row');"
-            "    const btn = one('.btn-select-candidate');"
-            "    const cs = getComputedStyle(card);"
-            "    const hs = hdr ? getComputedStyle(hdr) : null;"
-            "    const key = one('.c-sensekey');"
-            "    return {card: rect(card), header: rect(hdr),"
-            "      button: rect(btn), gloss: rect(one('.c-gloss-text')),"
-            "      syn: rect(one('.c-synonyms-line')),"
-            "      quote: rect(one('.c-example')),"
-            "      cardOverflow: cs ? cs.overflow : '',"
-            "      headerJustify: hs ? hs.justifyContent : '',"
-            "      keyDir: key ? key.getAttribute('dir') : '',"
-            "      synText: one('.c-synonyms-line') ?"
-            "        one('.c-synonyms-line').textContent : '',"
-            "      nCards: cards.length};"
-            "  });"
-            "}")
-        assert len(geo) == 2, geo
-        assert any("moveveryquicklywithoutpausingforbreath" in (
-            card["synText"] or "") for card in geo), geo
-        for card in geo:
-            assert card["cardOverflow"] != "hidden", card
-            for part in ("gloss", "syn", "quote"):
-                box = card[part]
-                assert box is not None, (part, card)
-                # free-flowing text: nothing cut by a height cap
-                assert box["scrollH"] - box["clientH"] <= 2, (part, card)
-            # header: space-between with the button balanced inside it
-            assert card["headerJustify"] == "space-between", card
-            hdr, btn = card["header"], card["button"]
-            assert btn["top"] >= hdr["top"] - 1, card
-            assert btn["bottom"] <= hdr["bottom"] + 1, card
-            # Latin identifier stays isolated (BiDi-safe)
-            assert card["keyDir"] == "ltr", card
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
+        page.wait_for_selector("#mechanical-run-card", timeout=15000)
+        assert page.is_visible("#mechanical-run-card")
+        assert page.is_visible("#btn-mechanical-run")
+        assert "گزینش نامزدها" in page.inner_text(
+            '#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
+        for gone in ("#sense-detail", "#candidates-stack", "#btn-reject-all",
+                     "#btn-record-link", "#btn-skip-next",
+                     "#arbiter-verdict-list"):
+            assert page.evaluate(
+                "document.querySelector('%s') === null" % gone), gone
         page.screenshot(path=os.path.join(
-            live_console["tmpdir"], "candidate-cards.png"))
+            live_console["tmpdir"], "mechanical-tab.png"))
     finally:
         page.close()
 
@@ -656,6 +615,8 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
     page.on("pageerror", lambda exc: crashes.append(str(exc)))
     try:
         page.goto(base + "/")
+        # P5/R2: queue lives in tab 0 (hidden until its tab opens).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_selector("#queue-list .queue-item", timeout=15000)
         page.wait_for_timeout(800)
         # single module script tag, zero inline handlers
@@ -708,6 +669,9 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
         assert page.evaluate(
             "document.getElementById('screening-tab-1').hidden") is False
         page.click('button.nav-btn[data-view-target="view-linking"]')
+        page.wait_for_timeout(300)
+        # queue filter lives in tab 0 (P5/R2 panels).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_timeout(300)
         # queue filter narrows the 30-row list, clearing restores it
         page.fill("#queue-filter", "run#25")
@@ -767,7 +731,7 @@ def test_shell_chrome_no_console_errors_live_browser(live_console):
     finally:
         page.close()
         req = urllib.request.Request(
-            base + "/api/judge_presets/" + tag, method="DELETE")
+            base + "/api/ai_presets/" + tag, method="DELETE")
         try:
             urllib.request.urlopen(req, timeout=10).read()
         except Exception:
@@ -1620,7 +1584,7 @@ def test_t12_01_field_names_byte_identical_live_browser(live_console):
         _t12_open_cabin(page, base, "view-linking")
         assert "تحویل" in page.inner_text("#linking-handoff-next")
         assert page.evaluate(
-            "!!document.getElementById(\"linking-err\")") is True
+            "!!document.getElementById(\"queue-err\")") is True
         assert page.evaluate(
             "!!document.querySelector(\"#queue-list\")") is True
         bare = page.evaluate(
@@ -1658,6 +1622,8 @@ def test_t12_02_server_buttons_busy_live_browser(live_console):
         # NOTE: explicit nav (not a bare goto) — view-memory from the
         # precard/pilot loop above would otherwise reopen a hidden view.
         _t12_open_cabin(page, base, "view-linking")
+        # P5/R2: queue lives in tab 0 (hidden until its tab opens).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
         page.wait_for_selector("#queue-list .queue-item", timeout=15000)
         page.click("#btn-refresh-screened")
         page.wait_for_function(
@@ -1745,7 +1711,7 @@ def test_t12_04_errors_in_three_part_box_live_browser(live_console):
         _t07_assert_clean(errors, crashes)
     finally:
         page.close()
-    # Linking: forced 500 → linking-err box; retry after unroute clears it.
+    # Linking: forced 500 → queue-err box; retry after unroute clears it.
     page, errors, crashes = _t07_new_page(browser)
     try:
         page.route("**/api/screened*",
@@ -1753,13 +1719,15 @@ def test_t12_04_errors_in_three_part_box_live_browser(live_console):
                        status=500, content_type="application/json",
                        body=json.dumps({"error": "t12 forced"})))
         page.goto(base + "/")
-        page.wait_for_selector("#linking-err .form-error", timeout=15000)
+        # Queue-err lives in tab 0 (the queue panel).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
+        page.wait_for_selector("#queue-err .form-error", timeout=15000)
         page.unroute("**/api/screened*")
         page.click(
-            "#linking-err .form-error-actions "
+            "#queue-err .form-error-actions "
             "button:has-text(\"تلاش دوباره\")")
         page.wait_for_function(
-            "document.getElementById(\"linking-err\")"
+            "document.getElementById(\"queue-err\")"
             ".textContent.trim() === \"\"",
             timeout=15000)
         # The 500 above is deliberately injected to prove the error box
@@ -2944,6 +2912,9 @@ def _bc06_open_linking(page, base, via_menu=False):
         page.click("#menu-toggle-btn")
         page.wait_for_timeout(400)
     page.click('button.nav-btn[data-view-target="view-linking"]')
+    # P5/R2: the cabin opens on the persisted tab (default: supervised);
+    # intake tests start from tab 0 explicitly.
+    page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
     page.wait_for_selector(
         "#queue-list .queue-item, #queue-list .p-meta", timeout=15000)
     page.wait_for_timeout(600)
@@ -3079,9 +3050,13 @@ def test_bc06_03_keyboard_crosses_page_live_browser(live_console):
         focused = page.evaluate("document.activeElement.textContent")
         assert "bc06#50" in focused, focused
         page.keyboard.press("Enter")
+        # Enter activates the focused row: selection follows it (the
+        # per-sense detail panel is gone with the manual form — the
+        # queue's current-status marker carries the contract now).
         page.wait_for_function(
-            "document.getElementById('sense-id')"
-            ".textContent.includes('bc06#50')",
+            "[...document.querySelectorAll('#queue-list .queue-item')]"
+            ".filter(el=>el.textContent.includes('bc06#50')"
+            " && el.textContent.includes('داوری جاری')).length === 1",
             timeout=5000)
         _t07_assert_clean(errors, crashes)
     finally:
@@ -3223,3 +3198,206 @@ def test_bc06_paged_tablet_shot_live_browser(live_console):
             _bc06_shots_dir(), "shot-bc-p06-paged-tablet.png"))
     finally:
         page.close()
+
+
+def test_p4_arbiter_tab_panel_live_browser(live_console):
+    """P4 tab-2 panel: renders, mocked run polls to done, jump works (shot).
+
+    All arbiter endpoints are route-mocked: no model is ever called, no
+    batch/labels/history is touched. API 404 paths are covered in
+    test_webui_arbiter_runs.py; this test proves the panel behavior.
+    """
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+    polls = {"n": 0}
+
+    def run_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"run": {
+                          "run_id": "p4-live", "status": "running",
+                          "total": 2, "done": 0, "abstained": 0}}))
+
+    def status_route(route):
+        polls["n"] += 1
+        done = polls["n"] >= 2
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"run": {
+                          "run_id": "p4-live",
+                          "status": "done" if done else "running",
+                          "total": 2, "done": 2 if done else 0,
+                          "abstained": 0}}))
+
+    def verdicts_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"verdicts": [
+                          {"sense_id": "s#1", "verdict": "link",
+                           "target_synset": "w%1:01::", "model": "m",
+                           "gloss": "move fast", "candidates": ["w%1:01::"],
+                           "duration_ms": 1200},
+                          {"sense_id": "s#2", "verdict": None,
+                           "target_synset": None, "model": "m",
+                           "gloss": "carry weight", "candidates": [],
+                           "duration_ms": 300}]}))
+
+    def presets_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"ai_presets": [
+                          {"name": "p4-live-preset", "provider": "stub",
+                           "model": "stub-m"}]}))
+
+    def log_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"log": []}))
+
+    try:
+        page.route("**/api/ai_presets", presets_route)
+        _bc06_open_linking(page, base)
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="2"]')
+        page.wait_for_selector("#arbiter-run-card", timeout=10000)
+        assert page.is_visible("#arbiter-preset")
+        assert page.is_visible("#btn-arbiter-run")
+        page.route("**/api/arbiter/runs", run_route)
+        page.route("**/api/arbiter/runs/p4-live", status_route)
+        page.route("**/api/arbiter/runs/p4-live/verdicts", verdicts_route)
+        page.route("**/api/arbiter/runs/p4-live/log*", log_route)
+        page.wait_for_function(
+            "document.getElementById('arbiter-preset').options.length === 1",
+            timeout=10000)
+        page.select_option("#arbiter-preset", "p4-live-preset")
+        page.click("#btn-arbiter-run")
+        page.wait_for_function(
+            "document.querySelectorAll('#arbiter-verdict-tbody tr').length === 2",
+            timeout=15000)
+        progress = page.inner_text("#arbiter-progress")
+        assert "۲" in progress or "2" in progress, progress
+        # dense grid: gloss renders inline, vote keeps domain colors
+        first = page.inner_text("#arbiter-verdict-tbody tr")
+        assert "move fast" in first, first
+        assert "پیوند" in first, first
+        votes = page.evaluate(
+            "[...document.querySelectorAll('#arbiter-verdict-tbody .vote-tag')]"
+            ".map(e=>e.className)")
+        assert any("vote-link" in c for c in votes), votes
+        assert any("vote-review" in c for c in votes), votes
+        page.click("#btn-arbiter-jump")
+        page.wait_for_function(
+            "document.querySelector('#view-linking .cockpit-tabs "
+            ".tab-link.active').getAttribute('data-tab-index') === '3'",
+            timeout=5000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p4-arbiter-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_p5_linking_five_panels_live_browser(live_console):
+    """P5/R2: five tabs switch five real panels, unified history (shot).
+
+    History endpoint is route-mocked (one row per kind); nothing real
+    runs, no model is called. Tab memory is asserted via reload.
+    """
+    browser, base = live_console["browser"], live_console["base"]
+    page, errors, crashes = _t07_new_page(browser)
+
+    def history_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"runs": [
+                          {"kind": "linking", "run_id": "r1",
+                           "out_name": "t.tsv", "status": "done",
+                           "created": "2026-01-01", "detail": "linking"},
+                          {"kind": "arbiter", "run_id": "a1",
+                           "out_name": "m", "status": "done",
+                           "created": "2026-01-02", "detail": "done 2/2"},
+                          {"kind": "batch", "run_id": "b1",
+                           "out_name": "batch", "status": "exported",
+                           "created": "2026-01-03",
+                           "detail": "size 10"}]}))
+
+    try:
+        page.route("**/api/linking/history", history_route)
+        _bc06_open_linking(page, base)
+        for idx in ("0", "1", "2", "3", "4"):
+            page.click('#view-linking .cockpit-tabs '
+                       '.tab-link[data-tab-index="%s"]' % idx)
+            page.wait_for_function(
+                "document.querySelector("
+                "'#linking-tabpanel-%s:not([hidden])') !== null" % idx,
+                timeout=5000)
+            visible = page.evaluate(
+                "[...document.querySelectorAll("
+                "'#view-linking .linking-tabpanel:not([hidden])')]"
+                ".map(p=>p.id)")
+            assert visible == ["linking-tabpanel-" + idx], visible
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="4"]')
+        page.wait_for_function(
+            "document.querySelectorAll("
+            "'#gallery-history-tbody tr').length === 3",
+            timeout=10000)
+        kinds = page.evaluate(
+            "[...document.querySelectorAll("
+            "'#gallery-history-tbody tr td:nth-child(2)')]"
+            ".map(td=>td.innerText)")
+        assert kinds == ['پیوندزنی', 'داوری', 'بسته'], kinds
+        page.reload()
+        page.wait_for_selector("#view-linking", timeout=15000)
+        page.wait_for_function(
+            "document.querySelector('#view-linking .cockpit-tabs "
+            ".tab-link.active').getAttribute('data-tab-index') === '4'",
+            timeout=10000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p5-panels-desktop.png"))
+    finally:
+        page.close()
+
+
+def test_p6_ai_preset_ui_flow_live_browser(live_console):
+    """P6 Req-3: real UI flow — create AI preset, tab-2 lists it live,
+    delete cleans up (shot). No mocks: proves the renamed chain works."""
+    browser, base = live_console["browser"], live_console["base"]
+    tag = "p6-live-%d" % os.getpid()
+    page, errors, crashes = _t07_new_page(browser)
+    try:
+        page.goto(base + "/")
+        page.wait_for_selector(
+            'button.nav-btn[data-view-target="view-providers"]',
+            timeout=15000)
+        page.click('button.nav-btn[data-view-target="view-providers"]')
+        # NOTE: <option> is never "visible" to Playwright — assert on DOM,
+        # like the older preset test, after a settle delay.
+        page.wait_for_timeout(1500)
+        opts = page.evaluate(
+            "[...document.getElementById('preset-provider').options]"
+            ".map(o=>o.value)")
+        assert opts, "provider select must list real registry providers"
+        provider = "avalai" if "avalai" in opts else opts[0]
+        page.select_option("#preset-provider", provider)
+        page.fill("#preset-label", tag)
+        page.fill("#preset-model", "m-p6-live")
+        page.click("#btn-save-judge-preset")
+        page.wait_for_function(
+            "document.getElementById('preset-save-note')"
+            ".textContent.includes('ذخیره شد')",
+            timeout=15000)
+        page.click('button.nav-btn[data-view-target="view-linking"]')
+        page.wait_for_timeout(600)
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="2"]')
+        page.wait_for_function(
+            "[...document.getElementById('arbiter-preset').options]"
+            ".some(o=>o.value === '%s')" % tag,
+            timeout=15000)
+        _t07_assert_clean(errors, crashes)
+        page.screenshot(path=os.path.join(
+            _bc06_shots_dir(), "shot-p6-ai-preset-desktop.png"))
+    finally:
+        page.close()
+        req = urllib.request.Request(
+            base + "/api/ai_presets/" + tag, method="DELETE")
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception:
+            pass

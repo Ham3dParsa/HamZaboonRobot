@@ -28,7 +28,7 @@ Input (injected by the caller, never loaded here):
 - Optional: `se_value` float per candidate, `judge_link` verdict rows,
   `manual_none` / `manual_override` owner locks
 
-Output (per sense): `arbitrate_link(...)` → `{sensekey, method, evidence, flags}` —
+Output (per sense): `mechanical_review(...)` → `{sensekey, method, evidence, flags}` —
 `method` ∈ `LINK_METHOD_VOCAB` (see `__init__.py`), `flags` ⊆
 `twin-pending / quarantined-known-false / manual-none /
 provisional_consensus`.

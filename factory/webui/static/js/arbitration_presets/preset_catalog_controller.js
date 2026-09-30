@@ -165,11 +165,11 @@ async function fetchPresetModels() {
   }
   finally { if (btn) { btn.disabled = false; btn.textContent = idleText; } }
 }
-/* ذخیره پریست داوری: مقادیر فرم به مسیر سرور (مسیر موجود، بدون تکثیر) */
+/* ذخیره پریست هوش مصنوعی: مقادیر فرم به مسیر سرور (مسیر موجود، بدون تکثیر) */
 /* هویت ویرایش: پس از «نشاندن در فرم»، نام واقعی رکورد در
-   judgeEditName می‌ماند تا ذخیره بعدی همان رکورد را به‌روزرسانی کند؛
+   presetEditName می‌ماند تا ذخیره بعدی همان رکورد را به‌روزرسانی کند؛
    تغییر برچسب یعنی تغییرنام (سرور مهاجرت می‌دهد)، نه رکورد دوم. */
-let judgeEditName = '';
+let presetEditName = '';
 function presetScopeValue() {
   const checked = document.querySelector('input[name="preset-scope"]:checked');
   return (checked && checked.value) || 'model';
@@ -186,7 +186,7 @@ async function saveJudgePreset(btn) {
   if (noteEl) noteEl.textContent = '';
   const label = ((document.getElementById('preset-label') || {}).value || '').trim();
   const fields = {
-    name: label || 'console-judge',
+    name: label || 'console-ai',
     label: label,
     provider: (document.getElementById('preset-provider') || {}).value || '',
     model: ((document.getElementById('preset-model') || {}).value || '').trim(),
@@ -198,19 +198,19 @@ async function saveJudgePreset(btn) {
   };
   /* هویت ویرایش rides همین ذخیره: فرمِ نشانده‌شده همان رکورد را
      به‌روزرسانی می‌کند (تغییر برچسب = تغییرنامِ بدون تکثیر) */
-  if (judgeEditName) fields.previous_name = judgeEditName;
+  if (presetEditName) fields.previous_name = presetEditName;
   await withBusy(btn || document.getElementById('btn-save-judge-preset'), 'در حال ذخیره…', async () => {
   try {
-    const j = await getJSON('/api/judge_presets',
+    const j = await getJSON('/api/ai_presets',
       {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(fields)});
-    const rec = (j && (j.judge_preset || j.preset)) || {};
-    judgeEditName = rec.name || fields.name;
-    if (noteEl) noteEl.textContent = 'پریست داوری ذخیره شد (نسخه ' + faNum(rec.version || 1) + ').';
+    const rec = (j && (j.ai_preset || j.preset)) || {};
+    presetEditName = rec.name || fields.name;
+    if (noteEl) noteEl.textContent = 'پریست هوش مصنوعی ذخیره شد (نسخه ' + faNum(rec.version || 1) + ').';
     await refreshJudgeCatalog();
-  } catch(e) { showFormError('preset-err', 'ذخیره پریست داوری ناموفق بود.', (e && e.message) || e, () => saveJudgePreset(), errCodeFor(e)); }
+  } catch(e) { showFormError('preset-err', 'ذخیره پریست هوش مصنوعی ناموفق بود.', (e && e.message) || e, () => saveJudgePreset(), errCodeFor(e)); }
   });
 }
-/* فهرست پریست‌های ذخیره‌شده: خواندن از مسیر موجود judge-presets،
+/* فهرست پریست‌های ذخیره‌شده: خواندن از مسیر موجود ai-presets،
    حذف + نشاندن در فرم — بدون مسیر تازه سمت سرور */
 function capCell(value) {
   const td = document.createElement('td');
@@ -227,8 +227,8 @@ export async function refreshJudgeCatalog() {
   tb.replaceChildren();
   if (noteEl) noteEl.textContent = '';
   try {
-    const j = await getJSON('/api/judge_presets');
-    const rows = (j && (j.judge_presets || j.presets)) || [];
+    const j = await getJSON('/api/ai_presets');
+    const rows = (j && (j.ai_presets || j.presets)) || [];
     if (count) count.textContent = faNum(rows.length) + ' پریست';
     if (!rows.length) {
       const tr = document.createElement('tr');
@@ -279,15 +279,15 @@ export async function refreshJudgeCatalog() {
   }
 }
 function loadJudgePresetIntoForm(name) {
-  getJSON('/api/judge_presets').then((j) => {
-    const rows = (j && (j.judge_presets || j.presets)) || [];
+  getJSON('/api/ai_presets').then((j) => {
+    const rows = (j && (j.ai_presets || j.presets)) || [];
     const rec = rows.find((r) => (r.name || '') === name);
     if (!rec) return;
     /* هویت ویرایش از همین‌جا قفل می‌شود: ذخیره بعدی، حتی با برچسب
        عوض‌شده، همان رکورد را جابه‌جا می‌کند — رکورد دوم ساخته نمی‌شود */
-    judgeEditName = rec.name || '';
+    presetEditName = rec.name || '';
     const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-    setVal('preset-label', (rec.label && rec.label !== rec.name) ? rec.label : ((rec.name === 'console-judge') ? '' : (rec.name || '')));
+    setVal('preset-label', (rec.label && rec.label !== rec.name) ? rec.label : ((rec.name === 'console-ai') ? '' : (rec.name || '')));
     const sel = document.getElementById('preset-provider');
     if (sel && rec.provider) sel.value = rec.provider;
     setVal('preset-model', rec.model);
@@ -308,8 +308,8 @@ async function deleteJudgePreset(name, btn) {
   clearFormError('preset-err');
   await withBusy(btn, 'در حال حذف…', async () => {
     try {
-      await getJSON('/api/judge_presets/' + encodeURIComponent(name), {method: 'DELETE'});
-      if (judgeEditName === name) judgeEditName = '';
+      await getJSON('/api/ai_presets/' + encodeURIComponent(name), {method: 'DELETE'});
+      if (presetEditName === name) presetEditName = '';
       await refreshJudgeCatalog();
     } catch(e) { showFormError('preset-err', 'حذف پریست ناموفق بود.', (e && e.message) || e, () => deleteJudgePreset(name), errCodeFor(e)); }
   });
@@ -332,6 +332,35 @@ document.getElementById('btn-close-model-picker').addEventListener('click', clos
   });
 })();
 document.getElementById('btn-save-judge-preset').addEventListener('click', (ev) => saveJudgePreset(ev.currentTarget));
+/* مهاجرت صریح پریست‌های قدیمی (دکمه کنار ذخیره): همان‌جا نتیجه
+   (منتقل‌شده/ردشده با دلیل) + تازه‌سازی فهرست. بدون شگفتی خودکار. */
+async function migratePresets(btn) {
+  const noteEl = document.getElementById('preset-save-note');
+  clearFormError('preset-err');
+  await withBusy(btn || document.getElementById('btn-migrate-presets'), 'در حال مهاجرت…', async () => {
+    try {
+      const j = await getJSON('/api/presets/migrate', {method: 'POST'});
+      const done = (j && j.migrated) || [];
+      const skipped = (j && j.skipped) || [];
+      if (noteEl) {
+        noteEl.replaceChildren();
+        noteEl.append(document.createTextNode(
+          faNum(done.length) + ' منتقل شد · ' + faNum(skipped.length) + ' رد شد.'));
+        skipped.slice(0, 3).forEach((s) => {
+          const sub = document.createElement('div');
+          sub.className = 'p-meta';
+          sub.textContent = String((s && s.name) || '') + ': ' + String((s && s.reason) || '');
+          noteEl.append(sub);
+        });
+      }
+      await refreshJudgeCatalog();
+    } catch(e) {
+      showFormError('preset-err', 'مهاجرت پریست‌ها ناموفق بود.',
+        (e && e.message) || e, () => migratePresets(), errCodeFor(e));
+    }
+  });
+}
+document.getElementById('btn-migrate-presets').addEventListener('click', (ev) => migratePresets(ev.currentTarget));
 document.addEventListener('hz:providers-refreshed', (ev) => {
   const detail = (ev && ev.detail) || {};
   renderPresetForm(detail.info || {}, detail.rateRows || []);

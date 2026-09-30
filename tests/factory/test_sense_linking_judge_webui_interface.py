@@ -55,6 +55,9 @@ JS_ORDER = (
     os.path.join("providers", "provider_registry_controller.js"),
     os.path.join("arbitration_presets", "preset_catalog_controller.js"),
     os.path.join("sense_linking", "human_review_controller.js"),
+    os.path.join("sense_linking", "supervised_batch_controller.js"),
+    os.path.join("sense_linking", "arbiter_run_controller.js"),
+    os.path.join("sense_linking", "mechanical_run_controller.js"),
     os.path.join("telemetry", "telemetry_dashboard_controller.js"),
     "main.js",
 )
@@ -119,36 +122,43 @@ def test_status_bar_wired_to_real_endpoints():
 
 def test_linking_queue_from_screened_and_label_wiring():
     text = _html()
-    # queue + current sense render only from the screened output
+    # queue (tab 0) renders only from the screened output
     assert 'id="queue-list"' in text
-    assert 'id="sense-id"' in text and 'id="sense-def"' in text
-    assert 'id="sense-example"' in text and 'id="sense-meta"' in text
     assert "/api/screened" in text
     assert 'id="handoff-path"' in text and 'id="handoff-total"' in text
-    # reject-all + link vote post to the label endpoint with a receipt;
-    # the link target comes from the tapped candidate card, never typed
-    assert 'id="btn-reject-all"' in text
-    assert 'id="btn-record-link"' in text
-    assert 'id="btn-skip-next"' in text
-    assert 'id="label-target"' not in text  # manual synset field removed
-    assert 'id="label-target-name"' in text  # selected-card target readout
-    assert "selectedTarget" in text and "setSelectedTarget" in text
+    # manual-review form is deleted (mechanical sprint route-delete):
+    # no per-sense detail, no candidate cards, no link/none voting
+    for gone in ('id="sense-detail"', 'id="sense-id"', 'id="sense-def"',
+                 'id="sense-example"', 'id="sense-meta"',
+                 'id="candidates-stack"', 'id="candidates-status"',
+                 'id="btn-reject-all"', 'id="btn-record-link"',
+                 'id="btn-skip-next"', 'id="label-target-name"',
+                 'id="label-status"', 'id="label-receipt"',
+                 'id="linking-err"'):
+        assert gone not in text, gone
+    for gone_js in ("renderCandidates", "loadCandidates",
+                    "setSelectedTarget", "postLabel"):
+        assert gone_js not in text, gone_js
+    # mechanical panel (tab 1) owns the run + counts + handoff wiring
+    assert 'id="mechanical-run-card"' in text
+    assert 'id="btn-mechanical-run"' in text
+    assert 'id="btn-mechanical-handoff"' in text
+    assert 'id="mechanical-counts"' in text
+    assert 'id="mechanical-log"' in text
+    assert 'id="mechanical-current"' in text
+    assert "/api/mechanical/runs" in text
+    assert "hz:mechanical-handoff" in text
+    # arbiter verdicts render as a dense grid (bug-a fix), not cards
+    assert 'id="arbiter-verdict-tbody"' in text
+    assert 'id="arbiter-verdict-list"' not in text
+    assert 'class="verdict-grid' in text
+    assert "/api/arbiter/runs" in text
     # domain-language compliance: raw English stratum/annotator are OUT
-    # of the form flow entirely (background defaults, never typed)
+    # of the console flow entirely (never typed, never posted)
     assert 'id="label-stratum"' not in text
     assert 'id="label-annotator"' not in text
-    assert "labelDefaults" in text
-    assert 'id="label-receipt"' in text
-    assert "'POST'" in text and "/api/labels" in text
-    # live candidate feed: selecting a sense loads touch cards w/ real data
-    assert 'id="candidates-stack"' in text
-    assert 'id="candidates-status"' in text
-    assert 'id="no-candidates-note"' not in text  # placeholder removed
-    assert "بدون فید زنده نامزدها" not in text
-    assert "loadCandidates" in text and "renderCandidates" in text
-    assert "/api/candidates" in text
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/candidates" in rules
+    assert "/api/mechanical/runs" in rules
 
 
 def _write_table(path):
@@ -405,7 +415,7 @@ def test_preset_form_live_registry_locked_temp():
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
     assert "/api/presets" in rules
     assert "/api/job_templates" in rules
-    assert "/api/judge_presets" in rules
+    assert "/api/ai_presets" in rules
 
 
 def test_preset_caps_editable_and_smart_defaults():
@@ -465,7 +475,8 @@ def test_form_hints_progressive_disclosure():
     assert "data-tip=" not in text
     # dynamic validation/errors stay inline text lines
     assert 'id="provider-err"' in text
-    assert 'id="label-status"' in text
+    assert 'id="mechanical-err"' in text
+    assert 'id="arbiter-err"' in text
 
 
 def test_guide_grouped_accordion_with_bulk_toggle_and_search_expand():
@@ -687,7 +698,7 @@ def test_routing_line_notes_whitelisted_exit(monkeypatch):
     assert "clean_exit" in text and "خروجی تمیز" in text
 
 
-def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
+def test_engine_info_routing_and_ai_schema_mirror_bot(monkeypatch):
     # Same live-whitelist isolation as the routing-line test above.
     from factory.linking import google_clean as _gc
     monkeypatch.setattr(_gc, "fresh_clean_exits", lambda *a, **k: [])
@@ -699,9 +710,9 @@ def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
     assert "\n" not in info["google_tunnel_reason"]
     assert info["routing"]["google"]["clean_exit"] == ""
     assert info["routing"]["avalai"]["route"] == "direct"
-    # inspiration 2: judge schema mirrors the bot preset wording
+    # inspiration 2: ai schema mirrors the bot preset wording
     from handlers import admin_ai_wizard as _wiz
-    schema = info["judge_schema"]
+    schema = info["ai_schema"]
     by_field = {f["field"]: f for group in (
         schema["rate_caps"] + schema["pacing"] + schema["timeout"])
         for f in [group]}
@@ -712,7 +723,7 @@ def test_engine_info_routing_and_judge_schema_mirror_bot(monkeypatch):
     temp = schema["temperature"]
     assert temp["locked"] is True and temp["supported"] is False
     assert temp["fixed"] == 0.0 and temp["reason"]
-    # the spare form carries no judge-schema panel (backend stays working)
+    # the spare form carries no ai-schema panel (backend stays working)
     text = _html()
     assert 'id="judge-schema"' not in text
     assert "paintJudgeSchema" not in text
@@ -928,13 +939,13 @@ def test_input_hint_and_footer_word_list_identity():
     assert "کنسول عملیات کارخانه داده هم‌زبان" in text
 
 
-def test_vote_metadata_out_of_form_flow_background_defaults():
-    """Raw English stratum/annotator OUT of the form; safe role defaults.
+def test_vote_metadata_out_of_console_flow():
+    """Vote metadata OUT of the console (manual voting deleted).
 
-    No stratum/annotator inputs, placeholders, or settings section in
-    the form flow; the background ``labelDefaults`` honors
-    settings-section values when the operator set them, else safe
-    operator role defaults — never an invented personal name.
+    No stratum/annotator inputs, placeholders, background defaults, or
+    label-posting code anywhere: the mechanical sprint deleted the
+    manual-review form (route-delete). Supervised batches + the arbiter
+    runner own verdicts now.
     """
     text = _html()
     assert 'id="label-settings"' not in text
@@ -942,11 +953,9 @@ def test_vote_metadata_out_of_form_flow_background_defaults():
     assert 'id="label-annotator"' not in text
     assert 'placeholder="stratum"' not in text
     assert 'placeholder="annotator"' not in text
-    assert "labelDefaults" in text
-    assert "LABEL_DEFAULT_STRATUM" in text
-    assert "LABEL_DEFAULT_ANNOTATOR" in text
-    assert "'operator-review'" in text or '"operator-review"' in text
-    assert "'operator'" in text or '"operator"' in text
+    assert "labelDefaults" not in text
+    assert "LABEL_DEFAULT_STRATUM" not in text
+    assert "postLabel" not in text
 
 
 def test_themed_scrollbar_styles_only():
@@ -985,14 +994,13 @@ def test_queue_filter_input_and_wiring():
     assert "'queue-filter'" in text and "'queue-list'" in text
 
 
-def test_empty_candidates_neutral_persian():
-    """Empty state: neutral Persian prose (Group A glossary), layout kept."""
+def test_empty_verdicts_neutral_persian():
+    """Empty states: neutral Persian prose (manual-form strings gone)."""
     text = _html()
-    assert "نامزدی در جدول پیوند برای این سنس نیست." in text
-    assert ("پیوندی برای این سنس نیست: شناسه در نگاشت غربالگری و "
-            "هیچ اجرایی پیدا نشد.") in text
+    assert "اجرایی شروع نشده است" in text
+    assert "هنوز برگه‌ای نرسیده است." in text
+    assert "نامزدی در جدول پیوند برای این سنس نیست." not in text
     assert "No candidates in the link table for this sense." not in text
-    assert "No join for this sense" not in text
 
 
 def test_supervisor_down_names_exact_start_command(monkeypatch):
@@ -1222,17 +1230,18 @@ def test_cabin_tabs_match_five_linker_stages():
     # #view-linking-scoped, so no collision) → 7 total.
     assert text.count('class="tab-link') == 7
     assert text.count('id="screening-tabbtn-') == 2
-    for label in ("کوتاه‌فهرست نامزدها", "پیوند مکانیکی",
+    for label in ("کوتاه‌فهرست نامزدها", "گزینش نامزدها",
                   "داوری هوش مصنوعی", "داوری تحت نظارت اپراتور",
                   "خروجی جدول پیوند"):
-        # R5 rename kept («بازبینی انسانی» obsolete); "(TSV)"-suffix dropped:
+        # R6 rename («پیوند مکانیکی» obsolete); "(TSV)"-suffix dropped:
         # tab 4 carries TSV in its own LTR span (OQ-4, asserted below).
         assert label in text, label
+    assert "پیوند مکانیکی" not in text
     # OQ-4: TSV stays Latin, isolated in its own LTR span
     assert "خروجی جدول پیوند (<span" in text
     # each tab names its repo-folder code owner (never the data drive)
-    for owner in ("linker.py", "arbitration.py", "human_queue.py",
-                  "cli.py", "table.tsv"):
+    for owner in ("linker.py", "mechanical_runner.py", "arbitration.py",
+                  "human_queue.py", "cli.py", "table.tsv"):
         assert owner in text, owner
     assert "W:" not in text
 
@@ -1317,14 +1326,17 @@ def test_queue_row_three_fields_only():
     assert "سرور معنایی برای این سنس ثبت نکرد" in row
 
 
-def test_detail_section_owns_candidates_examples_fulltext():
-    """Named detail section alone owns candidates/examples/full text."""
+def test_mechanical_panel_owns_run_counts_handoff():
+    """Mechanical panel alone owns run/counts/handoff (manual form gone)."""
     text = _html()
-    assert "جزئیات سنس" in text  # visibly named in the interface
-    assert 'id="sense-detail"' in text
-    start = text.index('id="sense-detail"')
-    for token in ('id="sense-def"', 'id="sense-example"',
-                  'id="candidates-stack"', 'id="candidates-status"'):
+    assert "گزینش مکانیکی نامزدها" in text  # visibly named (R6)
+    assert 'id="mechanical-run-card"' in text
+    start = text.index('id="mechanical-run-card"')
+    for token in ('id="btn-mechanical-run"', 'id="btn-mechanical-abort"',
+                  'id="btn-mechanical-handoff"',
+                  'id="mechanical-progress"', 'id="mechanical-counts"',
+                  'id="mechanical-err"', 'id="mechanical-log"',
+                  'id="mechanical-current"'):
         assert start < text.index(token), token
 
 
@@ -1619,11 +1631,11 @@ def test_busy_states_wake_and_fetch_models():
     assert "در حال دریافت" in text
 
 
-def test_judge_preset_save_posts_values_to_server_route():
+def test_ai_preset_save_posts_values_to_server_route():
     text = _html()
     assert 'id="btn-save-judge-preset"' in text
     assert "saveJudgePreset" in text
-    assert "/api/judge_presets" in text
+    assert "/api/ai_presets" in text
     block = text[text.index("async function saveJudgePreset"):
                  text.index("async function saveJudgePreset") + 2500]
     for field in ("max_rpm", "max_rph", "max_daily", "rate_scope",
@@ -1631,7 +1643,7 @@ def test_judge_preset_save_posts_values_to_server_route():
         assert field in block, field
     # backend route genuinely exists: no duplicate route, no local-only path
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/judge_presets" in rules
+    assert "/api/ai_presets" in rules
     # caps inputs stay enabled (temp alone stays locked at 0.0)
     assert 'id="preset-rpm" disabled' not in text
     assert 'id="preset-rph" disabled' not in text
@@ -1639,18 +1651,18 @@ def test_judge_preset_save_posts_values_to_server_route():
     assert 'id="preset-temp" disabled' in text
 
 
-def test_judge_preset_save_roundtrip(tmp_path, monkeypatch):
+def test_ai_preset_save_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
-    resp = client.post("/api/judge_presets", json={
-        "name": "console-judge", "provider": "avalai", "model": "m-test",
+    resp = client.post("/api/ai_presets", json={
+        "name": "console-ai", "provider": "avalai", "model": "m-test",
         "max_rpm": "15", "max_rph": "", "temperature": "0.0",
         "limit": 0, "concurrency": 8})
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["judge_preset"]["provider"] == "avalai"
-    assert body["judge_preset"]["model"] == "m-test"
-    assert client.delete("/api/judge_presets/console-judge").status_code == 200
+    assert body["ai_preset"]["provider"] == "avalai"
+    assert body["ai_preset"]["model"] == "m-test"
+    assert client.delete("/api/ai_presets/console-ai").status_code == 200
 
 
 def test_design_tokens_spacing_scale_and_auto_fit_grid():
@@ -1673,9 +1685,11 @@ def test_design_tokens_spacing_scale_and_auto_fit_grid():
 def test_design_bounded_lists_with_themed_scroll():
     text = _html()
     css = _css()
-    # candidates stack: capped + themed scroll
-    assert 'class="candidates-stack themed-scroll"' in text
-    assert ".candidates-stack { max-height: 320px; overflow-y: auto; }" in css
+    # verdict dense grid: capped + themed scroll (replaces the deleted
+    # manual candidate cards; the card stack CSS stays for the gallery)
+    assert 'class="verdict-grid-wrap themed-scroll"' in text
+    assert ".verdict-grid-wrap" in css and "max-height: 320px" in css
+    assert ".vote-link" in css and ".vote-none" in css
     # dynamic data tables: capped + themed scroll (telemetry, paths,
     # screening per-lemma, screening history)
     assert text.count('class="table-responsive bounded themed-scroll"') == 4
@@ -1883,18 +1897,18 @@ def test_preset_catalog_table_under_form():
                    "سقف دقیقه‌ای", "سقف ساعتی", "سقف روزانه",
                    "محدوده نرخ", "اقدام"):
         assert header in text, header
-    # renders from the existing judge-presets endpoint with
+    # renders from the existing ai-presets endpoint with
     # delete + load-into-form actions (no new server route)
     assert "refreshJudgeCatalog" in text
-    assert "/api/judge_presets" in text[
+    assert "/api/ai_presets" in text[
         text.index("async function refreshJudgeCatalog"):
         text.index("async function refreshJudgeCatalog") + 800]
     assert "loadJudgePresetIntoForm" in text
     assert "deleteJudgePreset" in text
     assert "نشاندن در فرم" in text
     rules = sorted(r.rule for r in webui.app.url_map.iter_rules())
-    assert "/api/judge_presets" in rules
-    assert "/api/judge_presets/<name>" in rules
+    assert "/api/ai_presets" in rules
+    assert "/api/ai_presets/<name>" in rules
 
 
 def test_preset_scope_selector_three_state():
@@ -1933,32 +1947,32 @@ def test_preset_daily_cap_label_and_unlimited_placeholders():
     assert defaults.count("نامحدود") >= 3
 
 
-def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
+def test_ai_preset_new_fields_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-probe", "label": "hub-probe", "provider": "avalai",
         "model": "m-hub", "max_rpm": "15", "max_rph": "200",
         "max_daily": "1000", "rate_scope": "address",
         "limit": 0, "concurrency": 8})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["label"] == "hub-probe"
     assert rec["max_rpm"] == 15
     assert rec["max_rph"] == 200
     assert rec["max_daily"] == 1000
     assert rec["rate_scope"] == "address"
-    listed = client.get("/api/judge_presets").get_json()["judge_presets"]
+    listed = client.get("/api/ai_presets").get_json()["ai_presets"]
     (found,) = [r for r in listed if r["name"] == "hub-probe"]
     assert found["max_daily"] == 1000
     assert found["rate_scope"] == "address"
     # empty caps read as unlimited (0); empty scope reads as model
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-empty", "provider": "avalai", "model": "",
         "max_rpm": "", "max_rph": "", "max_daily": "",
         "rate_scope": ""})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["max_rpm"] == 0
     assert rec["max_rph"] == 0
     assert rec["max_daily"] == 0
@@ -1970,120 +1984,97 @@ def test_judge_preset_new_fields_roundtrip(tmp_path, monkeypatch):
                 {"name": "hub-neg", "provider": "avalai",
                  "max_daily": "-3"}):
         assert client.post(
-            "/api/judge_presets", json=bad).status_code == 400
+            "/api/ai_presets", json=bad).status_code == 400
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert "hub-bad" not in names
     assert "hub-neg" not in names
-    assert client.delete("/api/judge_presets/hub-probe").status_code == 200
-    assert client.delete("/api/judge_presets/hub-empty").status_code == 200
+    assert client.delete("/api/ai_presets/hub-probe").status_code == 200
+    assert client.delete("/api/ai_presets/hub-empty").status_code == 200
 
 
-def test_judge_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
+def test_ai_preset_infinite_cap_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     # JSON Infinity parses to float("inf"): fail-closed 400, never 500.
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-inf", "provider": "avalai", "model": "m",
         "max_rpm": float("inf")})
     assert resp.status_code == 400
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert "hub-inf" not in names
 
 
-def test_judge_preset_edit_rename_migrates_without_duplicates(
+def test_ai_preset_edit_rename_migrates_without_duplicates(
         tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "presets_dir", lambda: str(tmp_path))
     client = webui.app.test_client()
     base = {"provider": "avalai", "model": "m",
             "max_rpm": "15", "max_rph": "", "max_daily": "500",
             "rate_scope": "model", "limit": 0, "concurrency": 8}
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-orig", "label": "hub-orig", **base}).status_code == 200
     # same-name re-save (load-into-form flow) bumps the version, no twin
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-orig", "label": "hub-orig",
         "previous_name": "hub-orig", **base})
     assert resp.status_code == 200
-    assert resp.get_json()["judge_preset"]["version"] == 2
+    assert resp.get_json()["ai_preset"]["version"] == 2
     # rename migrates: one record under the new name, caps preserved
-    resp = client.post("/api/judge_presets", json={
+    resp = client.post("/api/ai_presets", json={
         "name": "hub-new", "label": "hub-new",
         "previous_name": "hub-orig", **base})
     assert resp.status_code == 200
-    rec = resp.get_json()["judge_preset"]
+    rec = resp.get_json()["ai_preset"]
     assert rec["name"] == "hub-new"
     assert rec["version"] == 3
     assert rec["max_rpm"] == 15
     assert rec["max_daily"] == 500
     names = [r["name"] for r in client.get(
-        "/api/judge_presets").get_json()["judge_presets"]]
+        "/api/ai_presets").get_json()["ai_presets"]]
     assert names.count("hub-new") == 1
     assert "hub-orig" not in names
     # fail-closed: unknown previous name, or a rename onto an live name
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-ghost", "previous_name": "hub-missing",
         **base}).status_code == 400
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-other", "label": "hub-other", **base}).status_code == 200
-    assert client.post("/api/judge_presets", json={
+    assert client.post("/api/ai_presets", json={
         "name": "hub-other", "previous_name": "hub-new",
         **base}).status_code == 400
-    assert client.delete("/api/judge_presets/hub-new").status_code == 200
-    assert client.delete("/api/judge_presets/hub-other").status_code == 200
+    assert client.delete("/api/ai_presets/hub-new").status_code == 200
+    assert client.delete("/api/ai_presets/hub-other").status_code == 200
 
 
-def test_candidate_card_structure_hygiene():
+def test_verdict_grid_structure_hygiene():
+    """Dense verdict grid: five compact columns, colored vote, no cards.
+
+    Replaces the deleted candidate-card hygiene test (manual form
+    route-deleted): verdicts render as internally-scrolling table rows
+    (sense | gloss | target | domain-colored vote | duration) with
+    textContent-only DOM writes (never innerHTML with dynamic data).
+    """
     text = _html()
     css = _css()
-    block = text[text.index("function renderCandidates"):
-                 text.index("function setSelectedTarget")]
-    # top row: isolated Latin sensekey + select button
-    assert "c-top-row" in block
-    assert "c-sensekey" in block
-    assert "انتخاب برای پیوند" in block
-    # gloss prominent, synonyms on their own labeled line
-    assert "c-gloss-text" in block
-    assert "c-synonyms-line" in block
-    assert "مترادف" in block
-    # examples in a distinct quote block
-    assert "blockquote" in block
-    assert "c-example" in block
-    # debug variables ride a per-card metadata details block only
-    assert "createElement('details')" in block
-    assert "candidate-meta" in block
-    head, meta = block.split("const metaBits", 1)
-    for debug in ("synset_locator", "cand.method", "cand.evidence",
-                  "review_reason", "witness_pick"):
-        assert debug in meta, debug
-        assert debug not in head, debug
-    # the old flat body patterns are gone
-    assert "c-info-block" not in text and "c-info-block" not in css
-    assert "c-key-tag" not in text and "c-key-tag" not in css
-    assert "'= ' + cand.synonyms" not in text
-    assert "'◈ ' + cand.example" not in text
-    # gloss box never uses the fragile -webkit-box clamp (it collapses
-    # to a ~9px blank in headless Chromium); gloss, synonyms, and the
-    # example quote flow free (no rigid height cap, no hidden overflow
-    # — mid-word clipping of synonyms/quotes is the proven bug)
+    block = text[text.index("function renderVerdicts"):
+                 text.index("function setRunning")]
+    # five columns: sense, gloss, target, vote, duration
+    for col in ("verdict-gloss", "vote-tag", "verdict-dur",
+                "fmtDuration", "verdictKind"):
+        assert col in block, col
+    # domain vote colors survive (green link / red none / amber review)
+    assert ".vote-link" in css and ".vote-none" in css
+    assert ".vote-review" in css
+    # gloss is a single ellipsized line with a hover title (no waste)
+    assert "text-overflow: ellipsis" in css
+    # dynamic text lands via textContent/ltrCode, never innerHTML
+    assert "innerHTML" not in block
+    assert "ltrCode" in block
+    # the old giant-card patterns are gone
+    assert "arbiter-verdict-list" not in text
+    assert "function renderCandidates" not in text
+    # grid never uses the fragile -webkit-box clamp
     assert "-webkit-box" not in text and "-webkit-box" not in css
     assert "-webkit-line-clamp" not in text and "-webkit-line-clamp" not in css
-    gloss_css = css[css.index(".c-gloss-text {"):
-                    css.index(".c-gloss-text {") + 400]
-    assert "flex: none" in gloss_css
-    assert "max-height" not in gloss_css
-    assert "overflow: hidden" not in gloss_css
-    assert "padding:" in gloss_css
-    card_css = css[css.index(".candidate-row-card {"):
-                   css.index(".candidate-row-card {") + 400]
-    assert "overflow: hidden" not in card_css
-    syn_css = css[css.index(".c-synonyms-line {"):
-                  css.index(".c-synonyms-line {") + 300]
-    assert "max-height" not in syn_css
-    assert "overflow: hidden" not in syn_css
-    quote_css = css[css.index(".c-example {"):
-                    css.index(".c-example {") + 400]
-    assert "max-height" not in quote_css
-    assert "overflow: hidden" not in quote_css
-    assert "blockquote" in quote_css or "border-inline-start" in quote_css

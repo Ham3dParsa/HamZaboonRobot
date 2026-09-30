@@ -79,11 +79,13 @@ class LocalGemmaAdapter:
         timeout: int = 120,
         model: str = "google/gemma-4-e2b",
         opener=None,
+        key_value: str = "",
     ) -> None:
         self.endpoint = endpoint
         self.timeout = timeout
         self.model = model
         self._opener = opener if opener is not None else urllib.request.urlopen
+        self.key_value = key_value
 
     def execute_arbitration(self, prompt: str) -> str:
         """POST the prompt and return the raw model text output."""
@@ -94,10 +96,13 @@ class LocalGemmaAdapter:
             "temperature": 0,
         }
         body = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.key_value:
+            headers["Authorization"] = "Bearer " + self.key_value
         request = urllib.request.Request(
             url,
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
@@ -116,4 +121,65 @@ class LocalGemmaAdapter:
             raise ArbitrationPayloadError(
                 f"content is {type(content).__name__}, expected str"
             )
+        return content
+
+
+class GeminiRestAdapter:
+    """Google Gemini provider over the REST generateContent API.
+
+    Same port as :class:`LocalGemmaAdapter` (prompt in, raw text out).
+    The key travels in the ``x-goog-api-key`` header (never the URL, so
+    server/proxy logs stay clean); temperature is pinned to 0 for
+    determinism, mirroring the console preset lock.
+    """
+
+    _BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+    def __init__(
+        self,
+        model: str,
+        key_value: str = "",
+        timeout: int = 120,
+        opener=None,
+    ) -> None:
+        self.model = model
+        self.key_value = key_value
+        self.timeout = timeout
+        self._opener = opener if opener is not None else urllib.request.urlopen
+
+    def execute_arbitration(self, prompt: str) -> str:
+        """POST generateContent and return the raw model text output."""
+        url = "%s/models/%s:generateContent" % (self._BASE, self.model)
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0},
+        }
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.key_value,
+            },
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=self.timeout) as response:
+                raw = response.read()
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise ArbitrationTransportError(f"{type(exc).__name__}: {exc}") from exc
+        try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            data = json.loads(raw)
+            parts = data["candidates"][0]["content"]["parts"]
+            content = "".join(
+                str(part.get("text") or "") for part in parts
+                if isinstance(part, dict)
+            )
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise ArbitrationPayloadError(f"{type(exc).__name__}: {exc}") from exc
+        if not content:
+            raise ArbitrationPayloadError("empty text in generateContent reply")
         return content

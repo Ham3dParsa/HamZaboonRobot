@@ -952,8 +952,8 @@ def comparability(gold_rows, run_rows, profile=None):
     return True, "پیوند طلا روی %d کلید" % len(gold_joined)
 
 
-def judge_preset_schema():
-    """Judge knob schema mirroring the bot's own preset wording.
+def ai_preset_schema():
+    """AI knob schema mirroring the bot's own preset wording.
 
     Field names/defaults come from the single owner
     (services.ai.preset_fields); labels + help wording come from the
@@ -1196,6 +1196,53 @@ def _cycle_ping_fn(proxy_url=""):
     return _ping_exit
 
 
+def _provider_key_value(name, _mgr=None):
+    """(key_value, var_order): server-side key resolution, values in-memory.
+
+    Single owner of the resolve order (process env / dotenv files /
+    operator store); names out, values never returned, logged, or
+    displayed. Shared by model-listing and arbiter transports.
+    """
+    try:
+        from factory.precard.provider_lease_policy import (
+            resolve_key as _resolve)
+    except Exception:
+        _resolve = None
+    stored = _operator_key_values()
+    var_order = []
+    try:
+        eff = _provider_key_var(name, _manager=_mgr)
+        try:
+            refs = list(provider_registry.ordered_key_vars(
+                name, _manager=_mgr))
+        except Exception:
+            refs = []
+        if not refs:
+            refs = list(provider_registry.key_ref_for(
+                name, "G1", _manager=_mgr)
+                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
+        for var in ([eff] if eff else []) + refs:
+            if var and var not in var_order:
+                var_order.append(var)
+    except Exception:
+        var_order = []
+    key_value = ""
+    key_paths = _extra_key_paths()
+    for var in var_order:
+        if _resolve is not None:
+            try:
+                hit = _resolve(var, file_paths=key_paths)
+            except Exception:
+                hit = ""
+            if hit:
+                key_value = hit
+                break
+        if not key_value and var in stored:
+            key_value = stored[var]
+            break
+    return key_value, var_order
+
+
 def provider_model_list(provider, timeout=30, *, lease_fn=None,
                          target_fn=None, clean_fn=None, verify_fn=None,
                          remember_fn=None, report_fn=None, tunneled=None,
@@ -1247,43 +1294,7 @@ def provider_model_list(provider, timeout=30, *, lease_fn=None,
     except Exception:
         row = {}
     # Key-gated: resolve server-side only (names out, values in-memory).
-    try:
-        from factory.precard.provider_lease_policy import (
-            resolve_key as _resolve)
-    except Exception:
-        _resolve = None
-    stored = _operator_key_values()
-    var_order = []
-    try:
-        eff = _provider_key_var(name, _manager=_mgr)
-        try:
-            refs = list(provider_registry.ordered_key_vars(
-                name, _manager=_mgr))
-        except Exception:
-            refs = []
-        if not refs:
-            refs = list(provider_registry.key_ref_for(
-                name, "G1", _manager=_mgr)
-                + provider_registry.key_ref_for(name, "G2", _manager=_mgr))
-        for var in ([eff] if eff else []) + refs:
-            if var and var not in var_order:
-                var_order.append(var)
-    except Exception:
-        var_order = []
-    key_value = ""
-    key_paths = _extra_key_paths()
-    for var in var_order:
-        if _resolve is not None:
-            try:
-                hit = _resolve(var, file_paths=key_paths)
-            except Exception:
-                hit = ""
-            if hit:
-                key_value = hit
-                break
-        if not key_value and var in stored:
-            key_value = stored[var]
-            break
+    key_value, var_order = _provider_key_value(name, _mgr=_mgr)
     if not key_value:
         return None, ("no key resolves for %s (%s) — paste the key in "
                       "the providers panel first"
@@ -1609,10 +1620,10 @@ def engine_info():
                            "clean_exit": _routing_clean_exit(name)}
                     for name in provider_registry.provider_names()},
         "google_tunnel_reason": GOOGLE_TUNNEL_REASON,
-        # Judge knob schema mirroring the bot's own preset fields
+        # AI knob schema mirroring the bot's own preset fields
         # (labels + help wording from the admin wizard, defaults from
         # the canonical preset schema; temperature locked — pinned).
-        "judge_schema": judge_preset_schema(),
+        "ai_schema": ai_preset_schema(),
         "rate_limit_note": (
             "429 rotates to the next key on the same model; a "
             "ROTATE-exhausted model steps down to the next chain model; "
@@ -2445,11 +2456,13 @@ def _safe_filename(name):
     return "%s-%s" % (stem, digest)
 
 
-PRESET_KINDS = ("run", "judge")
+PRESET_KINDS = ("run", "judge", "ai")
 
-#: Rate-scope states for judge presets (single owner of the enum — the
+#: Rate-scope states for AI presets (single owner of the enum — the
 #: console selector posts one of these, the catalog renders it back).
-JUDGE_RATE_SCOPES = ("model", "address", "account")
+#: "judge" is the legacy kind name, still read (migration flips it to
+#: "ai"); new records are always written as "ai" (D5/D6).
+AI_RATE_SCOPES = ("model", "address", "account")
 
 #: Ready whole-run preset (speed + accuracy): small limit for speed, the
 #: engine-default gold sample for accuracy. Seeded only when missing —
@@ -2538,9 +2551,10 @@ def get_preset(name):
 def save_preset(fields):
     """Save a versioned preset; returns the stored record (version bumped).
 
-    Two kinds: "run" (the whole compose form) and "judge" (judge knobs
-    only: provider/model/rate caps/rate scope/optional label — plugs into
-    the compose form). Old records without a kind read back as "run".
+    Three kinds: "run" (the whole compose form), "ai" (AI knobs only:
+    provider/model/rate caps/rate scope/optional label — shared by
+    every factory cabin), and legacy "judge" (read-only now; migrate
+    via POST /api/presets/migrate — new records are always "ai").
     Judge rate caps (max_rpm/max_rph/max_daily) store 0 for unlimited
     (empty input means unlimited); rate_scope is one of
     model/address/account (empty reads as model). Old judge records
@@ -2568,6 +2582,10 @@ def save_preset(fields):
     if kind not in PRESET_KINDS:
         raise ValueError("preset kind must be one of %s" % "/".join(
             PRESET_KINDS))
+    if kind == "judge":
+        raise ValueError("kind judge is legacy (read-only): migrate via "
+                         "POST /api/presets/migrate, new records use "
+                         "kind ai")
     provider = str((fields or {}).get("provider") or "").strip()
     if not _is_known_provider(provider):
         raise ValueError("unknown provider: %r" % provider)
@@ -2586,12 +2604,12 @@ def save_preset(fields):
     resume = str((fields or {}).get("resume", "on") or "on").strip()
     if resume not in RESUME_MODES:
         raise ValueError("resume must be one of %s" % ("/".join(RESUME_MODES),))
-    judge_extra = {}
-    if kind == "judge":
+    preset_extra = {}
+    if kind in ("judge", "ai"):
         label = str((fields or {}).get("label") or "").strip()
         if len(label) > 64:
             raise ValueError("label must be at most 64 chars")
-        judge_extra["label"] = label
+        preset_extra["label"] = label
         for cap in ("max_rpm", "max_rph", "max_daily"):
             try:
                 value = int((fields or {}).get(cap, 0) or 0)
@@ -2599,12 +2617,12 @@ def save_preset(fields):
                 raise ValueError("%s must be an integer >= 0 or empty" % cap)
             if value < 0:
                 raise ValueError("%s must be >= 0 or empty" % cap)
-            judge_extra[cap] = value
+            preset_extra[cap] = value
         scope = str((fields or {}).get("rate_scope") or "").strip() or "model"
-        if scope not in JUDGE_RATE_SCOPES:
+        if scope not in AI_RATE_SCOPES:
             raise ValueError("rate_scope must be one of %s" % "/".join(
-                JUDGE_RATE_SCOPES))
-        judge_extra["rate_scope"] = scope
+                AI_RATE_SCOPES))
+        preset_extra["rate_scope"] = scope
     os.makedirs(presets_dir(), exist_ok=True)
     prev = get_preset(previous_name) if renamed else get_preset(name)
     if renamed and prev is None:
@@ -2631,7 +2649,7 @@ def save_preset(fields):
         "updated": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
     }
-    rec.update(judge_extra)
+    rec.update(preset_extra)
     if (fields or {}).get("ready") is True or (
             prev or {}).get("ready") is True:
         rec["ready"] = True
@@ -4301,6 +4319,87 @@ def api_runs():
     ]})
 
 
+# ─── Unified linking history (P5/G1): one table over four run kinds ──
+# Pure join over existing stores (runs registry, arbiter jobs,
+# mechanical jobs, batch store). No new store, no new write path. Rows are uniform:
+# {kind, run_id, out_name, status, created, detail}. Gallery actions
+# resolve per kind on the client (linking→TSV path, arbiter→verdicts,
+# batch→review).
+
+@app.route("/api/linking/history", methods=["GET"])
+def api_linking_history():
+    from factory.webui import arbiter_jobs as _jobs
+
+    rows = []
+    try:
+        records = _load_registry_migrated()
+    except Exception:
+        records = []
+    for rec in records or []:
+        if not isinstance(rec, dict):
+            continue
+        rows.append({
+            "kind": "linking",
+            "run_id": str(rec.get("run_name") or rec.get("id") or ""),
+            "out_name": str(rec.get("out") or ""),
+            "status": str(rec.get("status") or ""),
+            "created": str(rec.get("created") or ""),
+            "detail": str(rec.get("flow") or "linking"),
+        })
+    try:
+        jobs = _jobs.list_jobs()
+    except Exception:
+        jobs = []
+    for job in jobs or []:
+        if not isinstance(job, dict):
+            continue
+        rows.append({
+            "kind": "arbiter",
+            "run_id": str(job.get("run_id") or ""),
+            "out_name": str(job.get("model") or ""),
+            "status": str(job.get("status") or ""),
+            "created": str(job.get("started_at") or ""),
+            "detail": "done %s/%s" % (job.get("done", 0),
+                                      job.get("total", 0)),
+        })
+    try:
+        from factory.webui import mechanical_jobs as _mech
+
+        mech_runs = _mech.list_jobs()
+    except Exception:
+        mech_runs = []
+    for job in mech_runs or []:
+        if not isinstance(job, dict):
+            continue
+        rows.append({
+            "kind": "mechanical",
+            "run_id": str(job.get("run_id") or ""),
+            "out_name": "mechanical",
+            "status": str(job.get("status") or ""),
+            "created": str(job.get("started_at") or ""),
+            "detail": "approved %s/rejected %s/deferred %s" % (
+                job.get("approved", 0), job.get("rejected", 0),
+                job.get("deferred", 0)),
+        })
+    try:
+        from factory.webui import batches as _batches_mod
+        batches = _batches_mod.list_batches()
+    except Exception:
+        batches = []
+    for batch in batches or []:
+        if not isinstance(batch, dict):
+            continue
+        rows.append({
+            "kind": "batch",
+            "run_id": str(batch.get("id") or ""),
+            "out_name": "batch",
+            "status": str(batch.get("status") or ""),
+            "created": str(batch.get("created_at") or ""),
+            "detail": "size %s" % (batch.get("size", 0)),
+        })
+    return jsonify({"runs": rows})
+
+
 @app.route("/api/runs", methods=["POST"])
 def api_create_run():
     fields = request.get_json(force=True, silent=True) or {}
@@ -4714,8 +4813,8 @@ def _save_preset_route(fields, force_kind=None):
         return jsonify({"error": str(exc)}), 400
     except OSError as exc:
         return jsonify({"error": "save failed: %s" % exc}), 500
-    if rec.get("kind") == "judge":
-        return jsonify({"judge_preset": rec, "preset": rec}), 200
+    if rec.get("kind") in ("judge", "ai"):
+        return jsonify({"ai_preset": rec, "preset": rec}), 200
     return jsonify({"preset": rec, "job_template": rec}), 200
 
 
@@ -5065,10 +5164,10 @@ def api_job_templates():
     return jsonify(_preset_payload())
 
 
-@app.route("/api/judge_presets", methods=["GET"])
-def api_judge_presets():
-    return jsonify({"judge_presets": list_presets(kind="judge"),
-                    "presets": list_presets(kind="judge")})
+@app.route("/api/ai_presets", methods=["GET"])
+def api_ai_presets():
+    return jsonify({"ai_presets": list_presets(kind="ai"),
+                    "presets": list_presets(kind="ai")})
 
 
 @app.route("/api/presets", methods=["POST"])
@@ -5083,10 +5182,10 @@ def api_job_template_save():
     return _save_preset_route(fields, force_kind="run")
 
 
-@app.route("/api/judge_presets", methods=["POST"])
-def api_judge_preset_save():
+@app.route("/api/ai_presets", methods=["POST"])
+def api_ai_preset_save():
     fields = request.get_json(force=True, silent=True) or {}
-    return _save_preset_route(fields, force_kind="judge")
+    return _save_preset_route(fields, force_kind="ai")
 
 
 @app.route("/api/presets/<name>", methods=["DELETE"])
@@ -5103,11 +5202,93 @@ def api_job_template_delete(name):
     return jsonify({"deleted": name})
 
 
-@app.route("/api/judge_presets/<name>", methods=["DELETE"])
-def api_judge_preset_delete(name):
+@app.route("/api/ai_presets/<name>", methods=["DELETE"])
+def api_ai_preset_delete(name):
     if not delete_preset(name):
-        return jsonify({"error": "judge preset not found: %s" % name}), 404
+        return jsonify({"error": "AI preset not found: %s" % name}), 404
     return jsonify({"deleted": name})
+
+
+def migrate_judge_to_ai_presets():
+    """Flip kind judge→ai in place; returns {migrated[], skipped[]}.
+
+    Non-overlapping and safe: an ai record already owning the name, a
+    record failing ai validation, or an unreadable file is SKIPPED
+    (reported with reason) — never overwritten, never deleted. Same
+    version preserved. Idempotent (second run migrates nothing).
+    """
+    migrated, skipped = [], []
+
+    def _skip(name, reason):
+        skipped.append({"name": name, "reason": reason})
+
+    try:
+        names = sorted(os.listdir(presets_dir()))
+    except OSError:
+        return {"migrated": migrated, "skipped": skipped}
+    ai_names = {str(r.get("name") or "")
+                for r in list_presets(kind="ai")
+                if isinstance(r, dict) and r.get("name")}
+    for entry in names:
+        if not entry.endswith(".json"):
+            continue
+        path = os.path.join(presets_dir(), entry)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                rec = json.load(handle)
+        except (OSError, ValueError) as exc:
+            _skip(entry, "unreadable file (%s)" % type(exc).__name__)
+            continue
+        if not isinstance(rec, dict) or rec.get("kind") != "judge":
+            continue
+        name = str(rec.get("name") or "")
+        if not name:
+            _skip(entry, "record without a name")
+            continue
+        if name in ai_names:
+            _skip(name, "ai preset already owns this name")
+            continue
+        trial = dict(rec, kind="ai")
+        ok, error = _validate_ai_record(name, trial)
+        if not ok:
+            _skip(name, error)
+            continue
+        trial["kind"] = "ai"
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(trial, handle, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+        except OSError as exc:
+            _skip(name, "write failed: %s" % exc)
+            continue
+        ai_names.add(name)
+        migrated.append(name)
+    return {"migrated": migrated, "skipped": skipped}
+
+
+def _validate_ai_record(name, rec):
+    """(ok, error) for one AI-preset-shaped record (names only)."""
+    provider = str((rec or {}).get("provider") or "").strip()
+    if not _is_known_provider(provider):
+        return False, "unknown provider: %r" % provider
+    scope = str((rec or {}).get("rate_scope") or "").strip() or "model"
+    if scope not in AI_RATE_SCOPES:
+        return False, "bad rate_scope"
+    for cap in ("max_rpm", "max_rph", "max_daily"):
+        try:
+            value = int((rec or {}).get(cap, 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return False, "bad %s" % cap
+        if value < 0:
+            return False, "bad %s" % cap
+    return True, ""
+
+
+@app.route("/api/presets/migrate", methods=["POST"])
+def api_presets_migrate():
+    """Explicit operator-invoked judge→ai migration (Req-2 safe)."""
+    return jsonify(migrate_judge_to_ai_presets()), 200
 
 
 # ─── Supervised arbitration batches (P01; import/approve land in W2) ───
@@ -5306,6 +5487,361 @@ def api_batch_approve(batch_id):
         return jsonify({"error": str(exc)}), 400
     result["status"] = "imported"
     return jsonify(result), 200
+
+
+# ─── Arbiter runs (P3): preset-driven LLM arbitration over queue senses ─
+# Thin routes over factory/webui/arbiter_jobs.py (job tracking only);
+# transport construction reuses the key/trust seams above. Values
+# (keys, prompts answers) never leave the server except as verdicts.
+
+def _arbiter_transport_for(preset):
+    """Adapter for a console preset record (names only in errors).
+
+    Trust-gated like model listing: untrusted non-loopback hosts never
+    receive a stored key. Raises ValueError with a plain message.
+    """
+    from factory.linking import arbitration as _arb
+
+    provider = str((preset or {}).get("provider") or "").strip()
+    model = str((preset or {}).get("model") or "").strip()
+    if not provider or not model:
+        raise ValueError("preset needs provider + model")
+    try:
+        timeout = int((preset or {}).get("timeout_seconds") or 120)
+    except (TypeError, ValueError):
+        timeout = 120
+    _mgr = _request_manifest_manager()
+    if provider not in provider_registry.provider_names(_manager=_mgr):
+        raise ValueError("unknown provider: %s" % provider)
+    try:
+        row = provider_registry.resolve_provider(provider, _manager=_mgr) or {}
+    except Exception:
+        row = {}
+    try:
+        from factory.precard.provider_manifest import (
+            effective_trust as _trust)
+        trusted = _trust(provider, row)
+    except Exception:
+        trusted = False
+    if not trusted:
+        raise ValueError("%s is not trusted: confirm trust in the "
+                         "providers panel first" % provider)
+    protocol = str(row.get("protocol") or "")
+    key_value, _order = _provider_key_value(provider, _mgr=_mgr)
+    if protocol == "gemini_rest" or provider == "google":
+        if not key_value:
+            raise ValueError("no key resolves for %s" % provider)
+        return _arb.GeminiRestAdapter(model=model, key_value=key_value,
+                                      timeout=timeout)
+    base = str(row.get("base_url") or "")
+    if not base:
+        raise ValueError("provider %s has no base_url" % provider)
+    return _arb.LocalGemmaAdapter(endpoint=base, timeout=timeout,
+                                  model=model, key_value=key_value)
+
+
+def _arbiter_preset_by_name(name):
+    """Console AI-preset record by name (None when absent)."""
+    want = str(name or "").strip()
+    if not want:
+        return None
+    for rec in list_presets(kind="ai"):
+        if isinstance(rec, dict) and str(rec.get("name") or "") == want:
+            return rec
+    return None
+
+
+def _arbiter_accounting(preset):
+    """Cost-accounting identity for a preset (names only, never values).
+
+    Feeds the quota/pacing guards: provider/model/endpoint/key-var-name
+    select the scope bucket; caps come straight from the preset record
+    (0 = unlimited, the console-wide convention).
+    """
+    provider = str((preset or {}).get("provider") or "").strip()
+    _mgr = _request_manifest_manager()
+    try:
+        row = provider_registry.resolve_provider(provider, _manager=_mgr) or {}
+    except Exception:
+        row = {}
+
+    def _cap(key):
+        try:
+            return max(0, int((preset or {}).get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    try:
+        key_var = str(_provider_key_var(provider, _manager=_mgr) or "")
+    except Exception:
+        key_var = ""
+    return {"provider": provider,
+            "model": str((preset or {}).get("model") or "").strip(),
+            "endpoint": str(row.get("base_url") or ""),
+            "key_var": key_var,
+            "scope": str((preset or {}).get("rate_scope") or "model"),
+            "preset": str((preset or {}).get("name") or ""),
+            "max_rpm": _cap("max_rpm"), "max_rph": _cap("max_rph"),
+            "max_daily": _cap("max_daily")}
+
+
+@app.route("/api/arbiter/runs", methods=["POST"])
+def api_arbiter_run_create():
+    from factory.linking import sense_feed as _feed
+    from factory.webui import arbiter_jobs as _jobs
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    preset = _arbiter_preset_by_name((fields or {}).get("preset"))
+    if preset is None:
+        return jsonify({"error": "unknown preset: %s"
+                                 % str((fields or {}).get("preset") or "")
+                                 .strip()}), 404
+    try:
+        limit = int((fields or {}).get("limit") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    if limit < 0:
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    from_run = str((fields or {}).get("from_run") or "").strip()
+    deferred_ids = []
+    if from_run:
+        from factory.webui import mechanical_jobs as _mech
+
+        mech = _mech.get_job(from_run)
+        if mech is None:
+            return jsonify({"error": "mechanical run not found: %s"
+                                     % from_run}), 404
+        deferred_ids = [sid for sid in (mech.get("deferred_ids") or [])
+                        if isinstance(sid, str) and sid.strip()]
+        if not deferred_ids:
+            return jsonify({"error": "VALIDATION-empty: mechanical run "
+                                     "%s has no deferred senses"
+                                     % from_run}), 400
+    try:
+        transport = _arbiter_transport_for(preset)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    senses = _feed.load_senses(screened)
+    if deferred_ids:
+        keep_ids = set(deferred_ids)
+        senses = [s for s in senses if s.get("sense_id") in keep_ids]
+    want_ids = (fields or {}).get("sense_ids") or []
+    if isinstance(want_ids, list) and want_ids:
+        keep = {str(sid).strip() for sid in want_ids
+                if isinstance(sid, str) and sid.strip()}
+        senses = [s for s in senses if s.get("sense_id") in keep]
+    if limit > 0:
+        senses = senses[:limit]
+    if not senses:
+        return jsonify({"error": "VALIDATION-empty: no senses selected "
+                                 "for this run"}), 400
+    try:
+        run_id = _jobs.launch(preset, senses, transport.execute_arbitration,
+                              accounting=_arbiter_accounting(preset))
+    except _jobs.ConflictError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except _jobs.QuotaExhausted as exc:
+        return jsonify({"error": str(exc)}), 400
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"run": _jobs.get_job(run_id)}), 200
+
+
+@app.route("/api/arbiter/runs", methods=["GET"])
+def api_arbiter_runs():
+    from factory.webui import arbiter_jobs as _jobs
+
+    return jsonify({"runs": _jobs.list_jobs()})
+
+
+@app.route("/api/arbiter/runs/<run_id>", methods=["GET"])
+def api_arbiter_run_fetch(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    job = _jobs.get_job(run_id)
+    if job is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"run": job})
+
+
+@app.route("/api/arbiter/runs/<run_id>/verdicts", methods=["GET"])
+def api_arbiter_run_verdicts(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    if _jobs.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"verdicts": _enriched_verdicts(run_id)})
+
+
+@app.route("/api/arbiter/runs/<run_id>/abort", methods=["POST"])
+def api_arbiter_run_abort(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+
+    if not _jobs.request_abort(run_id):
+        return jsonify({"error": "run not found or not running: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"aborted": str(run_id or "").strip()})
+
+
+@app.route("/api/arbiter/runs/<run_id>/log", methods=["GET"])
+def api_arbiter_run_log(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+    from factory.webui.run_log import RunLog
+
+    if _jobs.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    try:
+        tail = int(request.args.get("tail") or 50)
+    except (TypeError, ValueError):
+        tail = 50
+    return jsonify({"log": RunLog(
+        _jobs.log_path(run_id)).tail(tail)})
+
+
+def _enriched_verdicts(run_id):
+    """Arbiter verdicts joined server-side with sense inputs (R-bug-a).
+
+    Each verdict gains ``gloss`` + ``candidates`` (synset-id list) read
+    from the screened sense feed — English text as-is, never invented.
+    Unknown senses keep honest empties.
+    """
+    from factory.webui import arbiter_jobs as _jobs
+
+    verdicts = _jobs.load_verdicts(run_id)
+    try:
+        from factory.linking import sense_feed as _feed
+
+        screened = _configured_path("", SCREENED_ENV_VAR,
+                                    DEFAULT_SCREENED_PATH)
+        table = _configured_path("", LINK_TABLE_ENV_VAR,
+                                 DEFAULT_LINK_TABLE)
+        by_id = {}
+        for item in _feed.load_senses(screened, table):
+            if isinstance(item, dict) and item.get("sense_id"):
+                by_id[str(item["sense_id"])] = item
+    except Exception:
+        by_id = {}
+    out = []
+    for rec in (verdicts or []):
+        row = dict(rec or {})
+        item = by_id.get(str(row.get("sense_id") or ""), {})
+        row["gloss"] = str((item or {}).get("definition") or "")
+        row["candidates"] = [
+            str((c or {}).get("synset_id") or "")
+            for c in ((item or {}).get("candidates") or [])
+            if isinstance(c, dict) and (c or {}).get("synset_id")]
+        out.append(row)
+    return out
+
+
+# ─── Mechanical runs (R1–R4+R7): offline vendor-table pass ────────────
+# Thin routes over factory/webui/mechanical_jobs.py (pure runner owns
+# the mapping; the server only resolves senses + the table index).
+
+_MECH_CREATE_LOCK = threading.Lock()
+
+
+@app.route("/api/mechanical/runs", methods=["POST"])
+def api_mechanical_run_create():
+    from factory.linking import sense_feed as _feed
+    from factory.webui import mechanical_jobs as _mech
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    try:
+        limit = int((fields or {}).get("limit") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    if limit < 0:
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    table = _configured_path("", LINK_TABLE_ENV_VAR, DEFAULT_LINK_TABLE)
+    senses = _feed.load_senses(screened, table)
+    want_ids = (fields or {}).get("sense_ids") or []
+    if isinstance(want_ids, list) and want_ids:
+        keep = {str(sid).strip() for sid in want_ids
+                if isinstance(sid, str) and sid.strip()}
+        senses = [s for s in senses if s.get("sense_id") in keep]
+    if limit > 0:
+        senses = senses[:limit]
+    if not senses:
+        return jsonify({"error": "VALIDATION-empty: no senses selected "
+                                 "for this run"}), 400
+    index = _feed.load_link_index(table)
+    try:
+        with _MECH_CREATE_LOCK:
+            run_id = _mech.launch(senses, index)
+    except ValueError as exc:
+        if "already active" in str(exc):
+            return jsonify({"error": str(exc)}), 409
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"run": _mech.get_job(run_id)}), 200
+
+
+@app.route("/api/mechanical/runs", methods=["GET"])
+def api_mechanical_runs():
+    from factory.webui import mechanical_jobs as _mech
+
+    return jsonify({"runs": _mech.list_jobs()})
+
+
+@app.route("/api/mechanical/runs/<run_id>", methods=["GET"])
+def api_mechanical_run_fetch(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    job = _mech.get_job(run_id)
+    if job is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"run": job})
+
+
+@app.route("/api/mechanical/runs/<run_id>/results", methods=["GET"])
+def api_mechanical_run_results(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    if _mech.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"results": _mech.load_results(run_id)})
+
+
+@app.route("/api/mechanical/runs/<run_id>/log", methods=["GET"])
+def api_mechanical_run_log(run_id):
+    from factory.webui import mechanical_jobs as _mech
+    from factory.webui.run_log import RunLog
+
+    if _mech.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    try:
+        tail = int(request.args.get("tail") or 50)
+    except (TypeError, ValueError):
+        tail = 50
+    return jsonify({"log": RunLog(_mech.log_path(run_id)).tail(tail)})
+
+
+@app.route("/api/mechanical/runs/<run_id>/abort", methods=["POST"])
+def api_mechanical_run_abort(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    if not _mech.request_abort(run_id):
+        return jsonify({"error": "run not found or not running: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"aborted": str(run_id or "").strip()})
 
 
 # ─── Linker gallery viewing (P02) ──────────────────────────────────────

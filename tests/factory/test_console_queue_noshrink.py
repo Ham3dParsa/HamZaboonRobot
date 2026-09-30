@@ -221,6 +221,14 @@ def _run_browser(live, width):
         page.wait_for_function(
             "document.getElementById('queue-remaining').textContent !== '…'",
             timeout=15000)
+        # Queue lives in tab 0: geometry inside a hidden panel reads 0,
+        # so open it before injecting (no behavior change, just visibility).
+        page.click('#view-linking .cockpit-tabs '
+                   '.tab-link[data-tab-index="0"]')
+        page.wait_for_function(
+            "document.querySelector('#linking-tabpanel-0:not([hidden])')"
+            " !== null",
+            timeout=10000)
         page.evaluate(_inject_script(FIXTURE_ROWS * 3))  # 12 rows: force scroll
         page.wait_for_timeout(300)
         return _geometry(page)

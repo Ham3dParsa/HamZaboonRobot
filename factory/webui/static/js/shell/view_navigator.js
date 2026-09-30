@@ -74,22 +74,26 @@ export function selectLinkingTab(index, persist) {
   if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return;
   tabs.forEach((t, i) => t.classList.toggle('active', i === idx));
   if (persist !== false) saveViewMemory(null, idx);
+  /* Tab activation broadcast (panels lazily refresh on open, e.g. the
+     arbiter preset list re-reads the store when tab 2 opens). */
+  try {
+    document.dispatchEvent(new CustomEvent('hz:linking-tab',
+      {detail: {index: idx}}));
+  } catch(e) {}
   /* P05 scope-check: مانند تعویض نما — فرمان‌بر باز روی زبانه قبلی
      با رفتن به زبانه دیگر بسته می‌شود. */
   try {
     document.dispatchEvent(new CustomEvent('hz:close-popover'));
   } catch(e) {}
-  /* P07 clean-wiring: tabs previously toggled highlight only (silent dead
-     buttons). Each tab now scrolls to its section on user click (no new
-     Persian strings); restore path (persist === false) never scrolls. */
-  if (persist === false) return;
-  const targets = ['queue-list', 'candidates-stack', 'sense-detail',
-    'supervised-batch-card', 'linking-gallery-card'];
+  /* P5/R2: زبانه‌ها پنل واقعی‌اند — فقط پنل فعال نمایان است (حافظه
+     زبانه در save/restoreViewMemory می‌ماند: رفرش روی همین زبانه
+     برمی‌گردد). انتخاب با شناسه است نه ترتیب DOM (ترتیب DOM با شماره
+     زبانه یکی نیست). */
   try {
-    const node = document.getElementById(targets[idx]);
-    if (node && typeof node.scrollIntoView === 'function') {
-      node.scrollIntoView({behavior: 'smooth', block: 'start'});
-    }
+    document.querySelectorAll('#view-linking .linking-tabpanel').forEach((p) => {
+      if (p.id === 'linking-tabpanel-' + idx) p.removeAttribute('hidden');
+      else p.setAttribute('hidden', '');
+    });
   } catch(e){}
 }
 export function restoreViewMemory() {
@@ -104,6 +108,6 @@ export function restoreViewMemory() {
     }
   } catch(e){}
 }
-document.querySelectorAll('#view-linking .cockpit-tabs .tab-link').forEach((t, i) => {
-  t.addEventListener('click', () => selectLinkingTab(i));
+document.querySelectorAll('#view-linking .cockpit-tabs .tab-link').forEach((t) => {
+  t.addEventListener('click', () => selectLinkingTab(t.dataset.tabIndex));
 });
