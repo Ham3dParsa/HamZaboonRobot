@@ -7,7 +7,26 @@ branch: feat/arbiter-line
 status: in-progress
 ---
 
-STATE: phase 6/6 — status: complete — focus: PR for feat/arbiter-line (reviewer PASS, 242+ focused tests green, live P4/P5/P6 shots inspected)
+STATE: mechanical sprint (R1–R7, owner-proceed 2026-09-30) — status: implemented + validated, uncommitted — focus: owner review gate → commit → PR (NOT committed by builder per sprint order)
+
+## Mechanical sprint (2026-09-30, locked R1–R7 as recommended)
+
+- New: `factory/linking/mechanical_runner.py` (R1–R4 pure mapping),
+  `factory/webui/run_log.py` (R5 one owner), `factory/webui/mechanical_jobs.py`
+  (R7 deferred_ids, single-flight, RunLog), `mechanical` CLI, `/api/mechanical/*`
+  + arbiter `from_run` + enriched verdicts (gloss/candidates/duration) + run logs.
+- UI: tab-1 renamed «گزینش نامزدها», manual form deleted (route-delete),
+  dense verdict grid tab-2, `<pre>` log + current/elapsed tabs 1–2, tab-3
+  active-batch guard («یک بسته فعال در انتظار است», 400 stays backstop).
+- History: 4th kind `mechanical` (server join + client action).
+- Tests: 8 new/updated suites green (unit 12+4, endpoints 8, interface 102,
+  polish 11, noshrink 2, P4/P5/P6 + T07–T12/bc/shell live chunks green,
+  new mechanical live e2e green ×4); shots
+  `shots/shot-mech-tab2-desktop.png` + `shot-mech-tab3-handoff.png` inspected.
+- Pre-existing (base-verified, NOT this sprint): `screening_wake` 3 fail,
+  `screening_runstatus` teardown hangs, `t04_02`/`t04_03` isolated-spawn hangs;
+  full local suite stays env-flaky (CI arbitrates). Live runs rewrite committed
+  `shots/*` binaries — restored before handoff; owner check `git status` at commit.
 
 ## Order (owner-corrected)
 

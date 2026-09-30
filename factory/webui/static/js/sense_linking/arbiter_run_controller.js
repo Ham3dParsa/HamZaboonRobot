@@ -1,14 +1,19 @@
 import {getJSON, withBusy, errCodeFor, showFormError, clearFormError, faNum, ltrCode} from '../shell/api_client.js';
 import {PagedListController} from '../shell/paginated_list_controller.js';
 import {selectLinkingTab} from '../shell/view_navigator.js';
-/* کنترلر زبانه ۲ — اجرای داوری با پریست (P4):
+/* کنترلر زبانه ۲ — اجرای داوری با پریست:
    GET /api/ai_presets (فهرست فقط‌خواندنی)، POST /api/arbiter/runs،
-   نظرسنجی وضعیت، GET …/verdicts، POST …/abort، پرش به زبانه ۴.
+   نظرسنجی وضعیت، GET …/verdicts (پیوست سروری معنی + نامزدها)،
+   GET …/log، POST …/abort، پرش به زبانه ۴.
+   برگه‌ها در جدول متراکم درون‌لغزنده (سنس | معنی | نامزد | رأی
+   رنگی دامنه | زمان)؛ گزارش زنده در <pre> هم‌تم + سنس جاری و
+   ثانیه‌های سپری‌شده (پایان کوری کند-دربرابر-گیرکرده).
    قرارداد نمایشی: textContent/ltrCode (هرگز innerHTML پویا)، faNum،
-   جعبه سه‌بخشی، withBusy، aria-live روی پیشرفت و شمارش. */
+   withBusy، aria-live روی پیشرفت و شمارش. */
 let verdicts = [];
 let activeRunId = '';
 let pollTimer = null;
+let pendingFromRun = null;
 function el(id) {
   return document.getElementById(id);
 }
@@ -22,53 +27,74 @@ const RUN_STATUS_FA = {running: 'در حال اجرا', done: 'تمام‌شده
   failed: 'ناموفق', aborted: 'متوقف‌شده', interrupted: 'ناتمام مانده'};
 const verdictPager = new PagedListController({
   pagerId: 'arbiter-pager', onPage: () => renderVerdicts()});
+function verdictKind(v) {
+  if (!v || v.verdict === null || v.verdict === undefined) return 'review';
+  return String(v.verdict).trim().toLowerCase() === 'link' ? 'link' : 'none';
+}
 function verdictLabel(v) {
-  if (!v || v.verdict === null || v.verdict === undefined) return 'نیازمند بازبینی';
-  const norm = String(v.verdict).trim().toLowerCase();
-  return norm === 'link' ? 'پیوند' : 'بدون پیوند';
+  const kind = verdictKind(v);
+  return kind === 'link' ? 'پیوند' : (kind === 'none' ? 'بدون پیوند' : 'نیازمند بازبینی');
+}
+function fmtDuration(v) {
+  const ms = v && v.duration_ms;
+  if (ms === null || ms === undefined || ms === '') return '—';
+  const secs = Number(ms) / 1000;
+  if (!isFinite(secs)) return '—';
+  return faNum(secs.toFixed(1)) + ' ث';
 }
 function renderVerdicts() {
-  const box = el('arbiter-verdict-list');
+  const body = el('arbiter-verdict-tbody');
   const count = el('arbiter-verdict-count');
-  if (!box) return;
-  box.replaceChildren();
+  if (!body) return;
+  body.replaceChildren();
   verdictPager.setTotal(verdicts.length);
   if (count) count.textContent = faNum(verdicts.length) + ' برگه';
   const page = verdictPager.pageItems(verdicts);
   if (!page.length) {
-    const empty = document.createElement('div');
-    empty.className = 'p-meta';
-    empty.textContent = activeRunId
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'p-meta';
+    td.textContent = activeRunId
       ? 'هنوز برگه‌ای نرسیده است.'
       : 'اجرایی شروع نشده است — از «شروع داوری» آغاز کنید.';
-    box.append(empty);
+    tr.append(td);
+    body.append(tr);
     return;
   }
   page.forEach((v) => {
-    const line = document.createElement('div');
-    line.className = 'queue-item';
-    const wrap = document.createElement('div');
-    const b = document.createElement('b');
-    b.className = 'code-token';
-    b.textContent = (v && v.sense_id) || '—';
-    const gloss = document.createElement('div');
-    gloss.className = 'queue-gloss ltr-text';
+    const tr = document.createElement('tr');
+    const sid = document.createElement('td');
+    sid.append(ltrCode((v && v.sense_id) || '—'));
+    const gloss = document.createElement('td');
+    gloss.className = 'ltr-text verdict-gloss';
     gloss.setAttribute('dir', 'ltr');
-    const target = (v && v.target_synset) || '';
-    gloss.textContent = target || '—';
-    gloss.title = gloss.textContent;
-    wrap.append(b, gloss);
+    gloss.textContent = (v && v.gloss) || '—';
+    if (v && v.gloss) gloss.title = v.gloss;
+    const target = document.createElement('td');
+    const tgt = (v && (v.target_synset || v.winner_sensekey)) || '';
+    if (tgt) {
+      target.append(ltrCode(tgt));
+    } else {
+      target.textContent = '—';
+    }
+    const vote = document.createElement('td');
     const tag = document.createElement('span');
-    tag.className = 'status-tag';
+    tag.className = 'vote-tag vote-' + verdictKind(v);
     tag.textContent = verdictLabel(v);
+    vote.append(tag);
     if (v && v.model) {
+      vote.append(document.createTextNode(' '));
       const model = document.createElement('span');
       model.className = 'p-meta';
       model.append(ltrCode(String(v.model)));
-      wrap.append(model);
+      vote.append(model);
     }
-    line.append(wrap, tag);
-    box.append(line);
+    const dur = document.createElement('td');
+    dur.className = 'verdict-dur';
+    dur.textContent = fmtDuration(v);
+    tr.append(sid, gloss, target, vote, dur);
+    body.append(tr);
   });
 }
 function setRunning(running, runId) {
@@ -85,6 +111,64 @@ function stopPolling() {
     clearTimeout(pollTimer);
     pollTimer = null;
   }
+}
+function elapsedSec(startedAt) {
+  try {
+    const t0 = Date.parse(startedAt || '');
+    if (!t0) return null;
+    return Math.max(0, Math.round((Date.now() - t0) / 1000));
+  } catch(e) { return null; }
+}
+async function loadLog(runId) {
+  const pre = el('arbiter-log');
+  if (!pre) return;
+  try {
+    const j = await getJSON('/api/arbiter/runs/' + encodeURIComponent(runId) + '/log?tail=50');
+    const rows = (j && j.log) || [];
+    pre.textContent = rows.map((r) =>
+      [r.ts || '', r.level || '', r.event || '', r.detail || '']
+      .filter(Boolean).join(' ')).join('\n');
+    pre.scrollTop = pre.scrollHeight;
+  } catch(e) { /* log is advisory; verdicts carry the contract */ }
+}
+async function pollStatus(runId) {
+  stopPolling();
+  let job = null;
+  try {
+    const j = await getJSON('/api/arbiter/runs/' + encodeURIComponent(runId));
+    job = (j && j.run) || null;
+  } catch(e) {
+    showFormError('arbiter-err', 'خواندن وضعیت اجرا ناموفق بود.',
+      (e && e.message) || e, () => pollStatus(runId), codeFrom(e));
+    setRunning(false);
+    return;
+  }
+  if (!job) {
+    setRunning(false);
+    return;
+  }
+  const prog = el('arbiter-progress');
+  if (prog) {
+    const st = RUN_STATUS_FA[job.status] || String(job.status || '');
+    prog.textContent = 'انجام‌شده ' + faNum(job.done || 0) + ' از '
+      + faNum(job.total || 0) + ' · نیازمند بازبینی '
+      + faNum(job.abstained || 0) + ' · وضعیت: ' + st;
+  }
+  const cur = el('arbiter-current');
+  if (cur) {
+    const secs = elapsedSec(job.started_at);
+    const curSense = (job.current_sense || '').trim();
+    cur.textContent = job.status === 'running'
+      ? ('سنس جاری: ' + (curSense || '…') + ' · سپری‌شده: '
+        + (secs === null ? '…' : faNum(secs) + ' ثانیه'))
+      : '';
+  }
+  await loadLog(runId);
+  if (job.status === 'running') {
+    pollTimer = setTimeout(() => pollStatus(runId), 1500);
+    return;
+  }  setRunning(false);
+  await loadVerdicts(runId);
 }
 async function loadPresets() {
   const sel = el('arbiter-preset');
@@ -111,35 +195,6 @@ async function loadPresets() {
       (e && e.message) || e, loadPresets, codeFrom(e));
   }
 }
-async function pollStatus(runId) {
-  stopPolling();
-  let job = null;
-  try {
-    const j = await getJSON('/api/arbiter/runs/' + encodeURIComponent(runId));
-    job = (j && j.run) || null;
-  } catch(e) {
-    showFormError('arbiter-err', 'خواندن وضعیت اجرا ناموفق بود.',
-      (e && e.message) || e, () => pollStatus(runId), codeFrom(e));
-    setRunning(false);
-    return;
-  }
-  if (!job) {
-    setRunning(false);
-    return;
-  }
-  const prog = el('arbiter-progress');
-  if (prog) {
-    const st = RUN_STATUS_FA[job.status] || String(job.status || '');
-    prog.textContent = 'انجام‌شده ' + faNum(job.done || 0) + ' از '
-      + faNum(job.total || 0) + ' · نیازمند بازبینی '
-      + faNum(job.abstained || 0) + ' · وضعیت: ' + st;
-  }
-  if (job.status === 'running') {
-    pollTimer = setTimeout(() => pollStatus(runId), 1500);
-    return;
-  }  setRunning(false);
-  await loadVerdicts(runId);
-}
 async function loadVerdicts(runId) {
   try {
     const j = await getJSON('/api/arbiter/runs/' + encodeURIComponent(runId) + '/verdicts');
@@ -162,7 +217,19 @@ export async function openArbiterRun(runId) {
   const prog = el('arbiter-progress');
   if (prog) prog.textContent = '';
   activeRunId = id;
-  await loadVerdicts(id);
+  await pollStatus(id);
+}
+function renderHandoffNote() {
+  const note = el('arbiter-handoff-note');
+  if (!note) return;
+  note.replaceChildren();
+  if (pendingFromRun && pendingFromRun.deferred) {
+    note.append(document.createTextNode(
+      'ورودی از گزینش مکانیکی: ' + faNum(pendingFromRun.deferred.length)
+      + ' سنس نیازمند داوری (اجرای '));
+    note.append(ltrCode(pendingFromRun.run_id || ''));
+    note.append(document.createTextNode(') — با «شروع داوری» همان‌ها داوری می‌شوند.'));
+  }
 }
 async function startRun(btn) {
   clearFormError('arbiter-err');
@@ -176,7 +243,8 @@ async function startRun(btn) {
   await withBusy(btn || el('btn-arbiter-run'), 'در حال شروع…', async () => {
     try {
       const body = {preset: preset};
-      if (limitRaw) body.limit = limitRaw;
+      if (pendingFromRun && pendingFromRun.run_id) body.from_run = pendingFromRun.run_id;
+      else if (limitRaw) body.limit = limitRaw;
       const j = await getJSON('/api/arbiter/runs',
         {method: 'POST', headers: {'Content-Type': 'application/json'},
          body: JSON.stringify(body)});
@@ -188,6 +256,8 @@ async function startRun(btn) {
       verdicts = [];
       verdictPager.reset();
       renderVerdicts();
+      pendingFromRun = null;
+      renderHandoffNote();
       setRunning(true, run.run_id);
       await pollStatus(run.run_id);
     } catch(e) {
@@ -227,6 +297,15 @@ document.getElementById('btn-arbiter-jump').addEventListener('click', () => {
   }
 });
 document.addEventListener('hz:providers-refreshed', () => loadPresets());
+document.addEventListener('hz:mechanical-handoff', (ev) => {
+  try {
+    const d = (ev && ev.detail) || {};
+    if (d.run_id && Array.isArray(d.deferred) && d.deferred.length) {
+      pendingFromRun = {run_id: String(d.run_id), deferred: d.deferred};
+      renderHandoffNote();
+    }
+  } catch(e) {}
+});
 document.addEventListener('hz:linking-tab', (ev) => {
   try {
     if (ev && ev.detail && ev.detail.index === 2) loadPresets();

@@ -240,75 +240,31 @@ def test_preset_caps_save_and_edit_live_browser(live_console):
             os.remove(leftover)
 
 
-def test_candidate_card_no_clipping_live_browser(live_console):
-    """run#25 candidate cards show full text; select button sits balanced."""
+def test_mechanical_tab_panel_replaces_manual_form_live_browser(live_console):
+    """Tab 1 is the mechanical panel; the manual-review form is gone.
+
+    Obsoletes the candidate-card geometry test (manual form
+    route-deleted by the mechanical sprint): tab-1 shows the run card
+    (run/log/handoff), the tab reads «گزینش نامزدها», and no manual
+    voting DOM remains anywhere.
+    """
     browser, base = live_console["browser"], live_console["base"]
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     try:
         page.goto(base + "/")
-        # P5/R2: queue lives in tab 0, candidates in tab 1 (panels).
-        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
-        page.wait_for_selector("#queue-list .queue-item", timeout=15000)
-        page.wait_for_timeout(800)
-        total = page.evaluate(
-            "document.querySelectorAll('#queue-list .queue-item').length")
-        assert total == 30, total
-        page.evaluate(
-            "[...document.querySelectorAll('#queue-list .queue-item')]"
-            ".filter(el=>el.textContent.includes('run#25'))[0].click()")
         page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
-        page.wait_for_selector(
-            "#candidates-stack .candidate-row-card", timeout=15000)
-        page.wait_for_timeout(500)
-        geo = page.evaluate(
-            "() => {"
-            "  const cards = [...document.querySelectorAll("
-            "    '#candidates-stack .candidate-row-card')];"
-            "  return cards.map((card) => {"
-            "    const one = (sel) => card.querySelector(sel);"
-            "    const rect = (el) => {"
-            "      if (!el) return null;"
-            "      const r = el.getBoundingClientRect();"
-            "      return {top: r.top, bottom: r.bottom,"
-            "        height: r.height,"
-            "        scrollH: el.scrollHeight, clientH: el.clientHeight};"
-            "    };"
-            "    const hdr = one('.c-top-row');"
-            "    const btn = one('.btn-select-candidate');"
-            "    const cs = getComputedStyle(card);"
-            "    const hs = hdr ? getComputedStyle(hdr) : null;"
-            "    const key = one('.c-sensekey');"
-            "    return {card: rect(card), header: rect(hdr),"
-            "      button: rect(btn), gloss: rect(one('.c-gloss-text')),"
-            "      syn: rect(one('.c-synonyms-line')),"
-            "      quote: rect(one('.c-example')),"
-            "      cardOverflow: cs ? cs.overflow : '',"
-            "      headerJustify: hs ? hs.justifyContent : '',"
-            "      keyDir: key ? key.getAttribute('dir') : '',"
-            "      synText: one('.c-synonyms-line') ?"
-            "        one('.c-synonyms-line').textContent : '',"
-            "      nCards: cards.length};"
-            "  });"
-            "}")
-        assert len(geo) == 2, geo
-        assert any("moveveryquicklywithoutpausingforbreath" in (
-            card["synText"] or "") for card in geo), geo
-        for card in geo:
-            assert card["cardOverflow"] != "hidden", card
-            for part in ("gloss", "syn", "quote"):
-                box = card[part]
-                assert box is not None, (part, card)
-                # free-flowing text: nothing cut by a height cap
-                assert box["scrollH"] - box["clientH"] <= 2, (part, card)
-            # header: space-between with the button balanced inside it
-            assert card["headerJustify"] == "space-between", card
-            hdr, btn = card["header"], card["button"]
-            assert btn["top"] >= hdr["top"] - 1, card
-            assert btn["bottom"] <= hdr["bottom"] + 1, card
-            # Latin identifier stays isolated (BiDi-safe)
-            assert card["keyDir"] == "ltr", card
+        page.wait_for_selector("#mechanical-run-card", timeout=15000)
+        assert page.is_visible("#mechanical-run-card")
+        assert page.is_visible("#btn-mechanical-run")
+        assert "گزینش نامزدها" in page.inner_text(
+            '#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
+        for gone in ("#sense-detail", "#candidates-stack", "#btn-reject-all",
+                     "#btn-record-link", "#btn-skip-next",
+                     "#arbiter-verdict-list"):
+            assert page.evaluate(
+                "document.querySelector('%s') === null" % gone), gone
         page.screenshot(path=os.path.join(
-            live_console["tmpdir"], "candidate-cards.png"))
+            live_console["tmpdir"], "mechanical-tab.png"))
     finally:
         page.close()
 
@@ -1628,7 +1584,7 @@ def test_t12_01_field_names_byte_identical_live_browser(live_console):
         _t12_open_cabin(page, base, "view-linking")
         assert "تحویل" in page.inner_text("#linking-handoff-next")
         assert page.evaluate(
-            "!!document.getElementById(\"linking-err\")") is True
+            "!!document.getElementById(\"queue-err\")") is True
         assert page.evaluate(
             "!!document.querySelector(\"#queue-list\")") is True
         bare = page.evaluate(
@@ -1755,7 +1711,7 @@ def test_t12_04_errors_in_three_part_box_live_browser(live_console):
         _t07_assert_clean(errors, crashes)
     finally:
         page.close()
-    # Linking: forced 500 → linking-err box; retry after unroute clears it.
+    # Linking: forced 500 → queue-err box; retry after unroute clears it.
     page, errors, crashes = _t07_new_page(browser)
     try:
         page.route("**/api/screened*",
@@ -1763,15 +1719,15 @@ def test_t12_04_errors_in_three_part_box_live_browser(live_console):
                        status=500, content_type="application/json",
                        body=json.dumps({"error": "t12 forced"})))
         page.goto(base + "/")
-        # P5/R2: linking-err lives in tab 1 (hidden until its tab opens).
-        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="1"]')
-        page.wait_for_selector("#linking-err .form-error", timeout=15000)
+        # Queue-err lives in tab 0 (the queue panel).
+        page.click('#view-linking .cockpit-tabs .tab-link[data-tab-index="0"]')
+        page.wait_for_selector("#queue-err .form-error", timeout=15000)
         page.unroute("**/api/screened*")
         page.click(
-            "#linking-err .form-error-actions "
+            "#queue-err .form-error-actions "
             "button:has-text(\"تلاش دوباره\")")
         page.wait_for_function(
-            "document.getElementById(\"linking-err\")"
+            "document.getElementById(\"queue-err\")"
             ".textContent.trim() === \"\"",
             timeout=15000)
         # The 500 above is deliberately injected to prove the error box
@@ -3094,9 +3050,13 @@ def test_bc06_03_keyboard_crosses_page_live_browser(live_console):
         focused = page.evaluate("document.activeElement.textContent")
         assert "bc06#50" in focused, focused
         page.keyboard.press("Enter")
+        # Enter activates the focused row: selection follows it (the
+        # per-sense detail panel is gone with the manual form — the
+        # queue's current-status marker carries the contract now).
         page.wait_for_function(
-            "document.getElementById('sense-id')"
-            ".textContent.includes('bc06#50')",
+            "[...document.querySelectorAll('#queue-list .queue-item')]"
+            ".filter(el=>el.textContent.includes('bc06#50')"
+            " && el.textContent.includes('داوری جاری')).length === 1",
             timeout=5000)
         _t07_assert_clean(errors, crashes)
     finally:
@@ -3271,15 +3231,23 @@ def test_p4_arbiter_tab_panel_live_browser(live_console):
         route.fulfill(status=200, content_type="application/json",
                       body=json.dumps({"verdicts": [
                           {"sense_id": "s#1", "verdict": "link",
-                           "target_synset": "w%1:01::", "model": "m"},
+                           "target_synset": "w%1:01::", "model": "m",
+                           "gloss": "move fast", "candidates": ["w%1:01::"],
+                           "duration_ms": 1200},
                           {"sense_id": "s#2", "verdict": None,
-                           "target_synset": None, "model": "m"}]}))
+                           "target_synset": None, "model": "m",
+                           "gloss": "carry weight", "candidates": [],
+                           "duration_ms": 300}]}))
 
     def presets_route(route):
         route.fulfill(status=200, content_type="application/json",
                       body=json.dumps({"ai_presets": [
                           {"name": "p4-live-preset", "provider": "stub",
                            "model": "stub-m"}]}))
+
+    def log_route(route):
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"log": []}))
 
     try:
         page.route("**/api/ai_presets", presets_route)
@@ -3292,17 +3260,26 @@ def test_p4_arbiter_tab_panel_live_browser(live_console):
         page.route("**/api/arbiter/runs", run_route)
         page.route("**/api/arbiter/runs/p4-live", status_route)
         page.route("**/api/arbiter/runs/p4-live/verdicts", verdicts_route)
+        page.route("**/api/arbiter/runs/p4-live/log*", log_route)
         page.wait_for_function(
             "document.getElementById('arbiter-preset').options.length === 1",
             timeout=10000)
         page.select_option("#arbiter-preset", "p4-live-preset")
         page.click("#btn-arbiter-run")
         page.wait_for_function(
-            "document.getElementById('arbiter-verdict-list')"
-            ".querySelectorAll('.queue-item').length === 2",
+            "document.querySelectorAll('#arbiter-verdict-tbody tr').length === 2",
             timeout=15000)
         progress = page.inner_text("#arbiter-progress")
         assert "۲" in progress or "2" in progress, progress
+        # dense grid: gloss renders inline, vote keeps domain colors
+        first = page.inner_text("#arbiter-verdict-tbody tr")
+        assert "move fast" in first, first
+        assert "پیوند" in first, first
+        votes = page.evaluate(
+            "[...document.querySelectorAll('#arbiter-verdict-tbody .vote-tag')]"
+            ".map(e=>e.className)")
+        assert any("vote-link" in c for c in votes), votes
+        assert any("vote-review" in c for c in votes), votes
         page.click("#btn-arbiter-jump")
         page.wait_for_function(
             "document.querySelector('#view-linking .cockpit-tabs "

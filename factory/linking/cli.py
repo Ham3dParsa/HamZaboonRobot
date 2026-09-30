@@ -246,6 +246,36 @@ def cmd_arbitrate(args):
     return 0
 
 
+def cmd_mechanical(args):
+    import json as _json
+
+    from factory.linking import mechanical_runner as _mech
+    from factory.linking import sense_feed as _feed
+
+    senses = _feed.load_senses(args.in_file, args.table)
+    if args.limit and args.limit > 0:
+        senses = senses[:args.limit]
+    if not senses:
+        print("error: no senses to review in %s" % args.in_file,
+              file=sys.stderr)
+        return 1
+    index = _feed.load_link_index(args.table)
+    records = _mech.run_mechanical(senses, index)
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            for rec in records:
+                handle.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print("error: cannot write %s (%s)" % (args.out, exc),
+              file=sys.stderr)
+        return 1
+    counts = _mech.summarize(records)
+    print("senses=%d approved=%d rejected=%d deferred=%d out=%s"
+          % (counts["total"], counts["approved"], counts["rejected"],
+             counts["deferred"], args.out), file=sys.stderr)
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="python -m factory.linking.cli",
@@ -302,8 +332,22 @@ def build_parser():
     p_arb.add_argument("--limit", type=int, default=0,
                        help="max senses (0 = all)")
     p_arb.add_argument("--timeout", type=int, default=120,
-                       help="per-request seconds")
+                        help="per-request seconds")
     p_arb.set_defaults(func=cmd_arbitrate)
+
+    p_mech = sub.add_parser("mechanical",
+                            help="run the offline mechanical review "
+                            "over screened senses")
+    p_mech.add_argument("--in", dest="in_file", required=True,
+                        help="screened senses JSONL (one sense per line)")
+    p_mech.add_argument("--out", required=True,
+                        help="output results JSONL path")
+    p_mech.add_argument("--table", default=str(DEFAULT_TABLE),
+                        help="link table for rows "
+                        "(default: shipped table.tsv)")
+    p_mech.add_argument("--limit", type=int, default=0,
+                        help="max senses (0 = all)")
+    p_mech.set_defaults(func=cmd_mechanical)
     return parser
 
 

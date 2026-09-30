@@ -17,6 +17,8 @@ import './telemetry/telemetry_dashboard_controller.js';
 import './sense_linking/supervised_batch_controller.js';
 /* Arbiter runs (P4 tab-2 panel): same side-effect pattern. */
 import './sense_linking/arbiter_run_controller.js';
+/* Mechanical runs (tab-1 candidate selection): same side-effect pattern. */
+import './sense_linking/mechanical_run_controller.js';
 // سیستم سوئیچ تم شب و روز
 const themeBtn = document.getElementById('theme-btn');
 try {

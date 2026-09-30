@@ -85,7 +85,7 @@
 
       <div class="cockpit-tabs">
         <button class="tab-link" data-tab-index="0" title="کوتاه‌فهرست نامزدها (linker.py)">۱. کوتاه‌فهرست نامزدها</button>
-        <button class="tab-link" data-tab-index="1" title="پیوند مکانیکی (cli.py)">۲. پیوند مکانیکی</button>
+        <button class="tab-link" data-tab-index="1" title="گزینش مکانیکی (mechanical_runner.py)">۲. گزینش نامزدها</button>
         <button class="tab-link" data-tab-index="2" title="داوری هوش مصنوعی (arbitration.py)">۳. داوری هوش مصنوعی</button>
         <button class="tab-link active" data-tab-index="3" title="داوری تحت نظارت اپراتور (human_queue.py)">۴. داوری تحت نظارت اپراتور</button>
         <button class="tab-link" data-tab-index="4" title="خروجی جدول پیوند (cli.py + table.tsv)">۵. خروجی جدول پیوند (<span class="code-token" dir="ltr">TSV</span>)</button>
@@ -103,6 +103,14 @@
           <div class="queue-list themed-scroll" id="queue-list">
           </div>
           <div class="list-pager p-meta" id="queue-pager" hidden></div>
+          <div class="p-meta form-error-slot" id="queue-err"></div>
+          <!-- راهنمای اتصال کنسول: نمای پیش‌فرض فقط فارسی دوستانه؛
+               جزئیات فنی فقط در title فرار دیباگ. -->
+          <details class="console-guide" id="boot-addr-note">
+            <summary>راهنمای اتصال کنسول</summary>
+            <span style="font-size: 0.72rem; color: var(--text-muted);"
+                  title="plain start binds all interfaces (LAN-visible)">از تبلت با نشانی همین سرور، از همین دستگاه با <span class="code-token" dir="ltr">127.0.0.1</span> باز کنید.</span>
+          </details>
 
           <div class="metrics-mini-grid">
             <div class="mini-metric-card">
@@ -154,56 +162,45 @@
           <span class="p-title">برگه‌های رأی آخرین اجرا</span>
           <span class="badge" id="arbiter-verdict-count" aria-live="polite">…</span>
         </div>
-        <div class="queue-list themed-scroll" id="arbiter-verdict-list">
+        <div class="verdict-grid-wrap themed-scroll">
+          <table class="verdict-grid" id="arbiter-verdict-table">
+            <thead><tr><th>سنس</th><th>معنی (انگلیسی)</th><th>نامزد برنده</th><th>رأی مدل</th><th>زمان</th></tr></thead>
+            <tbody id="arbiter-verdict-tbody"></tbody>
+          </table>
         </div>
         <div class="list-pager p-meta" id="arbiter-pager" hidden></div>
+        <pre class="run-log" id="arbiter-log" dir="ltr" aria-label="گزارش اجرای داوری"></pre>
+        <div class="p-meta" id="arbiter-current" aria-live="polite" role="status"></div>
+        <div class="p-meta" id="arbiter-handoff-note" aria-live="polite" role="status"></div>
       </div>
       </div>
 
       <div class="linking-tabpanel" id="linking-tabpanel-1" hidden>
-        <!-- ستون داوری مکانیکی (نمای زبانه ۱) -->
-        <div class="arbitration-column">
-          <section id="sense-detail" aria-label="جزئیات سنس">
-            <div class="panel-heading"><span>جزئیات سنس</span></div>
-          <article class="source-sense-card">
-            <div class="sense-header-line">
-              <span class="sense-id-label code-token" dir="ltr" id="sense-id">…</span>
-              <span class="badge" style="border-color: var(--c-primary); color: var(--c-primary);" id="sense-meta">…</span>
+        <!-- گزینش مکانیکی نامزدها (R1–R4+R7): اجرای آفلاین روی جدول پیوند؛
+             فرم بازبینی دستی حذف شده — خروجی شمارش‌ها + ارسال موارد
+             نیازمند داوری به زبانه ۳ است. -->
+        <div class="cfg-form-card form-cap" id="mechanical-run-card">
+          <div class="p-header">
+            <span class="p-title">گزینش مکانیکی نامزدها</span>
+            <span class="badge" id="mechanical-run-state" aria-live="polite">بیکار</span>
+          </div>
+          <div class="p-meta" id="mechanical-contract">ورودی: صف سنس‌های همین کابین + جدول پیوند · خروجی: تأیید/رد خودکار؛ موارد نیازمند داوری به زبانه ۳ می‌روند.</div>
+          <div class="form-row-grid">
+            <div class="field-group">
+              <label for="mechanical-limit">سقف سنس (خالی یعنی همه)</label>
+              <input type="text" class="inline-input code-token" id="mechanical-limit" dir="ltr" inputmode="numeric" placeholder="خالی = همه" autocomplete="off">
             </div>
-            <div class="sense-def-text ltr-text" id="sense-def">…</div>
-            <div class="sense-example-box ltr-text" id="sense-example">…</div>
-          </article>
-
-          <div class="candidates-stack themed-scroll" id="candidates-stack">
           </div>
-          <div class="p-meta" id="candidates-status">…</div>
-          </section>
-
-          <div class="action-bar-footer">
-            <button class="btn-reject-all" id="btn-reject-all">✕ رد همه (بدون پیوند معتبر)</button>
-            <button class="btn-skip-next" id="btn-skip-next">پرش به سنس بعد ⏭</button>
-            <span class="inline-input code-token" id="label-target-name" dir="ltr">نامزدی انتخاب نشده است</span>
-            <button class="btn-select-candidate" id="btn-record-link">ثبت رأی پیوند</button>
-            <!-- شناسه داور و لایه نمونه‌برداری عمداً خارج از جریان فرم‌اند:
-                 در پس‌زمینه پیش‌فرض‌گذاری امن می‌شوند (مقادیر بخش تنظیمات
-                 اگر اپراتور تعیین کرده باشد، وگرنه پیش‌فرض‌های امن
-                 نقش‌محور «operator» — هرگز نام شخصی ساخته نمی‌شود). -->
-            <span id="label-status" style="font-size: 0.72rem; color: var(--text-muted);"></span>
-            <span id="label-receipt" style="font-size: 0.72rem; color: var(--text-secondary);" hidden></span>
-            <!-- T12 OQ-10: every form error lives in the shared 3-part box. -->
-            <div class="p-meta form-error-slot" id="linking-err"></div>
-            <!-- راهنمای اتصال کنسول: نمای پیش‌فرض فقط فارسی دوستانه؛
-                 جزئیات فنی فقط در title فرار دیباگ. -->
-            <details class="console-guide" id="boot-addr-note">
-              <summary>راهنمای اتصال کنسول</summary>
-              <span style="font-size: 0.72rem; color: var(--text-muted);"
-                    title="plain start binds all interfaces (LAN-visible)">از تبلت با نشانی همین سرور، از همین دستگاه با <span class="code-token" dir="ltr">127.0.0.1</span> باز کنید.</span>
-            </details>
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-inline-start: auto;"
-                  title="store: labels.jsonl; non-witness verdicts carry the scoring watermark">
-              * رأی‌ها در دفتر رأی‌ها افزوده می‌شوند؛ گزینه غیرشاهد امتیاز ندارد.
-            </span>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button class="btn-select-candidate" id="btn-mechanical-run" type="button">شروع گزینش مکانیکی</button>
+            <button class="btn-skip-next" id="btn-mechanical-abort" type="button" disabled>توقف اجرا</button>
+            <button class="btn-skip-next" id="btn-mechanical-handoff" type="button" disabled>ارسال موارد نیازمند داوری به زبانه ۳ ⏭</button>
+            <span class="p-meta" id="mechanical-progress" aria-live="polite" role="status"></span>
           </div>
+          <div class="p-meta" id="mechanical-counts" aria-live="polite" role="status"></div>
+          <div class="p-meta form-error-slot" id="mechanical-err"></div>
+          <pre class="run-log" id="mechanical-log" dir="ltr" aria-label="گزارش اجرای مکانیکی"></pre>
+          <div class="p-meta" id="mechanical-current" aria-live="polite" role="status"></div>
         </div>
       </div>
 
@@ -227,6 +224,7 @@
         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
           <button class="btn-select-candidate" id="btn-issue-batch" type="button">صدور بسته</button>
           <button class="btn-skip-next" id="btn-refresh-batches" type="button">تازه‌سازی فهرست</button>
+          <span class="p-meta" id="batch-active-note" aria-live="polite" role="status"></span>
           <span class="p-meta" id="batch-issue-note" aria-live="polite"></span>
         </div>
         <div class="p-meta form-error-slot" id="batch-err"></div>

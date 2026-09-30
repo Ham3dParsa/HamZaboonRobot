@@ -457,6 +457,54 @@
     }
   }
 
+/* ── گزینش مکانیکی + داوری: جدول متراکم برگه‌ها، گزارش <pre>، رأی رنگی ──
+   جدول درون‌لغزنده (سقف ۳۲۰px، سرستون چسبان) — بدون اتلاف فضای عمودی؛
+   معنی انگلیسی تک‌خطی با بیضی + title؛ رأی با رنگ دامنه (سبز/قرمز/کهربایی). */
+.verdict-grid-wrap {
+  max-height: 320px; overflow-y: auto; overflow-x: auto;
+  border: 1px solid var(--border-color); border-radius: 6px;
+  background: var(--bg-surface); min-width: 0;
+}
+.verdict-grid {
+  width: 100%; border-collapse: collapse; font-size: 0.78rem;
+}
+.verdict-grid thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-elevated); color: var(--text-secondary);
+  font-weight: 700; text-align: start; white-space: nowrap;
+  padding: 6px 10px; border-bottom: 1px solid var(--border-color);
+}
+.verdict-grid tbody td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border-color);
+  vertical-align: middle; overflow-wrap: anywhere; word-break: break-word;
+}
+.verdict-grid tbody tr:last-child td { border-bottom: none; }
+.verdict-gloss {
+  max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.verdict-dur { white-space: nowrap; color: var(--text-muted); }
+.vote-tag {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+  border: 1px solid;
+}
+.vote-link { color: var(--c-success); border-color: var(--c-success); }
+.vote-none { color: var(--c-danger); border-color: var(--c-danger); }
+.vote-review { color: var(--c-warning); border-color: var(--c-warning); }
+/* جعبه گزارش اجرای زبانه‌ها (R5 — همان زبان screening-log: <pre> هم‌تم
+   با سقف و لغزش درونی؛ LTR ایزوله برای شناسه‌ها و مهرها). */
+pre.run-log {
+  font-family: var(--mono, monospace); font-size: 0.72rem; line-height: 1.5;
+  direction: ltr; text-align: start; unicode-bidi: isolate;
+  background: var(--bg-elevated); border: 1px solid var(--border-color);
+  border-radius: 6px; padding: var(--space-2) var(--space-3); margin: 8px 0 0;
+  max-height: 220px; min-height: 48px;
+  overflow-y: auto; overflow-x: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; word-break: break-word;
+  color: var(--text-primary);
+}
+pre.run-log:empty { display: none; }
+
 /* ── P5/R2: پنج پنل زبانه پیوندزنی — یک گام نمایان، بقیه پنهان ── */
 .linking-tabpanel[hidden] { display: none; }
 /* زبانه ۳: دو ستون کنارهم (بسته‌ها + بازبینی) با لغزش درونی مستقل —

@@ -196,7 +196,12 @@ def build_batch(screened_path, size=DEFAULT_SIZE, table_path=None,
 
     feed = _feed.load_senses(screened_path, table_path)
     done = judged_ids(labels_path, data_root)
-    items = [row for row in feed if row["sense_id"] not in done][:want]
+    # Frozen batch-item shape (contract above): the shared feed carries
+    # a runner-only ``full_id`` join key that never persists here.
+    items = [{key: row[key] for key in
+              ("sense_id", "lemma", "definition", "example", "tags",
+               "candidates") if key in row}
+             for row in feed if row["sense_id"] not in done][:want]
     if not items:
         raise ValueError("VALIDATION-empty-queue: no unjudged senses in %s"
                          % (screened_path,))

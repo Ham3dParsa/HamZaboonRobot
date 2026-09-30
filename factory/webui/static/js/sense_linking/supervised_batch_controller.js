@@ -3,6 +3,7 @@ import {FilterableListController} from '../shell/filterable_list_controller.js';
 import {PagedListController} from '../shell/paginated_list_controller.js';
 import {selectLinkingTab} from '../shell/view_navigator.js';
 import {openArbiterRun} from './arbiter_run_controller.js';
+import {openMechanicalRun} from './mechanical_run_controller.js';
 /* کنترلر بسته‌های داوری تحت نظارت اپراتور (P05، قراردادهای قفل‌شده W2):
    POST /api/batches {size}، GET /api/batches، GET /api/batches/<id>،
    POST /api/batches/<id>/import {answer_sheet}،
@@ -178,10 +179,23 @@ async function refreshBatches() {
     const j = await getJSON('/api/batches');
     batches = j.batches || [];
     renderBatchList();
+    updateIssueGuard();
   } catch(e) {
     showFormError('batch-err', 'خواندن فهرست بسته‌ها ناموفق بود.',
       (e && e.message) || e, refreshBatches, codeFrom(e));
   }
+}
+/* Tab-4 guard (bug-b fix): while a live (non-terminal) batch exists the
+   issue button stays disabled with a gentle inline notice («یک بسته
+   فعال در انتظار است») instead of the red validation error. The
+   server-side VALIDATION-active-batch refusal stays as backstop. */
+function updateIssueGuard() {
+  const issue = el('btn-issue-batch');
+  const note = el('batch-active-note');
+  const live = (batches || []).filter((b) =>
+    b && b.status !== 'imported' && b.status !== 'cancelled');
+  if (issue) issue.disabled = live.length > 0;
+  if (note) note.textContent = live.length > 0 ? 'یک بسته فعال در انتظار است' : '';
 }
 async function issueBatch(btn) {
   clearFormError('batch-err');
@@ -525,11 +539,12 @@ async function buildGallery(btn) {
     }
   });
 }
-/* تاریخچه یکپارچه (GET /api/linking/history): هر سه گونه اجرا در یک
+/* تاریخچه یکپارچه (GET /api/linking/history): هر چهار گونه اجرا در یک
    جدول — شناسه در ورودی می‌نشیند و اقدامِ همان گونه فراخوانی می‌شود
-   (پیوندزنی→گالری، داوری→برگه‌ها در زبانه ۲، بسته→بازبینی در زبانه ۳). */
+   (پیوندزنی→گالری، داوری→برگه‌ها در زبانه ۲، مکانیکی→شمارش‌ها در
+   زبانه ۱، بسته→بازبینی در زبانه ۳). */
 const HISTORY_KIND_FA = {linking: 'پیوندزنی', arbiter: 'داوری',
-  batch: 'بسته'};
+  mechanical: 'مکانیکی', batch: 'بسته'};
 const HISTORY_STATUS_FA = {done: 'تمام‌شده', running: 'در حال اجرا',
   failed: 'ناموفق', aborted: 'متوقف‌شده', exported: 'صادرشده',
   in_review: 'در بازبینی', imported: 'واردشده', cancelled: 'لغوشده'};
@@ -613,6 +628,13 @@ function historyAction(r) {
       selectLinkingTab(2);
       await openArbiterRun(r.run_id || '');
     });
+  } else if (kind === 'mechanical') {
+    btn.textContent = 'شمارش‌ها';
+    btn.setAttribute('aria-label', 'دیدن شمارش‌های اجرای ' + (r.run_id || ''));
+    btn.addEventListener('click', async () => {
+      selectLinkingTab(1);
+      await openMechanicalRun(r.run_id || '');
+    });
   } else if (kind === 'batch') {
     btn.textContent = 'بازبینی';
     btn.setAttribute('aria-label', 'بازبینی بسته ' + (r.run_id || ''));
@@ -651,6 +673,11 @@ function initSupervisedBatches() {
   refreshBatches();
   refreshHistory();
 }
+document.addEventListener('hz:linking-tab', (ev) => {
+  try {
+    if (ev && ev.detail && ev.detail.index === 3) refreshBatches();
+  } catch(e) {}
+});
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initSupervisedBatches);
 } else {

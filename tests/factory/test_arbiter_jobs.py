@@ -14,6 +14,17 @@ import time
 from factory.webui import arbiter_jobs as _jobs
 
 
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _isolated_jobs():
+    """In-memory jobs never leak across tests sharing this worker."""
+    _jobs.reset_for_tests()
+    yield
+    _jobs.reset_for_tests()
+
+
 def _root(tmp_path, monkeypatch):
     root = str(tmp_path / "data")
     os.makedirs(root)

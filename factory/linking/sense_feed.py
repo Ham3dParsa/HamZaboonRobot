@@ -144,6 +144,7 @@ def load_senses(screened_path, table_path=None):
     for row in read_screened(screened_path):
         items.append({
             "sense_id": row["sense_id"],
+            "full_id": row["full_id"],
             "lemma": row["lemma"],
             "definition": row["definition"],
             "example": row["example"],

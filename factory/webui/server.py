@@ -4319,9 +4319,9 @@ def api_runs():
     ]})
 
 
-# ─── Unified linking history (P5/G1): one table over three run kinds ──
-# Pure join over existing stores (runs registry, arbiter jobs, batch
-# store). No new store, no new write path. Rows are uniform:
+# ─── Unified linking history (P5/G1): one table over four run kinds ──
+# Pure join over existing stores (runs registry, arbiter jobs,
+# mechanical jobs, batch store). No new store, no new write path. Rows are uniform:
 # {kind, run_id, out_name, status, created, detail}. Gallery actions
 # resolve per kind on the client (linking→TSV path, arbiter→verdicts,
 # batch→review).
@@ -4361,6 +4361,25 @@ def api_linking_history():
             "created": str(job.get("started_at") or ""),
             "detail": "done %s/%s" % (job.get("done", 0),
                                       job.get("total", 0)),
+        })
+    try:
+        from factory.webui import mechanical_jobs as _mech
+
+        mech_runs = _mech.list_jobs()
+    except Exception:
+        mech_runs = []
+    for job in mech_runs or []:
+        if not isinstance(job, dict):
+            continue
+        rows.append({
+            "kind": "mechanical",
+            "run_id": str(job.get("run_id") or ""),
+            "out_name": "mechanical",
+            "status": str(job.get("status") or ""),
+            "created": str(job.get("started_at") or ""),
+            "detail": "approved %s/rejected %s/deferred %s" % (
+                job.get("approved", 0), job.get("rejected", 0),
+                job.get("deferred", 0)),
         })
     try:
         from factory.webui import batches as _batches_mod
@@ -5580,10 +5599,6 @@ def api_arbiter_run_create():
                                  % str((fields or {}).get("preset") or "")
                                  .strip()}), 404
     try:
-        transport = _arbiter_transport_for(preset)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
         limit = int((fields or {}).get("limit") or 0)
     except (TypeError, ValueError):
         return jsonify({"error": "VALIDATION-limit: limit must be an "
@@ -5591,9 +5606,31 @@ def api_arbiter_run_create():
     if limit < 0:
         return jsonify({"error": "VALIDATION-limit: limit must be an "
                                  "integer >= 0"}), 400
+    from_run = str((fields or {}).get("from_run") or "").strip()
+    deferred_ids = []
+    if from_run:
+        from factory.webui import mechanical_jobs as _mech
+
+        mech = _mech.get_job(from_run)
+        if mech is None:
+            return jsonify({"error": "mechanical run not found: %s"
+                                     % from_run}), 404
+        deferred_ids = [sid for sid in (mech.get("deferred_ids") or [])
+                        if isinstance(sid, str) and sid.strip()]
+        if not deferred_ids:
+            return jsonify({"error": "VALIDATION-empty: mechanical run "
+                                     "%s has no deferred senses"
+                                     % from_run}), 400
+    try:
+        transport = _arbiter_transport_for(preset)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     screened = _configured_path("", SCREENED_ENV_VAR,
                                 DEFAULT_SCREENED_PATH)
     senses = _feed.load_senses(screened)
+    if deferred_ids:
+        keep_ids = set(deferred_ids)
+        senses = [s for s in senses if s.get("sense_id") in keep_ids]
     want_ids = (fields or {}).get("sense_ids") or []
     if isinstance(want_ids, list) and want_ids:
         keep = {str(sid).strip() for sid in want_ids
@@ -5641,7 +5678,7 @@ def api_arbiter_run_verdicts(run_id):
     if _jobs.get_job(run_id) is None:
         return jsonify({"error": "run not found: %s"
                                  % str(run_id or "").strip()}), 404
-    return jsonify({"verdicts": _jobs.load_verdicts(run_id)})
+    return jsonify({"verdicts": _enriched_verdicts(run_id)})
 
 
 @app.route("/api/arbiter/runs/<run_id>/abort", methods=["POST"])
@@ -5649,6 +5686,159 @@ def api_arbiter_run_abort(run_id):
     from factory.webui import arbiter_jobs as _jobs
 
     if not _jobs.request_abort(run_id):
+        return jsonify({"error": "run not found or not running: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"aborted": str(run_id or "").strip()})
+
+
+@app.route("/api/arbiter/runs/<run_id>/log", methods=["GET"])
+def api_arbiter_run_log(run_id):
+    from factory.webui import arbiter_jobs as _jobs
+    from factory.webui.run_log import RunLog
+
+    if _jobs.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    try:
+        tail = int(request.args.get("tail") or 50)
+    except (TypeError, ValueError):
+        tail = 50
+    return jsonify({"log": RunLog(
+        _jobs.log_path(run_id)).tail(tail)})
+
+
+def _enriched_verdicts(run_id):
+    """Arbiter verdicts joined server-side with sense inputs (R-bug-a).
+
+    Each verdict gains ``gloss`` + ``candidates`` (synset-id list) read
+    from the screened sense feed — English text as-is, never invented.
+    Unknown senses keep honest empties.
+    """
+    from factory.webui import arbiter_jobs as _jobs
+
+    verdicts = _jobs.load_verdicts(run_id)
+    try:
+        from factory.linking import sense_feed as _feed
+
+        screened = _configured_path("", SCREENED_ENV_VAR,
+                                    DEFAULT_SCREENED_PATH)
+        table = _configured_path("", LINK_TABLE_ENV_VAR,
+                                 DEFAULT_LINK_TABLE)
+        by_id = {}
+        for item in _feed.load_senses(screened, table):
+            if isinstance(item, dict) and item.get("sense_id"):
+                by_id[str(item["sense_id"])] = item
+    except Exception:
+        by_id = {}
+    out = []
+    for rec in (verdicts or []):
+        row = dict(rec or {})
+        item = by_id.get(str(row.get("sense_id") or ""), {})
+        row["gloss"] = str((item or {}).get("definition") or "")
+        row["candidates"] = [
+            str((c or {}).get("synset_id") or "")
+            for c in ((item or {}).get("candidates") or [])
+            if isinstance(c, dict) and (c or {}).get("synset_id")]
+        out.append(row)
+    return out
+
+
+# ─── Mechanical runs (R1–R4+R7): offline vendor-table pass ────────────
+# Thin routes over factory/webui/mechanical_jobs.py (pure runner owns
+# the mapping; the server only resolves senses + the table index).
+
+_MECH_CREATE_LOCK = threading.Lock()
+
+
+@app.route("/api/mechanical/runs", methods=["POST"])
+def api_mechanical_run_create():
+    from factory.linking import sense_feed as _feed
+    from factory.webui import mechanical_jobs as _mech
+
+    fields = request.get_json(force=True, silent=True) or {}
+    if not isinstance(fields, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    try:
+        limit = int((fields or {}).get("limit") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    if limit < 0:
+        return jsonify({"error": "VALIDATION-limit: limit must be an "
+                                 "integer >= 0"}), 400
+    screened = _configured_path("", SCREENED_ENV_VAR,
+                                DEFAULT_SCREENED_PATH)
+    table = _configured_path("", LINK_TABLE_ENV_VAR, DEFAULT_LINK_TABLE)
+    senses = _feed.load_senses(screened, table)
+    want_ids = (fields or {}).get("sense_ids") or []
+    if isinstance(want_ids, list) and want_ids:
+        keep = {str(sid).strip() for sid in want_ids
+                if isinstance(sid, str) and sid.strip()}
+        senses = [s for s in senses if s.get("sense_id") in keep]
+    if limit > 0:
+        senses = senses[:limit]
+    if not senses:
+        return jsonify({"error": "VALIDATION-empty: no senses selected "
+                                 "for this run"}), 400
+    index = _feed.load_link_index(table)
+    try:
+        with _MECH_CREATE_LOCK:
+            run_id = _mech.launch(senses, index)
+    except ValueError as exc:
+        if "already active" in str(exc):
+            return jsonify({"error": str(exc)}), 409
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"run": _mech.get_job(run_id)}), 200
+
+
+@app.route("/api/mechanical/runs", methods=["GET"])
+def api_mechanical_runs():
+    from factory.webui import mechanical_jobs as _mech
+
+    return jsonify({"runs": _mech.list_jobs()})
+
+
+@app.route("/api/mechanical/runs/<run_id>", methods=["GET"])
+def api_mechanical_run_fetch(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    job = _mech.get_job(run_id)
+    if job is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"run": job})
+
+
+@app.route("/api/mechanical/runs/<run_id>/results", methods=["GET"])
+def api_mechanical_run_results(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    if _mech.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    return jsonify({"results": _mech.load_results(run_id)})
+
+
+@app.route("/api/mechanical/runs/<run_id>/log", methods=["GET"])
+def api_mechanical_run_log(run_id):
+    from factory.webui import mechanical_jobs as _mech
+    from factory.webui.run_log import RunLog
+
+    if _mech.get_job(run_id) is None:
+        return jsonify({"error": "run not found: %s"
+                                 % str(run_id or "").strip()}), 404
+    try:
+        tail = int(request.args.get("tail") or 50)
+    except (TypeError, ValueError):
+        tail = 50
+    return jsonify({"log": RunLog(_mech.log_path(run_id)).tail(tail)})
+
+
+@app.route("/api/mechanical/runs/<run_id>/abort", methods=["POST"])
+def api_mechanical_run_abort(run_id):
+    from factory.webui import mechanical_jobs as _mech
+
+    if not _mech.request_abort(run_id):
         return jsonify({"error": "run not found or not running: %s"
                                  % str(run_id or "").strip()}), 404
     return jsonify({"aborted": str(run_id or "").strip()})

@@ -89,6 +89,17 @@ def test_single_flight_second_launch_conflicts(tmp_path, monkeypatch):
         gate.set()
         _jobs.request_abort(run_id)
         gate.set()
+        # Settle + reset so no running job leaks into later tests that
+        # share this worker process (same reason webui suites reset).
+        import time as _time
+
+        deadline = _time.time() + 15
+        while _time.time() < deadline:
+            job = _jobs.get_job(run_id)
+            if job is None or job.get("status") != "running":
+                break
+            _time.sleep(0.05)
+        _jobs.reset_for_tests()
 
 
 def test_run_ceiling_clamps(tmp_path, monkeypatch):
@@ -105,3 +116,14 @@ def test_run_ceiling_clamps(tmp_path, monkeypatch):
     job = _jobs.get_job(run_id)
     assert job["requested"] == 250
     assert job["total"] == 100
+    # Settle + reset: the 100-sense worker outlives the assertions and
+    # must not leak a running job into later tests sharing this worker.
+    import time as _time
+
+    deadline = _time.time() + 30
+    while _time.time() < deadline:
+        job = _jobs.get_job(run_id)
+        if job is None or job.get("status") != "running":
+            break
+        _time.sleep(0.05)
+    _jobs.reset_for_tests()

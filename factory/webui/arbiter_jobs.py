@@ -21,6 +21,8 @@ import os
 import threading
 import uuid
 
+from factory.webui.run_log import RunLog
+
 _JOBS = {}
 _ABORTS = set()
 _LOCK = threading.Lock()
@@ -80,6 +82,12 @@ def _paths(run_id, data_root=None):
     base = os.path.join(runs_base(data_root), str(run_id))
     return base, os.path.join(base, "status.json"), os.path.join(
         base, "verdicts.jsonl")
+
+
+def log_path(run_id, data_root=None):
+    """Append-only run log path (R5 RunLog; screening wires later)."""
+    base, _s, _v = _paths(str(run_id or ""), data_root)
+    return os.path.join(base, "run_log.jsonl")
 
 
 def usage_path(data_root=None):
@@ -272,11 +280,14 @@ def launch(preset, senses, transport, data_root=None, accounting=None,
                "provider": acc["provider"],
                "model": str((preset or {}).get("model") or ""),
                "status": "running", "started_at": _stamp(),
+               "current_sense": "",
                "requested": len(requested),
                "total": len(granted), "done": 0, "abstained": 0,
                "error": ""}
         _JOBS[run_id] = job
         _write_status(base, job)
+    RunLog(os.path.join(base, "run_log.jsonl")).append(
+        "info", "started", "senses=%d" % len(granted))
     thread = threading.Thread(
         target=_worker,
         args=(run_id, preset or {}, granted, transport, data_root, acc),
@@ -312,6 +323,7 @@ def _worker(run_id, preset, senses, transport, data_root, acc=None):
 
     acc = _accounting_of(acc)
     base, _status_path, verdicts_path = _paths(run_id, data_root)
+    log = RunLog(os.path.join(base, "run_log.jsonl"))
     try:
         with open(verdicts_path, "w", encoding="utf-8"):
             pass
@@ -321,17 +333,33 @@ def _worker(run_id, preset, senses, transport, data_root, acc=None):
         with _LOCK:
             if run_id in _ABORTS:
                 _settle(run_id, base, "aborted")
+                log.append("warn", "aborted", "")
                 return
+            job = _JOBS.get(run_id)
+            if job is not None:
+                job["current_sense"] = str((sense or {}).get("sense_id")
+                                          or "")
+                _write_status(base, job)
+        log.append("info", "sense",
+                   str((sense or {}).get("sense_id") or ""))
         if not _minute_wait(run_id, acc, data_root):
             with _LOCK:
                 _settle(run_id, base, "aborted")
+            log.append("warn", "aborted", "")
             return
+        import time as _time
+
+        _t0 = _time.perf_counter()
         try:
             records = _runner.run_arbiter([sense], preset, transport)
         except Exception as exc:
             fail_job(run_id, "worker: %s: %s" % (type(exc).__name__, exc),
                      data_root)
             return
+        _dt_ms = int(round((_time.perf_counter() - _t0) * 1000))
+        for _rec in records:
+            if isinstance(_rec, dict) and "duration_ms" not in _rec:
+                _rec["duration_ms"] = _dt_ms
         written = 0
         try:
             with open(verdicts_path, "a", encoding="utf-8") as handle:
@@ -355,9 +383,11 @@ def _worker(run_id, preset, senses, transport, data_root, acc=None):
             job["done"] = int(job.get("done", 0)) + written
             job["abstained"] = int(job.get("abstained", 0)) + sum(
                 1 for rec in records[:written] if rec.get("needs_review"))
+            job["current_sense"] = ""
             _write_status(base, job)
     with _LOCK:
         _settle(run_id, base, "done")
+    log.append("info", "done", "")
 
 
 def _settle(run_id, base, status, error=""):
@@ -365,6 +395,7 @@ def _settle(run_id, base, status, error=""):
     if job is None:
         return
     job["status"] = status
+    job["current_sense"] = ""
     if error:
         job["error"] = error
     _write_status(base, job)
